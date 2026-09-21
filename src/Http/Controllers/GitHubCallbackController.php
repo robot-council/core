@@ -13,7 +13,6 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\View;
 use Laravel\Socialite\Contracts\Factory;
 use Laravel\Socialite\Two\InvalidStateException;
 use RobotCouncil\Access\Allowlist;
@@ -68,7 +67,14 @@ final class GitHubCallbackController
             // session lapsing while GitHub's consent screen is open, or cookies being blocked.
             // Measured on the deployed application on 2026-09-18, where a developer testing the
             // access list refreshed the callback and got a 500 for it.
-            return new Response(View::make('robot-council::sign-in-expired')->render(), 400);
+            // Pinned, because whether the analyzer can resolve a package view depends on whether
+            // it could boot the application, which differs between a developer's machine and CI.
+            // Written unpinned first: `composer analyse` passed locally and CI answered
+            // `expects view-string, string given`.
+            /** @var view-string $template */
+            $template = 'robot-council::sign-in-expired';
+
+            return response()->view($template, status: 400);
         }
 
         $githubId = (int) $account->getId();
