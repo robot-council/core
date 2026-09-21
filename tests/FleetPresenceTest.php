@@ -184,3 +184,60 @@ it('reports whole seconds since contact, not a fraction of one', function (): vo
 
     expect($html)->toMatch('/\d+s ago/')->not->toMatch('/\d+\.\d+s ago/');
 });
+
+it('shows which checkout a session belongs to', function (): void {
+    // The only thing telling two worktrees on one machine and one harness apart, which is the
+    // topology robot-council/cli#20 exists for
+    $this->session->forceFill(['project_id' => 'UAMS-Web/uams-statamic/a'])->save();
+
+    Livewire::test(FleetPresence::class)->assertSee('UAMS-Web/uams-statamic/a');
+
+    expect(app(Presence::class)->sessions(20)[0]['project_id'])->toBe('UAMS-Web/uams-statamic/a');
+});
+
+it('lists a session that named no checkout, without inventing one for it', function (): void {
+    // `startAgentSession()` starts without a project, so this is the default rather than a
+    // contrived state
+    expect($this->session->project_id)->toBeNull()
+        ->and(app(Presence::class)->sessions(20)[0]['project_id'])->toBeNull();
+
+    $html = Livewire::test(FleetPresence::class)->html();
+
+    // Still on the page -- a session with no label is a session all the same
+    expect($html)->toContain('workbench-01')
+        ->toContain('>none<');
+});
+
+it('tells two worktrees on one machine and harness apart', function (): void {
+    // The whole point, asserted end to end rather than field by field: same developer, same
+    // machine, same harness, and the page distinguishes them by nothing but the project
+    $this->session->forceFill(['project_id' => 'UAMS-Web/uams-statamic/a'])->save();
+
+    [$second] = $this->startAgentSession($this->installation);
+    $second->forceFill(['project_id' => 'UAMS-Web/uams-statamic/ci'])->save();
+
+    $rows = app(Presence::class)->sessions(20);
+
+    expect(array_column($rows, 'project_id'))
+        ->toContain('UAMS-Web/uams-statamic/a')
+        ->toContain('UAMS-Web/uams-statamic/ci')
+
+        // Same machine and harness on both, so the project is doing all the work
+        ->and(array_unique(array_map(stringValue(...), array_column($rows, 'machine_label'))))->toHaveCount(1)
+        ->and(array_unique(array_map(stringValue(...), array_column($rows, 'harness'))))->toHaveCount(1);
+
+    Livewire::test(FleetPresence::class)
+        ->assertSee('UAMS-Web/uams-statamic/a')
+        ->assertSee('UAMS-Web/uams-statamic/ci');
+});
+
+it('renders a hostile project as text', function (): void {
+    // Written past `ProjectId`'s charset deliberately, as the machine-label guard above is: the
+    // page's escaping has to be its own guarantee rather than the validator's
+    $this->session->forceFill(['project_id' => '<script>alert(2)</script>'])->save();
+
+    $html = Livewire::test(FleetPresence::class)->html();
+
+    expect($html)->toContain('&lt;script&gt;alert(2)&lt;/script&gt;')
+        ->not->toContain('<script>alert(2)</script>');
+});
