@@ -11,11 +11,25 @@
  * `source(none)` is load-bearing. Without it Tailwind's automatic detection scans the whole project
  * on top of whatever `@source` names, so anything anywhere that looks like a class name changes the
  * shipped stylesheet -- a test asserting that `bg-red-500` is absent put `bg-red-500` into the
- * artifact and failed on itself. With it, the directories below are the whole of what is scanned,
- * and the build is a function of the markup rather than of the repository.
+ * artifact and failed on itself. With it, the directory below is the whole of what is scanned, and
+ * the build is a function of the markup rather than of the repository.
+ *
+ * **`src/` is deliberately NOT scanned, which is the decision on #111.** The extractor takes
+ * candidates from every file a source names and cannot tell a class name from an English word:
+ * `ordinal`, `collapse`, `transition`, `stack`, `step`, `range`, `progress`, `static`, `visible`
+ * and `inline` are all class names and all appear in this package's prose and method names.
+ * Measured 2026-09-21 by building with and without this one line: **30 KB of the 68 KB artifact,
+ * 44%, existed only because `src/` was scanned**, and every class the views use is present without
+ * it. daisyUI multiplies it -- one `step` in a sentence emits nine `step-*` rules.
+ *
+ * The cost of not scanning it is that a class name built in PHP would reach no stylesheet and
+ * render unstyled with nothing reporting it. `EscapingGuardTest` is what stops that being silent:
+ * it refuses a class-shaped token in a **string literal** under `src/`. Comparing two builds
+ * cannot do the job -- prose always yields candidates, so the builds always differ -- and the
+ * distinction that does work is that prose lives in comments while a deliberate class name lives
+ * in a literal.
  */
 @import "tailwindcss" source(none);
 @plugin "daisyui";
 
 @source "../views";
-@source "../../src";

@@ -354,6 +354,51 @@ it('writes through the values an action argument is actually made of', function 
         ->and(WireArgument::of('claude-code'))->toBe('claude-code');
 });
 
+it('finds a class name written into a PHP literal, and ignores one written in prose', function (): void {
+    // The detector's own control, and the discrimination that matters is between a literal and a
+    // comment: #111's whole finding was that prose yields class candidates, so a check that read
+    // comments would be red on every commit and say nothing.
+    expect(stylesheetClassesIn("<?php \$x = 'btn btn-primary';"))
+        ->toBe(['btn-primary']);
+
+    expect(stylesheetClassesIn('<?php $x = "flex items-center gap-2";'))
+        ->toBe(['items-center', 'gap-2']);
+
+    // Prose naming the same classes, which `sourceWithoutComments()` removes before this ever runs
+    expect(stylesheetClassesIn(sourceWithoutComments(writeProbe('<?php
+        // A lapsed lease is marked with badge-warning rather than text-warning.
+        /** The card uses card-body and bg-base-200. */
+        final class Prose {}
+    '))))->toBeEmpty();
+
+    // The strings this package actually holds, which a looser rule would have caught
+    expect(stylesheetClassesIn("<?php \$x = 'robot-council installation'; \$y = 'tasks:create';"))
+        ->toBeEmpty();
+});
+
+it('writes no stylesheet class into a PHP literal, because `src/` is not scanned', function (): void {
+    // #111 decided `src/` is not a Tailwind source, which removed 30 KB of prose-derived CSS from
+    // the shipped artifact. The cost is the opposite failure: a class named in PHP reaches no
+    // stylesheet and renders unstyled with nothing reporting it. This is what makes that loud.
+    $sources = phpSourcesIn(__DIR__.'/../src');
+
+    expect($sources)->not->toBeEmpty();
+
+    $offenders = [];
+
+    foreach ($sources as $source) {
+        foreach (stylesheetClassesIn(sourceWithoutComments($source)) as $class) {
+            $offenders[] = basename($source).' -- '.$class;
+        }
+    }
+
+    expect($offenders)->toBeEmpty(
+        'These name a stylesheet class in PHP, which `src/` is no longer scanned for:'
+        .PHP_EOL.implode(PHP_EOL, $offenders)
+        .PHP_EOL.'Move the class into a view, or add the directory back as an `@source`.'
+    );
+});
+
 it('shows the javascript payload is detectable, against a sink no package view has', function (): void {
     // The corpus row aimed at a URL cannot fail against the package's own pages, because none of
     // them puts a value in a URL attribute -- which is the guarantee the test above enforces. Left

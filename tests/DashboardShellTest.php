@@ -87,8 +87,26 @@ it('serves a stylesheet that carries the utilities the pages use, and not the on
     // works. Tailwind's **utilities** and daisyUI's **modifiers** are scan-gated, so those are what
     // this asserts on. A probe on the component layer would pass with the `@source` directives
     // deleted, which is exactly the check this is meant to be.
-    foreach (['max-w-7xl', 'opacity-70', 'shadow-sm', 'antialiased', 'bg-base-200'] as $used) {
-        expect($stylesheet)->toContain($used);
+    // Extended for #118, which stopped scanning `src/`. That halved the artifact and made this
+    // assertion the thing standing between a view and an unstyled page, so it now covers the
+    // panels rather than only the shell -- the admin one especially, since it is the only page
+    // whose controls change authorization and the last one anybody should have to squint at.
+    $used = [
+        // the shell
+        'max-w-7xl', 'opacity-70', 'shadow-sm', 'antialiased', 'bg-base-200',
+
+        // every panel's frame
+        'card', 'card-body', 'card-title', 'table', 'table-sm', 'badge', 'badge-sm',
+
+        // the paging and scope controls #83 and #114 added
+        'btn', 'btn-sm', 'btn-xs', 'btn-ghost', 'btn-primary', 'justify-between', 'flex-wrap',
+
+        // the admin panel
+        'btn-warning', 'badge-warning', 'divide-y', 'space-y-1', 'items-start',
+    ];
+
+    foreach ($used as $class) {
+        expect($stylesheet)->toContain('.'.$class);
     }
 
     // Absent, and that absence is the control. These are ordinary Tailwind utilities and one
