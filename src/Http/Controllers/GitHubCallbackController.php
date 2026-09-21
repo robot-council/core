@@ -11,8 +11,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
 use Laravel\Socialite\Contracts\Factory;
+use Laravel\Socialite\Two\InvalidStateException;
 use RobotCouncil\Access\Allowlist;
 use RobotCouncil\Access\Guard;
 use RobotCouncil\Models\GithubIdentity;
@@ -36,7 +38,8 @@ final class GitHubCallbackController
      * @param  HostUsers  $hostUsers  The developer's host user row and GitHub identity.
      * @param  AuthFactory  $auth  The host application's authentication factory.
      * @param  Guard  $guard  The configured guard's name.
-     * @return RedirectResponse A redirect to wherever the developer was heading.
+     * @return RedirectResponse|Response A redirect to wherever the developer was heading, or the
+     *                                   page shown when the callback's state did not match.
      *
      * @throws AccessDeniedHttpException When the GitHub account is on neither access list.
      * @throws ConflictHttpException When another user holds the account's email address, or the
@@ -50,9 +53,30 @@ final class GitHubCallbackController
         HostUsers $hostUsers,
         AuthFactory $auth,
         Guard $guard
-    ): RedirectResponse {
+    ): RedirectResponse|Response {
         // Read the GitHub account that authorized the application; Socialite validates the state
-        $account = $socialite->driver('github')->user();
+        try {
+            $account = $socialite->driver('github')->user();
+        } catch (InvalidStateException) {
+            // **Refused exactly as before, presented differently.** The state check is what stops a
+            // callback forged by somebody else's page from signing a developer in, and this catches
+            // the exception without weakening it: nothing below runs, and nobody is signed in.
+            //
+            // What changes is the answer. Letting it escape produced a 500, and a stale state is
+            // not a server fault -- a developer refreshing after signing in causes it, as does a
+            // session lapsing while GitHub's consent screen is open, or cookies being blocked.
+            // Measured on the deployed application on 2026-09-18, where a developer testing the
+            // access list refreshed the callback and got a 500 for it.
+            // Pinned, because whether the analyzer can resolve a package view depends on whether
+            // it could boot the application, which differs between a developer's machine and CI.
+            // Written unpinned first: `composer analyse` passed locally and CI answered
+            // `expects view-string, string given`.
+            /** @var view-string $template */
+            $template = 'robot-council::sign-in-expired';
+
+            return response()->view($template, status: 400);
+        }
+
         $githubId = (int) $account->getId();
 
         // Refuse an unlisted account before reading or writing any row

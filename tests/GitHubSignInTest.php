@@ -13,7 +13,6 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Laravel\Socialite\Facades\Socialite;
-use Laravel\Socialite\Two\InvalidStateException;
 use RobotCouncil\Models\GithubIdentity;
 use Symfony\Component\HttpFoundation\Cookie;
 
@@ -31,12 +30,54 @@ it('sends the visitor to GitHub with a state parameter it can check later', func
         ->and($query['state'] ?? null)->not->toBeEmpty();
 });
 
-it('refuses a callback whose state does not match the session', function (): void {
-    $this->withoutExceptionHandling();
+it('refuses a callback whose state does not match the session, signing nobody in', function (): void {
+    // The security property this has always asserted: a callback forged by somebody else's page
+    // cannot sign a developer in. What changed on #101 is only the answer given, not the refusal.
+    //
+    // **Socialite is deliberately not faked here.** The fake answers with an account whatever the
+    // state says, so faking it would walk straight past the check under test -- measured: the
+    // request was answered 302, signed in, on a state that should have refused it.
+    $this->setAccessLists(developers: [4242]);
 
-    expect(fn () => $this->withSession(['state' => 'the-state-we-issued'])
-        ->get(route('robot-council.auth.callback', ['state' => 'a-forged-state', 'code' => 'irrelevant'])))
-        ->toThrow(InvalidStateException::class);
+    $response = $this->withSession(['state' => 'the-state-we-issued'])
+        ->get(route('robot-council.auth.callback', ['state' => 'a-forged-state', 'code' => 'irrelevant']));
+
+    $response->assertStatus(400);
+
+    expect(Auth::guard('web')->check())->toBeFalse()
+        ->and(GithubIdentity::query()->count())->toBe(0)
+        ->and(DB::table('users')->count())->toBe(0);
+});
+
+it('answers a stale callback with a page that does not restart the sign-in by itself', function (): void {
+    // **A redirect here would loop.** The visitor is not signed in, so anything this redirected to
+    // is answered by `EnsureAllowlistedDeveloper` sending them back to GitHub -- and the usual
+    // cause of a mismatched state is a session that cannot persist at all. The page offers a link,
+    // which needs a click.
+    $response = $this->withSession(['state' => 'the-state-we-issued'])
+        ->get(route('robot-council.auth.callback', ['state' => 'stale', 'code' => 'irrelevant']));
+
+    $response->assertStatus(400)->assertDontSee('Server Error')->assertSeeHtml(route('robot-council.auth.redirect'));
+
+    // Not a redirect of any kind: a 3xx is what would loop
+    expect($response->headers->get('Location'))->toBeNull();
+});
+
+it('prints nothing the caller supplied on the expired page', function (): void {
+    // The page is reached by an unauthenticated request whose query string is entirely attacker
+    // chosen, so the guard is that none of it comes back out
+    $response = $this->withSession(['state' => 'the-state-we-issued'])
+        ->get(route('robot-council.auth.callback', [
+            'state' => 'zz-canary-state-zz',
+            'code' => 'zz-canary-code-zz',
+        ]));
+
+    $response->assertStatus(400)
+        ->assertDontSee('zz-canary-state-zz')
+        ->assertDontSee('zz-canary-code-zz');
+
+    // The control: a canary that IS on the page, so `assertDontSee` is shown able to fail
+    $response->assertSee('That sign-in attempt expired');
 });
 
 it('signs in a developer on the access list and records the account', function (): void {
