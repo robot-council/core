@@ -68,6 +68,28 @@ enum Ability: string
     }
 
     /**
+     * One grantable ability, resolved from whatever a client sent.
+     *
+     * The single place an admin action turns a string into an ability, so `*` and anything outside
+     * the fixed list are refused by the same expression rather than by a check written again per
+     * call site. `*` is the one that matters: Sanctum reads it as every ability, so a grant that
+     * let it through would hand an installation everything including abilities added later.
+     *
+     * `sessions:start` is refused too, although it is a real case. It is the installation
+     * credential's own ability and is never carried by a session token, so granting it would write
+     * a value no guard checks and read as authority nobody holds.
+     *
+     * @param  string  $value  The ability as the client named it.
+     * @return self|null The ability, or null when it is not one an admin may grant.
+     */
+    public static function grantableFrom(string $value): ?self
+    {
+        $ability = self::tryFrom($value);
+
+        return $ability !== null && \in_array($ability, self::grantable(), true) ? $ability : null;
+    }
+
+    /**
      * Narrow what an enrollment asked for to what the server is willing to grant.
      *
      * The requested list is read from the stored row, never from the request that approves it, so

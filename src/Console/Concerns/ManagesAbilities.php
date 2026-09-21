@@ -65,9 +65,12 @@ trait ManagesAbilities
      */
     private function abilityArgument(): ?Ability
     {
-        $ability = Ability::tryFrom(Argument::text($this->argument('ability')));
+        // Through the enum's own gate, which the dashboard's admin panel also calls. Two copies of
+        // this condition is how `*` gets admitted on one path years after being refused on the
+        // other, and `*` is the one value that must never be stored.
+        $ability = Ability::grantableFrom(Argument::text($this->argument('ability')));
 
-        if ($ability === null || ! \in_array($ability, Ability::grantable(), true)) {
+        if (! $ability instanceof Ability) {
             $this->components->error(sprintf(
                 'Grantable abilities are: %s.',
                 implode(', ', Ability::values(Ability::grantable()))

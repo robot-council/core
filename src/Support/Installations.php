@@ -11,7 +11,9 @@ use InvalidArgumentException;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Access\Tokens;
 use RobotCouncil\Models\AgentSession;
+use RobotCouncil\Models\AgentSessionStatus;
 use RobotCouncil\Models\DeviceCode;
+use RobotCouncil\Models\FleetEventType;
 use RobotCouncil\Models\Installation;
 
 /**
@@ -30,8 +32,12 @@ final class Installations
 
     /**
      * @param  Credentials  $credentials  The configured lifetimes.
+     * @param  FleetEvents  $events  The fleet's change feed.
      */
-    public function __construct(private readonly Credentials $credentials) {}
+    public function __construct(
+        private readonly Credentials $credentials,
+        private readonly FleetEvents $events
+    ) {}
 
     /**
      * Create the installation an approved device code stands for, and its credential.
@@ -94,16 +100,38 @@ final class Installations
      * needs the installation credential and every request re-reads `revoked_at`.
      *
      * @param  Installation  $installation  The installation to revoke.
+     * @param  string|null  $actor  The developer revoking it, when a signed-in one is.
      * @return int How many tokens were deleted.
      */
-    public function revoke(Installation $installation): int
+    public function revoke(Installation $installation, ?string $actor = null): int
     {
-        return DB::transaction(function () use ($installation): int {
+        return DB::transaction(function () use ($installation, $actor): int {
             // The installation's own row first, then the tokens. That is the package's lock order,
             // and `AgentSessions::renew()` already held this row while reaching for the same
             // tokens -- so taking them the other way round here was a deadlock between revoking an
             // installation and one of its sessions renewing.
-            $installation->forceFill(['revoked_at' => Carbon::now()])->save();
+            //
+            // **Conditional on the row, and the changed count is the decision**, which is the
+            // pattern `SessionPresence` uses throughout and the reason `Events\SessionGone` fires
+            // exactly once however a session ended. Unconditionally, a second revoke overwrote
+            // `revoked_at` with a later time -- losing when the decision was actually made -- and
+            // wrote a second event, which is a second Slack message about something that did not
+            // happen. `Builder::update()` returns rows CHANGED on MySQL, which does not bite here
+            // because `whereNull` guarantees the row it matches is a row that changes.
+            $changed = Installation::query()
+                ->whereKey($installation->getKey())
+                ->whereNull('revoked_at')
+                ->update(['revoked_at' => Carbon::now()]);
+
+            if ($changed === 1) {
+                $installation->refresh();
+
+                // Before the token deletes, not after. The order is `installations`, then
+                // `agent_sessions`, then the feed sentinel, then `personal_access_tokens`, and
+                // recording the event below the deletes would hold token rows while reaching for
+                // the sentinel -- the inversion the documented order exists to prevent.
+                $this->record($installation, FleetEventType::InstallationRevoked, 'was revoked', [], $actor);
+            }
 
             $deleted = Tokens::deleted($installation->tokens()->delete());
 
@@ -124,11 +152,12 @@ final class Installations
      * @param  Installation  $installation  The installation to re-scope.
      * @param  Ability  $ability  The ability to add or remove.
      * @param  bool  $granted  True to add it, false to remove it.
+     * @param  string|null  $actor  The developer making the change, when a signed-in one is.
      * @return int How many live session tokens were rewritten.
      */
-    public function setAbility(Installation $installation, Ability $ability, bool $granted): int
+    public function setAbility(Installation $installation, Ability $ability, bool $granted, ?string $actor = null): int
     {
-        return DB::transaction(function () use ($installation, $ability, $granted): int {
+        return DB::transaction(function () use ($installation, $ability, $granted, $actor): int {
             // Held for the length of the transaction, so a session starting concurrently waits
             // rather than minting a token from the abilities as they were a moment ago
             $installation = Installation::query()
@@ -136,13 +165,30 @@ final class Installations
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            $abilities = $installation->abilities();
+            $held = $installation->abilities();
 
             $abilities = $granted
-                ? array_values(array_unique([...$abilities, $ability->value]))
-                : array_values(array_filter($abilities, static fn (string $held): bool => $held !== $ability->value));
+                ? array_values(array_unique([...$held, $ability->value]))
+                : array_values(array_filter($held, static fn (string $current): bool => $current !== $ability->value));
+
+            // Nothing changed means nothing happened, and an event saying otherwise is noise in
+            // the one feed an authorization change has to be legible in. `array_values` on both
+            // sides, because the comparison is about membership and order is an artifact of when
+            // each was granted.
+            if ($abilities === $held) {
+                return 0;
+            }
 
             $installation->forceFill(['granted_abilities' => $abilities])->save();
+
+            // Recorded before the tokens are rewritten, for the lock order `revoke()` records
+            $this->record(
+                $installation,
+                $granted ? FleetEventType::InstallationAbilityGranted : FleetEventType::InstallationAbilityRevoked,
+                $granted ? 'was granted '.$ability->value : 'lost '.$ability->value,
+                ['ability' => $ability->value],
+                $actor
+            );
 
             $rewritten = 0;
 
@@ -159,13 +205,61 @@ final class Installations
     }
 
     /**
-     * The sessions an installation has started.
+     * Record one administrative change against an installation.
+     *
+     * The body names the installation the way the rest of the feed names a machine, so a reader
+     * scanning it sees an authorization change in the same vocabulary as an enrollment. Both parts
+     * are charset-limited at the edge by `MachineIdentity` and together cannot approach
+     * `FleetEvent::MAX_BODY`.
+     *
+     * @param  Installation  $installation  The installation that changed.
+     * @param  FleetEventType  $type  What changed.
+     * @param  string  $happened  What happened to it, as a predicate.
+     * @param  array<string, mixed>  $meta  Anything beyond the installation's own id.
+     * @param  string|null  $actor  The developer responsible, when a signed-in one is.
+     */
+    private function record(
+        Installation $installation,
+        FleetEventType $type,
+        string $happened,
+        array $meta,
+        ?string $actor
+    ): void {
+        $this->events->record(
+            $type,
+
+            // No session: the change was made by a developer, through the dashboard or the
+            // console, rather than by a process the fleet knows about
+            null,
+            sprintf('%s on %s %s.', $installation->harness, $installation->machine_label, $happened),
+            ['installation_id' => $installation->id, ...$meta],
+            actor: $actor
+        );
+    }
+
+    /**
+     * The sessions an installation has started that can still be holding a token.
+     *
+     * **Bounded deliberately, and `gone` is what bounds it.** Nothing in this package deletes a
+     * session row -- `SessionPresence::goesNow()` deletes the tokens and keeps the row, and the
+     * only prune that exists is for device codes -- so `$installation->sessions()` grows for the
+     * life of the installation and one machine can mint a row a second within its rate limit.
+     * Both callers run inside a transaction that already holds the feed's sentinel row, which
+     * every writer in the fleet takes before inserting, so an unbounded loop here stops every
+     * agent's narration for its duration. `SessionPresence::pass()` bounds itself for exactly
+     * this reason and says so.
+     *
+     * Filtering to live sessions loses nothing. A session that has gone had its tokens deleted as
+     * it went, so it contributes no work to either caller; and `EnsureAgentSession` refuses it on
+     * `hasGone()` before it ever reads a token, so a stray row could not be used regardless.
      *
      * @param  Installation  $installation  The installation to read.
-     * @return Collection<int, AgentSession> Its sessions.
+     * @return Collection<int, AgentSession> Its sessions that have not gone.
      */
     private function sessionsOf(Installation $installation): Collection
     {
-        return $installation->sessions()->get();
+        return $installation->sessions()
+            ->where('status', '!=', AgentSessionStatus::Gone->value)
+            ->get();
     }
 }

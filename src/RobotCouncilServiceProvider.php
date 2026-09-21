@@ -31,6 +31,7 @@ use RobotCouncil\Http\Controllers\DashboardStylesheetController;
 use RobotCouncil\Http\Middleware\DenyFraming;
 use RobotCouncil\Http\Middleware\EnsureAgentSession;
 use RobotCouncil\Http\Middleware\EnsureAllowlistedDeveloper;
+use RobotCouncil\Livewire\Administration;
 use RobotCouncil\Livewire\ChangeFeed;
 use RobotCouncil\Livewire\FleetPresence as FleetPresenceComponent;
 use RobotCouncil\Livewire\TaskBoard;
@@ -289,6 +290,7 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
         // beside the component it happens to protect first.
         // Named so the dashboard page can mount them, and prefixed so a host's own component of the
         // same name is not shadowed -- the failure that ruled out a Blade component library on #30.
+        Livewire::component('robot-council-administration', Administration::class);
         Livewire::component('robot-council-change-feed', ChangeFeed::class);
         Livewire::component('robot-council-fleet-presence', FleetPresenceComponent::class);
         Livewire::component('robot-council-task-board', TaskBoard::class);

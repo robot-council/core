@@ -99,6 +99,18 @@ A **Laravel package** (`robot-council/core`), not an application. It is the core
   `@source` names, so anything anywhere that looks like a class name enters the shipped stylesheet. A
   test asserting `bg-red-500` was absent put `bg-red-500` into the artifact and failed on itself, and
   23 KB of the 74 KB build was classes scraped from tests and prose. The
+  **`src/` is a named source, so ORDINARY ENGLISH IN A PHP COMMENT ends up in the shipped
+  stylesheet.** The extractor takes candidates from every file `@source` names, and it cannot tell
+  a class name from a word: `ordinal`, `transition`, `collapse`, `stack`, `step`, `range`,
+  `progress`, `static`, `visible`, `inline` are all Tailwind or daisyUI class names and all appear
+  in this package's prose and method names. Measured on 2026-09-21 by building with and without
+  that one `@source` line: **30 KB of the 68 KB artifact, 44%, exists only because `src/` is
+  scanned**, and every class the views actually use is present without it. daisyUI multiplies it,
+  because one `step` in a sentence pulls in nine `step-*` rules. Found when a `use
+  Illuminate\Container\Container;` and the word it put in a docblock emitted the whole `.container`
+  utility with all six breakpoints. Before adding a `@source`, and before reaching for a word like
+  those in a comment under `src/`, check what it does to the artifact; #111 is whether that source
+  should be there at all. The
   artifact goes stale silently: a view added without a rebuild renders with the previous build's
   classes and nothing reports it. Measured while building #72 -- the committed file was missing
   `.card-body`, `.card-title`, `.antialiased` and `.bg-base-200`, every one a class the new layout
