@@ -50,6 +50,21 @@ enum FleetEventType: string
     case SessionGone = 'session.gone';
 
     /**
+     * An admin revoked an installation, and with it every session it had started.
+     */
+    case InstallationRevoked = 'installation.revoked';
+
+    /**
+     * An admin gave an installation an ability it did not have.
+     */
+    case InstallationAbilityGranted = 'installation.ability_granted';
+
+    /**
+     * An admin took an ability away from an installation.
+     */
+    case InstallationAbilityRevoked = 'installation.ability_revoked';
+
+    /**
      * A task was created and is waiting for somebody to claim it.
      */
     case TaskCreated = 'task.created';

@@ -54,17 +54,25 @@ final class FleetEvents
      * @param  string|null  $body  What a human reads.
      * @param  array<string, mixed>  $meta  Structured detail.
      * @param  bool  $withCoordinator  Whether the session held `coordinator:direct` as it posted.
+     * @param  string|null  $actor  The developer responsible, for a change no session made.
      * @return FleetEvent The recorded event.
      *
      * @throws InvalidArgumentException When the body is longer than `FleetEvent::MAX_BODY`.
+     * @throws RuntimeException When the actor's key is not one the package can store.
      */
     public function record(
         FleetEventType $type,
         ?AgentSession $session = null,
         ?string $body = null,
         array $meta = [],
-        bool $withCoordinator = false
+        bool $withCoordinator = false,
+        ?string $actor = null
     ): FleetEvent {
+        // Bounded here rather than where the branch below reads it, so an unusable key is refused
+        // whether or not a session was also passed. `user_id` is `varchar(64)`, which Postgres
+        // refuses past its length and SQLite stores whole -- one call, two outcomes.
+        $actor = $actor === null ? null : HostKey::from($actor);
+
         // Bounded here as well as at the four call sites that validate it. `record()` is a public
         // method a host may call directly, and `body` is a `text` column -- 65,535 bytes on MySQL
         // and unbounded on Postgres and SQLite, so an over-long body is an error on one engine and
@@ -82,7 +90,7 @@ final class FleetEvents
         // A savepoint when a caller already has a transaction open, which is the ordinary case:
         // the event and the state change it records commit or roll back together. The advisory
         // lock below is scoped to the outermost transaction either way.
-        return DB::transaction(function () use ($type, $session, $body, $meta, $withCoordinator): FleetEvent {
+        return DB::transaction(function () use ($type, $session, $body, $meta, $withCoordinator, $actor): FleetEvent {
             $this->holdTheFeed();
 
             $event = FleetEvent::query()->create([
@@ -92,7 +100,17 @@ final class FleetEvents
                 // key on `agent_session_id` (#50), so a session row can go and its id can be taken
                 // by a different developer's session -- and #29's visibility rule must not follow
                 // it there.
-                'user_id' => $session?->user_id,
+                //
+                // An admin's change to authorization has no session at all, so it names the
+                // developer who made it instead. The column means the same thing either way --
+                // the developer this event belongs to -- which is what keeps #29's rule intact for
+                // a restricted type recorded this way later.
+                //
+                // Written as a conditional rather than `$session?->user_id ?? $actor`, which
+                // Larastan refuses at bleeding edge: `??` suppresses the null-property read on its
+                // own, so the nullsafe operator there is dead. The explicit form also says which
+                // of the two branches is being taken.
+                'user_id' => $session instanceof AgentSession ? $session->user_id : $actor,
                 'type' => $type,
                 'body' => $body,
                 'meta' => $meta === [] ? null : $meta,

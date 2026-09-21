@@ -9,4 +9,14 @@
     <livewire:robot-council-task-board :poll-seconds="$pollSeconds" />
 
     <livewire:robot-council-change-feed :poll-seconds="$pollSeconds" />
+
+    {{--
+        Mounted only for an admin, so a developer who may see the dashboard never renders a panel
+        that would refuse them. The gate here decides what is *shown*; the component authorizes
+        every action and its own render regardless, because a control that is not drawn is not an
+        authorization boundary.
+    --}}
+    @can(\RobotCouncil\RobotCouncilServiceProvider::ADMIN_ABILITY)
+        <livewire:robot-council-administration :poll-seconds="$pollSeconds" />
+    @endcan
 </div>

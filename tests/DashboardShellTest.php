@@ -94,7 +94,12 @@ it('serves a stylesheet that carries the utilities the pages use, and not the on
     // Absent, and that absence is the control. These are ordinary Tailwind utilities and one
     // daisyUI modifier that no view in this package uses; if the build emitted everything, or if
     // scanning reached something it should not, they would be here.
-    foreach (['bg-red-500', 'p-96', 'grid-cols-11', 'rotate-45', 'btn-primary'] as $unused) {
+    //
+    // The modifier here has to be one no view uses, so it moves when a view starts using it:
+    // `btn-primary` sat here until #77's admin panel marked a held ability with it, at which point
+    // this stopped being a control and became a false failure. Check a replacement is genuinely
+    // unused rather than only unfamiliar.
+    foreach (['bg-red-500', 'p-96', 'grid-cols-11', 'rotate-45', 'btn-secondary'] as $unused) {
         expect($stylesheet)->not->toContain($unused);
     }
 });
