@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
+use Laravel\Sanctum\PersonalAccessToken;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 use RobotCouncil\Access\Ability;
@@ -240,4 +241,46 @@ it('renders a hostile project as text', function (): void {
 
     expect($html)->toContain('&lt;script&gt;alert(2)&lt;/script&gt;')
         ->not->toContain('<script>alert(2)</script>');
+});
+
+it('renders a hostile lock name as text', function (): void {
+    // The fourth subject robot-council/core#30's escaping criterion names, and the one its other
+    // three guards did not cover. Written past `Locks::NAME`'s charset deliberately, as the
+    // machine-label guard is: a string that cannot be acquired through the API is exactly how the
+    // page's escaping is shown to be its own guarantee rather than the validator's.
+    $other = $this->enrollDeveloper(77, login: 'somebody-else');
+
+    $installation = $this->approveInstallation($other, [Ability::LocksAcquire->value], machineLabel: 'their-box');
+
+    [$theirs] = $this->startAgentSession($installation);
+
+    app(Locks::class)->acquire($theirs, 'deploy', 60, asCoordinator: false);
+
+    Lock::query()->where('name', 'deploy')->update(['name' => '<script>alert(3)</script>']);
+
+    $html = Livewire::test(FleetPresence::class)->html();
+
+    expect($html)->toContain('&lt;script&gt;alert(3)&lt;/script&gt;')
+        ->not->toContain('<script>alert(3)</script>');
+});
+
+it('shows no credential of any kind on the page', function (): void {
+    // robot-council/core#30's sixth criterion, which had no test. The dashboard renders sessions,
+    // locks and events, every one of which hangs off something that owns a credential -- so this
+    // asserts on the rendered page rather than reasoning from which columns the components select.
+    $requested = requestDeviceCode($this);
+
+    $html = Livewire::test(FleetPresence::class)->html();
+
+    expect($html)->not->toContain($this->token)
+        ->not->toContain($requested['device_code'])
+        ->not->toContain($requested['verifier'])
+        ->not->toContain(stringValue($requested['response']['user_code'] ?? ''));
+
+    // The control. These are live values, not strings that were never anywhere: the token
+    // authenticates this machine and the device code is a pending enrollment.
+    expect($this->token)->not->toBeEmpty()
+        ->and($requested['device_code'])->not->toBeEmpty()
+        ->and($requested['verifier'])->not->toBeEmpty()
+        ->and(PersonalAccessToken::query()->count())->toBeGreaterThan(0);
 });
