@@ -30,6 +30,7 @@ use RobotCouncil\Models\Installation;
 use RobotCouncil\Support\FleetFeed;
 use RobotCouncil\Support\InstallationList;
 use RobotCouncil\Support\Installations;
+use RobotCouncil\Support\Scope;
 use RobotCouncil\Support\SessionPresence;
 use RobotCouncil\Tests\Fixtures\HostileContent;
 
@@ -407,7 +408,7 @@ it('reports an installation as revoked and as expired, which are different thing
     $expired = $this->approveInstallation($this->developer, machineLabel: 'expired-box');
     $expired->forceFill(['expires_at' => Carbon::now()->subDay()])->save();
 
-    $listed = $this->service(InstallationList::class)->everything(50);
+    $listed = $this->service(InstallationList::class)->everything(50, Scope::All)['installations'];
 
     $row = static fn (int $id): array => arrayValue(collect($listed)->firstWhere('id', $id));
 
@@ -423,7 +424,7 @@ it('lists the newest installation first', function (): void {
     $first = $this->approveInstallation($this->developer, machineLabel: 'older-box');
     $second = $this->approveInstallation($this->developer, machineLabel: 'newer-box');
 
-    $ids = array_column($this->service(InstallationList::class)->everything(50), 'id');
+    $ids = array_column($this->service(InstallationList::class)->everything(50)['installations'], 'id');
 
     // Pinned as a pair rather than asserted on one end, so reversing the order fails rather than
     // matching whichever row happened to come back first
@@ -449,7 +450,7 @@ it('bounds the sessions it lists, and says how many it left out', function (): v
         $this->service(SessionPresence::class)->revoke($session);
     }
 
-    $sessions = arrayValue($this->service(InstallationList::class)->everything(50)[0]['sessions']);
+    $sessions = arrayValue($this->service(InstallationList::class)->everything(50)['installations'][0]['sessions']);
 
     expect($sessions['shown'])->toHaveCount($limit)
         ->and($sessions['hidden'])->toBe(2)
@@ -514,4 +515,153 @@ it('writes one event for a change, and none for a repeat of it', function (): vo
         ->and($installation->refresh()->revoked_at?->toIso8601String())->toBe($revokedAt?->toIso8601String());
 
     Carbon::setTestNow();
+});
+
+it('can revoke an installation that sorts past the page', function (): void {
+    // #114's sharpest criterion. This list is the only interface for revoking a credential, so an
+    // installation the page cannot reach is a control that is not there -- and enrolment is
+    // something any allowlisted developer can approve, with no unique constraint on
+    // (user_id, harness, machine_label), so pushing one off the page costs an attacker nothing.
+    $size = Administration::PER_PAGE;
+
+    $target = $this->approveInstallation($this->developer, machineLabel: 'the-oldest');
+
+    // Seeded past the page, all of them newer, so the target cannot be on page one by luck
+    foreach (range(1, $size + 2) as $n) {
+        $this->approveInstallation($this->developer, machineLabel: 'box-'.$n);
+    }
+
+    $reader = $this->service(InstallationList::class);
+
+    $first = $reader->everything($size);
+
+    expect($first['installations'])->toHaveCount($size)
+        ->and($first['more'])->toBeTrue()
+        ->and(array_column($first['installations'], 'id'))->not->toContain($target->id);
+
+    // Walk to it exactly as the button does, bounded so a broken cursor fails rather than hangs
+    $ids = [];
+    $page = $first;
+
+    for ($i = 0; $i < 10 && $page['more']; $i++) {
+        $page = $reader->everything($size, Scope::Live, $page['cursor']);
+        $ids = [...$ids, ...array_column($page['installations'], 'id')];
+    }
+
+    expect($ids)->toContain($target->id);
+
+    // And reaching it is not the point unless it can then be acted on
+    Livewire::actingAs($this->admin)
+        ->test(Administration::class)
+        ->call('revokeInstallation', $target->id);
+
+    expect($target->refresh()->revoked_at)->not->toBeNull();
+});
+
+it('does not let a revoked or expired installation displace a live one', function (): void {
+    // A retired installation is behind the scope rather than sorted below a live one. Sorting
+    // would put a mutable column in the ordering, and #83 records what a cursor over one of those
+    // does: it skips rows and says nothing.
+    $size = Administration::PER_PAGE;
+
+    $live = $this->approveInstallation($this->developer, machineLabel: 'still-here');
+
+    // Every one of these is newer than the live installation, so under a plain `id desc` with no
+    // scope they would push it off the page entirely
+    foreach (range(1, $size + 2) as $n) {
+        $dead = $this->approveInstallation($this->developer, machineLabel: 'dead-'.$n);
+
+        $dead->forceFill($n % 2 === 0
+            ? ['revoked_at' => Carbon::now()]
+            : ['expires_at' => Carbon::now()->subDay()])->save();
+    }
+
+    $reader = $this->service(InstallationList::class);
+
+    $page = $reader->everything($size);
+
+    // The live one is on the first page, and it is the only thing there
+    expect(array_column($page['installations'], 'id'))->toBe([$live->id])
+        ->and($page['more'])->toBeFalse()
+        ->and($page['live'])->toBe(1)
+        ->and($page['retired'])->toBe($size + 2);
+
+    // The control: they are not gone, only out of scope. Widening finds them, which is what makes
+    // the assertion above about scoping rather than about the rows being absent.
+    $all = $reader->everything($size, Scope::All);
+
+    expect($all['installations'])->toHaveCount($size)
+        ->and($all['more'])->toBeTrue();
+});
+
+it('does not offer a next page of installations on an exact multiple', function (): void {
+    // The off-by-one, in the only shape that separates `>` from `>=` and `$size + 1` from
+    // `$size + 0`. Every other paging test here seeds size+2.
+    $size = 2;
+
+    // One installation exists from `installationWithSession()` elsewhere; build exactly four here
+    foreach (range(1, 4) as $n) {
+        $this->approveInstallation($this->developer, machineLabel: 'exact-'.$n);
+    }
+
+    $reader = $this->service(InstallationList::class);
+
+    $first = $reader->everything($size);
+
+    expect($first['installations'])->toHaveCount($size)
+        ->and($first['more'])->toBeTrue();
+
+    $second = $reader->everything($size, Scope::Live, $first['cursor']);
+
+    expect($second['installations'])->toHaveCount($size)
+        ->and($second['more'])->toBeFalse();
+});
+
+it('clamps a page size that makes no sense', function (): void {
+    // Both ends of `max(1, min($limit, MAX_PAGE))`, neither of which any other call here exercises.
+    // The fixture is larger than the clamp on purpose: with one installation in the table,
+    // `max(1, …)` and `max(2, …)` both return that one row and the assertion cannot see it move.
+    foreach (range(1, 3) as $n) {
+        $this->approveInstallation($this->developer, machineLabel: 'clamp-'.$n);
+    }
+
+    $reader = $this->service(InstallationList::class);
+
+    expect($reader->everything(0)['installations'])->toHaveCount(1)
+        ->and($reader->everything(-5)['installations'])->toHaveCount(1)
+        ->and(InstallationList::MAX_PAGE)->toBe(200);
+});
+
+it('says how many of an installation`s sessions it left out', function (): void {
+    // `hidden` is the count that stops a bounded session list reading as the whole of one. Seeded
+    // past `SESSIONS_PER_INSTALLATION` so the number is one this test chose rather than zero, and
+    // the floor at nought is exercised by every other test here, where nothing is hidden.
+    $installation = $this->approveInstallation($this->developer);
+
+    $over = 2;
+
+    foreach (range(1, InstallationList::SESSIONS_PER_INSTALLATION + $over) as $ignored) {
+        $this->startAgentSession($installation);
+    }
+
+    $row = arrayValue(collect($this->service(InstallationList::class)->everything(50)['installations'])
+        ->firstWhere('id', $installation->id));
+
+    $sessions = arrayValue($row['sessions']);
+
+    expect($sessions['shown'])->toHaveCount(InstallationList::SESSIONS_PER_INSTALLATION)
+        ->and($sessions['hidden'])->toBe($over)
+        ->and($sessions['gone'])->toBe(0);
+
+    // The floor, which is the half a count-only assertion misses: an installation holding fewer
+    // sessions than the bound hides none, and `max(0, …)` is what stops the subtraction going
+    // negative and reporting a number of hidden rows that do not exist.
+    $small = $this->approveInstallation($this->developer, machineLabel: 'just-one');
+
+    $this->startAgentSession($small);
+
+    $smallRow = arrayValue(collect($this->service(InstallationList::class)->everything(50)['installations'])
+        ->firstWhere('id', $small->id));
+
+    expect(arrayValue($smallRow['sessions'])['hidden'])->toBe(0);
 });

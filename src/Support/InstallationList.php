@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RobotCouncil\Support;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Carbon;
 use RobotCouncil\Models\AgentSession;
@@ -46,12 +47,24 @@ final class InstallationList
     public function __construct(private readonly AgentLogins $logins) {}
 
     /**
-     * Every installation, newest first, with its sessions.
+     * One page of installations, newest first, with their live sessions.
+     *
+     * **Keyed on `id`, which never moves.** The obvious alternative -- sorting live rows ahead of
+     * retired ones so a revocation cannot push a live installation off the page -- puts a mutable
+     * column in the ordering, and a cursor over one of those skips rows silently. #83 records that
+     * failure for the presence lists. A scope does the same job without it: a retired installation
+     * is not on the page at all rather than sorted below.
+     *
+     * `Scope::Live` is neither revoked nor expired, which is `Installation::isUsable()` written as
+     * a query. The two are shown apart on the page, because a guard treats them alike and an admin
+     * does not: one is a decision somebody made and the other is only the clock.
      *
      * @param  int  $limit  How many to return, clamped to `MAX_PAGE`.
-     * @return list<array<string, mixed>> The installations.
+     * @param  Scope  $scope  Installations that can still act, or every row.
+     * @param  int|null  $after  The id of the last installation the reader has seen.
+     * @return array{installations: list<array<string, mixed>>, cursor: int|null, more: bool, live: int, retired: int}
      */
-    public function everything(int $limit): array
+    public function everything(int $limit, Scope $scope = Scope::Live, ?int $after = null): array
     {
         // Eager-loaded rather than read per row. `Model::preventLazyLoading()` raises on a query
         // that hydrated more than one row, so a host running strict mode would take a
@@ -59,34 +72,58 @@ final class InstallationList
         //
         // Live sessions first and newest first, so the rows that get shown under the bound below
         // are the ones an admin might act on rather than whichever the engine returned.
-        $installations = Installation::query()
-            ->with(['sessions' => static fn (Relation $sessions): Relation => $sessions->orderByDesc('id')])
-            ->orderByDesc('id')
-            ->limit(max(1, min($limit, self::MAX_PAGE)))
-            ->get();
-
-        $logins = $this->logins->forUsers($installations->pluck('user_id')->all());
+        $size = max(1, min($limit, self::MAX_PAGE));
 
         $now = Carbon::now();
 
-        return array_values($installations->map(fn (Installation $installation): array => [
-            'id' => $installation->id,
-            'github_login' => $logins[$installation->user_id] ?? null,
-            'harness' => $installation->harness,
-            'machine_label' => $installation->machine_label,
+        // One more than the page, so whether a next page exists is known rather than guessed.
+        //
+        // Fetching one MORE than one extra changes nothing anyone can observe -- `$more` and the
+        // page are both taken from `$size` -- so that direction has no input that can kill it.
+        // @pest-mutate-ignore: IncrementInteger
+        $installations = Installation::query()
+            ->with(['sessions' => static fn (Relation $sessions): Relation => $sessions->orderByDesc('id')])
+            ->when($scope === Scope::Live, fn (Builder $query) => $query->whereNull('revoked_at')->where('expires_at', '>', $now))
+            ->when($after !== null, fn (Builder $query) => $query->where('id', '<', $after))
+            ->orderByDesc('id')
+            ->limit($size + 1)
+            ->get();
 
-            // Through the model's own accessor, which drops anything the fixed list no longer
-            // holds. A retired ability still sitting in the stored row must not be offered back as
-            // a control that revokes it, because the guards no longer check it either.
-            'abilities' => $installation->abilities(),
+        $more = $installations->count() > $size;
 
-            // Both halves of `isUsable()`, separately. "Revoked" and "expired" are the same to a
-            // guard and different to an admin: one is a decision somebody made and the other is
-            // the clock, and only the first is worth asking about.
-            'revoked' => $installation->revoked_at !== null,
-            'expired' => $installation->expires_at->isBefore($now),
-            'sessions' => $this->sessionsOf($installation),
-        ])->all());
+        $installations = $installations->take($size);
+
+        $logins = $this->logins->forUsers($installations->pluck('user_id')->all());
+
+        $live = Installation::query()->whereNull('revoked_at')->where('expires_at', '>', $now)->count();
+
+        return [
+            'cursor' => $installations->last()?->id,
+            'more' => $more,
+
+            // Counted rather than inferred from the page. A truncated list and a complete one look
+            // identical, and this panel is the only interface for revoking a credential.
+            'live' => $live,
+            'retired' => Installation::query()->count() - $live,
+            'installations' => array_values($installations->map(fn (Installation $installation): array => [
+                'id' => $installation->id,
+                'github_login' => $logins[$installation->user_id] ?? null,
+                'harness' => $installation->harness,
+                'machine_label' => $installation->machine_label,
+
+                // Through the model's own accessor, which drops anything the fixed list no longer
+                // holds. A retired ability still sitting in the stored row must not be offered back as
+                // a control that revokes it, because the guards no longer check it either.
+                'abilities' => $installation->abilities(),
+
+                // Both halves of `isUsable()`, separately. "Revoked" and "expired" are the same to a
+                // guard and different to an admin: one is a decision somebody made and the other is
+                // the clock, and only the first is worth asking about.
+                'revoked' => $installation->revoked_at !== null,
+                'expired' => $installation->expires_at->isBefore($now),
+                'sessions' => $this->sessionsOf($installation),
+            ])->all()),
+        ];
     }
 
     /**

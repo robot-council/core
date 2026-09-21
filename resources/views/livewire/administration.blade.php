@@ -14,7 +14,24 @@
 @use('RobotCouncil\Support\WireArgument', 'Wire')
 <div wire:poll.{{ Wire::of($pollSeconds) }}s class="card bg-base-100 shadow-sm">
     <div class="card-body">
-        <h2 class="card-title">Installations</h2>
+        <div class="flex flex-wrap items-center justify-between gap-2">
+            <h2 class="card-title">Installations</h2>
+
+            {{-- A revoked or expired installation is behind a scope rather than sorted below a
+                 live one. Sorting would put a mutable column in the ordering, and a cursor over
+                 one of those skips rows silently -- which is the defect #83 records. --}}
+            <div class="flex gap-1">
+                <button type="button" wire:click="showScope('{{ Wire::of(\RobotCouncil\Support\Scope::Live) }}')"
+                    class="btn btn-xs {{ $scope === \RobotCouncil\Support\Scope::Live ? 'btn-primary' : 'btn-ghost' }}">
+                    Usable ({{ $page['live'] }})
+                </button>
+
+                <button type="button" wire:click="showScope('{{ Wire::of(\RobotCouncil\Support\Scope::All) }}')"
+                    class="btn btn-xs {{ $scope === \RobotCouncil\Support\Scope::All ? 'btn-primary' : 'btn-ghost' }}">
+                    All ({{ $page['live'] + $page['retired'] }})
+                </button>
+            </div>
+        </div>
 
         <p class="text-sm opacity-70">
             What each machine may do, and which of its sessions are alive. Changes take effect on
@@ -22,7 +39,11 @@
         </p>
 
         @if ($installations === [])
-            <p class="py-6 text-center opacity-60">No machine has enrolled yet.</p>
+            <p class="py-6 text-center opacity-60">
+                {{ $scope === \RobotCouncil\Support\Scope::Live && $page['retired'] > 0
+                    ? 'No machine is currently usable. Choose All to see the revoked and expired ones.'
+                    : 'No machine has enrolled yet.' }}
+            </p>
         @else
             <ul class="divide-y divide-base-200">
                 @foreach ($installations as $installation)
@@ -140,6 +161,22 @@
                     </li>
                 @endforeach
             </ul>
+        @endif
+
+        {{-- Outside the empty branch, because a reader who has paged past the end still needs the
+             way back. This list is the only interface for revoking a credential, so a page it
+             cannot reach is a control that is not there. --}}
+        @if ($after !== null || $page['more'])
+            <div class="flex items-center justify-end gap-2 pt-2">
+                @if ($after !== null)
+                    <button type="button" wire:click="showFirst" class="btn btn-sm btn-ghost">Newest</button>
+                @endif
+
+                @if ($page['more'] && $page['cursor'] !== null)
+                    <button type="button" wire:click="showNext({{ Wire::of($page['cursor']) }})"
+                        class="btn btn-sm">Older</button>
+                @endif
+            </div>
         @endif
     </div>
 </div>

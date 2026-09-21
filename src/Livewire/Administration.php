@@ -7,6 +7,7 @@ namespace RobotCouncil\Livewire;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Log;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Access\CurrentDeveloper;
@@ -14,6 +15,7 @@ use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\Installation;
 use RobotCouncil\Support\InstallationList;
 use RobotCouncil\Support\Installations;
+use RobotCouncil\Support\Scope;
 use RobotCouncil\Support\SessionPresence;
 use RuntimeException;
 use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
@@ -54,6 +56,18 @@ final class Administration extends Component
     public int $pollSeconds = Dashboard::DEFAULT_POLL_SECONDS;
 
     /**
+     * Which installations are listed: those that can still act, or every row.
+     */
+    #[Url(as: 'installations', keep: false)]
+    public ?string $scope = null;
+
+    /**
+     * The id of the last installation on the page before this one, or null at the head.
+     */
+    #[Locked]
+    public ?int $after = null;
+
+    /**
      * Take the polling interval from the page that mounts this component.
      *
      * @param  int  $pollSeconds  The interval the dashboard resolved.
@@ -63,6 +77,42 @@ final class Administration extends Component
         $this->authorizeAdmin();
 
         $this->pollSeconds = $pollSeconds;
+    }
+
+    /**
+     * Show the installations after the last one on this page.
+     *
+     * @param  int  $after  The id the last read handed back.
+     */
+    public function showNext(int $after): void
+    {
+        $this->authorizeAdmin();
+
+        $this->after = max(0, $after);
+    }
+
+    /**
+     * Go back to the newest installations.
+     */
+    public function showFirst(): void
+    {
+        $this->authorizeAdmin();
+
+        $this->after = null;
+    }
+
+    /**
+     * Widen or narrow which installations are listed, and start again from the head.
+     *
+     * @param  string  $scope  The scope to read with.
+     */
+    public function showScope(string $scope): void
+    {
+        $this->authorizeAdmin();
+
+        $this->scope = Scope::orDefault($scope, Scope::Live)->value;
+
+        $this->after = null;
     }
 
     /**
@@ -141,8 +191,12 @@ final class Administration extends Component
         /** @var view-string $template */
         $template = 'robot-council::livewire.administration';
 
+        $page = $installations->everything(self::PER_PAGE, Scope::orDefault($this->scope, Scope::Live), $this->after);
+
         return view($template, [
-            'installations' => $installations->everything(self::PER_PAGE),
+            'page' => $page,
+            'scope' => Scope::orDefault($this->scope, Scope::Live),
+            'installations' => $page['installations'],
 
             // The fixed list, so the controls offered are exactly what `setAbility()` accepts and
             // the two cannot drift apart
