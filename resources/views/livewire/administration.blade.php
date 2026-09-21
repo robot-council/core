@@ -74,8 +74,20 @@
                                         Revoke {{ $ability->value }}
                                     </button>
                                 @else
+                                    {{-- `coordinator:direct` is confirmed and the rest are not.
+                                         It is the one ability that reaches outside its own
+                                         developer's work: a session holding it can release,
+                                         reassign or cancel ANY developer's task and post
+                                         directives to the whole fleet, and #29 makes narration
+                                         posted while holding it visible to everyone. The
+                                         confirmation is not a boundary -- the action authorizes
+                                         regardless -- it is there because the blast radius does
+                                         not look different from the other four on the page. --}}
                                     <button type="button"
                                         wire:click="grant({{ $installation['id'] }}, '{{ $ability->value }}')"
+                                        @if ($ability === \RobotCouncil\Access\Ability::CoordinatorDirect)
+                                            wire:confirm="Grant coordinator:direct? A session holding it can release, reassign or cancel any developer's task, and post directives to the whole fleet."
+                                        @endif
                                         class="btn btn-xs btn-ghost">
                                         Grant {{ $ability->value }}
                                     </button>
@@ -83,9 +95,9 @@
                             @endforeach
                         </div>
 
-                        @if ($installation['sessions'] !== [])
+                        @if ($installation['sessions']['shown'] !== [])
                             <ul class="mt-3 space-y-1">
-                                @foreach ($installation['sessions'] as $session)
+                                @foreach ($installation['sessions']['shown'] as $session)
                                     <li wire:key="admin-session-{{ $session['id'] }}"
                                         class="flex flex-wrap items-center gap-2 text-xs">
                                         <span class="badge badge-sm">{{ $session['status'] }}</span>
@@ -96,16 +108,32 @@
                                             <span class="opacity-70">{{ $session['project_id'] }}</span>
                                         @endif
 
-                                        @if ($session['revocable'])
-                                            <button type="button"
-                                                wire:click="revokeSession({{ $session['id'] }})"
-                                                class="btn btn-xs btn-ghost">
-                                                Revoke session
-                                            </button>
-                                        @endif
+                                        {{-- Every listed session is live, so every one can be
+                                             revoked. The reader bounds the list rather than the
+                                             view hiding rows. --}}
+                                        <button type="button"
+                                            wire:click="revokeSession({{ $session['id'] }})"
+                                            class="btn btn-xs btn-ghost">
+                                            Revoke session
+                                        </button>
                                     </li>
                                 @endforeach
                             </ul>
+                        @endif
+
+                        {{-- What is not on the list, said rather than left to be inferred from its
+                             length. A list truncated at its limit looks exactly like a complete
+                             one, and the number that would show otherwise is the one not printed. --}}
+                        @if ($installation['sessions']['hidden'] > 0 || $installation['sessions']['gone'] > 0)
+                            <p class="mt-2 text-xs opacity-60">
+                                @if ($installation['sessions']['hidden'] > 0)
+                                    {{ $installation['sessions']['hidden'] }} more live session(s) not shown.
+                                @endif
+
+                                @if ($installation['sessions']['gone'] > 0)
+                                    {{ $installation['sessions']['gone'] }} session(s) have ended.
+                                @endif
+                            </p>
                         @endif
                     </li>
                 @endforeach

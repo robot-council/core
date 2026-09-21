@@ -17,6 +17,8 @@ declare(strict_types=1);
  */
 
 use Illuminate\Foundation\Auth\User;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Livewire\Administration;
@@ -26,7 +28,15 @@ use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\FleetEventType;
 use RobotCouncil\Models\Installation;
 use RobotCouncil\Support\FleetFeed;
+use RobotCouncil\Support\InstallationList;
+use RobotCouncil\Support\Installations;
+use RobotCouncil\Support\SessionPresence;
 use RobotCouncil\Tests\Fixtures\HostileContent;
+
+/**
+ * The verifier `requestDeviceCode()` uses by default, named here so the page can be checked for it.
+ */
+const VERIFIER = 'a-verifier-only-the-helper-holds-and-nobody-else-at-all';
 use RobotCouncil\Tests\TestCase;
 
 beforeEach(function (): void {
@@ -139,6 +149,31 @@ it('refuses a signed-in developer who is not an admin', function (string $action
         'render' => ['$refresh', []],
     ]);
 
+it('decides who is an admin on the package guard, not the host default', function (): void {
+    // `robot-council.auth.guard` is what signs a developer in, checks them, and signs them out, and
+    // every other human-facing path in the package reads it -- `EnsureAllowlistedDeveloper`, the
+    // GitHub callback, the enrollment decision, and `actor()` twelve lines below `authorizeAdmin()`.
+    // `AllowlistAccessTest` pins the same invariant for the middleware: a host whose default guard
+    // is another one must still admit the developer the package guard holds.
+    //
+    // The container's `Gate` does not read it. It is built as
+    // `new Gate($app, fn () => $app['auth']->userResolver()())`, and that resolver is
+    // `guard(null)->user()` -- the DEFAULT guard. So a bare `Gate::authorize()` here decides on a
+    // different principal from the one the page signed in, and from the one the event names.
+    [$installation] = installationWithSession($this, $this->developer);
+
+    $component = Livewire::actingAs($this->admin)->test(Administration::class);
+
+    // The host's default guard becomes a token guard this admin never used, exactly as
+    // `AllowlistAccessTest` does it. The package guard still names `web`, which is what holds them.
+    config()->set('auth.guards.api', ['driver' => 'token', 'provider' => 'users']);
+    config()->set('auth.defaults.guard', 'api');
+
+    $component->call('grant', $installation->id, Ability::TasksCreate->value)->assertOk();
+
+    expect($installation->refresh()->abilities())->toContain(Ability::TasksCreate->value);
+});
+
 it('refuses to mount for a developer who was never an admin', function (): void {
     // The control for the test above, and a different claim: that one shows the action re-checks,
     // this one shows a non-admin cannot get a component in the first place. Without it, a
@@ -150,7 +185,7 @@ it('refuses to mount for a developer who was never an admin', function (): void 
     Livewire::actingAs($this->admin)->test(Administration::class)->assertOk();
 });
 
-it('refuses an ability outside the grantable list, and changes nothing', function (string $ability): void {
+it('refuses an ability outside the grantable list, and changes nothing', function (string $action, string $ability): void {
     [$installation] = installationWithSession($this, $this->developer);
 
     $before = $installation->abilities();
@@ -160,20 +195,20 @@ it('refuses an ability outside the grantable list, and changes nothing', functio
     // is an admin and is allowed here; the value they sent is the thing being refused.
     Livewire::actingAs($this->admin)
         ->test(Administration::class)
-        ->call('grant', $installation->id, $ability)
+        ->call($action, $installation->id, $ability)
         ->assertStatus(422);
 
     expect($installation->refresh()->abilities())->toBe($before);
-})->with([
+})->with(['grant', 'revokeAbility'])->with([
     // Sanctum reads this as every ability, so it is the one value that must never be stored
-    'the wildcard' => ['*'],
+    'the wildcard' => '*',
 
     // A real case, and not grantable: it belongs to an installation credential rather than to a
     // session token, so granting it would write a value no guard ever checks
-    'the installation credential' => ['sessions:start'],
+    'the installation credential' => 'sessions:start',
 
-    'an unknown name' => ['tasks:destroy'],
-    'an empty string' => [''],
+    'an unknown name' => 'tasks:destroy',
+    'an empty string' => '',
 ]);
 
 it('grants every ability the panel offers, so the refusal above is not refusing everything', function (): void {
@@ -300,16 +335,29 @@ it('shows no credential, device code, or verifier on the page', function (): voi
 
     [, $sessionToken] = $this->startAgentSession($installation);
 
+    // Rendered after the device code exists, so the page had the chance to show it
     $html = Livewire::actingAs($this->admin)->test(Administration::class)->html();
 
     // The page rendered the installation at all, so the absences below are absences rather than an
     // empty render
     expect($html)->toContain('workbench');
 
+    // A real device code and its verifier, because the criterion names them and the table is
+    // otherwise EMPTY in this test -- and "the page shows no device code" is true of a page that
+    // showed every one of them when none exists. This is the absence-without-an-instrument shape,
+    // and creating the row is what turns it into a measurement.
+    $enrollment = requestDeviceCode($this);
+
+    $deviceCode = stringValue($enrollment['device_code']);
+    $userCode = $enrollment['record']->user_code;
+
+    expect($deviceCode)->not->toBeEmpty()
+        ->and($userCode)->not->toBeEmpty();
+
     // Both halves of each plaintext token: Sanctum's form is `<id>|<plain>`, and the id alone is
     // not a secret, so asserting on the whole string only would miss a page that printed the
     // hashed half or the tail.
-    foreach ([$credential, $sessionToken] as $secret) {
+    foreach ([$credential, $sessionToken, $deviceCode, VERIFIER, $userCode] as $secret) {
         expect($html)->not->toContain($secret)
             ->not->toContain(explode('|', $secret)[1] ?? $secret);
     }
@@ -346,3 +394,124 @@ it('renders a hostile machine label inert on the admin panel', function (string 
         expect($html)->not->toContain($live);
     }
 })->with(HostileContent::dataset());
+
+it('reports an installation as revoked and as expired, which are different things', function (): void {
+    // Neither branch had a test, and each is one word away from its opposite. A guard treats a
+    // revoked and an expired installation alike; an admin does not, because one is a decision
+    // somebody made and the other is only the clock.
+    $live = $this->approveInstallation($this->developer);
+
+    $revoked = $this->approveInstallation($this->developer, machineLabel: 'revoked-box');
+    $revoked->forceFill(['revoked_at' => Carbon::now()])->save();
+
+    $expired = $this->approveInstallation($this->developer, machineLabel: 'expired-box');
+    $expired->forceFill(['expires_at' => Carbon::now()->subDay()])->save();
+
+    $listed = $this->service(InstallationList::class)->everything(50);
+
+    $row = static fn (int $id): array => arrayValue(collect($listed)->firstWhere('id', $id));
+
+    expect($row($live->id)['revoked'])->toBeFalse()
+        ->and($row($live->id)['expired'])->toBeFalse()
+        ->and($row($revoked->id)['revoked'])->toBeTrue()
+        ->and($row($revoked->id)['expired'])->toBeFalse()
+        ->and($row($expired->id)['expired'])->toBeTrue()
+        ->and($row($expired->id)['revoked'])->toBeFalse();
+});
+
+it('lists the newest installation first', function (): void {
+    $first = $this->approveInstallation($this->developer, machineLabel: 'older-box');
+    $second = $this->approveInstallation($this->developer, machineLabel: 'newer-box');
+
+    $ids = array_column($this->service(InstallationList::class)->everything(50), 'id');
+
+    // Pinned as a pair rather than asserted on one end, so reversing the order fails rather than
+    // matching whichever row happened to come back first
+    expect($ids)->toBe([$second->id, $first->id]);
+});
+
+it('bounds the sessions it lists, and says how many it left out', function (): void {
+    $installation = $this->approveInstallation($this->developer);
+
+    $limit = InstallationList::SESSIONS_PER_INSTALLATION;
+
+    // Two past the bound, so `hidden` is a number this test chose rather than zero
+    $live = $limit + 2;
+
+    for ($i = 0; $i < $live; $i++) {
+        $this->startAgentSession($installation);
+    }
+
+    // And three that have ended, which are counted rather than listed
+    foreach (range(1, 3) as $ignored) {
+        [$session] = $this->startAgentSession($installation);
+
+        $this->service(SessionPresence::class)->revoke($session);
+    }
+
+    $sessions = arrayValue($this->service(InstallationList::class)->everything(50)[0]['sessions']);
+
+    expect($sessions['shown'])->toHaveCount($limit)
+        ->and($sessions['hidden'])->toBe(2)
+        ->and($sessions['gone'])->toBe(3);
+
+    // Every listed session is live, which is what lets the view draw a control on all of them
+    expect(array_column(arrayValue($sessions['shown']), 'status'))
+        ->not->toContain(AgentSessionStatus::Gone->value);
+});
+
+it('does not rewrite tokens for sessions that have already gone', function (): void {
+    // The loops in `Installations` run inside the transaction holding the feed's sentinel row,
+    // which every writer in the fleet takes before inserting -- so their length is the fleet's
+    // write latency. Nothing deletes a session row, so unbounded means unbounded forever.
+    $installation = $this->approveInstallation($this->developer, [Ability::EventsPost->value]);
+
+    [$gone] = $this->startAgentSession($installation);
+    [$alive] = $this->startAgentSession($installation);
+
+    $this->service(SessionPresence::class)->revoke($gone);
+
+    $queries = 0;
+
+    DB::listen(function () use (&$queries): void {
+        $queries++;
+    });
+
+    $rewritten = $this->service(Installations::class)
+        ->setAbility($installation, Ability::TasksCreate, true);
+
+    // One live session holds one token. A loop over every row ever created would report two here
+    // before it reported anything else, and the count is what tells them apart.
+    expect($rewritten)->toBe(1)
+        ->and($queries)->toBeGreaterThan(0);
+});
+
+it('writes one event for a change, and none for a repeat of it', function (): void {
+    // `SessionPresence` makes every write conditional on the row and treats the changed count as
+    // the decision, so `SessionGone` fires exactly once however a session ended. These two paths
+    // did not, and a control the view declines to draw is not a boundary -- the action is
+    // reachable whatever the page renders.
+    [$installation] = installationWithSession($this, $this->developer);
+
+    $component = Livewire::actingAs($this->admin)->test(Administration::class);
+
+    $component->call('grant', $installation->id, Ability::TasksCreate->value);
+    $component->call('grant', $installation->id, Ability::TasksCreate->value);
+
+    expect(FleetEvent::query()->where('type', FleetEventType::InstallationAbilityGranted)->count())->toBe(1);
+
+    $component->call('revokeInstallation', $installation->id);
+
+    $revokedAt = $installation->refresh()->revoked_at;
+
+    // Far enough ahead that a second stamp cannot read as the same instant
+    Carbon::setTestNow(Carbon::now()->addMinutes(5));
+
+    $component->call('revokeInstallation', $installation->id);
+
+    expect(FleetEvent::query()->where('type', FleetEventType::InstallationRevoked)->count())->toBe(1)
+        // The time the decision was actually made, not the time somebody clicked again
+        ->and($installation->refresh()->revoked_at?->toIso8601String())->toBe($revokedAt?->toIso8601String());
+
+    Carbon::setTestNow();
+});

@@ -9,6 +9,7 @@ use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
+use RobotCouncil\Access\CurrentDeveloper;
 
 /**
  * The dashboard's index.
@@ -67,9 +68,10 @@ final class Dashboard extends Component
     /**
      * Render the page.
      *
+     * @param  CurrentDeveloper  $developer  Who is signed in on the package's guard.
      * @return View The dashboard index.
      */
-    public function render(): View
+    public function render(CurrentDeveloper $developer): View
     {
         // Pinned, because whether the analyzer can resolve a package view depends on whether it
         // could boot the application, which differs between a developer's machine and CI. Written
@@ -77,6 +79,12 @@ final class Dashboard extends Component
         /** @var view-string $template */
         $template = 'robot-council::livewire.dashboard';
 
-        return view($template);
+        return view($template, [
+            // Decided here rather than with `@can` in the view. `@can` asks the framework gate to
+            // resolve the principal, and it resolves the HOST'S DEFAULT guard -- so on a host that
+            // defaults to another one the panel would be hidden from a real admin. This is what to
+            // show; `Administration` authorizes every action and its own render regardless.
+            'isAdmin' => $developer->isAdmin(),
+        ]);
     }
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RobotCouncil\Support;
 
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Carbon;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
@@ -29,6 +30,17 @@ final class InstallationList
     public const int MAX_PAGE = 200;
 
     /**
+     * The most sessions shown under one installation.
+     *
+     * **Bounded because nothing deletes a session row.** `SessionPresence::goesNow()` deletes the
+     * tokens and keeps the row, and the only prune in the package is for device codes, so an
+     * installation accumulates one row per agent process it has ever started. Unbounded, this
+     * panel would hydrate and render every one of them on a `wire:poll` interval.
+     * `Support\FleetPresence` bounds its own read the same way.
+     */
+    public const int SESSIONS_PER_INSTALLATION = 10;
+
+    /**
      * @param  AgentLogins  $logins  The GitHub login behind a host user key.
      */
     public function __construct(private readonly AgentLogins $logins) {}
@@ -44,8 +56,11 @@ final class InstallationList
         // Eager-loaded rather than read per row. `Model::preventLazyLoading()` raises on a query
         // that hydrated more than one row, so a host running strict mode would take a
         // `LazyLoadingViolationException` off the first page holding two installations.
+        //
+        // Live sessions first and newest first, so the rows that get shown under the bound below
+        // are the ones an admin might act on rather than whichever the engine returned.
         $installations = Installation::query()
-            ->with('sessions')
+            ->with(['sessions' => static fn (Relation $sessions): Relation => $sessions->orderByDesc('id')])
             ->orderByDesc('id')
             ->limit(max(1, min($limit, self::MAX_PAGE)))
             ->get();
@@ -75,30 +90,46 @@ final class InstallationList
     }
 
     /**
-     * One installation's sessions, oldest first.
+     * One installation's live sessions, with what was left out said rather than implied.
+     *
+     * A session that has gone is counted, not listed. #75 decided a gone session stays visible on
+     * the presence panel, which is where a reader goes to look at one; here it would be a row with
+     * no control on it, and it is the kind of row that accumulates forever because nothing deletes
+     * a session.
      *
      * @param  Installation  $installation  The installation to read.
-     * @return list<array<string, mixed>> Its sessions.
+     * @return array{shown: list<array<string, mixed>>, hidden: int, gone: int} The sessions to
+     *                                                                          list, and the two
+     *                                                                          counts that are not
+     *                                                                          in that list.
      */
     private function sessionsOf(Installation $installation): array
     {
-        return array_values($installation->sessions
-            ->sortBy('id')
-            ->map(static fn (AgentSession $session): array => [
+        $live = $installation->sessions
+            ->filter(static fn (AgentSession $session): bool => $session->status !== AgentSessionStatus::Gone);
+
+        $shown = $live->take(self::SESSIONS_PER_INSTALLATION)->sortBy('id');
+
+        return [
+            // Every session here is live, so every one can be revoked. There is no `revocable`
+            // flag: a boolean that is true for every row it is ever computed on says nothing, and
+            // no test could tell it from a constant.
+            'shown' => array_values($shown->map(static fn (AgentSession $session): array => [
                 'id' => $session->id,
 
                 // Read from the row rather than derived from the contact time, for the reason #24
                 // records: the row is the decision every conditional update in the package makes.
                 'status' => $session->status->value,
 
-                // Decided here rather than by the view comparing a string. `gone` is the one
-                // terminal status, and a template that spelled it out would keep rendering a
-                // control that does nothing if the enum ever gained another.
-                'revocable' => $session->status !== AgentSessionStatus::Gone,
-
                 // Agent-supplied, charset-limited at the edge by `ProjectId`, and escaped by the
                 // view like every other string that reached this package from a machine
                 'project_id' => $session->project_id,
-            ])->all());
+            ])->all()),
+
+            // Said rather than left to be inferred from the length of the list. A truncated list
+            // and a complete one look identical, which is the whole reason these are here.
+            'hidden' => max(0, $live->count() - self::SESSIONS_PER_INSTALLATION),
+            'gone' => $installation->sessions->count() - $live->count(),
+        ];
     }
 }

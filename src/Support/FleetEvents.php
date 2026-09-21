@@ -102,9 +102,17 @@ final class FleetEvents
                 // it there.
                 //
                 // An admin's change to authorization has no session at all, so it names the
-                // developer who made it instead. The column means the same thing either way --
-                // the developer this event belongs to -- which is what keeps #29's rule intact for
-                // a restricted type recorded this way later.
+                // developer who made it instead.
+                //
+                // **That is a second meaning, and it is worth being exact about rather than
+                // glossing.** For a session's event this is the developer the event is ABOUT; for
+                // an admin's it is the developer who ACTED, and those are different people by
+                // construction, since an admin administers other developers' installations. #29
+                // reads this column only for a restricted type, and every type recorded this way
+                // today is unrestricted, so the two meanings do not currently meet. Marking an
+                // `installation.*` type restricted would make them meet, and the rule would then
+                // serve the event to the admin's sessions and hide it from the owner's -- which is
+                // backwards. Anything doing that needs a separate actor column first.
                 //
                 // Written as a conditional rather than `$session?->user_id ?? $actor`, which
                 // Larastan refuses at bleeding edge: `??` suppresses the null-property read on its

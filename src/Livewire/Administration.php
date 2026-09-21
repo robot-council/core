@@ -4,18 +4,14 @@ declare(strict_types=1);
 
 namespace RobotCouncil\Livewire;
 
-use Illuminate\Contracts\Auth\Access\Gate;
-use Illuminate\Contracts\Auth\Factory as AuthFactory;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Log;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
 use RobotCouncil\Access\Ability;
-use RobotCouncil\Access\Guard;
+use RobotCouncil\Access\CurrentDeveloper;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\Installation;
-use RobotCouncil\RobotCouncilServiceProvider;
-use RobotCouncil\Support\HostKey;
 use RobotCouncil\Support\InstallationList;
 use RobotCouncil\Support\Installations;
 use RobotCouncil\Support\SessionPresence;
@@ -198,27 +194,26 @@ final class Administration extends Component
      * from `/livewire/update` every middleware outside its own persistent list -- and what the
      * package does register there, `EnsureAllowlistedDeveloper`, admits developers as well as
      * admins. The allowlist is who may see the dashboard; this is who may change it.
+     *
+     * Through `Access\CurrentDeveloper` rather than a bare `Gate::authorize()`, which reads the
+     * host's default guard instead of the package's. That class records why.
      */
     private function authorizeAdmin(): void
     {
-        $this->service(Gate::class)->authorize(RobotCouncilServiceProvider::ADMIN_ABILITY);
+        $this->service(CurrentDeveloper::class)->authorizeAdmin();
     }
 
     /**
      * The signed-in developer's host key, for the event each change writes.
      *
-     * Read from the package's configured guard rather than the host's default, which is what
-     * `robot-council.auth.guard` exists to decide.
+     * The same principal `authorizeAdmin()` decided on, from the same place, so the account that
+     * was allowed to make the change is the account the change is recorded against.
      *
      * @return string|null The key, or null when the guard resolves nobody.
      */
     private function actor(): ?string
     {
-        $guard = $this->service(Guard::class);
-
-        $user = $this->service(AuthFactory::class)->guard($guard->name())->user();
-
-        return HostKey::tryFrom($user?->getAuthIdentifier());
+        return $this->service(CurrentDeveloper::class)->key();
     }
 
     /**

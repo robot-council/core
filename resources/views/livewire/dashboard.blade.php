@@ -12,11 +12,15 @@
 
     {{--
         Mounted only for an admin, so a developer who may see the dashboard never renders a panel
-        that would refuse them. The gate here decides what is *shown*; the component authorizes
-        every action and its own render regardless, because a control that is not drawn is not an
-        authorization boundary.
+        that would refuse them. This decides what is *shown*; the component authorizes every action
+        and its own render regardless, because a control that is not drawn is not an authorization
+        boundary.
+
+        `$isAdmin` is resolved in `Livewire\Dashboard` rather than asked for with `@can`, which
+        would resolve the host's default guard instead of `robot-council.auth.guard` and hide the
+        panel from a real admin on a host where those differ.
     --}}
-    @can(\RobotCouncil\RobotCouncilServiceProvider::ADMIN_ABILITY)
+    @if ($isAdmin)
         <livewire:robot-council-administration :poll-seconds="$pollSeconds" />
-    @endcan
+    @endif
 </div>
