@@ -8,8 +8,10 @@ use Carbon\CarbonInterface;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Carbon;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 use RobotCouncil\Support\FleetPresence as Presence;
+use RobotCouncil\Support\Scope;
 
 /**
  * Who is alive in the fleet, and what they are holding.
@@ -40,6 +42,38 @@ final class FleetPresence extends Component
     public int $pollSeconds = Dashboard::DEFAULT_POLL_SECONDS;
 
     /**
+     * Which sessions are shown: `live`, or every row including the ones that have gone.
+     *
+     * Not `#[Locked]`: it is the reader's own filter and they set it. A value this does not
+     * recognize falls back to `live` rather than throwing, because it arrives from a link.
+     */
+    #[Url(as: 'sessions', keep: false)]
+    public ?string $sessionScope = null;
+
+    /**
+     * Which locks are shown: those that still name a holder, or every row.
+     */
+    #[Url(as: 'locks', keep: false)]
+    public ?string $lockScope = null;
+
+    /**
+     * The id of the last session on the page before this one, or null at the head.
+     *
+     * Locked, like the task board's: it is a position in an ordering the server computed, and
+     * `showNextSessions()` below is how the rendered button moves it. A client may still call that
+     * action with any id it likes, which reaches nothing it could not already page to -- #73 gives
+     * a signed-in developer the whole fleet.
+     */
+    #[Locked]
+    public ?int $afterSession = null;
+
+    /**
+     * The name of the last lock on the page before this one, or null at the head.
+     */
+    #[Locked]
+    public ?string $afterLock = null;
+
+    /**
      * Take the polling interval from the page that mounts this component.
      *
      * @param  int  $pollSeconds  The interval the dashboard resolved.
@@ -50,6 +84,68 @@ final class FleetPresence extends Component
     }
 
     /**
+     * Show the sessions after the last one on this page.
+     *
+     * @param  int  $after  The id the last read handed back.
+     */
+    public function showNextSessions(int $after): void
+    {
+        $this->afterSession = max(0, $after);
+    }
+
+    /**
+     * Go back to the newest sessions.
+     */
+    public function showFirstSessions(): void
+    {
+        $this->afterSession = null;
+    }
+
+    /**
+     * Show the locks after the last one on this page.
+     *
+     * @param  string  $after  The name the last read handed back.
+     */
+    public function showNextLocks(string $after): void
+    {
+        $this->afterLock = $after;
+    }
+
+    /**
+     * Go back to the first locks.
+     */
+    public function showFirstLocks(): void
+    {
+        $this->afterLock = null;
+    }
+
+    /**
+     * Widen or narrow which sessions are listed, and start again from the head.
+     *
+     * The cursor is dropped, because a position in one filtered ordering means nothing in another.
+     *
+     * @param  string  $scope  The scope to read with.
+     */
+    public function showSessions(string $scope): void
+    {
+        $this->sessionScope = Scope::orDefault($scope, Scope::All)->value;
+
+        $this->showFirstSessions();
+    }
+
+    /**
+     * Widen or narrow which locks are listed, and start again from the head.
+     *
+     * @param  string  $scope  The scope to read with.
+     */
+    public function showLocks(string $scope): void
+    {
+        $this->lockScope = Scope::orDefault($scope, Scope::Live)->value;
+
+        $this->showFirstLocks();
+    }
+
+    /**
      * Render the panel.
      *
      * @param  Presence  $presence  The presence store.
@@ -57,7 +153,8 @@ final class FleetPresence extends Component
      */
     public function render(Presence $presence): View
     {
-        $locks = $presence->locks(self::LOCKS);
+        $sessions = $presence->sessions(self::SESSIONS, Scope::orDefault($this->sessionScope, Scope::All), $this->afterSession);
+        $locks = $presence->locks(self::LOCKS, Scope::orDefault($this->lockScope, Scope::Live), $this->afterLock);
 
         // Pinned, because whether the analyzer can resolve a package view depends on whether it
         // could boot the application, which differs between a developer's machine and CI
@@ -65,8 +162,11 @@ final class FleetPresence extends Component
         $template = 'robot-council::livewire.fleet-presence';
 
         return view($template, [
-            'sessions' => $presence->sessions(self::SESSIONS),
-            'locks' => array_map($this->withLapse(...), $locks),
+            'sessions' => $sessions,
+            'locks' => [...$locks, 'locks' => array_map($this->withLapse(...), $locks['locks'])],
+            'sessionScope' => Scope::orDefault($this->sessionScope, Scope::All),
+            'lockScope' => Scope::orDefault($this->lockScope, Scope::Live),
+            'scopes' => Scope::cases(),
         ]);
     }
 

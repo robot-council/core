@@ -8,9 +8,25 @@
 <div wire:poll.{{ Wire::of($pollSeconds) }}s class="grid gap-4 lg:grid-cols-2">
     <div class="card bg-base-100 shadow-sm">
         <div class="card-body">
-            <h2 class="card-title">Agents</h2>
+            <div class="flex flex-wrap items-center justify-between gap-2">
+                <h2 class="card-title">Agents</h2>
 
-            @if ($sessions === [])
+                {{-- The scope, and what each one holds. A count beside the button is what stops a
+                     narrowed list reading as an empty fleet. --}}
+                <div class="flex gap-1">
+                    <button type="button" wire:click="showSessions('{{ Wire::of(\RobotCouncil\Support\Scope::Live) }}')"
+                        class="btn btn-xs {{ $sessionScope === \RobotCouncil\Support\Scope::Live ? 'btn-primary' : 'btn-ghost' }}">
+                        Live ({{ $sessions['live'] }})
+                    </button>
+
+                    <button type="button" wire:click="showSessions('{{ Wire::of(\RobotCouncil\Support\Scope::All) }}')"
+                        class="btn btn-xs {{ $sessionScope === \RobotCouncil\Support\Scope::All ? 'btn-primary' : 'btn-ghost' }}">
+                        All ({{ $sessions['live'] + $sessions['gone'] }})
+                    </button>
+                </div>
+            </div>
+
+            @if ($sessions['sessions'] === [])
                 <p class="py-6 text-center opacity-60">No agent has enrolled yet.</p>
             @else
                 <div class="overflow-x-auto">
@@ -25,7 +41,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach ($sessions as $session)
+                            @foreach ($sessions['sessions'] as $session)
                                 <tr wire:key="session-{{ $session['id'] }}">
                                     <td>{{ $session['github_login'] ?? 'an unknown account' }}</td>
 
@@ -62,14 +78,46 @@
                     </table>
                 </div>
             @endif
+
+            {{-- Outside the empty branch, because a reader who has paged past the end still needs
+                 the way back. --}}
+            @if ($afterSession !== null || $sessions['more'])
+                <div class="flex items-center justify-end gap-2 pt-2">
+                    @if ($afterSession !== null)
+                        <button type="button" wire:click="showFirstSessions" class="btn btn-sm btn-ghost">Newest</button>
+                    @endif
+
+                    @if ($sessions['more'] && $sessions['cursor'] !== null)
+                        <button type="button" wire:click="showNextSessions({{ Wire::of($sessions['cursor']) }})"
+                            class="btn btn-sm">Older</button>
+                    @endif
+                </div>
+            @endif
         </div>
     </div>
 
     <div class="card bg-base-100 shadow-sm">
         <div class="card-body">
-            <h2 class="card-title">Locks</h2>
+            <div class="flex flex-wrap items-center justify-between gap-2">
+                <h2 class="card-title">Locks</h2>
 
-            @if ($locks === [])
+                <div class="flex gap-1">
+                    {{-- "Held" is held AND lapsed: a lease that has run out while the row still
+                         names somebody is exactly what a developer is hunting, so it must not be
+                         filtered away with the free ones. --}}
+                    <button type="button" wire:click="showLocks('{{ Wire::of(\RobotCouncil\Support\Scope::Live) }}')"
+                        class="btn btn-xs {{ $lockScope === \RobotCouncil\Support\Scope::Live ? 'btn-primary' : 'btn-ghost' }}">
+                        Held ({{ $locks['held'] }})
+                    </button>
+
+                    <button type="button" wire:click="showLocks('{{ Wire::of(\RobotCouncil\Support\Scope::All) }}')"
+                        class="btn btn-xs {{ $lockScope === \RobotCouncil\Support\Scope::All ? 'btn-primary' : 'btn-ghost' }}">
+                        All ({{ $locks['held'] + $locks['free'] }})
+                    </button>
+                </div>
+            </div>
+
+            @if ($locks['locks'] === [])
                 <p class="py-6 text-center opacity-60">Nothing is locked.</p>
             @else
                 <div class="overflow-x-auto">
@@ -83,7 +131,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach ($locks as $lock)
+                            @foreach ($locks['locks'] as $lock)
                                 <tr wire:key="lock-{{ $lock['id'] }}">
                                     <td class="font-medium">{{ $lock['name'] }}</td>
 
@@ -125,6 +173,19 @@
                             @endforeach
                         </tbody>
                     </table>
+                </div>
+            @endif
+
+            @if ($afterLock !== null || $locks['more'])
+                <div class="flex items-center justify-end gap-2 pt-2">
+                    @if ($afterLock !== null)
+                        <button type="button" wire:click="showFirstLocks" class="btn btn-sm btn-ghost">First</button>
+                    @endif
+
+                    @if ($locks['more'] && $locks['cursor'] !== null)
+                        <button type="button" wire:click="showNextLocks('{{ Wire::of($locks['cursor']) }}')"
+                            class="btn btn-sm">Next</button>
+                    @endif
                 </div>
             @endif
         </div>
