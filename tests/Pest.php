@@ -195,6 +195,69 @@ function urlAttributeInterpolations(string $template): array
 }
 
 /**
+ * Write a source to a scratch file, so a control can exercise a path-taking helper on it.
+ *
+ * @param  string  $contents  The source to write.
+ * @return string The path written.
+ */
+function writeProbe(string $contents): string
+{
+    $path = sys_get_temp_dir().'/rc-probe-'.bin2hex(random_bytes(6)).'.php';
+
+    file_put_contents($path, $contents);
+
+    return $path;
+}
+
+/**
+ * Class-name-shaped tokens written into a string literal under `src/`.
+ *
+ * **`src/` is not scanned for stylesheet classes** -- #111 measured that doing so put 30 KB of
+ * prose-derived CSS into the shipped artifact, because the extractor cannot tell `ordinal` in a
+ * docblock from a utility class. The cost of not scanning it is the opposite failure: a class name
+ * genuinely built in PHP reaches no stylesheet and the element renders unstyled, with nothing
+ * reporting it.
+ *
+ * **Comparing two builds cannot catch that.** Prose always yields candidates, so a build with
+ * `src/` added back always differs from one without -- the check would be red on every commit and
+ * say nothing. The distinction that does work is where the text lives: **prose lives in comments,
+ * a deliberate class name lives in a literal.** Comments are stripped before anything is read.
+ *
+ * The prefixes are the ones this package's views actually use, so the check is narrow by
+ * construction rather than by a list of exceptions. Verified against `src/` as it stands: no
+ * string literal matches, including `robot-council installation` and `tasks:create`, which a
+ * looser "hyphenated word" rule would have caught.
+ *
+ * @param  string  $source  The PHP file's contents.
+ * @return list<string> One finding per class-shaped token.
+ */
+function stylesheetClassesIn(string $source): array
+{
+    $prefixes = 'btn|badge|card|text|bg|flex|grid|gap|border|shadow|rounded|opacity|divide|space'
+        .'|items|justify|overflow|whitespace|font|table|py|px|pt|pb|mt|mb|ml|mr|[pmwh]';
+
+    $findings = [];
+
+    preg_match_all('/\'([^\'\\\\\n]*)\'|"([^"\\\\\n]*)"/', $source, $literals, PREG_SET_ORDER);
+
+    foreach ($literals as $literal) {
+        $value = $literal[2] ?? '';
+
+        if ($value === '') {
+            $value = $literal[1] ?? '';
+        }
+
+        foreach (preg_split('/\s+/', $value, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $token) {
+            if (preg_match('/^(?:'.$prefixes.')-[a-z0-9]+(?:-[a-z0-9]+)*$/D', $token) === 1) {
+                $findings[] = $token;
+            }
+        }
+    }
+
+    return $findings;
+}
+
+/**
  * Every interpolation the package writes into a Livewire or Alpine EXPRESSION, which Blade's
  * escaping does not protect.
  *
