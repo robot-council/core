@@ -169,10 +169,57 @@ jobs:
 
   # The one check the `main` ruleset requires. It always runs, and it passes only when every
   # job above succeeded, so a failed, cancelled, or skipped job all block the merge.
+  stylesheet:
+    name: stylesheet
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      # Pinned, and `npm ci` rather than `npm install`, because two builds of one source have to
+      # produce the same bytes before comparing them means anything. `package-lock.json` is
+      # committed for this reason -- see the note in CLAUDE.md on why it is, while composer.lock
+      # is not.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install the build toolchain
+        run: npm ci
+
+      # The check itself. `npm run check` rebuilds to a temporary file and `cmp`s it against the
+      # committed artifact, so this fails when a view or a Tailwind source changed without a
+      # rebuild -- the drift that is otherwise invisible, because the page still renders using
+      # whatever classes the previous build happened to emit.
+      - name: Fail if the committed stylesheet is stale
+        run: |
+          if ! npm run check; then
+            echo "::error file=resources/dist/dashboard.css::The committed stylesheet does not match its sources. Run 'npm run build' and commit resources/dist/dashboard.css."
+            exit 1
+          fi
+
+      # The acceptance criterion #66 asks to be demonstrated rather than asserted: a check that
+      # compares a rebuild against a committed file is only meaningful if the build is
+      # deterministic. Two builds on this runner, compared. If they ever differ, this job is
+      # measuring the toolchain rather than the content and says so here rather than failing
+      # mysteriously on somebody's pull request.
+      - name: Show the build is reproducible on this runner
+        run: |
+          npx tailwindcss --input resources/css/dashboard.css --output /tmp/first.css --minify
+          npx tailwindcss --input resources/css/dashboard.css --output /tmp/second.css --minify
+          if ! cmp /tmp/first.css /tmp/second.css; then
+            echo "::error::Two builds of the same sources differ. This check compares the toolchain, not the artifact."
+            exit 1
+          fi
+          echo "two builds agree: $(wc -c < /tmp/first.css) bytes"
+
   ci-passed:
     name: ci-passed
     if: always()
-    needs: [tests, phpstan, pint, rector, postgres]
+    needs: [tests, phpstan, pint, rector, postgres, stylesheet]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -183,6 +230,7 @@ jobs:
           PINT: ${{ needs.pint.result }}
           RECTOR: ${{ needs.rector.result }}
           POSTGRES: ${{ needs.postgres.result }}
+          STYLESHEET: ${{ needs.stylesheet.result }}
         run: |
-          echo "tests=$TESTS phpstan=$PHPSTAN pint=$PINT rector=$RECTOR postgres=$POSTGRES"
-          [ "$TESTS" = success ] && [ "$PHPSTAN" = success ] && [ "$PINT" = success ] && [ "$RECTOR" = success ] && [ "$POSTGRES" = success ]
+          echo "tests=$TESTS phpstan=$PHPSTAN pint=$PINT rector=$RECTOR postgres=$POSTGRES stylesheet=$STYLESHEET"
+          [ "$TESTS" = success ] && [ "$PHPSTAN" = success ] && [ "$PINT" = success ] && [ "$RECTOR" = success ] && [ "$POSTGRES" = success ] && [ "$STYLESHEET" = success ]
