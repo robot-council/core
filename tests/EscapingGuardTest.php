@@ -25,7 +25,10 @@ declare(strict_types=1);
  * @command  vendor/bin/pest --compact tests/EscapingGuardTest.php
  */
 
+use RobotCouncil\Access\Ability;
+use RobotCouncil\Models\TaskStatus;
 use RobotCouncil\Support\Locks;
+use RobotCouncil\Support\WireArgument;
 use RobotCouncil\Tests\Fixtures\HostileContent;
 
 beforeEach(function (): void {
@@ -265,6 +268,90 @@ it('puts no requester-supplied or agent-supplied value in a URL attribute', func
     expect($offenders)->toBeEmpty(
         'Interpolations in URL attributes that the server did not build:'.PHP_EOL.implode(PHP_EOL, $offenders)
     );
+});
+
+it('reports an interpolation in a Livewire expression, and leaves a guarded one alone', function (): void {
+    // The detector's own control, and it has to discriminate three things rather than two: an
+    // unguarded interpolation in an expression, a guarded one, and `wire:key`, which is not an
+    // expression at all.
+    expect(wireExpressionInterpolations('<button wire:click="act(\'{{ $x }}\')">go</button>'))
+        ->toBe(['wire:click="$x"']);
+
+    // Unquoted is no safer: the value is expression text either way.
+    expect(wireExpressionInterpolations('<button wire:click="act({{ $id }})">go</button>'))
+        ->toBe(['wire:click="$id"']);
+
+    // Routed through the whitelist, so nothing to report.
+    expect(wireExpressionInterpolations('<button wire:click="act({{ Wire::of($id) }})">go</button>'))
+        ->toBeEmpty();
+
+    // The attribute NAME position, which breaks out of the attribute rather than out of a string.
+    expect(wireExpressionInterpolations('<div wire:poll.{{ $seconds }}s></div>'))
+        ->toBe(['attribute name: {{$seconds}}']);
+
+    expect(wireExpressionInterpolations('<div wire:poll.{{ Wire::of($seconds) }}s></div>'))
+        ->toBeEmpty();
+
+    // `wire:key` is a literal identifier Livewire never evaluates, so it is deliberately exempt.
+    // Without this row the guard would demand a guarantee that buys nothing and the exemption
+    // would be invisible.
+    expect(wireExpressionInterpolations('<li wire:key="task-{{ $task[\'id\'] }}">x</li>'))
+        ->toBeEmpty();
+
+    // An ordinary attribute is not this check's business; `rawOutputIn()` covers the escaping.
+    expect(wireExpressionInterpolations('<p title="{{ $title }}">x</p>'))->toBeEmpty();
+});
+
+it('writes nothing into a Livewire expression that did not come from the whitelist', function (): void {
+    $views = bladeTemplatesIn(__DIR__.'/../resources/views');
+
+    expect($views)->not->toBeEmpty();
+
+    $offenders = [];
+
+    foreach ($views as $view) {
+        foreach (wireExpressionInterpolations((string) file_get_contents($view)) as $finding) {
+            $offenders[] = basename($view).' -- '.$finding;
+        }
+    }
+
+    // Escaping cannot help in an expression context, which is why the rule is a whitelist rather
+    // than an escaper: `Support\WireArgument::of()` refuses a value it cannot write instead of
+    // guessing how two parsers will read it.
+    expect($offenders)->toBeEmpty(
+        'Unguarded interpolations in Livewire expressions:'.PHP_EOL.implode(PHP_EOL, $offenders)
+    );
+});
+
+it('refuses a value that would break out of a Livewire expression', function (string $value): void {
+    expect(fn (): string => WireArgument::of($value))->toThrow(InvalidArgumentException::class);
+})->with([
+    'a quote, which closes the string literal' => ["a'b"],
+    'a double quote, which closes the attribute' => ['a"b'],
+    'a comma, which adds an argument' => ['a,b'],
+    'a parenthesis, which ends the call' => ['a)b'],
+    'a space' => ['a b'],
+    'an angle bracket' => ['a<b'],
+    'a backslash' => ['a\\b'],
+    'empty' => [''],
+]);
+
+it('accepts a value exactly at the length limit, and refuses one past it', function (): void {
+    // The boundary, from both sides. Without the accepting half, `>` and `>=` are the same check
+    // for every input any other test supplies, and the limit could move by one unnoticed.
+    $atTheLimit = str_repeat('a', WireArgument::MAX);
+
+    expect(WireArgument::of($atTheLimit))->toBe($atTheLimit)
+        ->and(fn (): string => WireArgument::of($atTheLimit.'a'))->toThrow(InvalidArgumentException::class, (string) WireArgument::MAX);
+});
+
+it('writes through the values an action argument is actually made of', function (): void {
+    // The control for the refusals above: four refusals prove nothing if it refuses everything.
+    // These are the three vocabularies the package interpolates today.
+    expect(WireArgument::of(42))->toBe('42')
+        ->and(WireArgument::of(Ability::CoordinatorDirect))->toBe('coordinator:direct')
+        ->and(WireArgument::of(TaskStatus::Pending))->toBe(TaskStatus::Pending->value)
+        ->and(WireArgument::of('claude-code'))->toBe('claude-code');
 });
 
 it('shows the javascript payload is detectable, against a sink no package view has', function (): void {

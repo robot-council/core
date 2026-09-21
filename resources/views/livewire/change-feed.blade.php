@@ -7,7 +7,9 @@
     reaches one. Neither guard inspects `wire:` attributes yet -- that is robot-council/core#81, and
     these are the sites it will have to bring into whatever rule it settles on.
 --}}
-<div wire:poll.{{ $pollSeconds }}s class="card bg-base-100 shadow-sm">
+
+@use('RobotCouncil\Support\WireArgument', 'Wire')
+<div wire:poll.{{ Wire::of($pollSeconds) }}s class="card bg-base-100 shadow-sm">
     <div class="card-body">
         <h2 class="card-title">Change feed</h2>
 
@@ -61,7 +63,7 @@
                 @endif
 
                 @if ($hasOlder && $oldest !== null)
-                    <button type="button" wire:click="showOlder({{ $oldest }})" class="btn btn-sm">Older</button>
+                    <button type="button" wire:click="showOlder({{ Wire::of($oldest) }})" class="btn btn-sm">Older</button>
                 @endif
             </div>
         @endif

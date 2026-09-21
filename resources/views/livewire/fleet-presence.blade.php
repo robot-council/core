@@ -3,7 +3,9 @@
     rendered unescaped and nothing reaches a URL or a `wire:` expression attribute -- the last of
     those is not yet covered by a guard, which is robot-council/core#81.
 --}}
-<div wire:poll.{{ $pollSeconds }}s class="grid gap-4 lg:grid-cols-2">
+
+@use('RobotCouncil\Support\WireArgument', 'Wire')
+<div wire:poll.{{ Wire::of($pollSeconds) }}s class="grid gap-4 lg:grid-cols-2">
     <div class="card bg-base-100 shadow-sm">
         <div class="card-body">
             <h2 class="card-title">Agents</h2>

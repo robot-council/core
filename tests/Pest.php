@@ -195,6 +195,77 @@ function urlAttributeInterpolations(string $template): array
 }
 
 /**
+ * Every interpolation the package writes into a Livewire or Alpine EXPRESSION, which Blade's
+ * escaping does not protect.
+ *
+ * **A `wire:click` value is evaluated, not displayed.** `{{ }}` turns a quote into `&#039;`, and an
+ * HTML parser decodes entities inside an attribute value before Livewire ever sees the expression
+ * -- so `act('{{ $x }}')` with `$x` of `a'b` becomes `act('a'b')` and the literal closes early.
+ * Measured rather than assumed. `#70` makes the same argument about URL attributes; this is its
+ * third case, and `#81` is where it was written down.
+ *
+ * Two positions are checked, because they fail differently:
+ *
+ * - **Inside the quoted value** of an attribute whose contents are an expression.
+ * - **Inside the attribute NAME**, which `wire:poll.{{ $seconds }}s` does. Breaking out there
+ *   leaves the attribute entirely and can open another one.
+ *
+ * **`wire:key` is deliberately not checked.** Livewire reads it as a literal string for DOM
+ * diffing and never evaluates it, so Blade's own escaping is the whole of what it needs. Treating
+ * it as an expression would demand a guarantee that buys nothing.
+ *
+ * An interpolation is accepted only when it is a `WireArgument::of()` call, which is a whitelist
+ * rather than an escaper: a value that would need escaping is refused at render time.
+ *
+ * @param  string  $template  The template source.
+ * @return list<string> One finding per unguarded interpolation, naming the attribute.
+ */
+function wireExpressionInterpolations(string $template): array
+{
+    $findings = [];
+
+    // The value position. `wire:key` is excluded by name; everything else under these prefixes is
+    // treated as an expression, which errs toward reporting.
+    preg_match_all('/((?:wire:|x-on:|x-bind:|x-data|x-show|x-model|@click)[\w.:-]*)\s*=\s*"([^"]*)"/', $template, $attributes, PREG_SET_ORDER);
+
+    foreach ($attributes as $attribute) {
+        if (str_starts_with($attribute[1], 'wire:key')) {
+            continue;
+        }
+
+        foreach (interpolationsIn($attribute[2]) as $interpolation) {
+            if (! str_contains($interpolation, '::of(')) {
+                $findings[] = sprintf('%s="%s"', $attribute[1], trim($interpolation));
+            }
+        }
+    }
+
+    // The name position: `wire:poll.{{ … }}s`.
+    preg_match_all('/(?:wire:|x-)[\w.:-]*\{\{(.*?)\}\}/s', $template, $names, PREG_SET_ORDER);
+
+    foreach ($names as $name) {
+        if (! str_contains($name[1], '::of(')) {
+            $findings[] = 'attribute name: {{'.trim($name[1]).'}}';
+        }
+    }
+
+    return $findings;
+}
+
+/**
+ * The `{{ … }}` interpolations in one attribute value, comments excluded.
+ *
+ * @param  string  $value  The attribute's value.
+ * @return list<string> The expression inside each pair of braces.
+ */
+function interpolationsIn(string $value): array
+{
+    preg_match_all('/\{\{(?!--)(.*?)\}\}/s', $value, $matches);
+
+    return $matches[1];
+}
+
+/**
  * Every construct in one Blade template that can put bytes into the document unescaped.
  *
  * Not only `{!! !!}`. Blade compiles three shapes that skip `e()`, and a guard that knew about one
