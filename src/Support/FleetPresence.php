@@ -69,6 +69,11 @@ final class FleetPresence
             'harness' => $session->installation->harness,
             'machine_label' => $session->installation->machine_label,
 
+            // Null for a session started without one, and rendered as such rather than filled in.
+            // It reaches the page as an agent-supplied string, which is why `ProjectId` bounds its
+            // charset at the edge and why the view escapes it like every other one.
+            'project_id' => $session->project_id,
+
             // Read from the row rather than recomputed from `last_seen_at`. #24 made the row the
             // decision, and a view that derived the status itself would disagree with the sweep
             // for as long as the sweep had not run -- showing `stale` to a developer while every

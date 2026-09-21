@@ -17,6 +17,7 @@
                             <tr>
                                 <th>Developer</th>
                                 <th>Machine</th>
+                                <th>Project</th>
                                 <th>Status</th>
                                 <th>Last seen</th>
                             </tr>
@@ -29,6 +30,19 @@
                                     <td>
                                         <div>{{ $session['machine_label'] ?? 'an unknown machine' }}</div>
                                         <div class="text-xs opacity-60">{{ $session['harness'] ?? '' }}</div>
+                                    </td>
+
+                                    {{-- What the session called its checkout, which is the only
+                                         thing telling two worktrees on one machine and harness
+                                         apart. Absent is shown as absent: a session that started
+                                         without one is still listed, and no name is invented for
+                                         it. Escaped like every agent-supplied string here. --}}
+                                    <td class="text-xs">
+                                        @if (($session['project_id'] ?? null) === null)
+                                            <span class="opacity-50">none</span>
+                                        @else
+                                            {{ $session['project_id'] }}
+                                        @endif
                                     </td>
 
                                     {{-- Read from the row, which #24 made the decision, rather than
