@@ -10,7 +10,9 @@
 
     Nothing on this page is a credential. `Support\InstallationList` reads no column that holds one.
 --}}
-<div wire:poll.{{ $pollSeconds }}s class="card bg-base-100 shadow-sm">
+
+@use('RobotCouncil\Support\WireArgument', 'Wire')
+<div wire:poll.{{ Wire::of($pollSeconds) }}s class="card bg-base-100 shadow-sm">
     <div class="card-body">
         <h2 class="card-title">Installations</h2>
 
@@ -47,7 +49,7 @@
                                     <span class="badge badge-sm">expired</span>
                                 @else
                                     <button type="button"
-                                        wire:click="revokeInstallation({{ $installation['id'] }})"
+                                        wire:click="revokeInstallation({{ Wire::of($installation['id']) }})"
                                         wire:confirm="Revoke this installation? Its credential and every session token it issued stop working immediately."
                                         class="btn btn-sm btn-warning">
                                         Revoke installation
@@ -69,7 +71,7 @@
                             @foreach ($grantable as $ability)
                                 @if (in_array($ability->value, $installation['abilities'], true))
                                     <button type="button"
-                                        wire:click="revokeAbility({{ $installation['id'] }}, '{{ $ability->value }}')"
+                                        wire:click="revokeAbility({{ Wire::of($installation['id']) }}, '{{ Wire::of($ability) }}')"
                                         class="btn btn-xs btn-primary">
                                         Revoke {{ $ability->value }}
                                     </button>
@@ -84,7 +86,7 @@
                                          regardless -- it is there because the blast radius does
                                          not look different from the other four on the page. --}}
                                     <button type="button"
-                                        wire:click="grant({{ $installation['id'] }}, '{{ $ability->value }}')"
+                                        wire:click="grant({{ Wire::of($installation['id']) }}, '{{ Wire::of($ability) }}')"
                                         @if ($ability === \RobotCouncil\Access\Ability::CoordinatorDirect)
                                             wire:confirm="Grant coordinator:direct? A session holding it can release, reassign or cancel any developer's task, and post directives to the whole fleet."
                                         @endif
@@ -112,7 +114,7 @@
                                              revoked. The reader bounds the list rather than the
                                              view hiding rows. --}}
                                         <button type="button"
-                                            wire:click="revokeSession({{ $session['id'] }})"
+                                            wire:click="revokeSession({{ Wire::of($session['id']) }})"
                                             class="btn btn-xs btn-ghost">
                                             Revoke session
                                         </button>

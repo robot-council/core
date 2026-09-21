@@ -3,7 +3,9 @@
     unescaped and no agent-supplied value reaches a URL attribute -- the #67 and #70 guards refuse
     both, and this is the page they were written for.
 --}}
-<div wire:poll.{{ $pollSeconds }}s class="card bg-base-100 shadow-sm">
+
+@use('RobotCouncil\Support\WireArgument', 'Wire')
+<div wire:poll.{{ Wire::of($pollSeconds) }}s class="card bg-base-100 shadow-sm">
     <div class="card-body">
         <div class="flex flex-wrap items-center justify-between gap-3">
             <h2 class="card-title">Queue</h2>
@@ -13,7 +15,7 @@
                     class="btn btn-xs {{ $status === '' ? 'btn-active' : 'btn-ghost' }}">All</button>
 
                 @foreach ($statuses as $option)
-                    <button type="button" wire:click="showStatus('{{ $option->value }}')"
+                    <button type="button" wire:click="showStatus('{{ Wire::of($option) }}')"
                         class="btn btn-xs {{ $status === $option->value ? 'btn-active' : 'btn-ghost' }}">
                         {{ $option->value }}
                     </button>
@@ -97,7 +99,7 @@
 
                 @if ($hasMore && $cursor)
                     <button type="button"
-                        wire:click="showNext({{ $cursor['priority'] }}, {{ $cursor['id'] }})"
+                        wire:click="showNext({{ Wire::of($cursor['priority']) }}, {{ Wire::of($cursor['id']) }})"
                         class="btn btn-sm">Next page</button>
                 @endif
             </div>
