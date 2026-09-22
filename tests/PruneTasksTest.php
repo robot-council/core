@@ -25,6 +25,11 @@ use RobotCouncil\Support\Tasks;
 use RobotCouncil\Tests\TestCase;
 
 beforeEach(function (): void {
+    // Frozen for the reason `PruneEventsTest` records: the task written "exactly at the cutoff" is
+    // positioned by one read of the clock and judged by another, and on Postgres the microseconds
+    // between them decide it (#98).
+    $this->freezeTime();
+
     $this->migrateUsersTableWithPackageColumns();
 
     $this->setAccessLists(developers: [4242]);

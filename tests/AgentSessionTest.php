@@ -14,6 +14,7 @@ declare(strict_types=1);
  */
 
 use Illuminate\Foundation\Auth\User;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Route;
 use Laravel\Sanctum\PersonalAccessToken;
 use RobotCouncil\Access\Ability;
@@ -38,6 +39,12 @@ beforeEach(function (): void {
 });
 
 it("starts a session carrying the installation's abilities", function (): void {
+    // Pinned for the reason #98 records: the token expiry below is asserted to the second, and
+    // unpinned the expected value is a second read of the clock taken when the assertion runs.
+    $this->freezeTime();
+
+    $startedAt = Carbon::now();
+
     $response = $this->machine($this->credential)
         ->postJson(route('robot-council.sessions.start'), ['project_id' => 'uams-statamic']);
 
@@ -57,7 +64,34 @@ it("starts a session carrying the installation's abilities", function (): void {
     $token = PersonalAccessToken::query()->where('tokenable_type', (new AgentSession)->getMorphClass())->sole();
 
     expect(Tokens::abilities($token))->toBe([Ability::TasksCreate->value, Ability::EventsPost->value])
-        ->and(dateValue($token->getAttribute('expires_at'))->timestamp)->toBe(now()->addMinutes(60)->timestamp);
+        ->and(dateValue($token->getAttribute('expires_at'))->timestamp)
+        ->toBe($startedAt->copy()->addMinutes(60)->timestamp);
+});
+
+it('measures the session token lifetime from the request, not from whenever it is read', function (): void {
+    // The session path's half of #98. It is a different computation from the installation
+    // credential's -- a session token's lifetime comes from `sessions.ttl_minutes` rather than
+    // `installation_lifetime_days` -- and the property is one the fleet depends on: a token's
+    // expiry is fixed when it is issued, so reading it later cannot move it.
+    Carbon::setTestNow(Carbon::parse('2026-01-01 12:00:00.999999'));
+
+    $startedAt = Carbon::now();
+
+    $this->machine($this->credential)
+        ->postJson(route('robot-council.sessions.start'), ['project_id' => 'uams-statamic'])
+        ->assertCreated();
+
+    // Across the second boundary, which is what used to make the assertion below fail at random
+    Carbon::setTestNow(Carbon::parse('2026-01-01 12:00:01.000001'));
+
+    $token = PersonalAccessToken::query()->where('tokenable_type', (new AgentSession)->getMorphClass())->sole();
+
+    expect(dateValue($token->getAttribute('expires_at'))->timestamp)
+        ->toBe($startedAt->copy()->addMinutes(60)->timestamp);
+
+    // The control: a fresh read of the clock is now one second out, so the assertion above is
+    // passing because the expiry is pinned rather than because the clock never moved
+    expect(now()->addMinutes(60)->timestamp)->toBe($startedAt->copy()->addMinutes(60)->addSecond()->timestamp);
 });
 
 it('authenticates an agent route as the session, not as the developer', function (): void {
