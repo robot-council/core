@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace RobotCouncil\Support;
 
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\DB;
 use RobotCouncil\Models\AgentSession;
+use RobotCouncil\Models\FleetEvent;
 
 /**
  * Where a session has read to in the change feed.
@@ -53,31 +55,49 @@ final class FeedCursors
      *
      * @param  AgentSession  $session  The reading session.
      * @param  int  $cursor  The position the reader acknowledged.
-     * @return bool Whether this moved the session forward.
      */
-    public function acknowledge(AgentSession $session, int $cursor): bool
+    public function acknowledge(AgentSession $session, int $cursor): void
     {
         if ($cursor <= 0) {
-            return false;
+            return;
         }
 
-        $changed = DB::table($session->getTable())
+        DB::table($session->getTable())
             ->where('id', $session->getKey())
             ->where('feed_cursor', '<', $cursor)
+
+            // **Bounded by the feed itself, in the same statement.** Nothing lowers this column,
+            // so an acknowledgement past the end of the feed is not a bad page, it is permanent:
+            // one request carrying a timestamp where an event id belongs would blind the session
+            // to everything the fleet says from then on, recoverable only by re-enrolling. A
+            // reader cannot have processed an event that does not exist, so a position beyond the
+            // last one is refused rather than stored.
+            //
+            // The bound lives here rather than in a validation rule because this is a public
+            // method on a store a host can resolve and call, and a rule in a controller protects
+            // the endpoint and nothing else. Expressed as "an event at or after this exists"
+            // rather than as a `max(id)` comparison: it says the same thing, needs no raw SQL,
+            // and is a primary-key range the engine can stop at the first row of. It is part of
+            // the same statement, so it replaces no round trip and adds none.
+            ->whereExists(fn (QueryBuilder $events): QueryBuilder => $events
+                ->from(new FleetEvent()->getTable())
+                ->where('id', '>=', $cursor))
             ->update(['feed_cursor' => $cursor]);
 
-        // **Not compared with 1.** `Builder::update()` returns rows CHANGED on MySQL rather than
-        // rows matched, so an acknowledgement of a position the row already holds reports 0 there
-        // and 1 elsewhere -- and here the `where` already excludes that case, so a zero means the
-        // row had moved on, which is a no-op rather than a lost race.
-        return $changed > 0;
+        // Nothing is returned and nothing checks a row count. `Builder::update()` reports rows
+        // CHANGED on MySQL rather than rows matched, and every reason this can write zero rows --
+        // the row already at or past this position, a cursor beyond the feed, a session deleted
+        // mid-request -- is a no-op rather than a lost race.
     }
 
     /**
      * Seed a session's position when it is created.
      *
-     * Written unconditionally, because the row was inserted by the same transaction and no other
-     * writer can have reached it: this is the one moment the column has no earlier value to defend.
+     * **Monotonic like every other write here, although the caller is the creating transaction.**
+     * The row it writes is one nothing else can have reached yet, so the guard buys nothing at the
+     * only call site -- and this is a public method on a store a host can resolve and call, where
+     * an unconditional write would rewind a live session to the start of the feed. A store that is
+     * safe only when called correctly is not safe.
      *
      * @param  AgentSession  $session  The session being started.
      * @param  int  $cursor  The feed's position at the moment it started.
@@ -86,6 +106,7 @@ final class FeedCursors
     {
         DB::table($session->getTable())
             ->where('id', $session->getKey())
+            ->where('feed_cursor', '<', $cursor)
             ->update(['feed_cursor' => $cursor]);
 
         // Kept in step on the instance the caller goes on to use, so a response built from it

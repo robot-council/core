@@ -58,12 +58,12 @@ final class ReadFeedTool extends Tool
     {
         return [
             'after' => $schema->integer()->description(
-                'The last event id you have seen. **Omit it and the feed resumes where you left '
-                .'off**, which is what you want on a first call and after a restart. Passing it '
-                .'also tells the service you have processed everything through it, so pass the '
-                .'`cursor` the previous page returned once you have acted on that page. 0 means '
-                ."the entire history back to the fleet's first event, which on a busy fleet is a "
-                .'great many pages.'
+                'The last event id you have seen, and your confirmation that you have acted on '
+                .'everything up to it. **Pass the `cursor` the previous page returned**, every '
+                .'call after the first, or the same events keep coming back. Omit it only on your '
+                .'first call and after a restart, where it means "resume where I left off". 0 '
+                ."means the entire history back to the fleet's first event, which on a busy fleet "
+                .'is a great many pages.'
             ),
             'limit' => $schema->integer()->description(sprintf('How many to examine, up to %d.', FleetFeed::MAX_PAGE)),
         ];

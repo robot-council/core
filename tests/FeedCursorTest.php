@@ -210,6 +210,40 @@ it('never drags a session backwards when it re-reads old history', function (): 
         ->and(storedCursor($id))->toBe($advanced);
 });
 
+it('refuses a position past the end of the feed', function (): void {
+    [$id, $token, $cursor] = startedSession($this, $this->mine);
+
+    $this->service(FleetEvents::class)->record(FleetEventType::Directive, null, 'Still here.');
+
+    // A millisecond timestamp where an event id belongs -- a plausible client bug, and nothing
+    // lowers this column, so storing it would blind the session to the fleet permanently.
+    $this->machine($token)
+        ->getJson(route('robot-council.events.index', ['after' => 1799999999999]))
+        ->assertOk();
+
+    expect(storedCursor($id))->toBe($cursor);
+
+    // The proof it is not merely unchanged but still working: the session reads the feed as
+    // before, from the position it really had.
+    $resumed = $this->machine($token)->getJson(route('robot-council.events.index'))->assertOk();
+
+    expect(bodiesOf(arrayValue($resumed->json('events'))))->toContain('Still here.');
+});
+
+it('refuses an empty after rather than reading it as zero', function (): void {
+    $this->service(FleetEvents::class)->record(FleetEventType::Directive, null, 'Before the session.');
+
+    [, $token] = startedSession($this, $this->mine);
+
+    // A malformed `?after=` must not become a walk of the fleet's whole history. It does not,
+    // and the reason is the validator rather than the controller: `sometimes` runs the `integer`
+    // rule because the key is present, and an empty string is not an integer. Pinned because the
+    // controller reads the argument with `filled()` on the strength of it.
+    $this->machine($token)
+        ->getJson(route('robot-council.events.index').'?after=')
+        ->assertStatus(422);
+});
+
 it('restates the acknowledged position when a session renews', function (): void {
     $installation = $this->approveInstallation($this->mine, [Ability::EventsPost->value], machineLabel: 'restarts');
 
