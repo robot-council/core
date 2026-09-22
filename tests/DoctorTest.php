@@ -128,12 +128,38 @@ it('says the migration check is undetermined when it cannot read what has run', 
     // **The third state, and the reason it exists.** Three of the wrong readings taken on the
     // deployment came from instruments that could not see what they were reporting on and reported
     // clean. A check that cannot reach its answer has to read differently from one that looked.
-    DB::statement('drop table migrations');
+    //
+    // **The default connection is pointed at an empty database rather than the real schema being
+    // dropped.** Dropping `migrations` works on SQLite, where every test gets a fresh in-memory
+    // database, and corrupts the next test on anything that persists -- measured on Postgres as
+    // `relation "users" already exists` in whichever test ran next. A transaction would not rescue
+    // it either, because MySQL commits DDL implicitly. Nothing here touches the real schema.
+    config()->set('database.connections.rc_empty_probe', [
+        'driver' => 'sqlite',
+        'database' => ':memory:',
+        'prefix' => '',
+        'foreign_key_constraints' => false,
+    ]);
 
-    $unknown = diagnosis('package migrations');
+    $default = config('database.default');
 
-    expect($unknown->status)->toBe(DiagnosisStatus::Undetermined)
-        ->and($unknown->detail)->toContain('migrate');
+    config()->set('database.default', 'rc_empty_probe');
+
+    try {
+        $unknown = diagnosis('package migrations');
+
+        expect($unknown->status)->toBe(DiagnosisStatus::Undetermined)
+            // It has to say what would make it reachable, not merely that it could not look
+            ->and($unknown->detail)->toContain('migrate');
+    } finally {
+        config()->set('database.default', $default);
+
+        DB::purge('rc_empty_probe');
+    }
+
+    // The control: back on the real connection the same check concludes, so the undetermined above
+    // is the table being unreadable rather than the check never reaching an answer at all.
+    expect(diagnosis('package migrations')->status)->toBe(DiagnosisStatus::Passed);
 });
 
 it('fails when the queue would run the mirror inside the request, and passes when it would not', function (): void {
