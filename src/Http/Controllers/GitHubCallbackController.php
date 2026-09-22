@@ -19,6 +19,7 @@ use RobotCouncil\Access\Allowlist;
 use RobotCouncil\Access\Guard;
 use RobotCouncil\Models\GithubIdentity;
 use RobotCouncil\Support\HostUsers;
+use RobotCouncil\Support\NewDeveloper;
 use RuntimeException;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
@@ -93,7 +94,7 @@ final class GitHubCallbackController
 
         // Sign a returning developer into the user their identity points at
         if (! $identity instanceof GithubIdentity) {
-            $user = $this->enroll($hostUsers, $githubId, $login, $account->getEmail());
+            $user = $this->enroll($hostUsers, $githubId, $login, $account->getEmail(), $account->getAvatar());
         } else {
             $user = $hostUsers->findUserFor($identity);
 
@@ -134,12 +135,18 @@ final class GitHubCallbackController
      * @param  int  $githubId  The account's numeric GitHub user ID.
      * @param  string  $login  The account's login, used as the display name.
      * @param  string|null  $email  The account's verified primary email, when it exposes one.
+     * @param  string|null  $avatarUrl  The account's avatar, passed through to the host's attributes.
      * @return Model The saved user.
      *
      * @throws ConflictHttpException When another user already holds that email address.
      */
-    private function enroll(HostUsers $hostUsers, int $githubId, string $login, ?string $email): Model
-    {
+    private function enroll(
+        HostUsers $hostUsers,
+        int $githubId,
+        string $login,
+        ?string $email,
+        ?string $avatarUrl
+    ): Model {
         // Never claim an existing account by email: only a recorded identity says who someone is
         if ($email !== null && $hostUsers->findByEmail($email) instanceof Model) {
             Log::warning('robot-council refused a GitHub account whose email another user holds.', [
@@ -167,10 +174,9 @@ final class GitHubCallbackController
         }
 
         try {
-            return $hostUsers->create([
-                'name' => $login,
-                'email' => $email,
-            ]);
+            // Through `createFor()`, so a host that bound its own `SuppliesUserAttributes` decides
+            // what the row carries. The package still writes it (#36).
+            return $hostUsers->createFor(new NewDeveloper($githubId, $login, $email, $avatarUrl));
         } catch (UniqueConstraintViolationException) {
             // **Two callbacks raced**, which is now the only state that reaches here: both read no
             // user, both tried to create one, and the loser is holding this exception. The

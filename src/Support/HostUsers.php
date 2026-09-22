@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 use RobotCouncil\Access\Guard;
 use RobotCouncil\Models\GithubIdentity;
+use RobotCouncil\Support\Contracts\SuppliesUserAttributes;
 use RuntimeException;
 
 /**
@@ -29,7 +30,8 @@ final class HostUsers
      */
     public function __construct(
         private readonly Repository $config,
-        private readonly Guard $guard
+        private readonly Guard $guard,
+        private readonly SuppliesUserAttributes $attributes
     ) {}
 
     /**
@@ -173,6 +175,23 @@ final class HostUsers
         $user->forceFill($attributes)->save();
 
         return $user;
+    }
+
+    /**
+     * Create the user row a developer signing in for the first time gets.
+     *
+     * **The attributes come from `Contracts\SuppliesUserAttributes`, which a host may rebind**, so
+     * a users table with a `NOT NULL` column the package knows nothing about -- `tenant_id`,
+     * `role_id`, a `first_name`/`last_name` pair -- can be filled without extending anything (#36).
+     * The package still constructs and saves the model, so what a developer's row is remains
+     * something it can state.
+     *
+     * @param  NewDeveloper  $developer  The account signing in, already admitted by the allowlist.
+     * @return Model The saved user.
+     */
+    public function createFor(NewDeveloper $developer): Model
+    {
+        return $this->create($this->attributes->for($developer));
     }
 
     /**
