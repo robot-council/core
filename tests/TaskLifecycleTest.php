@@ -369,7 +369,7 @@ it('gives one task to exactly one of two agents claiming it at once', function (
     // passes if some future read against the tasks table is added ahead of the write -- it would
     // just be silently measuring a different window.
     expect($injected)->toBe(1)
-        ->and(strtolower($anchor))->toStartWith('update "robot_council_tasks"');
+        ->and(isWriteTo($anchor, 'update', 'robot_council_tasks'))->toBeTrue();
 
     $held = Task::query()->findOrFail($task);
 
@@ -414,7 +414,7 @@ it('settles a release racing a reassignment on exactly one outcome', function ()
         ->postJson(route('robot-council.tasks.transition', ['task' => $task, 'transition' => 'release']));
 
     expect($injected)->toBe(1)
-        ->and(strtolower($anchor))->toStartWith('update "robot_council_tasks"');
+        ->and(isWriteTo($anchor, 'update', 'robot_council_tasks'))->toBeTrue();
 
     $final = Task::query()->findOrFail($task);
 
@@ -677,7 +677,7 @@ it('stores what an agent reports about a task it finished', function (): void {
 
     // Hand-encoded in the store, because `Eloquent\Builder::update()` applies no casts: a raw
     // array would reach the column as the string `Array`
-    expect(Task::query()->findOrFail($task)->result)->toBe(['commit' => 'abc1234', 'files' => 3]);
+    expect(orderedMeta(Task::query()->findOrFail($task)->result))->toBe(orderedMeta(['commit' => 'abc1234', 'files' => 3]));
 });
 
 it('gives back every task a session was holding when it went', function (string $status): void {
@@ -701,11 +701,11 @@ it('gives back every task a session was holding when it went', function (string 
     // Attributed to no session: this is what the service observed, not what the session that lost
     // the task had to say about it
     expect($event->agent_session_id)->toBeNull()
-        ->and($event->meta)->toBe([
+        ->and(orderedMeta($event->meta))->toBe(orderedMeta([
             'task_id' => $task,
             'to' => 'pending',
             'released_from' => $this->session->getKey(),
-        ]);
+        ]));
 })->with(['claimed', 'in_progress', 'blocked']);
 
 it('releases nothing held by a session that has not gone', function (string $presence): void {
@@ -737,7 +737,7 @@ it('releases the tasks on the next sweep when the release itself throws', functi
     $failed = 0;
 
     DB::listen(function (QueryExecuted $query) use (&$failed): void {
-        if ($failed > 0 || ! str_starts_with(strtolower(ltrim($query->sql)), 'update "robot_council_tasks"')) {
+        if ($failed > 0 || ! isWriteTo($query->sql, 'update', 'robot_council_tasks')) {
             return;
         }
 
@@ -779,11 +779,11 @@ it('records what a transition did in the feed', function (): void {
     $event = FleetEvent::query()->where('type', FleetEventType::TaskReassigned->value)->sole();
 
     expect($event->body)->toBe(sprintf('Task #%d reassigned.', $task))
-        ->and($event->meta)->toBe([
+        ->and(orderedMeta($event->meta))->toBe(orderedMeta([
             'task_id' => $task,
             'to' => 'claimed',
             'assigned_to' => $assignee->getKey(),
-        ])
+        ]))
         ->and($event->agent_session_id)->toBe($coordinatorSession->getKey())
         ->and($event->posted_with_coordinator)->toBeTrue();
 
@@ -794,7 +794,7 @@ it('records what a transition did in the feed', function (): void {
 
     $claimed = FleetEvent::query()->where('type', FleetEventType::TaskClaimed->value)->sole();
 
-    expect($claimed->meta)->toBe(['task_id' => $task, 'to' => 'claimed', 'assigned_to' => $this->session->getKey()]);
+    expect(orderedMeta($claimed->meta))->toBe(orderedMeta(['task_id' => $task, 'to' => 'claimed', 'assigned_to' => $this->session->getKey()]));
 });
 
 it('serves every task with the provenance the fleet decides trust on', function (): void {
@@ -1139,7 +1139,7 @@ it('keeps a task title out of the change feed', function (): void {
     // there whatever the task list decided
     expect($event->body)->toBe(sprintf('Task #%d created.', $task))
         ->and($event->body)->not->toContain('Something only my developer')
-        ->and($event->meta)->toBe(['task_id' => $task, 'project_id' => null]);
+        ->and(orderedMeta($event->meta))->toBe(orderedMeta(['task_id' => $task, 'project_id' => null]));
 });
 
 it('refuses a reassignment with nobody to reassign to', function (): void {
@@ -1188,7 +1188,7 @@ it('releases the other orphans when one of them fails', function (): void {
     $failed = 0;
 
     DB::listen(function (QueryExecuted $query) use (&$failed, $first): void {
-        if ($failed > 0 || ! str_starts_with(strtolower(ltrim($query->sql)), 'update "robot_council_tasks"')) {
+        if ($failed > 0 || ! isWriteTo($query->sql, 'update', 'robot_council_tasks')) {
             return;
         }
 

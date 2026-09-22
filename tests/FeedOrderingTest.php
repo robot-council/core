@@ -110,7 +110,8 @@ it('draws no key while another connection holds the feed', function (): void {
 
         DB::purge("{$default}_other");
     }
-})->group('cross-connection');
+})->group('cross-connection')
+    ->skip(notPostgres(...), 'Postgres only: this file sets `lock_timeout`, which MySQL spells differently, so elsewhere it stalls rather than failing.');
 
 it('writes again as soon as the other connection lets go', function (): void {
     $this->migrateUsersTableWithPackageColumns();
@@ -150,7 +151,8 @@ it('writes again as soon as the other connection lets go', function (): void {
 
         DB::purge("{$default}_other");
     }
-})->group('cross-connection');
+})->group('cross-connection')
+    ->skip(notPostgres(...), 'Postgres only: this file sets `lock_timeout`, which MySQL spells differently, so elsewhere it stalls rather than failing.');
 
 it('refuses to write the feed when the sentinel row it orders by is missing', function (): void {
     $this->migrateUsersTableWithPackageColumns();

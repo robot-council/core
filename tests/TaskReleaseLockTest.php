@@ -106,7 +106,8 @@ it('releases nothing while another connection holds the session row', function (
 
         DB::purge("{$default}_other");
     }
-})->group('cross-connection');
+})->group('cross-connection')
+    ->skip(notPostgres(...), 'Postgres only: this file sets `lock_timeout`, which MySQL spells differently, so elsewhere it stalls rather than failing.');
 
 it('releases the task as soon as the other connection lets go', function (): void {
     [$task, $session] = aTaskHeldByAGoneSession($this);
@@ -148,4 +149,5 @@ it('releases the task as soon as the other connection lets go', function (): voi
 
         DB::purge("{$default}_other");
     }
-})->group('cross-connection');
+})->group('cross-connection')
+    ->skip(notPostgres(...), 'Postgres only: this file sets `lock_timeout`, which MySQL spells differently, so elsewhere it stalls rather than failing.');
