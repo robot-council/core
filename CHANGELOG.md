@@ -2,6 +2,72 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.2.0 — The Coordination Service (2026-09-22)
+
+The first release with features: GitHub sign-in restricted to an allowlist, agent enrollment through the device-code flow, session presence, task claims, named locks with fence values, an ordered change feed, an MCP server, and a Livewire dashboard.
+
+**Breaking change** — `v0.1.0` was a package shell with no database and no features. Upgrading adds four required dependencies (`laravel/mcp`, `laravel/sanctum`, `laravel/socialite`, and `livewire/livewire`) and nine tables. Publish `config/robot-council.php`, run `robot-council:install` and then `php artisan migrate`, and set the GitHub OAuth credentials and the access lists before any route will serve.
+
+### What's new
+- Let a directive name the sessions expected to act [#139](https://github.com/robot-council/core/pull/139)
+- Report a host application's misconfiguration with robot-council:doctor [#134](https://github.com/robot-council/core/pull/134)
+- Prune agent sessions, the last table nothing deleted from [#130](https://github.com/robot-council/core/pull/130)
+- Bound the lock table, and share one fence sequence to make that safe [#129](https://github.com/robot-council/core/pull/129)
+- Prune finished tasks, which nothing deleted from [#127](https://github.com/robot-council/core/pull/127)
+- Prune the event feed, which nothing deleted from [#126](https://github.com/robot-council/core/pull/126)
+- Page and scope the admin panel's installation list [#122](https://github.com/robot-council/core/pull/122)
+- Page and filter the presence and lock lists [#121](https://github.com/robot-council/core/pull/121)
+- Administer installations and agent sessions from the dashboard [#116](https://github.com/robot-council/core/pull/116)
+- Show which checkout a session belongs to on the Agents list [#107](https://github.com/robot-council/core/pull/107)
+- Start a session at the head of the change feed, and index what the visibility filter reads [#88](https://github.com/robot-council/core/pull/88)
+- Show the fleet change feed on the dashboard [#85](https://github.com/robot-council/core/pull/85)
+- Show agent presence and held locks on the dashboard [#82](https://github.com/robot-council/core/pull/82)
+- Show the task queue on the dashboard [#79](https://github.com/robot-council/core/pull/79)
+- Mount the dashboard shell with Livewire, Mary UI and a compiled stylesheet [#78](https://github.com/robot-council/core/pull/78)
+- Serve the coordination tools over MCP with `laravel/mcp` [#65](https://github.com/robot-council/core/pull/65)
+- Acquire and release named locks with fence values [#64](https://github.com/robot-council/core/pull/64)
+- Claim and transition tasks atomically through the API [#58](https://github.com/robot-council/core/pull/58)
+- Track agent session presence [#53](https://github.com/robot-council/core/pull/53)
+- Record fleet events as an ordered change feed, and mirror them to Slack [#49](https://github.com/robot-council/core/pull/49)
+- Store the host application's user key as a string [#44](https://github.com/robot-council/core/pull/44)
+- Enroll agent machines through the device-code flow [#41](https://github.com/robot-council/core/pull/41)
+- Sign in allowlisted developers with GitHub [#35](https://github.com/robot-council/core/pull/35)
+
+### What's fixed
+- Guard the NOT NULL timestamp rule in the migrations, not on MySQL [#138](https://github.com/robot-council/core/pull/138)
+- Answer a stale GitHub callback with a page, not a 500 [#105](https://github.com/robot-council/core/pull/105)
+- Drop the events indexes by migration, not by editing the create [#100](https://github.com/robot-council/core/pull/100)
+- Reshape the feed read into a capped single-pass query [#99](https://github.com/robot-council/core/pull/99)
+- Order the task queue by an ascending key [#90](https://github.com/robot-council/core/pull/90)
+- Drop the foreign key on the event feed's session column [#89](https://github.com/robot-council/core/pull/89)
+
+### Security
+- Compare a host user key byte-exactly, whatever collation a host gives it [#133](https://github.com/robot-council/core/pull/133)
+- Guard what may be written into a Livewire expression [#120](https://github.com/robot-council/core/pull/120)
+- Hold every store's bounds in the store, not in a controller [#93](https://github.com/robot-council/core/pull/93)
+- Hold a task's bounds in the store, not in a validation rule [#92](https://github.com/robot-council/core/pull/92)
+- Refuse agent-supplied text in URL attributes [#71](https://github.com/robot-council/core/pull/71)
+- Guard agent-supplied text against rendering as markup [#68](https://github.com/robot-council/core/pull/68)
+
+### Maintenance and tooling
+- Ready the package metadata for publication [#144](https://github.com/robot-council/core/pull/144)
+- Drop the mysql CI job, keeping the SQLite matrix [#137](https://github.com/robot-council/core/pull/137)
+- Run CI against MySQL with explicit_defaults_for_timestamp off [#131](https://github.com/robot-council/core/pull/131)
+- Pin the clock where an expiry is asserted to the second [#128](https://github.com/robot-council/core/pull/128)
+- Store and check out every text file as LF [#125](https://github.com/robot-council/core/pull/125)
+- Ask cp1252 whether it can encode the character [#124](https://github.com/robot-council/core/pull/124)
+- Stop scanning `src/` for stylesheet classes [#123](https://github.com/robot-council/core/pull/123)
+- Close two gaps the blind-instrument rules do not cover [#119](https://github.com/robot-council/core/pull/119)
+- Cover the two dashboard guarantees #30 claimed and nothing asserted [#110](https://github.com/robot-council/core/pull/110)
+- Fail CI when the committed stylesheet is stale [#108](https://github.com/robot-council/core/pull/108)
+- Point the README at the CLI, and record that tools/list paginates [#97](https://github.com/robot-council/core/pull/97)
+- Pin that a throttled agent session is not marked gone [#96](https://github.com/robot-council/core/pull/96)
+- Say that the closing-keyword check reads the PR body, and run it every time [#95](https://github.com/robot-council/core/pull/95)
+- Make the closing-keyword check fail rather than print [#84](https://github.com/robot-council/core/pull/84)
+- Give the machine API one vocabulary [#45](https://github.com/robot-council/core/pull/45)
+- Run the test suite against Postgres in CI [#34](https://github.com/robot-council/core/pull/34)
+- Rename the package to robot-council/core after the organization move [#13](https://github.com/robot-council/core/pull/13)
+
 ## v0.1.0 — Composer Package Shell (2026-09-17)
 
 A pre-release shell of the Composer package: it requires PHP 8.4 or later and Laravel 13.23 or later, registers its service provider, and has no features yet.
