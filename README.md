@@ -73,6 +73,20 @@ their own throttling, and an application's `api` group often is not: `statefulAp
 matching request into a session request and answers the unauthenticated device endpoints with 419.
 Add what you need to `robot-council.routes.api_middleware`.
 
+**A deleted user can hold a developer's email, and only you can free it.** Sign-in never claims an
+existing account by address, so a developer whose GitHub email already belongs to a user is refused.
+If that user is invisible to your model — soft-deleted, or behind a tenant scope — the refusal names
+that as the cause and says an administrator has to restore, remove, or re-address the account.
+**Laravel's default error page does not print an exception's message**, so publish
+`errors/409.blade.php` and render `$exception->getMessage()` if you want the developer to read it
+rather than finding it in your log.
+
+**Index `lower(email)` on a large users table.** The address lookup is case-insensitive, because
+collations differ by host, and `lower(email) = ?` cannot use a plain b-tree index on `email`.
+Measured on PostgreSQL 17 with 200,000 users: a sequential scan touching 1,667 shared buffers,
+against 4 for the same lookup on an indexed exact match. It runs once per sign-in. `create index on
+users (lower(email))` is what this predicate uses; the package adds no index to your table.
+
 ## Enrolling an agent machine
 
 A developer approves one harness on one machine once, and that installation starts a session per
