@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RobotCouncil\Support;
 
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use RobotCouncil\Models\AgentSession;
@@ -40,6 +41,23 @@ final class FleetEvents
      * The row every writer locks. There is only ever one.
      */
     public const int LOCK_ROW = 1;
+
+    /**
+     * How many events one delete statement removes.
+     *
+     * A judgement about how long a single statement should hold rows in a table every writer in
+     * the fleet inserts into, not a behaviour: the floor at one is what `prune()` enforces and
+     * what has a test, and no input can tell this figure from one either side of it.
+     */
+    public const int PRUNE_BATCH = 1000;
+
+    /**
+     * How many batches one run of the prune may take.
+     *
+     * A ceiling so the first run after an upgrade is bounded rather than deleting a year in one
+     * go. What it does not delete, the next run does. Tuning for the same reason as the batch.
+     */
+    public const int PRUNE_BATCHES = 50;
 
     /**
      * @param  SlackMirror  $slack  Whether, and where, to mirror an event to Slack.
@@ -132,6 +150,58 @@ final class FleetEvents
 
             return $event;
         });
+    }
+
+    /**
+     * Delete events older than a cutoff, in batches.
+     *
+     * **Batched because one statement would hold the feed against its writers.** Every writer takes
+     * the sentinel row before inserting, and a delete large enough to matter is a delete long
+     * enough to keep a transaction open across the whole table -- so a month's rows would stop
+     * every agent's narration for as long as it ran. Each batch is its own statement and the loop
+     * yields between them.
+     *
+     * **It takes no sentinel lock.** The lock exists so that ids commit in order, which is a
+     * property of inserts; a delete draws no id and the readers page `id > cursor`, so nothing a
+     * delete does can reorder anything. Taking it here would serialise the prune against every
+     * writer in the fleet for no gain, which is the opposite of the batching above.
+     *
+     * A reader holding a cursor inside the deleted range is unaffected, because a cursor is a
+     * number rather than a row: `id > cursor` still answers for an id that no longer exists.
+     *
+     * @param  Carbon  $before  Delete events created strictly before this.
+     * @param  int  $batch  How many rows one statement removes.
+     * @param  int  $maxBatches  A ceiling, so a run is bounded even on a table nobody has pruned.
+     * @return int How many events were deleted.
+     */
+    public function prune(Carbon $before, int $batch = self::PRUNE_BATCH, int $maxBatches = self::PRUNE_BATCHES): int
+    {
+        $deleted = 0;
+
+        for ($i = 0; $i < max(1, $maxBatches); $i++) {
+            // `limit()` on a delete rather than a subquery: both Postgres and SQLite refuse
+            // `delete ... limit`, so the ids are selected first and deleted by key.
+            $ids = FleetEvent::query()
+                ->where('created_at', '<', $before)
+                ->orderBy('id')
+                ->limit(max(1, $batch))
+                ->pluck('id')
+                ->all();
+
+            if ($ids === []) {
+                break;
+            }
+
+            FleetEvent::query()->whereIn('id', $ids)->delete();
+
+            // Counted from the ids selected rather than from what `delete()` returned, which
+            // arrives untyped and would need a narrowing branch no input could reach. The two
+            // differ only if something else deleted the same rows in between, and nothing else
+            // deletes from this table at all -- which is the defect this method exists to fix.
+            $deleted += \count($ids);
+        }
+
+        return $deleted;
     }
 
     /**

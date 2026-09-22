@@ -137,10 +137,43 @@ php artisan robot-council:revoke-installation <installation>   # and every sessi
 php artisan robot-council:revoke-session <session>             # one process only
 php artisan robot-council:prune-device-codes                   # scheduled hourly
 php artisan robot-council:sweep-sessions                       # scheduled every minute
+php artisan robot-council:prune-events                         # scheduled daily at 03:10
 ```
 
 Granting or revoking an ability rewrites the session tokens already in flight, so it takes effect on
 the next request rather than within the hour a session token lives.
+
+## Retention
+
+**The change feed is the one table that grows without anybody's help.** Every task transition, lock,
+session change and line of narration is a row, and almost none of it is read twice: an agent pages
+the feed forward and a developer reads the head of it. So `robot-council:prune-events` deletes
+events past `robot-council.retention.events_days`, which defaults to **30** and is set with
+`ROBOT_COUNCIL_EVENT_RETENTION_DAYS`.
+
+```env
+ROBOT_COUNCIL_EVENT_RETENTION_DAYS=30   # 0 keeps everything
+```
+
+**Zero keeps everything**, for a host archiving on its own terms — the command says so and exits
+rather than reporting that it deleted nothing, because "pruned 0 events" and "pruning is switched
+off" are different states and only one of them wants looking at.
+
+What a host should watch:
+
+- **The row count, not the command's output.** A prune that is keeping up reports roughly a day's
+  events each run. A number that climbs run after run means the retention is longer than the disk.
+- **Agents that are offline longer than the retention.** The feed is how an agent without a push
+  connection catches up, and it pages `id > cursor`. A prune cannot strand one — a cursor is a
+  number, not a row — but an agent that was away for longer than the retention will have *missed*
+  events rather than read them late. If that matters for a fleet, the retention is the wrong
+  length for it.
+- **The prune takes no feed lock and deletes in batches**, so it does not block writers. It is safe
+  to run by hand at any time, and a host that wants it more often can schedule it itself with the
+  entry turned off in `robot-council.schedule.prune_events`.
+
+The other tables the package keeps deliberately — tasks, locks, agent sessions — are not pruned
+yet. Those are robot-council/core#55, #63 and #113, and they are the same shape as this one.
 
 ## The MCP server
 

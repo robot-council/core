@@ -186,6 +186,25 @@ final class Credentials
     }
 
     /**
+     * How many days the fleet's change feed is kept before a prune deletes it.
+     *
+     * Zero means forever, which is what a host archiving on its own terms wants -- so this is the
+     * one reader here that admits zero, and `bounded()` cannot be used for it.
+     *
+     * @return int The retention in days, or zero to keep everything.
+     */
+    public function eventRetentionDays(): int
+    {
+        $configured = $this->config->get('robot-council.retention.events_days');
+
+        if (! \is_int($configured) && (! \is_string($configured) || ! ctype_digit($configured))) {
+            return 30;
+        }
+
+        return max(0, (int) $configured);
+    }
+
+    /**
      * How many locks one session may hold at once.
      *
      * @return int The ceiling, at least one.

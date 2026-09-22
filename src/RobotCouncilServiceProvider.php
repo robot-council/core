@@ -23,6 +23,7 @@ use RobotCouncil\Access\Guard;
 use RobotCouncil\Console\GrantAbilityCommand;
 use RobotCouncil\Console\InstallCommand;
 use RobotCouncil\Console\PruneDeviceCodesCommand;
+use RobotCouncil\Console\PruneEventsCommand;
 use RobotCouncil\Console\RevokeAbilityCommand;
 use RobotCouncil\Console\RevokeInstallationCommand;
 use RobotCouncil\Console\RevokeSessionCommand;
@@ -118,6 +119,7 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
                 RevokeInstallationCommand::class,
                 RevokeSessionCommand::class,
                 PruneDeviceCodesCommand::class,
+                PruneEventsCommand::class,
                 SweepSessionsCommand::class,
             ]);
     }
@@ -535,18 +537,26 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
         // than finding entries in `schedule:list` it cannot remove
         $prune = $config->get('robot-council.schedule.prune_device_codes', true) === true;
         $sweep = $config->get('robot-council.schedule.sweep_sessions', true) === true;
+        $pruneEvents = $config->get('robot-council.schedule.prune_events', true) === true;
 
-        if (! $prune && ! $sweep) {
+        if (! $prune && ! $sweep && ! $pruneEvents) {
             return;
         }
 
-        $this->app->booted(static function () use ($prune, $sweep): void {
+        $this->app->booted(static function () use ($prune, $sweep, $pruneEvents): void {
             if ($prune) {
                 Schedule::command(PruneDeviceCodesCommand::class)->hourly();
             }
 
             if ($sweep) {
                 Schedule::command(SweepSessionsCommand::class)->everyMinute();
+            }
+
+            // Daily rather than hourly. The feed is pruned by age, so running it more often
+            // deletes the same rows a little sooner and costs a scan each time; and a host that
+            // wants it sooner after an incident can run the command by hand, which takes no lock.
+            if ($pruneEvents) {
+                Schedule::command(PruneEventsCommand::class)->dailyAt('03:10');
             }
         });
     }
