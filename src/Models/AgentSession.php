@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Table;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 use Laravel\Sanctum\HasApiTokens;
 use Laravel\Sanctum\PersonalAccessToken;
@@ -81,6 +82,40 @@ final class AgentSession extends Model implements AuthenticatableContract
     public function installation(): BelongsTo
     {
         return $this->belongsTo(Installation::class);
+    }
+
+    /**
+     * The tasks this session claimed, in any status.
+     *
+     * Exists for `Support\SessionPresence::prune()`, which will not delete a session while one of
+     * these is still in a held status. `robot_council_tasks.claimed_by` is `nullOnDelete`, so
+     * deleting the row would strip a task of its claimant while its status still says it is held,
+     * leaving a row no release path can reach.
+     *
+     * **Every task it ever claimed, not only the ones it holds**, because `claimed_by` is not
+     * cleared when a task finishes. The caller narrows by status; a relation that pretended to
+     * mean "held" would be wrong the moment somebody read it for anything else.
+     *
+     * @return HasMany<Task, $this> The tasks claimed by this session.
+     */
+    public function claimedTasks(): HasMany
+    {
+        return $this->hasMany(Task::class, 'claimed_by');
+    }
+
+    /**
+     * The locks naming this session as holder.
+     *
+     * The same shape as `claimedTasks()` and for the same reason: `robot_council_locks.holder_id`
+     * is `nullOnDelete`, so deleting the session would free a held lock without the feed event a
+     * release writes. A row whose lease has lapsed is already free, so the caller narrows by
+     * expiry rather than this relation doing it.
+     *
+     * @return HasMany<Lock, $this> The locks this session is named on.
+     */
+    public function heldLocks(): HasMany
+    {
+        return $this->hasMany(Lock::class, 'holder_id');
     }
 
     /**

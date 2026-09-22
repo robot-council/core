@@ -140,6 +140,7 @@ php artisan robot-council:sweep-sessions                       # scheduled every
 php artisan robot-council:prune-events                         # scheduled daily at 03:10
 php artisan robot-council:prune-tasks                          # scheduled daily at 03:20
 php artisan robot-council:prune-locks                          # scheduled daily at 03:30
+php artisan robot-council:prune-sessions                       # scheduled daily at 03:40
 ```
 
 Granting or revoking an ability rewrites the session tokens already in flight, so it takes effect on
@@ -202,8 +203,20 @@ name draws a number above everything the sequence has ever issued, so a name who
 and then taken again still gets a fence above the one its last holder carried. Upgrading seeds the
 sequence above the highest fence already issued, so no running installation can reissue a number.
 
-The one table the package still keeps forever — agent sessions — is robot-council/core#113, the
-same shape as these.
+Ended agent sessions have their own retention, `robot-council.retention.sessions_days`, defaulting
+to **30** and set with `ROBOT_COUNCIL_SESSION_RETENTION_DAYS`. Only a session that has **gone** is
+ever deleted: an `active` session is live and a `stale` one is a single request from active again,
+so age is the wrong question for both.
+
+**A session still holding a task or a live lock is never deleted, whatever its age.**
+`robot_council_tasks.claimed_by` and `robot_council_locks.holder_id` are both `nullOnDelete`, so
+deleting the row would strip a task of its claimant while its status still said it was held, and
+free a lock without the event a release writes. The session goes once whatever it held has been
+released or finished, which is why this prune is scheduled last of the four.
+
+Deleting a session leaves `robot_council_events.agent_session_id` pointing at nothing, which is
+deliberate (#50) and harmless: nothing reads it to decide who may see an event. Both the feed and
+the login lookup read the developer off the event itself.
 
 ## The MCP server
 

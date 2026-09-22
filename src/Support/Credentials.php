@@ -243,6 +243,26 @@ final class Credentials
     }
 
     /**
+     * How many days a session that has gone is kept before a prune deletes it.
+     *
+     * A session row is what a reader consults to find out what a process was after it ended, which
+     * is why #24 keeps it -- so this is longer than the lock retention and shorter than a task's.
+     * Zero means forever.
+     *
+     * @return int The retention in days, or zero to keep everything.
+     */
+    public function sessionRetentionDays(): int
+    {
+        $configured = $this->config->get('robot-council.retention.sessions_days');
+
+        if (! \is_int($configured) && (! \is_string($configured) || ! ctype_digit($configured))) {
+            return 30;
+        }
+
+        return max(0, (int) $configured);
+    }
+
+    /**
      * How many locks one session may hold at once.
      *
      * @return int The ceiling, at least one.

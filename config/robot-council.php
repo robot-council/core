@@ -212,6 +212,7 @@ return [
         'prune_events' => true,
         'prune_tasks' => true,
         'prune_locks' => true,
+        'prune_sessions' => true,
     ],
 
     /*
@@ -242,6 +243,11 @@ return [
         // reading. It is not the fence: that comes from one sequence shared by every name, so a
         // deleted row cannot lower the next number issued for the name it held.
         'locks_days' => (int) env('ROBOT_COUNCIL_LOCK_RETENTION_DAYS', 7),
+
+        // Longer than the others, because a session row is what a reader consults to find out what
+        // a process was after it ended -- #24 keeps it for exactly that. Only a session that has
+        // gone is ever deleted, and never one still holding a task or a lock.
+        'sessions_days' => (int) env('ROBOT_COUNCIL_SESSION_RETENTION_DAYS', 30),
     ],
 
     /*
