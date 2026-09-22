@@ -209,6 +209,31 @@ return [
     'schedule' => [
         'prune_device_codes' => true,
         'sweep_sessions' => true,
+        'prune_events' => true,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Retention
+    |--------------------------------------------------------------------------
+    |
+    | How long the fleet's history is kept before a scheduled command deletes it.
+    | These tables are written continuously and nothing else removes from them, so
+    | without a retention they grow for the life of the deployment.
+    |
+    | The feed is the one that grows fastest: every task transition, lock, session
+    | change and line of narration is a row. A day of a busy fleet is a lot of rows,
+    | and almost none of it is read twice -- an agent pages the feed forward and a
+    | developer reads the head of it.
+    |
+    | Set a value to zero to keep that table forever, which is what a host running
+    | its own archiving wants. The schedule entry above turns the command off
+    | entirely; this decides what it deletes when it runs.
+    |
+    */
+
+    'retention' => [
+        'events_days' => (int) env('ROBOT_COUNCIL_EVENT_RETENTION_DAYS', 30),
     ],
 
     /*
