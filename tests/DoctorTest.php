@@ -21,7 +21,12 @@ use RobotCouncil\Support\DiagnosisStatus;
 use RobotCouncil\Support\Doctor;
 
 beforeEach(function (): void {
-    $this->migrateUsersTableWithPackageColumns();
+    // **The schema is migrated per test that needs one, not in this hook.**
+    // `migrateUsersTableWithPackageColumns()` runs a full `migrate:fresh`, which costs about 12s
+    // per test on CI's MySQL container against 4s for this whole file locally. Eight of the
+    // fifteen tests below read only configuration and need no tables at all; running it for them
+    // took the `mysql` job's test step from 409s to 585s and past its timeout, with every step
+    // reporting success.
 
     // A configuration with nothing wrong with it, so each test below changes exactly one thing and
     // the failure it asserts can only have come from that.
@@ -58,6 +63,8 @@ function diagnosis(string $check): Diagnosis
 }
 
 it('passes every check on a configuration with nothing wrong with it', function (): void {
+    $this->migrateUsersTableWithPackageColumns();
+
     // The baseline the rest of the file depends on. If this drifts, every "one thing changed"
     // assertion below is testing two things.
     // Named rather than counted: when this breaks, the diff says which check and why, instead of
@@ -103,6 +110,8 @@ it('fails when sanctum.expiration is set, and passes when it is null', function 
 });
 
 it('fails when a package migration has not run, and passes when they all have', function (): void {
+    $this->migrateUsersTableWithPackageColumns();
+
     expect(diagnosis('package migrations')->status)->toBe(DiagnosisStatus::Passed);
 
     // Removing the row rather than rolling the migration back: the question is what the
@@ -125,6 +134,8 @@ it('fails when a package migration has not run, and passes when they all have', 
 });
 
 it('says the migration check is undetermined when it cannot read what has run', function (): void {
+    $this->migrateUsersTableWithPackageColumns();
+
     // **The third state, and the reason it exists.** Three of the wrong readings taken on the
     // deployment came from instruments that could not see what they were reporting on and reported
     // clean. A check that cannot reach its answer has to read differently from one that looked.
@@ -163,6 +174,8 @@ it('says the migration check is undetermined when it cannot read what has run', 
 });
 
 it('fails when the queue would run the mirror inside the request, and passes when it would not', function (): void {
+    $this->migrateUsersTableWithPackageColumns();
+
     config()->set('queue.default', 'database');
     config()->set('queue.connections.database.driver', 'database');
 
@@ -186,6 +199,8 @@ it('says the queue check is undetermined on a driver that keeps no table to read
 });
 
 it('fails when a job has waited past the threshold, and passes when one has not', function (): void {
+    $this->migrateUsersTableWithPackageColumns();
+
     config()->set('queue.default', 'database');
     config()->set('queue.connections.database.driver', 'database');
 
@@ -270,6 +285,8 @@ it('prints no secret, searched for rather than reasoned about', function (): voi
 });
 
 it('changes nothing, asserted against every table the package owns', function (): void {
+    $this->migrateUsersTableWithPackageColumns();
+
     // A command people run when worried has to be safe to run when worried.
     $tables = [
         'robot_council_installations',
@@ -291,6 +308,8 @@ it('changes nothing, asserted against every table the package owns', function ()
 });
 
 it('exits non-zero when a check failed and zero when none did', function (): void {
+    $this->migrateUsersTableWithPackageColumns();
+
     // **Each run is forced to completion before the next line changes anything.** `PendingCommand`
     // defers execution to `__destruct()`, so a command created here and left to the destructor runs
     // AFTER the configuration edits below -- the healthy case would then execute against the broken

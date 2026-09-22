@@ -179,7 +179,14 @@ jobs:
   mysql:
     name: mysql
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # **Twenty rather than ten, because this job is legitimately the slowest and was cancelled at
+    # ten with every step reporting success.** Measured on the `Execute tests` step: 328s when the
+    # job landed, 409s after #54 added seven `ALTER TABLE`s and a test file, 585s after #103 added
+    # fifteen more -- against about 30s for the same suite on SQLite. CI's MySQL container is far
+    # slower than a local one, so a `migrate:fresh` per test costs roughly 12s here and 0.3s there.
+    # A cancelled job reads as a failure with nothing failing in it, which is the worst shape for a
+    # required check.
+    timeout-minutes: 20
     services:
       mysql:
         image: mysql:8.4
