@@ -123,6 +123,35 @@
                 attempt to borrow your approval looks like.</p>
 
             @unless ($code->isDecided())
+                @if ($superseded->isNotEmpty())
+                    {{--
+                        Above the approve button, never below it: this is the only warning that an
+                        approval ENDS something. The harness and machine label are the requester's
+                        claims, so two of your own machines can collide on them -- and without this
+                        the approval would take out a working installation silently (#106).
+                    --}}
+                    <div class="notice">
+                        <h2>Approving will end {{ $superseded->count() === 1 ? 'an existing installation' : 'existing installations' }}</h2>
+
+                        <p>You already have {{ $superseded->count() === 1 ? 'an installation' : 'installations' }} for this
+                            harness and machine label. Approving replaces {{ $superseded->count() === 1 ? 'it' : 'them' }},
+                            and {{ $superseded->count() === 1 ? 'its credential stops' : 'their credentials stop' }} working
+                            immediately.</p>
+
+                        <ul>
+                            @foreach ($superseded as $installation)
+                                <li>
+                                    Enrolled {{ $installation->created_at?->diffForHumans() ?? 'at an unrecorded time' }},
+                                    expires {{ $installation->expires_at->diffForHumans() }}
+                                </li>
+                            @endforeach
+                        </ul>
+
+                        <p class="muted">If this is a different machine that happens to share a label, deny this request
+                            and enroll it again with <code>--machine-label</code> set to something else.</p>
+                    </div>
+                @endif
+
                 <form method="POST" action="{{ route('robot-council.enroll.approve') }}">
                     @csrf
                     <input type="hidden" name="user_code" value="{{ $code->user_code }}">
