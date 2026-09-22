@@ -3,17 +3,24 @@
     "description": "The core of Robot Council, a coordination service for fleets of AI coding agents",
     "keywords": [
         "laravel",
-        "robot-council"
+        "robot-council",
+        "mcp",
+        "ai-agents",
+        "coordination"
     ],
     "homepage": "https://github.com/robot-council/core",
     "license": "MIT",
     "authors": [
         {
             "name": "joshdaugherty",
-            "email": "joshdaugherty@gmail.com",
+            "email": "15675878+joshdaugherty@users.noreply.github.com",
             "role": "Developer"
         }
     ],
+    "support": {
+        "issues": "https://github.com/robot-council/core/issues",
+        "source": "https://github.com/robot-council/core"
+    },
     "require": {
         "php": "^8.4",
         "illuminate/contracts": "^13.23.0",
