@@ -13,6 +13,7 @@ use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
 use RobotCouncil\Models\FleetEventType;
 use RobotCouncil\Models\Lock;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -24,19 +25,23 @@ use Throwable;
  * the holder and an unexpired lease, so a session that was taken over cannot extend or release what
  * it no longer has.
  *
- * **A released lock keeps its row with no holder, and that is what makes the fence cheap.** Every
- * acquisition returns a number greater than any previously issued for that name, across releases as
- * well as takeovers, and a deleted row takes the only record of that name's last fence with it. The
- * number is incremented in the same statement that takes the lock, so it cannot be handed out twice.
- *
  * **A fence is what makes an advisory lease safe to act on.** Nothing here can stop a session that
  * lost its lease from carrying on, so the holder carries its fence into whatever it guards, and the
- * guarded thing refuses anything below the highest it has seen.
+ * guarded thing refuses anything below the highest it has seen. Every acquisition must therefore
+ * return a number greater than any previously issued for that name, across releases and takeovers
+ * alike.
  *
- * **Lock order: agent sessions, then locks, then the feed sentinel**, the same order the rest of the
- * package takes. The release step locks the session row before the lock row; nothing else here
- * touches a session row, and the `holder_id` foreign key's implicit parent lock is taken after the
- * lock row only where no path holds the two the other way round.
+ * **The fence comes from one sequence shared by every name, not from a counter on the row.** That
+ * is what lets a free row be deleted, which is what bounds this table (#63): a per-row `fence + 1`
+ * made the row the only record of what its name had issued, so deleting it and taking the name
+ * again restarted at 1 and handed a stale holder its authority back. Drawing from the sequence
+ * makes per-name monotonicity hold trivially, and a row nobody holds carries nothing.
+ *
+ * **Lock order: agent sessions, then locks, then the fence sequence, then the feed sentinel**, the
+ * same order the rest of the package takes. The release step locks the session row before the lock
+ * row; nothing else here touches a session row, and the `holder_id` foreign key's implicit parent
+ * lock is taken after the lock row only where no path holds the two the other way round. Only
+ * `acquire()` draws a fence, so the sequence has exactly one writer and adds no order to remember.
  */
 final class Locks
 {
@@ -50,6 +55,16 @@ final class Locks
      * How many times a contended write is retried before it is reported.
      */
     private const int ATTEMPTS = 3;
+
+    /**
+     * The one-row table holding the sequence every acquisition draws its fence from.
+     */
+    public const string FENCE_TABLE = 'robot_council_lock_fence';
+
+    /**
+     * The sequence row's key.
+     */
+    public const int FENCE_ROW = 1;
 
     /**
      * @param  Credentials  $credentials  The configured bounds.
@@ -125,6 +140,34 @@ final class Locks
             // update, so it adds no ordering edge.
             $before = Lock::query()->where('name', $name)->lockForUpdate()->first();
 
+            // **Drawn only when the locked row says the lock is takeable, and that is not an
+            // optimization.** The sequence row is one row for the whole fleet, and an exclusive
+            // lock on it is held until this transaction commits -- so drawing unconditionally
+            // would put every LOSING attempt on every contended name into one global queue, and
+            // one hot lock would serialize acquisitions of every other name in the fleet. Locks
+            // are the package's contention primitive; that is the last place to add a chokepoint.
+            //
+            // The condition mirrors the update's `where` exactly, including SQL's reading of a
+            // null `expires_at` as not matching. It cannot go stale between here and there,
+            // because `$before` was read with `lockForUpdate()` and this transaction holds that
+            // row -- and the update below is still what decides, so a disagreement would cost a
+            // burned number rather than a wrong answer.
+            // Both `instanceof` checks here are unkillable by construction, and annotated rather
+            // than left to be re-discovered: `insertOrIgnore` above guarantees the row exists, so
+            // `$before` is never null, and a row with a holder always carries an `expires_at`. The
+            // analyzer still requires both, because the types admit what the data does not.
+            // @pest-mutate-ignore: InstanceOfToTrue
+            $takeable = $before instanceof Lock
+                && ($before->holder_id === null
+                    || ($before->expires_at instanceof Carbon && $before->expires_at->lessThanOrEqualTo($now)));
+
+            // Never written when it is not takeable: the update matches no row, and `$taken`
+            // being 0 returns a conflict below. That also makes the literal unreachable, so no
+            // input can tell 0 from 1 or -1 here -- an equivalent mutant, annotated rather than
+            // covered by a test that would only be asserting the number nobody reads.
+            // @pest-mutate-ignore: IncrementInteger, DecrementInteger
+            $fence = $takeable ? $this->drawFence() : 0;
+
             $taken = Lock::query()
                 ->where('name', $name)
                 ->where(fn (Builder $free) => $free
@@ -138,9 +181,10 @@ final class Locks
                     'previous_holder_id' => DB::raw('holder_id'),
                     'holder_id' => $session->getKey(),
 
-                    // In the same statement that takes it, so no two acquisitions can read the
-                    // same number and hand it out twice
-                    'fence' => DB::raw('fence + 1'),
+                    // From the sequence rather than from this row, which is what lets the row be
+                    // deleted: `fence + 1` made the row itself the only record of what the name
+                    // had issued, so a deleted name restarted at 1 (#63)
+                    'fence' => $fence,
                     'acquired_at' => $now,
                     'expires_at' => $now->copy()->addSeconds($ttl),
                     'updated_at' => $now,
@@ -396,6 +440,60 @@ final class Locks
     }
 
     /**
+     * Take the next number from the fleet's one fence sequence.
+     *
+     * **One sequence shared by every name, rather than a counter per row.** Per-name monotonicity
+     * then holds trivially -- any later acquisition of any name draws a number above everything
+     * this sequence has ever issued -- which is what makes a lock row safe to delete. A per-row
+     * `fence + 1` made the row the only record of what its name had issued, so deleting it and
+     * taking the name again restarted at 1 and re-blessed a stale holder's fence (#63).
+     *
+     * The update takes the row's exclusive lock and holds it until the transaction commits, so the
+     * read that follows cannot see another writer's increment. It is the same one-row-lock shape
+     * `FleetEvents::holdTheFeed()` uses, and it is drawn in the same place in the order.
+     *
+     * **`update()` reporting 0 here means the row is missing, not that nothing changed.** That
+     * reading is unsafe in general on MySQL, which counts rows CHANGED -- but `value + 1` never
+     * leaves a row saying what it already said, so changed and matched cannot differ.
+     *
+     * @return int The number to write, greater than every number issued before it.
+     *
+     * @throws RuntimeException When the sequence row is missing, because handing out a fence that
+     *                          is not above the last one is worse than refusing the acquisition.
+     */
+    private function drawFence(): int
+    {
+        $advanced = DB::table(self::FENCE_TABLE)
+            ->where('id', self::FENCE_ROW)
+            ->update(['value' => DB::raw('value + 1')]);
+
+        if ($advanced !== 1) {
+            throw new RuntimeException(sprintf(
+                'robot-council: the lock fence row %s.%d is missing, so a fence above every previously issued one cannot be drawn. Re-run the package migrations.',
+                self::FENCE_TABLE,
+                self::FENCE_ROW
+            ));
+        }
+
+        $drawn = DB::table(self::FENCE_TABLE)->where('id', self::FENCE_ROW)->value('value');
+
+        if (! is_numeric($drawn)) {
+            throw new RuntimeException(sprintf(
+                'robot-council: the lock fence row %s.%d does not hold a number.',
+                self::FENCE_TABLE,
+                self::FENCE_ROW
+            ));
+        }
+
+        // No input can kill the cast on SQLite, where `value()` already returns an int. It earns
+        // its place on Postgres, whose driver can hand a bigint back as a string, and the suite
+        // has no engine that can tell the two apart -- so it is annotated rather than pretended to
+        // be covered.
+        // @pest-mutate-ignore: RemoveIntegerCast
+        return (int) $drawn;
+    }
+
+    /**
      * Work out why a conditional write on a lock matched nothing.
      *
      * @param  string  $name  The name that was written.
@@ -435,5 +533,69 @@ final class Locks
         // ceiling. All of them are the same statement: what this session asked for is not available
         // any more, and the lock is not somebody else's to be refused from.
         return Outcome::Conflict;
+    }
+
+    /**
+     * How many lock rows one delete statement removes.
+     *
+     * Tuning rather than behavior, for the reason `FleetEvents::PRUNE_BATCH` records.
+     */
+    public const int PRUNE_BATCH = 500;
+
+    /**
+     * How many batches one run may take.
+     */
+    public const int PRUNE_BATCHES = 50;
+
+    /**
+     * Delete locks that nobody holds and that nothing has touched since a cutoff, in batches.
+     *
+     * **This is only safe because the fence is a shared sequence.** While `fence` was a per-row
+     * counter, the row was the only record of what its name had issued, so deleting it let the
+     * name restart at 1 and re-bless the fence a stale holder was still carrying. `drawFence()`
+     * draws above everything ever issued, so a free row carries nothing anybody needs (#63).
+     *
+     * **A lock anybody holds is never deleted, whatever its age.** "Held" is the same condition
+     * `acquire()` refuses to take a lock from: a holder, and a lease that has not lapsed. A row
+     * whose lease has lapsed is free -- the next acquisition would take it without asking -- so
+     * age is the only remaining question for it.
+     *
+     * `updated_at` rather than `expires_at` decides that age, because it is the one column every
+     * path writes: a release sets it with no expiry change, and using `expires_at` would keep a
+     * row released this morning for as long as its original lease had left to run.
+     *
+     * @param  Carbon  $before  Delete locks untouched since this.
+     * @param  int  $batch  How many rows one statement removes.
+     * @param  int  $maxBatches  A ceiling, so a run is bounded even on a table nobody has pruned.
+     * @return int How many locks were deleted.
+     */
+    public function prune(Carbon $before, int $batch = self::PRUNE_BATCH, int $maxBatches = self::PRUNE_BATCHES): int
+    {
+        $at = Carbon::now();
+
+        $deleted = 0;
+
+        for ($i = 0; $i < max(1, $maxBatches); $i++) {
+            $ids = Lock::query()
+                ->where(fn (Builder $free) => $free
+                    ->whereNull('holder_id')
+                    ->orWhere('expires_at', '<=', $at))
+                ->where('updated_at', '<', $before)
+                ->orderBy('id')
+                ->limit(max(1, $batch))
+                ->pluck('id')
+                ->all();
+
+            if ($ids === []) {
+                break;
+            }
+
+            Lock::query()->whereIn('id', $ids)->delete();
+
+            // Counted from the ids selected, for the reason `FleetEvents::prune()` records.
+            $deleted += \count($ids);
+        }
+
+        return $deleted;
     }
 }
