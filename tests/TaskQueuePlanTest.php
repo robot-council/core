@@ -47,7 +47,7 @@ const PLAN_COMPOSITE_INDEX = ['status', 'queue_rank', 'id'];
 const PLAN_QUEUE_INDEX = ['queue_rank', 'id'];
 
 beforeEach(function (): void {
-    if (DB::connection()->getDriverName() !== 'pgsql') {
+    if (notPostgres()) {
         $this->markTestSkipped('The planner being asked is Postgres.');
     }
 
@@ -80,7 +80,7 @@ function seedQueue(string $profile = 'aged'): void
     // Each status repeated by its share in a hundred rows.
     $mix = $profile === 'aged'
         ? array_merge(
-            array_fill(0, 92, TaskStatus::Done->value),
+            array_fill(0, 91, TaskStatus::Done->value),
             array_fill(0, 3, TaskStatus::Failed->value),
             array_fill(0, 2, TaskStatus::Cancelled->value),
             array_fill(0, 1, TaskStatus::Blocked->value),
@@ -99,7 +99,14 @@ function seedQueue(string $profile = 'aged'): void
 
             $rows[] = [
                 'title' => 'Task '.$n,
-                'status' => $mix[$n % \count($mix)],
+
+                // **Advanced once per priority cycle, not once per row.** Indexing the mix by
+                // `$n % count($mix)` aliases the two columns whenever their lengths share a
+                // factor: at a hundred shares and ten priorities, `$n % 100` fixes `$n % 10`, so
+                // every status collapses onto one `queue_rank` and the filtered plans measure a
+                // table no fleet could produce. Stepping every tenth row instead gives each
+                // status the full spread of priorities and keeps the shares exact.
+                'status' => $mix[intdiv($n, Task::MAX_PRIORITY + 1) % \count($mix)],
                 'priority' => $priority,
 
                 // Written the way `Models\Task`'s mutator writes it, because the fixture bypasses
@@ -130,25 +137,32 @@ function seedQueue(string $profile = 'aged'): void
  */
 function capturedQueueSql(?TaskStatus $status = null, ?array $after = null): array
 {
-    $captured = [];
-
-    DB::listen(function (object $query) use (&$captured): void {
-        $sql = stringValue($query->sql ?? null);
-
-        if (str_contains($sql, 'robot_council_tasks')) {
-            $captured[] = [$sql, array_values(arrayValue($query->bindings ?? []))];
-        }
-    });
+    // **The query log rather than `DB::listen`.** Laravel offers no way to remove a listener, so
+    // capturing that way either registers one per call -- each surviving closure then appending
+    // every seeded insert to an array nothing reads again -- or keeps a static that a fresh
+    // Testbench application silently invalidates. The log is flushed, filled, and read back in
+    // three statements, with nothing left behind.
+    //
+    // It also keeps the capture legible to Rector, which cannot see a closure writing to a
+    // by-reference `use` and concluded the emptiness guard below was always true.
+    DB::connection()->flushQueryLog();
+    DB::connection()->enableQueryLog();
 
     // `everything()` rather than the private query builder: the board's read is the one being
     // measured, and the reads it makes afterwards touch other tables.
     app(TaskList::class)->everything($status, 26, $after);
 
-    if ($captured === []) {
-        throw new RuntimeException('No query against robot_council_tasks was captured.');
+    DB::connection()->disableQueryLog();
+
+    foreach (DB::connection()->getQueryLog() as $entry) {
+        $sql = stringValue(arrayValue($entry)['query'] ?? null);
+
+        if (str_contains($sql, 'robot_council_tasks')) {
+            return [$sql, array_values(arrayValue(arrayValue($entry)['bindings'] ?? []))];
+        }
     }
 
-    return $captured[0];
+    throw new RuntimeException('No query against robot_council_tasks was captured.');
 }
 
 /**
@@ -301,7 +315,24 @@ it('records the full plan matrix', function (): void {
 
             DB::statement('analyze robot_council_tasks');
 
-            $report .= "\n## ".$label."\n";
+            // The indexes the engine reports, not the ones this loop believes it left behind. A
+            // report whose headings and contents disagree is worse than no report, because every
+            // figure read out of it is attributed to the wrong configuration.
+            $present = array_values(array_filter(
+                DB::connection()->getSchemaBuilder()->getIndexListing('robot_council_tasks'),
+                fn (string $name): bool => str_contains($name, 'queue_rank')
+            ));
+
+            sort($present);
+
+            $expected = array_map(planIndexName(...), $wanted);
+
+            sort($expected);
+
+            expect($present)->toBe($expected);
+
+            $report .= "\n## ".$label."\n\nIndexes present: ".implode(', ', $present)
+                ."\nProfile: ".$profile."\n";
 
             foreach ($shapes as $name => [$status, $after]) {
                 [$sql, $bindings] = capturedQueueSql($status, $after);
@@ -317,11 +348,23 @@ it('records the full plan matrix', function (): void {
         }
     }
 
-    if (! is_dir('build')) {
-        mkdir('build', 0o777, true);
+    // Anchored on this file rather than the cwd: a run started from elsewhere would otherwise
+    // write the report somewhere else and still pass.
+    $directory = __DIR__.'/../build';
+
+    if (! is_dir($directory) && ! mkdir($directory, 0o777, true) && ! is_dir($directory)) {
+        throw new RuntimeException('Could not create '.$directory.'.');
     }
 
-    file_put_contents('build/plans-pgsql.md', $report);
+    if (file_put_contents($directory.'/plans-pgsql.md', $report) === false) {
+        throw new RuntimeException('Could not write the plan report.');
+    }
 
-    expect($report)->toContain('the board default');
+    // Not that the report mentions the shapes -- it composed those headings itself, so that would
+    // hold however wrong the plans were. That the two configurations which must differ actually
+    // do: with the queue index the board's read is walked, and without it Postgres scans and sorts.
+    expect($report)
+        ->toContain('Index Scan using '.planIndexName(PLAN_QUEUE_INDEX))
+        ->toContain('Seq Scan on robot_council_tasks')
+        ->toContain('Sort Method:');
 });
