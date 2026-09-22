@@ -141,9 +141,12 @@ return [
     | `gone_after_minutes` is always read as at least a minute past
     | `stale_after_minutes`, so the warning state is reachable rather than
     | skipped. Both are measured by `robot-council:sweep-sessions`, so neither
-    | can fire sooner than the interval that command runs on, and both are
-    | wall-clock times: leave `app.timezone` at UTC, or a daylight-saving
-    | transition moves every session's contact time by an hour at once.
+    | can fire sooner than the interval that command runs on.
+    |
+    | Both measure ELAPSED time, and `app.timezone` does not reach them. Contact
+    | times and cutoffs are written, compared, and read back on one fixed clock
+    | (`Support\PresenceClock`, which is UTC), so a daylight-saving transition
+    | moves neither. Set `app.timezone` to whatever suits the application.
     |
     */
 

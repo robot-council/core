@@ -7,8 +7,8 @@ namespace RobotCouncil\Console;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
-use Illuminate\Support\Carbon;
 use RobotCouncil\Support\Credentials;
+use RobotCouncil\Support\PresenceClock;
 use RobotCouncil\Support\SessionPresence;
 
 /**
@@ -42,7 +42,7 @@ final class PruneSessionsCommand extends Command
             return self::SUCCESS;
         }
 
-        $before = Carbon::now()->subDays($days);
+        $before = PresenceClock::now()->subDays($days);
 
         $deleted = $presence->prune($before);
 
