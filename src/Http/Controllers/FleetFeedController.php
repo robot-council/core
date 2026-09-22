@@ -32,9 +32,18 @@ final class FleetFeedController
             'limit' => ['sometimes', 'integer', 'min:1', 'max:'.FleetFeed::MAX_PAGE],
         ]);
 
+        // `null` rather than `integer('after')`, which answers 0 for a missing argument and is
+        // indistinguishable from a client asking for the whole history. Null means resume from
+        // where this session last acknowledged (#86).
+        //
+        // `filled()` rather than `has()`, which differ only for a present-but-empty `?after=`.
+        // **Today that never arrives here**: measured, the `integer` rule refuses an empty string
+        // and the request is a 422 before this runs. This is what keeps that from mattering if
+        // the rule is ever loosened, because `has()` would then read `?after=` as an explicit 0
+        // and walk the whole feed. `'0'` is not blank, so an explicit zero still means what it says.
         $page = $feed->after(
             Principal::agentSession($request),
-            $request->integer('after'),
+            $request->filled('after') ? $request->integer('after') : null,
             $request->integer('limit', FleetFeed::MAX_PAGE)
         );
 

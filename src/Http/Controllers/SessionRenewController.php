@@ -32,7 +32,7 @@ final class SessionRenewController
      * @param  string  $session  The session's ID, from the route.
      * @param  AgentSessions  $sessions  The session store.
      * @param  Credentials  $credentials  The configured lifetimes.
-     * @return JsonResponse The session's ID and its new token.
+     * @return JsonResponse The session's ID, its new token, and where it has read to.
      *
      * @throws NotFoundHttpException When no such session exists.
      * @throws AccessDeniedHttpException When the session belongs to another installation.
@@ -68,6 +68,12 @@ final class SessionRenewController
             'token' => $issued->plainTextToken,
             'abilities' => $issued->abilities,
             'expires_in' => $credentials->sessionTtlMinutes() * 60,
+
+            // The position this session last acknowledged, restated rather than moved. A process
+            // that restarted while its token was still valid renews rather than re-enrolling, and
+            // this is the only thing that lets it resume instead of choosing between replaying the
+            // whole feed and guessing (#86).
+            'feed_cursor' => $issued->feedCursor,
         ], Response::HTTP_OK);
     }
 }

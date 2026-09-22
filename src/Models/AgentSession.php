@@ -39,6 +39,7 @@ use RobotCouncil\Support\PresenceTimestamp;
  * @property AgentSessionStatus $status
  * @property Carbon $last_seen_at
  * @property string|null $project_id
+ * @property int $feed_cursor
  * @property-read Installation $installation
  *
  * @phpstan-use HasApiTokens<PersonalAccessToken>
@@ -70,6 +71,7 @@ final class AgentSession extends Model implements AuthenticatableContract
     {
         return [
             'installation_id' => 'integer',
+            'feed_cursor' => 'integer',
             'status' => AgentSessionStatus::class,
             // Not `datetime`: that hydrates in the application's timezone, and the presence
             // sweep re-binds the value it read into the `where` that commits a status. See

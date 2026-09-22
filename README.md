@@ -160,8 +160,8 @@ Every response that carries a bearer token names it `token`, every expiry is an 
 seconds, and `abilities` always describes the token beside it. Where a response also names
 `granted_abilities`, that is what a *different* token will carry -- the sessions an installation
 credential will start. Starting a session also names a `feed_cursor`, which is where the change feed
-stood at that moment; a renewal does not, because it must not move a position the process already
-holds.
+stood at that moment; a renewal names the position the session has since acknowledged, restated
+rather than moved, so a process that restarted can pick up where it was.
 
 **This flow is device-code shaped, not [RFC 8628](https://www.rfc-editor.org/rfc/rfc8628)
 conformant**, and the differences are deliberate:
@@ -500,13 +500,24 @@ login, and whether the coordinator's ability was held — never anything the pos
 so it can come back short or empty when the visibility rule hides everything in that window, and the
 cursor still moves. Do not treat an empty page as "caught up" — compare the cursor instead.
 
-**Where the first cursor comes from.** Starting a session returns a `feed_cursor`, which is where the
-feed stood as that session began. Read from it and the first page is current events; read from `0`
-and the first page is the fleet's oldest, which on a long-lived feed is a great many pages to walk
-before reaching the present. Either is allowed — a process that wants the history asks for it by
-sending a lower number. **Keep the cursor.** A renewal does not restate it and no endpoint hands it
-back, so a process that loses it chooses between replaying the feed from `0` and starting a new
-session.
+**Where the first cursor comes from, and what happens if you lose it.** Starting a session returns a
+`feed_cursor`, which is where the feed stood as that session began. **Omit `after` and the read
+resumes from where this session last got to**, so a process that has lost its place carries on
+rather than replaying anything; read from `0` and the first page is the fleet's oldest, which on a
+long-lived feed is a great many pages to walk before reaching the present. Either is allowed — a
+process that wants the history asks for it by sending a lower number, and doing so does not cost it
+its place.
+
+**Passing `after` is how you acknowledge a page.** The service stores the position you send, so send
+the `cursor` a page returned once you have acted on that page. A page you never acknowledge is
+delivered again: that is deliberate, because a page that was sent and lost should come back rather
+than vanish. It also means a reader that never sends `after` keeps receiving the same events. The
+stored position only ever moves forward, and a cursor past the end of the feed is ignored rather
+than stored.
+
+**Recovering it.** `POST sessions/{id}/renew` and `GET agent/session` both state the current
+position, so a restarted process reads it back instead of choosing between replaying the feed from
+`0` and starting a new session.
 
 ### Mirroring to Slack
 

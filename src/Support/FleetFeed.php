@@ -47,8 +47,12 @@ final class FleetFeed
 
     /**
      * @param  AgentLogins  $logins  Who each session belongs to, as the fleet reads provenance.
+     * @param  FeedCursors  $cursors  Where each session has read to.
      */
-    public function __construct(private readonly AgentLogins $logins) {}
+    public function __construct(
+        private readonly AgentLogins $logins,
+        private readonly FeedCursors $cursors
+    ) {}
 
     /**
      * Read the events after a cursor that this session may see.
@@ -60,17 +64,29 @@ final class FleetFeed
      * for the whole fleet by narrating. Paging the ID space instead means a page may be short, or
      * empty, but the cursor always advances.
      *
+     * **A missing cursor resumes, and a supplied one is an acknowledgement.** Both agent-facing
+     * surfaces default `after` to null rather than to zero, and null means the position this
+     * session last acknowledged -- so an agent that omits the argument reads on from where it was
+     * instead of walking the entire history, which is what both of them used to do. A supplied
+     * cursor says the reader processed everything through it, and moves the stored position
+     * forward; it can never move it back, so re-reading old history is free of consequence (#86).
+     *
+     * The acknowledgement is written after the page is read, so a read that throws records
+     * nothing.
+     *
      * @param  AgentSession  $reader  The session doing the reading.
-     * @param  int  $after  The last event ID the reader has already seen.
+     * @param  int|null  $after  The last event ID the reader has seen, or null to resume.
      * @param  int  $limit  How many events to examine.
      * @return array{events: list<array<string, mixed>>, cursor: int} The visible events and where
      *                                                                to read from next.
      */
-    public function after(AgentSession $reader, int $after, int $limit): array
+    public function after(AgentSession $reader, ?int $after, int $limit): array
     {
+        $from = $after ?? $this->cursors->of($reader);
+
         $page = max(1, min($limit, self::MAX_PAGE));
 
-        $examined = $this->examinedWindow($after);
+        $examined = $this->examinedWindow($from);
 
         // **One statement, and the join is what makes the empty page work.** The marker is a
         // single row carrying how far the window reached, and the visible events hang off it by a
@@ -116,7 +132,12 @@ final class FleetFeed
         /** @var list<array<string, mixed>> $described */
         $described = $events->map(fn (FleetEvent $event): array => $this->describe($event, $logins))->values()->all();
 
-        return ['events' => $described, 'cursor' => $this->cursor($described, $page, $reached, $after)];
+        // What the reader told us it had processed, not where this page reached. Advancing to the
+        // latter would skip a page that was returned and never arrived; this way that page is
+        // simply unacknowledged, and comes again.
+        $this->cursors->acknowledge($reader, $from);
+
+        return ['events' => $described, 'cursor' => $this->cursor($described, $page, $reached, $from)];
     }
 
     /**
