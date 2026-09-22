@@ -146,7 +146,7 @@ final class Credentials
      */
     public function staleCutoff(): Carbon
     {
-        return Carbon::now()->subMinutes($this->staleAfterMinutes());
+        return PresenceClock::now()->subMinutes($this->staleAfterMinutes());
     }
 
     /**
@@ -156,7 +156,7 @@ final class Credentials
      */
     public function goneCutoff(): Carbon
     {
-        return Carbon::now()->subMinutes($this->goneAfterMinutes());
+        return PresenceClock::now()->subMinutes($this->goneAfterMinutes());
     }
 
     /**

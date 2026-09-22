@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace RobotCouncil\Support;
 
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
@@ -64,7 +63,7 @@ final class AgentSessions
                 // cannot start a session belonging to another developer
                 'user_id' => $current->user_id,
                 'status' => AgentSessionStatus::Active,
-                'last_seen_at' => Carbon::now(),
+                'last_seen_at' => PresenceClock::now(),
                 'project_id' => $projectId,
             ]);
 

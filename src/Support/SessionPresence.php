@@ -155,7 +155,7 @@ final class SessionPresence
         return $this->conditionally(
             $session,
             [AgentSessionStatus::Active],
-            ['last_seen_at' => Carbon::now()],
+            ['last_seen_at' => PresenceClock::now()],
             null
         ) === 1;
     }
@@ -291,7 +291,7 @@ final class SessionPresence
             $resumed = $this->conditionally(
                 $session,
                 $this->movesFrom(AgentSessionStatus::Active),
-                ['status' => AgentSessionStatus::Active->value, 'last_seen_at' => Carbon::now()],
+                ['status' => AgentSessionStatus::Active->value, 'last_seen_at' => PresenceClock::now()],
                 null
             );
 

@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 use Laravel\Sanctum\HasApiTokens;
 use Laravel\Sanctum\PersonalAccessToken;
+use RobotCouncil\Support\PresenceTimestamp;
 
 /**
  * One running agent process. It is the principal a session token authenticates as, rather than the
@@ -70,7 +71,10 @@ final class AgentSession extends Model implements AuthenticatableContract
         return [
             'installation_id' => 'integer',
             'status' => AgentSessionStatus::class,
-            'last_seen_at' => 'datetime',
+            // Not `datetime`: that hydrates in the application's timezone, and the presence
+            // sweep re-binds the value it read into the `where` that commits a status. See
+            // `Support\PresenceTimestamp` for what that costs on a host that is not on UTC (#51).
+            'last_seen_at' => PresenceTimestamp::class,
         ];
     }
 

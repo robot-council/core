@@ -313,11 +313,21 @@ final class Doctor
     }
 
     /**
-     * Whether the presence clock can shift under the fleet.
+     * Whether a clock the fleet depends on can shift under it.
      *
-     * Presence thresholds are wall-clock: contact times and cutoffs are written and compared in
-     * `app.timezone`. A zone with daylight saving moves every session's contact time at once, so
-     * the spring-forward transition marks the whole fleet gone at the next sweep.
+     * **Presence is no longer part of this.** #51 moved contact times and their cutoffs onto
+     * `Support\PresenceClock`, a fixed zone, and `Support\PresenceTimestamp` makes the column read
+     * back on the same one -- so a daylight-saving transition no longer moves a session's age.
+     *
+     * A lock's lease still runs on the application clock: `Support\Locks` writes `expires_at` with
+     * `Carbon::now()` and compares it the same way. `locks.max_ttl_seconds` defaults to 900, so an
+     * hour's jump is longer than any lease can be -- at spring-forward **every held lock reads as
+     * expired at once**, and another session can take a name its holder still believes it owns. The
+     * fence value is what lets that holder find out, which is a detection rather than a
+     * prevention. Credential expiry has the same shape, since Sanctum compares `expires_at` against
+     * the application clock too.
+     *
+     * So this still fails outside UTC, for the leases rather than for presence.
      *
      * @return Diagnosis What the check concluded.
      */
@@ -332,9 +342,9 @@ final class Doctor
         return Diagnosis::failed(
             'application timezone',
             sprintf(
-                'app.timezone is `%s`. Presence thresholds are wall-clock, so a daylight-saving transition '
-                ."moves every session's contact time at once and the next sweep marks the whole fleet gone. "
-                .'Set it to UTC.',
+                'app.timezone is `%s`. Presence is unaffected, but a lock lease and a credential expiry are '
+                .'still measured on the application clock, and a lease cannot outlast an hour -- so a '
+                .'daylight-saving transition makes every held lock read as expired at once. Set it to UTC.',
                 \is_string($timezone) ? $timezone : 'not a string'
             )
         );

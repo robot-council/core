@@ -168,7 +168,7 @@ is wrong with this application's configuration without being asked a specific qu
 `sanctum` guard names a provider, whether `sanctum.expiration` is null, whether every migration this
 version ships has run, whether anything appears to be consuming the queue, whether anybody is on the
 developer allowlist, whether the Slack mirror would run inside an agent's request, and whether
-`app.timezone` can shift under the presence clock.
+`app.timezone` can shift under a lock's lease.
 
 Every fault it looks for is invisible until something else goes wrong. It writes nothing and prints
 no secret, so it is safe to run when worried. A check it cannot reach reports as `UNKNOWN` with what
@@ -412,8 +412,10 @@ $this->app->make(RobotCouncil\Support\SessionReleases::class)->register(function
 });
 ```
 
-**Leave `app.timezone` at UTC.** The thresholds are measured against wall-clock contact times, so a
-daylight-saving transition moves every session's contact time by an hour at once.
+**The thresholds measure elapsed time, and `app.timezone` does not reach them.** Contact times and
+their cutoffs are written, compared, and read back on one fixed clock, so a daylight-saving
+transition moves neither. A lock's lease is a different clock and still the application's, which is
+why `robot-council:doctor` still asks about the timezone.
 
 ## The change feed
 

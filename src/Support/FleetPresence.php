@@ -87,7 +87,9 @@ final class FleetPresence
 
         $logins = $this->logins->forSessions($sessions->pluck('id')->all());
 
-        $now = Carbon::now();
+        // The presence clock, not the application's: this is compared against
+        // `last_seen_at`, which is written on the same clock (#51).
+        $now = PresenceClock::now();
 
         $live = AgentSession::query()->where('status', '!=', AgentSessionStatus::Gone->value)->count();
 
