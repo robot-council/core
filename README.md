@@ -73,6 +73,43 @@ their own throttling, and an application's `api` group often is not: `statefulAp
 matching request into a session request and answers the unauthenticated device endpoints with 419.
 Add what you need to `robot-council.routes.api_middleware`.
 
+**If your `users` table needs more than `name` and `email`, bind `SuppliesUserAttributes`.** A
+developer signing in with GitHub for the first time gets a user row, and the package writes those two
+columns — `robot-council:install` relaxes nullability on `users.password` and `users.email` because
+they are the two the framework's own skeleton makes `NOT NULL`. Any other `NOT NULL` column with no
+default — `tenant_id`, `organization_id`, `role_id`, a `first_name`/`last_name` pair — is yours to
+fill:
+
+```php
+use RobotCouncil\Support\Contracts\SuppliesUserAttributes;
+use RobotCouncil\Support\NewDeveloper;
+
+final class TenantUserAttributes implements SuppliesUserAttributes
+{
+    public function for(NewDeveloper $developer): array
+    {
+        return [
+            'name' => $developer->login,
+            'email' => $developer->email,
+            'tenant_id' => Tenant::current()->id,
+        ];
+    }
+}
+
+// In your own service provider
+$this->app->bind(SuppliesUserAttributes::class, TenantUserAttributes::class);
+```
+
+What you return is force-filled and written as given; the package adds nothing back on top, and
+still constructs and saves the model itself. `NewDeveloper` carries the GitHub ID, login, email and
+avatar, and it is a class rather than a parameter list so later additions do not break your
+implementation. **`robot-council:install` names the columns it cannot fill**, so you find out then
+rather than at somebody's first sign-in.
+
+Changing `email` is allowed and is yours to own: sign-in maps an account to a user by GitHub ID, not
+by address, so it still works — but the duplicate check the package already ran used the *GitHub*
+address, and a collision on the one you write surfaces as an integrity error.
+
 **A deleted user can hold a developer's email, and only you can free it.** Sign-in never claims an
 existing account by address, so a developer whose GitHub email already belongs to a user is refused.
 If that user is invisible to your model — soft-deleted, or behind a tenant scope — the refusal names

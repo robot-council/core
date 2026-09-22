@@ -44,11 +44,13 @@ use RobotCouncil\Mcp\CouncilServer;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\Installation;
 use RobotCouncil\Support\Contracts\DrawsUserCodes;
+use RobotCouncil\Support\Contracts\SuppliesUserAttributes;
 use RobotCouncil\Support\Credentials;
 use RobotCouncil\Support\HostUsers;
 use RobotCouncil\Support\Locks;
 use RobotCouncil\Support\SessionReleases;
 use RobotCouncil\Support\Tasks;
+use RobotCouncil\Support\UserAttributes;
 use RobotCouncil\Support\UserCodes;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
@@ -141,6 +143,12 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
         $this->registerGuards();
 
         $this->app->bind(DrawsUserCodes::class, UserCodes::class);
+
+        // The attributes a developer's first user row is created with. Bound with a default so a
+        // host whose users table takes `name` and `email` needs to know nothing about it, and
+        // rebindable so one with a `NOT NULL` column this package cannot guess is not locked out at
+        // its first sign-in (#36).
+        $this->app->bind(SuppliesUserAttributes::class, UserAttributes::class);
 
         // A singleton, because it is a registry: a release step registered from another service
         // provider has to be there for the sweep that runs later in the same process
