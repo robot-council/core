@@ -12,6 +12,43 @@ use RobotCouncil\Tests\TestCase;
 pest()->extend(TestCase::class)->in(__DIR__);
 
 /**
+ * Whether this run is against MySQL or MariaDB, which is the only place these questions exist.
+ */
+function notMySql(): bool
+{
+    return DB::connection()->getDriverName() !== 'mysql';
+}
+
+/**
+ * One field of an `information_schema` row, as a string, whatever case the server names it in.
+ *
+ * Taking `mixed` and narrowing here rather than typing the parameter, for the reason CLAUDE.md
+ * gives: `DB::select()` returns `mixed` rows, and a narrower signature turns an unexpected shape
+ * into an uncaught `TypeError` from inside vendor code. MySQL lower-cases these column names and
+ * some configurations upper-case them, so both spellings are read.
+ *
+ * @param  mixed  $row  One row as the driver returned it.
+ * @param  string  $field  The lower-case field name.
+ * @return string The value, or an empty string when the row does not carry it.
+ */
+function schemaField(mixed $row, string $field): string
+{
+    if (! is_object($row)) {
+        return '';
+    }
+
+    foreach ([$field, strtoupper($field)] as $name) {
+        if (property_exists($row, $name)) {
+            $value = $row->{$name};
+
+            return is_scalar($value) ? (string) $value : '';
+        }
+    }
+
+    return '';
+}
+
+/**
  * Whether this run is on something other than Postgres.
  *
  * **Three of the `cross-connection` files are Postgres-specific in their SQL, not merely in where
