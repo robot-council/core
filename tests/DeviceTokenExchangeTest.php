@@ -12,6 +12,7 @@ declare(strict_types=1);
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Auth\User;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\PersonalAccessToken;
@@ -63,6 +64,13 @@ function exchange(TestCase $case, array $enrollment, ?string $verifier = null): 
 }
 
 it('issues a credential that can do nothing but start sessions', function (): void {
+    // Pinned because the expiry below is asserted to the second. Unpinned, the expected value is a
+    // SECOND read of the clock, taken when the assertion runs rather than when the request was
+    // handled, and either side of a second boundary the two differ by one (#98).
+    $this->freezeTime();
+
+    $requestedAt = Carbon::now();
+
     $enrollment = requestDeviceCode($this, [Ability::TasksCreate->value, Ability::LocksAcquire->value]);
     approveEnrollment($this, $this->developer, $enrollment);
 
@@ -80,8 +88,9 @@ it('issues a credential that can do nothing but start sessions', function (): vo
         ->and($installation->machine_label)->toBe('workbench-01')
         ->and($installation->granted_abilities)->toBe(['tasks:create', 'locks:acquire'])
 
-        // The default maximum age, to the second
-        ->and($installation->expires_at->timestamp)->toBe(now()->addDays(30)->timestamp);
+        // The default maximum age, to the second, measured from the instant the request was
+        // handled rather than from a fresh read of the clock
+        ->and($installation->expires_at->timestamp)->toBe($requestedAt->copy()->addDays(30)->timestamp);
 
     // The credential itself carries only the one ability; the rest ride on session tokens
     $credential = PersonalAccessToken::query()->sole();
@@ -89,6 +98,33 @@ it('issues a credential that can do nothing but start sessions', function (): vo
     expect(Tokens::abilities($credential))->toBe([Ability::SessionsStart->value])
         ->and(dateValue($credential->getAttribute('expires_at'))->toDateTimeString())
         ->toBe($installation->expires_at->toDateTimeString());
+});
+
+it('measures the credential expiry from the request, not from whenever the assertion runs', function (): void {
+    // #98's regression test, and the reason it pins a specific microsecond. The flake needed the
+    // request and the assertion to fall either side of a second boundary, which happens at random
+    // because the suite runs in random order and the work between them varies per run. Here the
+    // boundary is crossed deliberately, so the condition that used to fail occurs on every run.
+    Carbon::setTestNow(Carbon::parse('2026-01-01 12:00:00.999999'));
+
+    $requestedAt = Carbon::now();
+
+    $enrollment = requestDeviceCode($this);
+    approveEnrollment($this, $this->developer, $enrollment);
+
+    exchange($this, $enrollment)->assertCreated();
+
+    // One microsecond later, and one second later by the clock
+    Carbon::setTestNow(Carbon::parse('2026-01-01 12:00:01.000001'));
+
+    expect(Installation::query()->sole()->expires_at->timestamp)
+        ->toBe($requestedAt->copy()->addDays(30)->timestamp);
+
+    // The control, in the same test. Without it this passes identically on a clock that never
+    // moved, and would then be a test of nothing: it asserts that a fresh read of the clock now
+    // gives an answer one second different, which is exactly the discrepancy that used to reach
+    // the assertion above.
+    expect(now()->addDays(30)->timestamp)->toBe($requestedAt->copy()->addDays(30)->addSecond()->timestamp);
 });
 
 it('answers authorization_pending until a developer decides', function (): void {
