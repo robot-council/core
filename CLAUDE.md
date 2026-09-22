@@ -236,7 +236,16 @@ A **Laravel package** (`robot-council/core`), not an application. It is the core
     **Both engines run locally, and the claim that they do not has cost time twice.** Laravel Herd serves `mysql` and `postgresql` as services; on this machine they were already listening on 3306 and 5432, needing nothing started. Measured 2026-09-22: PostgreSQL 17.0 and MySQL 9.4.0, both reachable as `postgres` and `root` with an empty password, and the suite passes against each with a throwaway database. So a defect that only one engine can see is **not** CI-only, and reaching for CI to find one is a choice rather than a necessity -- #39's twenty failures were reproduced locally test-for-test and fixed without a single push.
 
     **A local run is not parity with the job, though.** CI pins `postgres:17` and `mysql:8.4`; Herd here is Postgres 17.0 and **MySQL 9.4**, a different major. The `mysql` job also sets `explicit_defaults_for_timestamp` off and Herd's default is on, so the schema means something different on each side. Use local runs to find and fix, and the job to confirm.
-  - `mysql` runs on ubuntu with PHP 8.5 against a `mysql:8.4` service container, with `DB_CONNECTION=mysql`, then the `cross-connection` group. **It turns `explicit_defaults_for_timestamp` OFF before the suite**, because that is the mode where MySQL and MariaDB give the first `NOT NULL` `TIMESTAMP` column in a table an implicit `ON UPDATE CURRENT_TIMESTAMP`, and #22 shipped a defect neither SQLite nor Postgres could see. It is also the only job that can observe `Builder::update()` returning rows CHANGED rather than matched. `tests/MySqlSchemaTest.php` asserts both the driver and the mode, gated on `ROBOT_COUNCIL_EXPECT_MYSQL`, which only that job sets -- without it a job whose `DB_CONNECTION` never took effect would run on SQLite, skip every MySQL-only test, and report green.
+  - **There is no `mysql` job, deliberately, and the tests it ran still exist.** It was dropped on
+    2026-09-22: the deployment runs Postgres on Laravel Cloud, and the job cost 585s against 168s
+    for `postgres` and rose with every test file added -- 328s, then 409s, then 585s, at which
+    point it was cancelled at its timeout with every step reporting success. What that costs is
+    named rather than glossed: `tests/MySqlSchemaTest.php` guards the `NOT NULL TIMESTAMP` defect
+    class #22 actually shipped, and it now skips everywhere. `HostKeyComparisonTest`'s collation
+    assertions skip too, but **its two behavioral tests still run on every engine**, so #54's
+    access-control property is still covered. Re-adding the job is a matter of restoring the block
+    from that commit; nothing in the suite was deleted to make this work. #136 moves the
+    `NOT NULL TIMESTAMP` guard to a source scan, which runs everywhere and needs no database.
   - `ci-passed` succeeds only when every other job succeeded. It is the one check the `main` ruleset requires.
   - Nothing writes `CHANGELOG.md` automatically. A release adds its entry through an `Update CHANGELOG for vX.Y.Z` pull request before the tag (the `writing-release-notes` skill).
   - Dependabot opens weekly Composer and GitHub Actions update pull requests labeled `dependencies`. Nothing merges them automatically: take each through `pre-merge-check` like any other change.

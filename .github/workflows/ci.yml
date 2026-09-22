@@ -167,84 +167,6 @@ jobs:
       - name: Execute cross-connection tests
         run: vendor/bin/pest --ci --group=cross-connection
 
-  # MySQL with `explicit_defaults_for_timestamp` OFF, which is the mode the defect this job
-  # exists for lives in: with it off, the first NOT NULL TIMESTAMP column in a table is given an
-  # implicit `DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`, so an UPDATE silently
-  # rewrites it. MySQL 5.7 and MariaDB before 10.10 default it off and both are ordinary
-  # production choices; a current image is used and put into that mode deliberately rather than
-  # pinning CI to an end-of-life one.
-  #
-  # The suite asserts the mode rather than trusting the step below, because a `SET GLOBAL` that
-  # silently did nothing would leave this job testing the safe configuration and reporting green.
-  mysql:
-    name: mysql
-    runs-on: ubuntu-latest
-    # **Twenty rather than ten, because this job is legitimately the slowest and was cancelled at
-    # ten with every step reporting success.** Measured on the `Execute tests` step: 328s when the
-    # job landed, 409s after #54 added seven `ALTER TABLE`s and a test file, 585s after #103 added
-    # fifteen more -- against about 30s for the same suite on SQLite. CI's MySQL container is far
-    # slower than a local one, so a `migrate:fresh` per test costs roughly 12s here and 0.3s there.
-    # A cancelled job reads as a failure with nothing failing in it, which is the worst shape for a
-    # required check.
-    timeout-minutes: 20
-    services:
-      mysql:
-        image: mysql:8.4
-        env:
-          MYSQL_DATABASE: robot_council
-          MYSQL_USER: robot_council
-          MYSQL_PASSWORD: robot_council
-          MYSQL_ROOT_PASSWORD: root
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd "mysqladmin ping --host=127.0.0.1 --user=root --password=root"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-    env:
-      DB_CONNECTION: mysql
-      DB_HOST: 127.0.0.1
-      DB_PORT: 3306
-      DB_DATABASE: robot_council
-      DB_USERNAME: robot_council
-      DB_PASSWORD: robot_council
-      # Read by `MySqlSchemaTest`, which asserts the connection really is MySQL. Without it, a job
-      # whose `DB_CONNECTION` never took effect would run on SQLite, skip every MySQL-only test,
-      # and report green.
-      ROBOT_COUNCIL_EXPECT_MYSQL: '1'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.5'
-          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, pdo_mysql, bcmath, intl, fileinfo
-          coverage: none
-
-      - name: Install composer dependencies
-        uses: ramsey/composer-install@v4
-
-      - name: List Installed Dependencies
-        run: composer show -D
-
-      # Set as a global so every connection the suite opens inherits it. Read back in the same
-      # step, and the value is asserted again from inside the suite.
-      - name: Turn explicit_defaults_for_timestamp off
-        run: |
-          mysql --host=127.0.0.1 --port=3306 --user=root --password=root \
-            --execute "SET GLOBAL explicit_defaults_for_timestamp = OFF;"
-          mysql --host=127.0.0.1 --port=3306 --user=root --password=root \
-            --execute "SELECT @@GLOBAL.explicit_defaults_for_timestamp AS explicit_defaults;"
-
-      - name: Execute tests
-        run: vendor/bin/pest --ci
-
-      - name: Execute cross-connection tests
-        run: vendor/bin/pest --ci --group=cross-connection
-
   # The one check the `main` ruleset requires. It always runs, and it passes only when every
   # job above succeeded, so a failed, cancelled, or skipped job all block the merge.
   stylesheet:
@@ -297,7 +219,7 @@ jobs:
   ci-passed:
     name: ci-passed
     if: always()
-    needs: [tests, phpstan, pint, rector, postgres, mysql, stylesheet]
+    needs: [tests, phpstan, pint, rector, postgres, stylesheet]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -308,8 +230,7 @@ jobs:
           PINT: ${{ needs.pint.result }}
           RECTOR: ${{ needs.rector.result }}
           POSTGRES: ${{ needs.postgres.result }}
-          MYSQL: ${{ needs.mysql.result }}
           STYLESHEET: ${{ needs.stylesheet.result }}
         run: |
-          echo "tests=$TESTS phpstan=$PHPSTAN pint=$PINT rector=$RECTOR postgres=$POSTGRES mysql=$MYSQL stylesheet=$STYLESHEET"
-          [ "$TESTS" = success ] && [ "$PHPSTAN" = success ] && [ "$PINT" = success ] && [ "$RECTOR" = success ] && [ "$POSTGRES" = success ] && [ "$MYSQL" = success ] && [ "$STYLESHEET" = success ]
+          echo "tests=$TESTS phpstan=$PHPSTAN pint=$PINT rector=$RECTOR postgres=$POSTGRES stylesheet=$STYLESHEET"
+          [ "$TESTS" = success ] && [ "$PHPSTAN" = success ] && [ "$PINT" = success ] && [ "$RECTOR" = success ] && [ "$POSTGRES" = success ] && [ "$STYLESHEET" = success ]
