@@ -240,12 +240,24 @@ A **Laravel package** (`robot-council/core`), not an application. It is the core
     2026-09-22: the deployment runs Postgres on Laravel Cloud, and the job cost 585s against 168s
     for `postgres` and rose with every test file added -- 328s, then 409s, then 585s, at which
     point it was cancelled at its timeout with every step reporting success. What that costs is
-    named rather than glossed: `tests/MySqlSchemaTest.php` guards the `NOT NULL TIMESTAMP` defect
-    class #22 actually shipped, and it now skips everywhere. `HostKeyComparisonTest`'s collation
-    assertions skip too, but **its two behavioral tests still run on every engine**, so #54's
-    access-control property is still covered. Re-adding the job is a matter of restoring the block
-    from that commit; nothing in the suite was deleted to make this work. #136 moves the
-    `NOT NULL TIMESTAMP` guard to a source scan, which runs everywhere and needs no database.
+    named rather than glossed. `HostKeyComparisonTest`'s collation assertions skip, but **its two
+    behavioral tests still run on every engine**, so #54's access-control property is still covered.
+    `tests/MySqlSchemaTest.php` is now only the promise-guard: it fails when a run that set
+    `ROBOT_COUNCIL_EXPECT_MYSQL` is not actually on MySQL with `explicit_defaults_for_timestamp`
+    off, which is what stops a restored job from skipping every MySQL-gated test and reporting
+    green. Re-adding the job is a matter of restoring the block from that commit.
+  - **The `NOT NULL TIMESTAMP` rule is guarded at the source, not on one engine** (#136).
+    `tests/MigrationTimestampGuardTest.php` scans `database/migrations/` for a non-nullable
+    `timestamp()` and runs on every engine with no database, because the rule is about what the
+    migrations **declare** rather than what MySQL does with the declaration -- so it fails in the
+    pull request that adds the column instead of in whichever job happens to have MySQL. The
+    `information_schema` version was removed rather than kept beside it: two guards with different
+    reach is how one of them rots unnoticed. `timestamps()`, `timestampsTz()`, `nullableTimestamps()`
+    and `softDeletes()` all create nullable columns and are not reported; **`->nullable(false)` is
+    reported**, because it is an explicit NOT NULL and an exemption keyed on the method name alone
+    would miss it. `database/stubs/` is out of scope -- those are the host's tables.
+    `robot-council:doctor` still asks `information_schema` at runtime, which is the right place for
+    it: it answers for a host's live schema, including drift no source scan can see.
   - `ci-passed` succeeds only when every other job succeeded. It is the one check the `main` ruleset requires.
   - Nothing writes `CHANGELOG.md` automatically. A release adds its entry through an `Update CHANGELOG for vX.Y.Z` pull request before the tag (the `writing-release-notes` skill).
   - Dependabot opens weekly Composer and GitHub Actions update pull requests labeled `dependencies`. Nothing merges them automatically: take each through `pre-merge-check` like any other change.

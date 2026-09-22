@@ -233,6 +233,129 @@ function sourceWithoutComments(string $path): string
 }
 
 /**
+ * One source file's statements, split on the semicolons that end them.
+ *
+ * Tokenized rather than split on the text, because a `;` inside a string literal ends no
+ * statement and `explode()` cannot tell the two apart. A column declaration is one statement
+ * however many lines its chain runs to, which is the unit a nullability check has to read: the
+ * `->nullable()` that exempts a column can sit on a line of its own.
+ *
+ * @param  string  $source  PHP source, opening tag included.
+ * @return list<string> One statement per entry, semicolons removed.
+ */
+function phpStatementsIn(string $source): array
+{
+    $statements = [];
+
+    $current = '';
+
+    foreach (token_get_all($source) as $token) {
+        $text = \is_array($token) ? $token[1] : $token;
+
+        if ($text === ';') {
+            $statements[] = $current;
+
+            $current = '';
+
+            continue;
+        }
+
+        $current .= $text;
+    }
+
+    if (trim($current) !== '') {
+        $statements[] = $current;
+    }
+
+    return $statements;
+}
+
+/**
+ * Every date column the migrations under a directory declare with `timestamp()`, and whether each
+ * one is nullable.
+ *
+ * The plural helpers are not declarations of a `timestamp()` column and are not reported:
+ * `timestamps()`, `timestampsTz()`, `nullableTimestamps()` and `softDeletes()` all create nullable
+ * columns, which is not the shape that carries MySQL's implicit `ON UPDATE`. The `\(` in the
+ * pattern is what keeps `timestamps(` from matching `timestamp(`.
+ *
+ * **`->nullable(false)` is an explicit NOT NULL and is reported**, which is why the exemption
+ * matches an empty argument list or `true` rather than the method name alone.
+ *
+ * Comments are stripped first. This package documents the rule beside the columns that follow it,
+ * so a scan over the raw text would report the prose explaining the rule.
+ *
+ * @param  string  $directory  The migration directory to walk.
+ * @return list<array{file: string, column: string, nullable: bool}> One entry per declaration.
+ */
+function timestampColumnsIn(string $directory): array
+{
+    $found = [];
+
+    foreach (phpSourcesIn($directory) as $path) {
+        $file = str_starts_with($path, $directory.'/')
+            ? substr($path, \strlen($directory) + 1)
+            : basename($path);
+
+        foreach (phpStatementsIn(sourceWithoutComments($path)) as $statement) {
+            $matched = preg_match_all(
+                '/->(?:timestampTz|timestamp)\(\s*(?:([\'"])([^\'"]*)\1)?/',
+                $statement,
+                $matches,
+                PREG_SET_ORDER
+            );
+
+            if ($matched === false || $matched === 0) {
+                continue;
+            }
+
+            $nullable = preg_match('/->nullable\(\s*(?:true\s*)?\)/i', $statement) === 1;
+
+            foreach ($matches as $match) {
+                $found[] = [
+                    'file' => $file,
+
+                    // A name built from a variable leaves nothing to quote, and reporting it as
+                    // unnamed is better than dropping a declaration the check cannot read.
+                    'column' => ($match[2] ?? '') === '' ? '(unnamed)' : $match[2],
+                    'nullable' => $nullable,
+                ];
+            }
+        }
+    }
+
+    return $found;
+}
+
+/**
+ * Every non-nullable `timestamp()` column the migrations under a directory declare.
+ *
+ * The description carries the remedy, because the reader will not know the rule: with
+ * `explicit_defaults_for_timestamp` off, MySQL and MariaDB give the first NOT NULL `TIMESTAMP`
+ * column in a table an implicit `DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`, so any
+ * update to the row rewrites it (#22, #136).
+ *
+ * @param  string  $directory  The migration directory to walk.
+ * @return list<string> One description per offending column.
+ */
+function nonNullableTimestampsIn(string $directory): array
+{
+    $offenders = array_filter(
+        timestampColumnsIn($directory),
+        static fn (array $column): bool => $column['nullable'] === false
+    );
+
+    return array_values(array_map(
+        static fn (array $column): string => sprintf(
+            '%s declares `%s` as a non-nullable timestamp; declare it dateTime instead.',
+            $column['file'],
+            $column['column']
+        ),
+        $offenders
+    ));
+}
+
+/**
  * Every interpolation in a URL-bearing attribute that is not a server-derived URL.
  *
  * Escaping is no defense here, which is what makes this its own check. `htmlspecialchars` alters
