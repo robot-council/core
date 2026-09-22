@@ -33,6 +33,15 @@ use RobotCouncil\Support\FleetFeed;
 use RobotCouncil\Tests\TestCase;
 
 beforeEach(function (): void {
+    // **Frozen, because the row written "exactly at the cutoff" is positioned by one read of the
+    // clock and judged by another.** `eventAged()` places it at `now() - retention`, and the prune
+    // computes its cutoff from a later `now()`, so any time at all passing between them puts the
+    // row below the cutoff and deletes the one event the test exists to see survive. It reached
+    // CI as a Postgres-only failure -- `Failed asserting that 2 is identical to 1` -- because
+    // SQLite formats both sides of the comparison to whole seconds and hides the difference,
+    // while Postgres keeps the microseconds that disagree (#98).
+    $this->freezeTime();
+
     $this->migrateUsersTableWithPackageColumns();
 
     $this->setAccessLists(developers: [4242]);
