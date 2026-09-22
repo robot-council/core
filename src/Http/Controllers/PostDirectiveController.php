@@ -10,6 +10,7 @@ use RobotCouncil\Http\Principal;
 use RobotCouncil\Http\Rules\BoundedMeta;
 use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\FleetEventType;
+use RobotCouncil\Support\DirectiveTargets;
 use RobotCouncil\Support\FleetEvents;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -34,15 +35,25 @@ final class PostDirectiveController
         $request->validate([
             'body' => ['required', 'string', 'max:'.FleetEvent::MAX_BODY],
             'meta' => ['sometimes', 'array', new BoundedMeta],
+            'targets' => ['sometimes', 'array', 'max:'.DirectiveTargets::MAX],
+            'targets.*' => ['integer', 'min:1'],
         ]);
 
         $meta = $request->input('meta');
+
+        // Resolved before the event is recorded, so a directive naming an unknown or departed
+        // session writes nothing at all rather than reaching the fleet with a target list the
+        // server could not stand behind.
+        $targets = DirectiveTargets::resolve($request->input('targets'));
 
         $event = $events->record(
             FleetEventType::Directive,
             Principal::agentSession($request),
             $request->string('body')->value(),
-            \is_array($meta) && $meta !== [] ? ['client' => $meta] : [],
+            array_filter([
+                'client' => \is_array($meta) && $meta !== [] ? $meta : null,
+                'targets' => $targets === [] ? null : $targets,
+            ], static fn (mixed $value): bool => $value !== null),
 
             // True by construction: the route admits nobody without the ability
             withCoordinator: true

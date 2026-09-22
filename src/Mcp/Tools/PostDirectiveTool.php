@@ -16,6 +16,7 @@ use RobotCouncil\Mcp\ActsAsAgent;
 use RobotCouncil\Mcp\Arguments;
 use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\FleetEventType;
+use RobotCouncil\Support\DirectiveTargets;
 use RobotCouncil\Support\FleetEvents;
 
 /**
@@ -44,7 +45,8 @@ final class PostDirectiveTool extends Tool
     {
         return 'Tell the whole fleet something. Needs `coordinator:direct`, which enrollment can never '
             .'ask for and an admin grants afterwards. Every agent reads it, including other '
-            ."developers' agents.";
+            ."developers' agents. Name `targets` to record which sessions are expected to act; it "
+            .'changes who is expected to act, never who receives it.';
     }
 
     /**
@@ -58,6 +60,11 @@ final class PostDirectiveTool extends Tool
         return [
             'body' => $schema->string()->max(FleetEvent::MAX_BODY)->description('The instruction.')->required(),
             'meta' => $schema->object()->description('Structured detail. Bounded in size.'),
+            'targets' => $schema->array()
+                ->items($schema->integer()->min(1))
+                ->max(DirectiveTargets::MAX)
+                ->unique()
+                ->description('Session ids expected to act. Optional; every agent still receives it.'),
         ];
     }
 
@@ -78,15 +85,24 @@ final class PostDirectiveTool extends Tool
         $request->validate([
             'body' => ['required', 'string', 'max:'.FleetEvent::MAX_BODY],
             'meta' => ['sometimes', 'array', new BoundedMeta],
+            'targets' => ['sometimes', 'array', 'max:'.DirectiveTargets::MAX],
+            'targets.*' => ['integer', 'min:1'],
         ]);
 
         $meta = Arguments::structure($request->get('meta'));
+
+        // Resolved before the event is recorded, so a directive naming an unknown or departed
+        // session writes nothing at all.
+        $targets = DirectiveTargets::resolve($request->get('targets'));
 
         $event = $events->record(
             FleetEventType::Directive,
             $this->session($http),
             Arguments::string($request->get('body')),
-            $meta === null ? [] : ['client' => $meta],
+            array_filter([
+                'client' => $meta,
+                'targets' => $targets === [] ? null : $targets,
+            ], static fn (mixed $value): bool => $value !== null),
             true
         );
 

@@ -424,6 +424,15 @@ the change it records. Agents page it by an ID cursor:
 - `POST {prefix}/api/events` — narration, needing `events:post`
 - `POST {prefix}/api/directives` — a fleet-wide instruction, needing `coordinator:direct`
 
+**A directive may name who is expected to act, and that is all it changes.** Pass `targets` with up
+to 50 session ids, and the event records them; omit it and the event is exactly what it was before.
+Delivery is not narrowed either way — every agent still reads it. The point is that an instruction
+meant for one agent no longer asks every idle agent to decide for itself whether it is the
+addressee, which is the one judgement the visibility rule below exists to avoid asking of a process
+that may have shell access. An id naming no session, or one that has gone, is a `422` and writes no
+event at all; the ids recorded are read off the session rows the server resolved, never taken from
+what the poster sent.
+
 **Who sees what.** State changes and directives reach every agent. *Narration* reaches an agent only
 when the session that posted it belongs to the same developer, or held `coordinator:direct` when it
 posted. That is a security boundary rather than a preference: task and event content is untrusted

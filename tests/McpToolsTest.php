@@ -653,3 +653,34 @@ it('limits the MCP route per session, and limits an unauthenticated flood by add
     $this->machine($this->token)->postJson(MCP_URL, ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/list'])
         ->assertOk();
 });
+
+it('records the sessions a directive names, through the tool as well as the endpoint', function (): void {
+    // **The tool and the endpoint are two doors to one store, and #135 asks for both.** A tool's
+    // schema is advertised and never enforced, so the bound that matters is the one the store
+    // holds -- but the argument still has to reach it, and only a call through the tool shows that.
+    [, $coordinator] = mcpCoordinator($this);
+
+    $result = toolResult(callTool($this, $coordinator, 'directive_post', [
+        'body' => 'rebase your branch',
+        'targets' => [$this->session->id, $this->session->id],
+    ]));
+
+    $event = FleetEvent::query()->whereKey(intValue($result['event_id']))->sole();
+
+    expect($event->type)->toBe(FleetEventType::Directive)
+        ->and(arrayValue($event->meta)['targets'] ?? null)->toBe([$this->session->id]);
+});
+
+it('refuses a directive through the tool when it names a session that has gone', function (): void {
+    [, $coordinator] = mcpCoordinator($this);
+
+    $this->markSessionGone($this->session);
+
+    $error = toolError(callTool($this, $coordinator, 'directive_post', [
+        'body' => 'you there',
+        'targets' => [$this->session->id],
+    ]));
+
+    expect($error)->toContain('sessions that can still be worked')
+        ->and(FleetEvent::query()->where('type', FleetEventType::Directive->value)->count())->toBe(0);
+});
