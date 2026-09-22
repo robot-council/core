@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RobotCouncil\Support;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -40,6 +41,28 @@ final class Installations
     ) {}
 
     /**
+     * The live installations that approving this identity would supersede.
+     *
+     * Read by the verification page so an approver is told what their approval ends **before** they
+     * make it. That notice is not decoration: `harness` and `machine_label` are supplied by whoever
+     * asked for the code and nothing checks them, and the CLI falls back to `unknown-machine` when
+     * a hostname reduces to nothing -- so two of one developer's machines can collide on the
+     * identity and a silent supersede would take out a working installation (#106).
+     *
+     * The identity is scoped to the approving developer, which is what `user_id` holds, so no
+     * collision can cross developers.
+     *
+     * @param  string  $userId  The approving developer's host key.
+     * @param  string  $harness  The harness the requester claimed.
+     * @param  string  $machineLabel  The machine label the requester claimed.
+     * @return Collection<int, Installation> The installations an approval would revoke.
+     */
+    public function liveFor(string $userId, string $harness, string $machineLabel): Collection
+    {
+        return $this->liveQuery($userId, $harness, $machineLabel)->get();
+    }
+
+    /**
      * Create the installation an approved device code stands for, and its credential.
      *
      * Both happen in one transaction, so nothing can leave an installation with no way to reach it
@@ -60,8 +83,9 @@ final class Installations
         MachineIdentity::ensure($code->harness, $code->machine_label);
 
         // Through `HostKey`, which is where the 64-character bound on a host user key lives, rather
-        // than a length test written again here
-        HostKey::from($code->decided_by);
+        // than a length test written again here. The narrowed value is kept rather than discarded,
+        // because the supersede below matches on it and `decided_by` is nullable on the column.
+        $approver = HostKey::from($code->decided_by);
 
         if ($code->requested_ip !== null && mb_strlen($code->requested_ip) > DeviceCodes::MAX_REQUESTED_IP) {
             throw new InvalidArgumentException(sprintf(
@@ -71,7 +95,30 @@ final class Installations
             ));
         }
 
-        return DB::transaction(function () use ($code): IssuedCredential {
+        return DB::transaction(function () use ($code, $approver): IssuedCredential {
+            // **Superseded before the replacement is created, and the rows are held while it
+            // happens** (#106). A developer who re-enrolls because they believe a credential was
+            // exposed has not invalidated it otherwise: the old credential is worth
+            // `installation_max_age_days` from the day it was issued, so the act that felt like a
+            // remedy was not one.
+            //
+            // `lockForUpdate()` rather than a plain read, because two approvals for the same
+            // identity arriving together would otherwise both see the same live row, both decide to
+            // revoke it, and both create a replacement -- leaving exactly the two live
+            // installations this exists to prevent. `robot_council_installations` is first in the
+            // package's lock order, so taking it here inverts nothing.
+            //
+            // Every live row rather than the newest, because a fleet that predates this change can
+            // already carry several for one identity, and leaving all but one is the same defect
+            // with a smaller number.
+            $superseded = $this->liveQuery($approver, $code->harness, $code->machine_label)
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($superseded as $previous) {
+                $this->revoke($previous, $approver);
+            }
+
             $installation = Installation::query()->create([
                 'user_id' => $code->decided_by,
                 'harness' => $code->harness,
@@ -235,6 +282,33 @@ final class Installations
             ['installation_id' => $installation->id, ...$meta],
             actor: $actor
         );
+    }
+
+    /**
+     * The query for live installations under one identity.
+     *
+     * One builder for both callers, because the page's notice and the supersede itself have to
+     * agree on what "live" means. If they drifted, an approver would be told one thing and the
+     * approval would do another -- and the page is the only warning there is.
+     *
+     * **"Live" is `revoked_at` being null, and expiry is deliberately not part of it.** An expired
+     * installation cannot be used, but leaving it unrevoked keeps a row that says a credential is
+     * outstanding when nothing stands behind it, which is the untidiness this closes rather than
+     * one it should preserve.
+     *
+     * @param  string  $userId  The approving developer's host key.
+     * @param  string  $harness  The harness claimed.
+     * @param  string  $machineLabel  The machine label claimed.
+     * @return Builder<Installation> The query.
+     */
+    private function liveQuery(string $userId, string $harness, string $machineLabel): Builder
+    {
+        return Installation::query()
+            ->where('user_id', $userId)
+            ->where('harness', $harness)
+            ->where('machine_label', $machineLabel)
+            ->whereNull('revoked_at')
+            ->orderBy('id');
     }
 
     /**
