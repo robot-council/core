@@ -210,6 +210,7 @@ return [
         'prune_device_codes' => true,
         'sweep_sessions' => true,
         'prune_events' => true,
+        'prune_tasks' => true,
     ],
 
     /*
@@ -234,6 +235,7 @@ return [
 
     'retention' => [
         'events_days' => (int) env('ROBOT_COUNCIL_EVENT_RETENTION_DAYS', 30),
+        'tasks_days' => (int) env('ROBOT_COUNCIL_TASK_RETENTION_DAYS', 90),
     ],
 
     /*
