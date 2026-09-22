@@ -128,7 +128,28 @@ return new class extends Migration
             // it they become `SCAN USING INDEX` and `SEARCH (queue_rank>?)`, no sort -- and the
             // filtered plan is unchanged, so the second index does not displace the first.
             //
-            // Postgres and MySQL are not measured. There is no Postgres locally and MySQL is #39.
+            // **Postgres agrees, and that is now measured rather than assumed** (#80). Figures
+            // below are PostgreSQL 17.6, which is CI's major, on a 20,000-row fixture aged the way
+            // this table ages -- nothing prunes it, so `done` is 91% and `pending` 1% -- after
+            // `ANALYZE`. 18.0 produced the same plans.
+            //
+            // The board's default read is `Index Scan using robot_council_tasks_queue_rank_id_index`,
+            // 5 shared buffers, no sort. With only the composite it is a `Seq Scan` over all 20,000
+            // rows plus a `top-N heapsort`, 228 buffers -- the same defect SQLite showed, 45 times
+            // the pages, on a query the dashboard repeats every `poll_seconds`.
+            //
+            // **The composite still earns its place, and the margin grows.** Dropping it does not
+            // make the filtered read fall back to a scan, which is why "an index was used" is the
+            // wrong question to ask: it falls back to the queue index and filters, at 308 buffers
+            // and 2,574 rows discarded to return 26, against 28 buffers and none. Every completed
+            // task widens it.
+            //
+            // The filtered plans are identical with and without the queue index, so it displaces
+            // nothing an agent reads.
+            //
+            // MySQL is not measured, and no longer runs in CI; the deployment is Postgres on
+            // Laravel Cloud. `tests/TaskQueuePlanTest.php` holds all four plans and fails if any
+            // of them stops being true.
             $table->index(['status', 'queue_rank', 'id']);
             $table->index(['queue_rank', 'id']);
         });
