@@ -205,6 +205,25 @@ final class Credentials
     }
 
     /**
+     * How many days a finished task is kept before a prune deletes it.
+     *
+     * Longer than the feed's by default: a task is a unit of work somebody may want to look back
+     * at, and there are far fewer of them than there are events. Zero means forever.
+     *
+     * @return int The retention in days, or zero to keep everything.
+     */
+    public function taskRetentionDays(): int
+    {
+        $configured = $this->config->get('robot-council.retention.tasks_days');
+
+        if (! \is_int($configured) && (! \is_string($configured) || ! ctype_digit($configured))) {
+            return 90;
+        }
+
+        return max(0, (int) $configured);
+    }
+
+    /**
      * How many locks one session may hold at once.
      *
      * @return int The ceiling, at least one.

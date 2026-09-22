@@ -24,6 +24,7 @@ use RobotCouncil\Console\GrantAbilityCommand;
 use RobotCouncil\Console\InstallCommand;
 use RobotCouncil\Console\PruneDeviceCodesCommand;
 use RobotCouncil\Console\PruneEventsCommand;
+use RobotCouncil\Console\PruneTasksCommand;
 use RobotCouncil\Console\RevokeAbilityCommand;
 use RobotCouncil\Console\RevokeInstallationCommand;
 use RobotCouncil\Console\RevokeSessionCommand;
@@ -120,6 +121,7 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
                 RevokeSessionCommand::class,
                 PruneDeviceCodesCommand::class,
                 PruneEventsCommand::class,
+                PruneTasksCommand::class,
                 SweepSessionsCommand::class,
             ]);
     }
@@ -538,12 +540,13 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
         $prune = $config->get('robot-council.schedule.prune_device_codes', true) === true;
         $sweep = $config->get('robot-council.schedule.sweep_sessions', true) === true;
         $pruneEvents = $config->get('robot-council.schedule.prune_events', true) === true;
+        $pruneTasks = $config->get('robot-council.schedule.prune_tasks', true) === true;
 
-        if (! $prune && ! $sweep && ! $pruneEvents) {
+        if (! $prune && ! $sweep && ! $pruneEvents && ! $pruneTasks) {
             return;
         }
 
-        $this->app->booted(static function () use ($prune, $sweep, $pruneEvents): void {
+        $this->app->booted(static function () use ($prune, $sweep, $pruneEvents, $pruneTasks): void {
             if ($prune) {
                 Schedule::command(PruneDeviceCodesCommand::class)->hourly();
             }
@@ -557,6 +560,12 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
             // wants it sooner after an incident can run the command by hand, which takes no lock.
             if ($pruneEvents) {
                 Schedule::command(PruneEventsCommand::class)->dailyAt('03:10');
+            }
+
+            // Ten minutes after the feed's, so two prunes never start together on a host whose
+            // scheduler runs them in one process
+            if ($pruneTasks) {
+                Schedule::command(PruneTasksCommand::class)->dailyAt('03:20');
             }
         });
     }

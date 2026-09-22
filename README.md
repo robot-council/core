@@ -138,6 +138,7 @@ php artisan robot-council:revoke-session <session>             # one process onl
 php artisan robot-council:prune-device-codes                   # scheduled hourly
 php artisan robot-council:sweep-sessions                       # scheduled every minute
 php artisan robot-council:prune-events                         # scheduled daily at 03:10
+php artisan robot-council:prune-tasks                          # scheduled daily at 03:20
 ```
 
 Granting or revoking an ability rewrites the session tokens already in flight, so it takes effect on
@@ -172,8 +173,22 @@ What a host should watch:
   to run by hand at any time, and a host that wants it more often can schedule it itself with the
   entry turned off in `robot-council.schedule.prune_events`.
 
-The other tables the package keeps deliberately — tasks, locks, agent sessions — are not pruned
-yet. Those are robot-council/core#55, #63 and #113, and they are the same shape as this one.
+Finished tasks have their own retention, `robot-council.retention.tasks_days`, defaulting to **90**
+and set with `ROBOT_COUNCIL_TASK_RETENTION_DAYS`. It is longer than the feed's because a task is a
+unit of work somebody may want to look back at, and there are far fewer of them.
+
+**A task nobody has finished is never deleted, whatever its age.** It is work the fleet still owes
+somebody, and age is the opposite of a reason to remove it — an old pending task is the one most
+worth looking at. Only `done`, `failed` and `cancelled` are pruned, and the age is measured from
+when the task *finished* rather than when it was filed.
+
+A finished task that still has another task filed under it is also left in place, because
+`parent_task_id` is `nullOnDelete` and deleting the parent would rewrite a row the prune never
+selected — possibly a task the fleet is still working on. It goes once its children have, which for
+a finished tree happens within the same run.
+
+The two tables the package still keeps forever — locks and agent sessions — are
+robot-council/core#63 and #113, the same shape as these.
 
 ## The MCP server
 

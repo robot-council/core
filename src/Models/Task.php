@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Attributes\Table;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -159,6 +160,20 @@ final class Task extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(AgentSession::class, 'created_by');
+    }
+
+    /**
+     * The tasks filed under this one.
+     *
+     * Exists for `Support\Tasks::prune()`, which will not delete a task that still has one.
+     * `parent_task_id` is `nullOnDelete`, so deleting a parent rewrites a row nobody chose to
+     * touch, and that row can be a task the fleet is still working on.
+     *
+     * @return HasMany<self, $this> The children, which a deletion leaves rather than taking.
+     */
+    public function children(): HasMany
+    {
+        return $this->hasMany(self::class, 'parent_task_id');
     }
 
     /**

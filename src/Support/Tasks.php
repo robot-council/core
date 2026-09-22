@@ -446,4 +446,83 @@ final class Tasks
             }
         }
     }
+
+    /**
+     * How many tasks one delete statement removes.
+     *
+     * Tuning rather than behaviour, for the reason `FleetEvents::PRUNE_BATCH` records: the floor
+     * is what `prune()` enforces and what has a test, and no input can tell this figure from one
+     * either side of it.
+     */
+    public const int PRUNE_BATCH = 500;
+
+    /**
+     * How many batches one run may take.
+     */
+    public const int PRUNE_BATCHES = 50;
+
+    /**
+     * Delete finished tasks older than a cutoff, in batches.
+     *
+     * **Only a terminal task is ever deleted, whatever its age.** A task nobody has finished is
+     * work the fleet still owes somebody, and age is the opposite of a reason to remove it -- an
+     * old pending task is the one most worth looking at. The statuses come from
+     * `TaskStatus::terminal()`, which derives from the `isTerminal()` match, so adding a status
+     * forces the decision there rather than defaulting to prunable here.
+     *
+     * **Age is measured from `updated_at`, and that is correct precisely BECAUSE the status is
+     * terminal**: nothing transitions out of one, so the last write is the moment the task
+     * finished. Using `created_at` would delete a long-running task that finished yesterday and
+     * keep one filed and cancelled this morning.
+     *
+     * **A task that still has a child is never deleted, however old it is.** `parent_task_id` is
+     * `nullOnDelete`, so deleting a parent rewrites a row this prune did not select -- and that row
+     * can be a task the fleet is still working on, which would silently lose the grouping an agent
+     * reads it by. Leaving a parent until its children are gone can orphan nothing at any depth,
+     * and it costs a **batch** per level rather than a run: a child deleted by one batch leaves its
+     * parent selectable by the next, so a finished tree shallower than `$maxBatches` clears in one
+     * run and a deeper one loses `$maxBatches` levels a night until it is gone.
+     *
+     * The exact-looking alternative is what gets this wrong. "Delete a parent when every child is
+     * going in this run too" holds for a parent and its children and breaks one level further
+     * down: a grandparent whose only child is prunable passes that test, while the child is itself
+     * held back by a live grandchild, so the grandchild's parent link survives and the child's
+     * does not. The condition here has no such case because it never looks past one level.
+     *
+     * Batched for the reason `FleetEvents::prune()` records -- one statement large enough to
+     * matter holds a table other writers need. The batching is the same shape deliberately.
+     *
+     * @param  Carbon  $before  Delete tasks that finished strictly before this.
+     * @param  int  $batch  How many rows one statement removes.
+     * @param  int  $maxBatches  A ceiling, so a run is bounded even on a table nobody has pruned.
+     * @return int How many tasks were deleted.
+     */
+    public function prune(Carbon $before, int $batch = self::PRUNE_BATCH, int $maxBatches = self::PRUNE_BATCHES): int
+    {
+        $deleted = 0;
+
+        $terminal = TaskStatus::values(TaskStatus::terminal());
+
+        for ($i = 0; $i < max(1, $maxBatches); $i++) {
+            $ids = Task::query()
+                ->whereIn('status', $terminal)
+                ->where('updated_at', '<', $before)
+                ->whereDoesntHave('children')
+                ->orderBy('id')
+                ->limit(max(1, $batch))
+                ->pluck('id')
+                ->all();
+
+            if ($ids === []) {
+                break;
+            }
+
+            Task::query()->whereIn('id', $ids)->delete();
+
+            // Counted from the ids selected, for the reason `FleetEvents::prune()` records.
+            $deleted += \count($ids);
+        }
+
+        return $deleted;
+    }
 }

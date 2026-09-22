@@ -74,6 +74,19 @@ enum TaskStatus: string
     }
 
     /**
+     * The statuses nothing leaves.
+     *
+     * Derived from `isTerminal()` rather than listed again, so adding a status forces the decision
+     * in the `match` above and cannot quietly default to prunable here.
+     *
+     * @return list<self> The terminal statuses.
+     */
+    public static function terminal(): array
+    {
+        return array_values(array_filter(self::cases(), static fn (self $status): bool => $status->isTerminal()));
+    }
+
+    /**
      * The statuses a session holds a task in.
      *
      * @return list<self> The held statuses.
