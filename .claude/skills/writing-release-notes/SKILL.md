@@ -35,6 +35,27 @@ consumer, a minor adds without breaking, and a major is the breaking boundary.
 anyone already on that `^0.x` line; from `1.0.0` on, a breaking change bumps the **major**. When to
 cut a release, and when `1.0.0` happens, are not decided here.
 
+**A GitHub pre-release flag does not make Composer treat a version as unstable**, and reaching for
+it when you meant a resolver to skip a version is the trap. The flag is GitHub metadata: it drives
+the `Latest` badge and the release page, and Packagist never sees it. Composer reads stability from
+the **version string** alone. Measured 2026-09-22 on this package's own `v0.1.0`, which is flagged
+`prerelease=true` on GitHub and which Packagist serves as `version_normalized=0.1.0.0` — a stable
+version, resolved by a default `^0.1` with no warning and no `minimum-stability` change.
+
+So the two mechanisms have different audiences, and both are legitimate:
+
+| to tell | use |
+| --- | --- |
+| a person reading the releases page that a version is provisional | the GitHub `prerelease` flag |
+| a **resolver** to skip a version | a tag suffix — `v0.3.0-beta.1`, normalizing to `0.3.0.0-beta1` |
+
+A suffixed tag is resolved only by a caller whose `minimum-stability` admits it, so a release meant
+to be skipped carries the identifier on the tag from the start. #154 records this, along with the
+decision to **accept** the releases already flagged this way rather than re-tag them: Packagist has
+served them, clients cache what they resolved, and moving a served tag fails for somebody else long
+after it looks fine here. `robot-council/cli#101` is the same change in the command line, whose copy
+of this file is shared with this one by design.
+
 ## Title
 
 `vX.Y.Z — <Theme>` — an **em dash** (`—`) with a space either side, never a hyphen, then a
@@ -126,7 +147,7 @@ Don't hand-assemble the buckets — run the bundled generator. It reads first-pa
 for a ref range, pulls each PR's title **live from the GitHub API** (`gh`), and applies every
 rule above: prefix/`[skip ci]`/merge-hint stripping, acronym casing of a direct commit's subject
 (never of a PR title, which is used as written, and never of a dotted name, a path, or a code
-span), the routing cascade, `&`→and with the Oxford comma, `[#N]` PR links, and
+span), the routing cascade, `&` rewritten to `and` with the Oxford comma, `[#N]` PR links, and
 backticked-short-SHA links for direct commits. It skips changelog pull requests titled
 `Update CHANGELOG for vX.Y.Z`. It depends only on `git`, `gh`, and Python 3 (3.9 or later) — no
 other setup. Its title cleanup and routing are tested offline by
