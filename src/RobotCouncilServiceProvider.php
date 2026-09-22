@@ -20,6 +20,7 @@ use Livewire\Livewire;
 use RobotCouncil\Access\Allowlist;
 use RobotCouncil\Access\ApiGuards;
 use RobotCouncil\Access\Guard;
+use RobotCouncil\Console\DoctorCommand;
 use RobotCouncil\Console\GrantAbilityCommand;
 use RobotCouncil\Console\InstallCommand;
 use RobotCouncil\Console\PruneDeviceCodesCommand;
@@ -121,6 +122,7 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
                 RevokeAbilityCommand::class,
                 RevokeInstallationCommand::class,
                 RevokeSessionCommand::class,
+                DoctorCommand::class,
                 PruneDeviceCodesCommand::class,
                 PruneEventsCommand::class,
                 PruneLocksCommand::class,

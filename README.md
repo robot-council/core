@@ -135,6 +135,7 @@ php artisan robot-council:grant-ability  <installation> coordinator:direct
 php artisan robot-council:revoke-ability <installation> events:post
 php artisan robot-council:revoke-installation <installation>   # and every session token it issued
 php artisan robot-council:revoke-session <session>             # one process only
+php artisan robot-council:doctor                               # reports misconfiguration; exits non-zero
 php artisan robot-council:prune-device-codes                   # scheduled hourly
 php artisan robot-council:sweep-sessions                       # scheduled every minute
 php artisan robot-council:prune-events                         # scheduled daily at 03:10
@@ -161,6 +162,17 @@ ROBOT_COUNCIL_EVENT_RETENTION_DAYS=30   # 0 keeps everything
 **Zero keeps everything**, for a host archiving on its own terms — the command says so and exits
 rather than reporting that it deleted nothing, because "pruned 0 events" and "pruning is switched
 off" are different states and only one of them wants looking at.
+
+**Run `robot-council:doctor` after installing, and again after changing anything.** It reports what
+is wrong with this application's configuration without being asked a specific question: whether the
+`sanctum` guard names a provider, whether `sanctum.expiration` is null, whether every migration this
+version ships has run, whether anything appears to be consuming the queue, whether anybody is on the
+developer allowlist, whether the Slack mirror would run inside an agent's request, and whether
+`app.timezone` can shift under the presence clock.
+
+Every fault it looks for is invisible until something else goes wrong. It writes nothing and prints
+no secret, so it is safe to run when worried. A check it cannot reach reports as `UNKNOWN` with what
+would make it reachable, which reads differently from one that looked and found nothing.
 
 What a host should watch:
 
