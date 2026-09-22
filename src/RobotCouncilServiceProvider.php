@@ -25,6 +25,7 @@ use RobotCouncil\Console\InstallCommand;
 use RobotCouncil\Console\PruneDeviceCodesCommand;
 use RobotCouncil\Console\PruneEventsCommand;
 use RobotCouncil\Console\PruneLocksCommand;
+use RobotCouncil\Console\PruneSessionsCommand;
 use RobotCouncil\Console\PruneTasksCommand;
 use RobotCouncil\Console\RevokeAbilityCommand;
 use RobotCouncil\Console\RevokeInstallationCommand;
@@ -123,6 +124,7 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
                 PruneDeviceCodesCommand::class,
                 PruneEventsCommand::class,
                 PruneLocksCommand::class,
+                PruneSessionsCommand::class,
                 PruneTasksCommand::class,
                 SweepSessionsCommand::class,
             ]);
@@ -544,12 +546,13 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
         $pruneEvents = $config->get('robot-council.schedule.prune_events', true) === true;
         $pruneTasks = $config->get('robot-council.schedule.prune_tasks', true) === true;
         $pruneLocks = $config->get('robot-council.schedule.prune_locks', true) === true;
+        $pruneSessions = $config->get('robot-council.schedule.prune_sessions', true) === true;
 
-        if (! $prune && ! $sweep && ! $pruneEvents && ! $pruneTasks && ! $pruneLocks) {
+        if (! $prune && ! $sweep && ! $pruneEvents && ! $pruneTasks && ! $pruneLocks && ! $pruneSessions) {
             return;
         }
 
-        $this->app->booted(static function () use ($prune, $sweep, $pruneEvents, $pruneTasks, $pruneLocks): void {
+        $this->app->booted(static function () use ($prune, $sweep, $pruneEvents, $pruneTasks, $pruneLocks, $pruneSessions): void {
             if ($prune) {
                 Schedule::command(PruneDeviceCodesCommand::class)->hourly();
             }
@@ -573,6 +576,12 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
 
             if ($pruneLocks) {
                 Schedule::command(PruneLocksCommand::class)->dailyAt('03:30');
+            }
+
+            // Last of the four, so a session is only considered once whatever held it has been
+            // pruned -- which is what keeps its guard from holding it back for another night.
+            if ($pruneSessions) {
+                Schedule::command(PruneSessionsCommand::class)->dailyAt('03:40');
             }
         });
     }

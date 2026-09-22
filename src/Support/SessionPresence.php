@@ -14,6 +14,7 @@ use RobotCouncil\Events\SessionGone;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
 use RobotCouncil\Models\FleetEventType;
+use RobotCouncil\Models\TaskStatus;
 
 /**
  * Which agent sessions are alive: what contact updates, what the sweep changes, and how a session
@@ -423,5 +424,87 @@ final class SessionPresence
         $session->loadMissing('installation');
 
         return sprintf('%s on %s', $session->installation->harness, $session->installation->machine_label);
+    }
+
+    /**
+     * How many sessions one delete statement removes.
+     *
+     * Tuning rather than behavior, for the reason `FleetEvents::PRUNE_BATCH` records.
+     */
+    public const int PRUNE_BATCH = 500;
+
+    /**
+     * How many batches one run may take.
+     */
+    public const int PRUNE_BATCHES = 50;
+
+    /**
+     * Delete sessions that ended long ago, in batches.
+     *
+     * The last step of the lifecycle this class owns: a session goes, #24 keeps its row so a reader
+     * can still see what the process was, and eventually nobody is looking (#113).
+     *
+     * **Only a session that has gone is ever deleted.** `active` and `stale` are live -- a stale
+     * session is one request away from active -- so age is no reason to remove either.
+     *
+     * **A session still holding a task or a lock is never deleted, whatever its age.** Both
+     * `robot_council_tasks.claimed_by` and `robot_council_locks.holder_id` are `nullOnDelete`, so
+     * deleting the row rewrites rows this prune never selected: a task loses its claimant while
+     * its status still says it is held, which no release path can then reach, and a lock is freed
+     * without the feed event a release writes. `SessionReleases` is supposed to have released both
+     * by now, and its own docblock is why that is not enough -- a step that throws fails the sweep,
+     * so a mechanism that keeps failing leaves orphans indefinitely.
+     *
+     * **This is not about session id reuse**, which the ticket originally asked for and which
+     * cannot happen here: `robot_council_agent_sessions.id` is `primary key autoincrement` on
+     * SQLite, which keeps a high-water mark in `sqlite_sequence` -- measured, deleting the highest
+     * row and starting a session gave the next id, not the deleted one. Resetting a sequence is
+     * what `TRUNCATE` does, not `DELETE`.
+     *
+     * `robot_council_events.agent_session_id` is left dangling deliberately (#50). Nothing reads
+     * it to decide visibility: `FleetFeed` and `AgentLogins::forUsers()` both read `user_id` off
+     * the event, so a deleted session cannot re-point its narration at anybody.
+     *
+     * Age comes from `last_seen_at`, which nothing writes once a session has gone, rather than
+     * `updated_at`, which any later touch of the row would move.
+     *
+     * @param  Carbon  $before  Delete sessions last heard from before this.
+     * @param  int  $batch  How many rows one statement removes.
+     * @param  int  $maxBatches  A ceiling, so a run is bounded even on a table nobody has pruned.
+     * @return int How many sessions were deleted.
+     */
+    public function prune(Carbon $before, int $batch = self::PRUNE_BATCH, int $maxBatches = self::PRUNE_BATCHES): int
+    {
+        $now = Carbon::now();
+
+        $held = TaskStatus::values(TaskStatus::held());
+
+        $deleted = 0;
+
+        for ($i = 0; $i < max(1, $maxBatches); $i++) {
+            $ids = AgentSession::query()
+                ->where('status', AgentSessionStatus::Gone)
+                ->where('last_seen_at', '<', $before)
+                // Narrowed by status rather than by the relation, because `claimed_by` survives a
+                // task finishing: a session that completed work still names every task it claimed.
+                ->whereDoesntHave('claimedTasks', fn (Builder $task) => $task->whereIn('status', $held))
+                // A lapsed lease is already free, and freeing it again costs nothing.
+                ->whereDoesntHave('heldLocks', fn (Builder $lock) => $lock->where('expires_at', '>', $now))
+                ->orderBy('id')
+                ->limit(max(1, $batch))
+                ->pluck('id')
+                ->all();
+
+            if ($ids === []) {
+                break;
+            }
+
+            AgentSession::query()->whereIn('id', $ids)->delete();
+
+            // Counted from the ids selected, for the reason `FleetEvents::prune()` records.
+            $deleted += \count($ids);
+        }
+
+        return $deleted;
     }
 }
