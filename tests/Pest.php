@@ -3,12 +3,91 @@
 declare(strict_types=1);
 
 use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\DB;
 use Laravel\Socialite\Two\User as GitHubAccount;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Models\DeviceCode;
 use RobotCouncil\Tests\TestCase;
 
 pest()->extend(TestCase::class)->in(__DIR__);
+
+/**
+ * Whether this run is on something other than Postgres.
+ *
+ * **Three of the `cross-connection` files are Postgres-specific in their SQL, not merely in where
+ * they are run.** They set `lock_timeout`, which is Postgres's spelling -- MySQL bounds a row wait
+ * with `innodb_lock_wait_timeout`, in whole seconds -- and `FeedOrderingTest` additionally reads a
+ * sequence through `pg_get_serial_sequence()` and `last_value`.
+ *
+ * **Pointed at MySQL they do not fail, they stall.** The bound never applies, so each blocked
+ * writer waits out `innodb_lock_wait_timeout`, 50 seconds by default, and the idle transaction the
+ * other connection is holding blocks the teardown's `DROP TABLE` on a metadata lock. Measured
+ * 2026-09-22 while adding the `mysql` job (#39): one run sat for 815 seconds before it was killed,
+ * with `Waiting for table metadata lock` as the only symptom.
+ *
+ * Skipping on the engine rather than trusting the workflow, because a comment saying which job may
+ * run a test is not a thing the test can enforce -- and the failure mode for getting it wrong is a
+ * job that hangs until its timeout rather than one that says what is wrong.
+ */
+function notPostgres(): bool
+{
+    return DB::connection()->getDriverName() !== 'pgsql';
+}
+
+/**
+ * Whether a query is a write of one kind against one of the package's tables.
+ *
+ * **Identifier quoting is per-driver, and a test that spells it out tests one driver.** SQLite and
+ * Postgres quote with `"`, MySQL with a backtick, so a predicate written as
+ * `update "robot_council_locks"` silently matches nothing on MySQL -- and a `DB::listen` predicate
+ * that never fires does not fail, it just never injects what the test was about. Every one of
+ * those tests passed on two engines and failed on the third for a reason that had nothing to do
+ * with what it was testing (#39).
+ *
+ * Quoting is stripped rather than matched, so this holds on any driver Laravel supports.
+ *
+ * @param  string  $sql  The statement, as `QueryExecuted` reports it.
+ * @param  string  $verb  The leading keyword, lower-case: `update`, `insert into`, `delete from`.
+ * @param  string  $table  The unquoted table name.
+ * @return bool True when the statement opens with that verb against that table.
+ */
+function isWriteTo(string $sql, string $verb, string $table): bool
+{
+    $normalized = strtolower(str_replace(['"', '`', '[', ']'], '', ltrim($sql)));
+
+    return str_starts_with($normalized, $verb.' '.$table);
+}
+
+/**
+ * One `meta` payload with its keys in a fixed order, at every depth.
+ *
+ * **MySQL's `JSON` column does not preserve object key order**, and neither the package nor any
+ * reader depends on it: a JSON object is an unordered map, and `Models\FleetEvent` casts the
+ * column to an array. Asserting the round trip with `toBe()` compares arrays identically, which
+ * for an associative array means key order too -- so sixteen assertions were pinning a property
+ * the storage never promised, and MySQL is simply the engine that does not happen to return them
+ * as written (#39).
+ *
+ * Sorting both sides keeps the comparison strict about values while dropping the order, which is
+ * what `toEqual()` would have loosened instead.
+ *
+ * @param  array<array-key, mixed>|null  $meta  The payload, or null for an event carrying none.
+ * @return array<array-key, mixed> The payload with keys sorted at every level.
+ */
+function orderedMeta(?array $meta): array
+{
+    $meta ??= [];
+
+    ksort($meta);
+
+    foreach ($meta as $key => $value) {
+        if (is_array($value)) {
+            $meta[$key] = orderedMeta($value);
+        }
+    }
+
+    return $meta;
+}
 
 /**
  * Every file under a directory with one suffix, at any depth.

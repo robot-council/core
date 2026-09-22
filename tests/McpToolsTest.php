@@ -340,7 +340,7 @@ it('writes a narration event that the feed records', function (): void {
 
     expect($event->type)->toBe(FleetEventType::Narration)
         ->and($event->body)->toBe('rebuilding the index')
-        ->and($event->meta)->toBe(['client' => ['step' => 2]])
+        ->and(orderedMeta($event->meta))->toBe(orderedMeta(['client' => ['step' => 2]]))
         ->and($event->agent_session_id)->toBe($this->session->getKey())
         ->and($event->posted_with_coordinator)->toBeFalse();
 });

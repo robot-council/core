@@ -82,7 +82,7 @@ it('stores narration as narration, attributed to the session that posted it', fu
         ->and($event->posted_with_coordinator)->toBeFalse()
 
         // Anything the client sent is kept apart from anything the server derived
-        ->and($event->meta)->toBe(['client' => ['file' => 'database/migrations/x.php']]);
+        ->and(orderedMeta($event->meta))->toBe(orderedMeta(['client' => ['file' => 'database/migrations/x.php']]));
 });
 
 it('refuses a narration body over the size limit', function (): void {

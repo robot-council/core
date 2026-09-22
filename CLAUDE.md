@@ -87,7 +87,9 @@ A **Laravel package** (`robot-council/core`), not an application. It is the core
 | --- | --- |
 | Install | `composer install` |
 | Tests | `composer test` (`vendor/bin/pest`); one file or test: `vendor/bin/pest --compact tests/ExampleTest.php --filter=...` |
-| Cross-connection tests | Postgres only: `DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_DATABASE=<db> DB_USERNAME=<user> DB_PASSWORD=<password> vendor/bin/pest --group=cross-connection` |
+| Tests on Postgres | `DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=5432 DB_DATABASE=<db> DB_USERNAME=postgres DB_PASSWORD= vendor/bin/pest` |
+| Tests on MySQL | `DB_CONNECTION=mysql DB_HOST=127.0.0.1 DB_PORT=3306 DB_DATABASE=<db> DB_USERNAME=root DB_PASSWORD= vendor/bin/pest` |
+| Cross-connection tests | Add `--group=cross-connection` to either line above. Never SQLite. All seven run on Postgres; on MySQL six skip themselves, because they set `lock_timeout` and would stall rather than fail |
 | Coverage | `composer test-coverage` (needs PCOV or Xdebug; see the `pcov-setup` skill) |
 | Mutation | `vendor/bin/pest --mutate --path=src --class="RobotCouncil\<Class>"` |
 | Static analysis | `composer analyse` (PHPStan with Larastan and `pestphp/pest-plugin-phpstan`, level `max` with bleeding edge, no baseline); PHPStan and Rector both cover `config`, `routes`, `src`, `tests`, and `rector.php` |
@@ -229,7 +231,12 @@ A **Laravel package** (`robot-council/core`), not an application. It is the core
   - `tests` runs `vendor/bin/pest --ci` on ubuntu and windows × PHP 8.5 and 8.4 × Laravel 13 × `prefer-lowest` and `prefer-stable`, with `fail-fast: false`, on Pest 5 and PHPUnit 13.
   - `phpstan` runs PHPStan on PHP 8.5, and `pint` runs `vendor/bin/pint --test`, which **fails on a style problem instead of fixing it**. Run `vendor/bin/pint --dirty` before pushing.
   - `rector` runs `vendor/bin/rector --dry-run`, which fails when Rector would change a file. Run `composer refactor` before pushing, and review what it changed.
-  - `postgres` runs on ubuntu with PHP 8.5 against a `postgres:17` service container. It runs `vendor/bin/pest --ci` with `DB_CONNECTION=pgsql`, then `vendor/bin/pest --ci --group=cross-connection`. No other run executes that group, and there is no Postgres locally unless you start one.
+  - `postgres` runs on ubuntu with PHP 8.5 against a `postgres:17` service container. It runs `vendor/bin/pest --ci` with `DB_CONNECTION=pgsql`, then `vendor/bin/pest --ci --group=cross-connection`.
+
+    **Both engines run locally, and the claim that they do not has cost time twice.** Laravel Herd serves `mysql` and `postgresql` as services; on this machine they were already listening on 3306 and 5432, needing nothing started. Measured 2026-09-22: PostgreSQL 17.0 and MySQL 9.4.0, both reachable as `postgres` and `root` with an empty password, and the suite passes against each with a throwaway database. So a defect that only one engine can see is **not** CI-only, and reaching for CI to find one is a choice rather than a necessity -- #39's twenty failures were reproduced locally test-for-test and fixed without a single push.
+
+    **A local run is not parity with the job, though.** CI pins `postgres:17` and `mysql:8.4`; Herd here is Postgres 17.0 and **MySQL 9.4**, a different major. The `mysql` job also sets `explicit_defaults_for_timestamp` off and Herd's default is on, so the schema means something different on each side. Use local runs to find and fix, and the job to confirm.
+  - `mysql` runs on ubuntu with PHP 8.5 against a `mysql:8.4` service container, with `DB_CONNECTION=mysql`, then the `cross-connection` group. **It turns `explicit_defaults_for_timestamp` OFF before the suite**, because that is the mode where MySQL and MariaDB give the first `NOT NULL` `TIMESTAMP` column in a table an implicit `ON UPDATE CURRENT_TIMESTAMP`, and #22 shipped a defect neither SQLite nor Postgres could see. It is also the only job that can observe `Builder::update()` returning rows CHANGED rather than matched. `tests/MySqlSchemaTest.php` asserts both the driver and the mode, gated on `ROBOT_COUNCIL_EXPECT_MYSQL`, which only that job sets -- without it a job whose `DB_CONNECTION` never took effect would run on SQLite, skip every MySQL-only test, and report green.
   - `ci-passed` succeeds only when every other job succeeded. It is the one check the `main` ruleset requires.
   - Nothing writes `CHANGELOG.md` automatically. A release adds its entry through an `Update CHANGELOG for vX.Y.Z` pull request before the tag (the `writing-release-notes` skill).
   - Dependabot opens weekly Composer and GitHub Actions update pull requests labeled `dependencies`. Nothing merges them automatically: take each through `pre-merge-check` like any other change.

@@ -218,10 +218,10 @@ it('marks a session stale once it has been quiet for the configured minutes', fu
     $event = theEventOfType(FleetEventType::SessionStale);
 
     expect($event->body)->toBe('claude-code on workbench stopped answering.')
-        ->and($event->meta)->toBe([
+        ->and(orderedMeta($event->meta))->toBe(orderedMeta([
             'installation_id' => $this->installation->getKey(),
             'quiet_since' => Carbon::parse(STARTED_AT)->toIso8601String(),
-        ]);
+        ]));
 });
 
 it('ends a session that has been quiet past the gone threshold, straight from active', function (): void {
@@ -242,10 +242,10 @@ it('ends a session that has been quiet past the gone threshold, straight from ac
     $event = theEventOfType(FleetEventType::SessionGone);
 
     expect($event->body)->toBe('claude-code on workbench ended.')
-        ->and($event->meta)->toBe([
+        ->and(orderedMeta($event->meta))->toBe(orderedMeta([
             'installation_id' => $this->installation->getKey(),
             'reason' => SessionPresence::TIMEOUT,
-        ]);
+        ]));
 
     $this->machine($token)->getJson(route('robot-council.agent.session'))->assertUnauthorized();
 });
@@ -271,7 +271,7 @@ it('brings a stale session back on its next request, once', function (): void {
     $event = theEventOfType(FleetEventType::SessionResumed);
 
     expect($event->body)->toBe('claude-code on workbench is answering again.')
-        ->and($event->meta)->toBe(['installation_id' => $this->installation->getKey()]);
+        ->and(orderedMeta($event->meta))->toBe(orderedMeta(['installation_id' => $this->installation->getKey()]));
 
     // A second request is contact, not a second change
     $this->machine($token)->getJson(route('robot-council.agent.session'))->assertOk();
@@ -528,10 +528,10 @@ it('ends a session through the installation credential, and releases its tokens'
         ->assertExactJson(['session_id' => $session->getKey(), 'status' => 'gone']);
 
     expect($session->refresh()->status)->toBe(AgentSessionStatus::Gone)
-        ->and(theEventOfType(FleetEventType::SessionGone)->meta)->toBe([
+        ->and(orderedMeta(theEventOfType(FleetEventType::SessionGone)->meta))->toBe(orderedMeta([
             'installation_id' => $this->installation->getKey(),
             'reason' => SessionPresence::ENDED,
-        ]);
+        ]));
 
     Event::assertDispatchedTimes(SessionGone::class, 1);
 
@@ -799,10 +799,10 @@ it('records a revocation as its own reason, and revokes only once', function ():
         ->and(Artisan::output())->toContain('1 token(s) deleted');
 
     // An admin revoking is not a process exiting and not a timeout, and the feed says which it was
-    expect(theEventOfType(FleetEventType::SessionGone)->meta)->toBe([
+    expect(orderedMeta(theEventOfType(FleetEventType::SessionGone)->meta))->toBe(orderedMeta([
         'installation_id' => $this->installation->getKey(),
         'reason' => SessionPresence::REVOKED,
-    ]);
+    ]));
 
     Event::assertDispatchedTimes(SessionGone::class, 1);
 
@@ -831,10 +831,10 @@ it('revokes a session the sweep has already found silent, without a second event
 
     expect(Artisan::call('robot-council:revoke-session', ['session' => $session->getKey()]))->toBe(0)
         ->and(eventsOfType(FleetEventType::SessionGone))->toBe(1)
-        ->and(theEventOfType(FleetEventType::SessionGone)->meta)->toBe([
+        ->and(orderedMeta(theEventOfType(FleetEventType::SessionGone)->meta))->toBe(orderedMeta([
             'installation_id' => $this->installation->getKey(),
             'reason' => SessionPresence::TIMEOUT,
-        ]);
+        ]));
 });
 
 it('says a session has gone even when something else ended it first', function (): void {

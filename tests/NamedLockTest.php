@@ -160,11 +160,11 @@ it('hands a lapsed lease to the next asker, with a greater fence', function (): 
     $event = FleetEvent::query()->where('type', FleetEventType::LockTakenOver->value)->sole();
 
     // Recorded as a takeover rather than an acquisition, because somebody lost something
-    expect($event->meta)->toBe([
+    expect(orderedMeta($event->meta))->toBe(orderedMeta([
         'lock' => 'deploy',
         'fence' => 2,
         'taken_from' => $this->session->getKey(),
-    ]);
+    ]));
 });
 
 it('takes a name with separators in it, which is the kind worth locking', function (): void {
@@ -342,7 +342,7 @@ it('lets a coordinator take a lock away, and nobody else', function (): void {
 
     $event = FleetEvent::query()->where('type', FleetEventType::LockForceReleased->value)->sole();
 
-    expect($event->meta)->toBe(['lock' => 'deploy', 'taken_from' => $this->session->getKey()])
+    expect(orderedMeta($event->meta))->toBe(orderedMeta(['lock' => 'deploy', 'taken_from' => $this->session->getKey()]))
         ->and($event->agent_session_id)->toBe($coordinatorSession->getKey());
 });
 
@@ -384,7 +384,7 @@ it('gives one free name to exactly one of two sessions asking at once', function
     // a savepoint. It is a simulated interleaving rather than two connections, which is inherent
     // to the `DB::listen` mechanism the criterion asks for.
     DB::listen(function (QueryExecuted $query) use (&$injected, &$anchor, &$rivalOutcome, $rivalSession): void {
-        if ($injected > 0 || ! str_starts_with(strtolower(ltrim($query->sql)), 'select * from "robot_council_locks"')) {
+        if ($injected > 0 || ! isWriteTo($query->sql, 'select * from', 'robot_council_locks')) {
             return;
         }
 
@@ -401,7 +401,7 @@ it('gives one free name to exactly one of two sessions asking at once', function
     // name would be tautological -- it is assigned only on the branch where that already matched --
     // and a tautological assertion is what let the wrong anchor through.
     expect($injected)->toBe(1)
-        ->and(strtolower($anchor))->toStartWith('select * from "robot_council_locks"');
+        ->and(isWriteTo($anchor, 'select * from', 'robot_council_locks'))->toBeTrue();
 
     $winners = ($mine->status() === 200 ? 1 : 0) + ($rivalOutcome === Outcome::Applied ? 1 : 0);
 
@@ -425,7 +425,7 @@ it('records a renewal and a release in the feed', function (): void {
     $renewed = FleetEvent::query()->where('type', FleetEventType::LockRenewed->value)->sole();
 
     expect($renewed->body)->toBe('Renewed deploy.')
-        ->and($renewed->meta)->toBe(['lock' => 'deploy', 'fence' => 1])
+        ->and(orderedMeta($renewed->meta))->toBe(orderedMeta(['lock' => 'deploy', 'fence' => 1]))
         ->and($renewed->agent_session_id)->toBe($this->session->getKey());
 
     lockAction($this, $this->token, 'release', ['name' => 'deploy'])->assertOk();
@@ -435,7 +435,7 @@ it('records a renewal and a release in the feed', function (): void {
     // Attributed to the session that let it go, unlike the sweep's release, which is the service
     // reporting what it observed
     expect($released->body)->toBe('Released deploy.')
-        ->and($released->meta)->toBe(['lock' => 'deploy'])
+        ->and(orderedMeta($released->meta))->toBe(orderedMeta(['lock' => 'deploy']))
         ->and($released->agent_session_id)->toBe($this->session->getKey());
 });
 
@@ -533,7 +533,7 @@ it('reads the lease that is left, not the one that was asked for', function (): 
     $moved = 0;
 
     DB::listen(function (QueryExecuted $query) use (&$moved): void {
-        if ($moved > 0 || ! str_starts_with(strtolower(ltrim($query->sql)), 'update "robot_council_locks"')) {
+        if ($moved > 0 || ! isWriteTo($query->sql, 'update', 'robot_council_locks')) {
             return;
         }
 
@@ -604,7 +604,7 @@ it('releases the locks on the next sweep when the release itself throws', functi
     $failed = 0;
 
     DB::listen(function (QueryExecuted $query) use (&$failed): void {
-        if ($failed > 0 || ! str_starts_with(strtolower(ltrim($query->sql)), 'update "robot_council_locks"')) {
+        if ($failed > 0 || ! isWriteTo($query->sql, 'update', 'robot_council_locks')) {
             return;
         }
 
@@ -637,7 +637,7 @@ it('releases the locks even when the task step fails first', function (): void {
     $failed = 0;
 
     DB::listen(function (QueryExecuted $query) use (&$failed): void {
-        if ($failed > 0 || ! str_starts_with(strtolower(ltrim($query->sql)), 'select * from "robot_council_tasks"')) {
+        if ($failed > 0 || ! isWriteTo($query->sql, 'select * from', 'robot_council_tasks')) {
             return;
         }
 
@@ -730,7 +730,7 @@ it('keeps a lock whose session came back between the sweep reading it and releas
     // session under a lock and proceeds only while it is still gone, which is the half of the
     // criterion the candidate query's own filter would otherwise hide.
     DB::listen(function (QueryExecuted $query) use (&$injected): void {
-        if ($injected > 0 || ! str_starts_with(strtolower(ltrim($query->sql)), 'select * from "robot_council_locks"')) {
+        if ($injected > 0 || ! isWriteTo($query->sql, 'select * from', 'robot_council_locks')) {
             return;
         }
 
@@ -758,7 +758,7 @@ it('releases the other orphaned locks when one of them fails', function (): void
     $failed = 0;
 
     DB::listen(function (QueryExecuted $query) use (&$failed): void {
-        if ($failed > 0 || ! str_starts_with(strtolower(ltrim($query->sql)), 'update "robot_council_locks"')) {
+        if ($failed > 0 || ! isWriteTo($query->sql, 'update', 'robot_council_locks')) {
             return;
         }
 
