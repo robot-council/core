@@ -32,8 +32,9 @@ A **Laravel package** (`robot-council/core`), not an application. It is the core
   fire exactly once however a session ended, and what makes two sweeps at once safe, so the sweep
   takes no overlap lock -- one would fail worse than the problem, holding for its whole expiry after
   a killed run and marking nothing gone meanwhile.
-- **Lock order is `robot_council_installations`, then `robot_council_agent_sessions`, then the feed
-  sentinel, then `personal_access_tokens`.** Every path that touches more than one takes them in that
+- **Lock order is `robot_council_installations`, then `robot_council_agent_sessions`, then
+  `robot_council_locks`, then `robot_council_lock_fence`, then the feed sentinel, then
+  `personal_access_tokens`.** Every path that touches more than one takes them in that
   order. Two paths taking the same two rows in opposite orders deadlock on every engine that locks
   rows, which is all of them but SQLite -- and SQLite serializes writers, so no test in this suite can
   show it. `AgentSessions::renew()` and `Installations::revoke()` both had to be reordered for this.
@@ -44,6 +45,15 @@ A **Laravel package** (`robot-council/core`), not an application. It is the core
   code says it is being taken. `robot_council_tasks` keeps its foreign keys, because its write rate
   is low and `Support\Tasks::transition()` already takes the session row explicitly and first -- the
   order is visible there rather than inherited.
+  **`robot_council_lock_fence` is one row for the whole installation, and `Support\Locks::acquire()`
+  is its only writer.** It holds the fence sequence, which #63 made shared across every lock name so
+  that a free lock row could be deleted -- a per-row `fence + 1` made the row the only record of what
+  its name had issued, so a pruned name restarted at 1 and re-blessed a stale holder's fence. Because
+  it is global and its exclusive lock is held to commit, **it is drawn only on an acquisition that is
+  going to win**: drawing on the losing path too would put every failed attempt on every contended
+  name into one queue, so one hot lock would serialize acquisitions of every other name in the fleet.
+  The takeability check that gates it mirrors the update's `where` and cannot go stale, because the
+  lock row is already held with `lockForUpdate()`.
 - **Whatever is displayed to agents is charset-limited at the edge.** `harness`, `machine_label`, and `project_id` all reach other developers' agents, and event content is untrusted input to something that may have shell access. `meta` is bounded by `Http\Rules\BoundedMeta` for the same reason an `array` rule bounds nothing.
 - **Who sees which event is decided in `Support\FleetFeed`, and it is a security boundary.** Narration reaches only its own developer's sessions and sessions that held `coordinator:direct` when they posted; state changes and directives reach everyone. Whether the ability was held is recorded on the event at write time, so revoking it later is not retroactive.
 - **Both halves of that rule are read from the event, never looked up from its session id.**

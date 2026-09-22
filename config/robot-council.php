@@ -211,6 +211,7 @@ return [
         'sweep_sessions' => true,
         'prune_events' => true,
         'prune_tasks' => true,
+        'prune_locks' => true,
     ],
 
     /*
@@ -236,6 +237,11 @@ return [
     'retention' => [
         'events_days' => (int) env('ROBOT_COUNCIL_EVENT_RETENTION_DAYS', 30),
         'tasks_days' => (int) env('ROBOT_COUNCIL_TASK_RETENTION_DAYS', 90),
+
+        // Shorter than the other two, because a lock row that nobody holds carries nothing worth
+        // reading. It is not the fence: that comes from one sequence shared by every name, so a
+        // deleted row cannot lower the next number issued for the name it held.
+        'locks_days' => (int) env('ROBOT_COUNCIL_LOCK_RETENTION_DAYS', 7),
     ],
 
     /*

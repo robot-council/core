@@ -224,6 +224,25 @@ final class Credentials
     }
 
     /**
+     * How many days a lock nobody holds is kept before a prune deletes it.
+     *
+     * Shorter than the other two by default: a free lock row holds a name, a previous holder and a
+     * number, none of which is read once the lease is over. Zero means forever.
+     *
+     * @return int The retention in days, or zero to keep everything.
+     */
+    public function lockRetentionDays(): int
+    {
+        $configured = $this->config->get('robot-council.retention.locks_days');
+
+        if (! \is_int($configured) && (! \is_string($configured) || ! ctype_digit($configured))) {
+            return 7;
+        }
+
+        return max(0, (int) $configured);
+    }
+
+    /**
      * How many locks one session may hold at once.
      *
      * @return int The ceiling, at least one.

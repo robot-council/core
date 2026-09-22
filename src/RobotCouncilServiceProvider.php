@@ -24,6 +24,7 @@ use RobotCouncil\Console\GrantAbilityCommand;
 use RobotCouncil\Console\InstallCommand;
 use RobotCouncil\Console\PruneDeviceCodesCommand;
 use RobotCouncil\Console\PruneEventsCommand;
+use RobotCouncil\Console\PruneLocksCommand;
 use RobotCouncil\Console\PruneTasksCommand;
 use RobotCouncil\Console\RevokeAbilityCommand;
 use RobotCouncil\Console\RevokeInstallationCommand;
@@ -121,6 +122,7 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
                 RevokeSessionCommand::class,
                 PruneDeviceCodesCommand::class,
                 PruneEventsCommand::class,
+                PruneLocksCommand::class,
                 PruneTasksCommand::class,
                 SweepSessionsCommand::class,
             ]);
@@ -541,12 +543,13 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
         $sweep = $config->get('robot-council.schedule.sweep_sessions', true) === true;
         $pruneEvents = $config->get('robot-council.schedule.prune_events', true) === true;
         $pruneTasks = $config->get('robot-council.schedule.prune_tasks', true) === true;
+        $pruneLocks = $config->get('robot-council.schedule.prune_locks', true) === true;
 
-        if (! $prune && ! $sweep && ! $pruneEvents && ! $pruneTasks) {
+        if (! $prune && ! $sweep && ! $pruneEvents && ! $pruneTasks && ! $pruneLocks) {
             return;
         }
 
-        $this->app->booted(static function () use ($prune, $sweep, $pruneEvents, $pruneTasks): void {
+        $this->app->booted(static function () use ($prune, $sweep, $pruneEvents, $pruneTasks, $pruneLocks): void {
             if ($prune) {
                 Schedule::command(PruneDeviceCodesCommand::class)->hourly();
             }
@@ -566,6 +569,10 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
             // scheduler runs them in one process
             if ($pruneTasks) {
                 Schedule::command(PruneTasksCommand::class)->dailyAt('03:20');
+            }
+
+            if ($pruneLocks) {
+                Schedule::command(PruneLocksCommand::class)->dailyAt('03:30');
             }
         });
     }

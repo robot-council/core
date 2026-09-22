@@ -139,6 +139,7 @@ php artisan robot-council:prune-device-codes                   # scheduled hourl
 php artisan robot-council:sweep-sessions                       # scheduled every minute
 php artisan robot-council:prune-events                         # scheduled daily at 03:10
 php artisan robot-council:prune-tasks                          # scheduled daily at 03:20
+php artisan robot-council:prune-locks                          # scheduled daily at 03:30
 ```
 
 Granting or revoking an ability rewrites the session tokens already in flight, so it takes effect on
@@ -187,8 +188,22 @@ A finished task that still has another task filed under it is also left in place
 selected — possibly a task the fleet is still working on. It goes once its children have, which for
 a finished tree happens within the same run.
 
-The two tables the package still keeps forever — locks and agent sessions — are
-robot-council/core#63 and #113, the same shape as these.
+Free locks have their own retention, `robot-council.retention.locks_days`, defaulting to **7** and
+set with `ROBOT_COUNCIL_LOCK_RETENTION_DAYS`. It is shorter than the other two because a lock row
+nobody holds carries a name, a previous holder and a number, none of which is read once the lease
+is over.
+
+**A lock somebody is holding is never deleted, whatever the row's age.** "Free" here is the same
+condition an acquisition takes a lock from: no holder, or a lease that has lapsed.
+
+**A lock's fence is drawn from one sequence shared by every name**, in `robot_council_lock_fence`,
+rather than counted per row. That is what makes deleting a lock row safe: every acquisition of any
+name draws a number above everything the sequence has ever issued, so a name whose row was deleted
+and then taken again still gets a fence above the one its last holder carried. Upgrading seeds the
+sequence above the highest fence already issued, so no running installation can reissue a number.
+
+The one table the package still keeps forever — agent sessions — is robot-council/core#113, the
+same shape as these.
 
 ## The MCP server
 
