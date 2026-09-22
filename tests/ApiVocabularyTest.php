@@ -207,11 +207,15 @@ it('names the feed position `feed_cursor`, and only where starting one means som
         ->and($responses['sessions']['feed_cursor'])->toBeInt()
         ->and($responses['sessions']['feed_cursor'])->toBeGreaterThan(0);
 
-    // A renewal states no position at all rather than restating one. The helper keeps where it had
-    // read to, and a fresh cursor here would either replay everything since the session started or
-    // skip everything it had not yet read, depending on which way the position moved. Absent rather
-    // than null, because a key that is always null is a key a client learns to send back.
-    expect($responses['sessions/renew'])->not->toHaveKey('feed_cursor');
+    // A renewal RESTATES the position the session has acknowledged, which is not the same as
+    // handing back a fresh one: a fresh cursor would skip everything the session had not yet read,
+    // and its starting position would replay everything since. Restating what the row already
+    // holds is what lets a process that restarted with a live token resume rather than guess,
+    // which is the whole of #86 -- the value was previously stated once, at start, and stored
+    // nowhere.
+    expect($responses['sessions/renew'])->toHaveKey('feed_cursor')
+        ->and($responses['sessions/renew']['feed_cursor'])->toBeInt()
+        ->and($responses['sessions/renew']['feed_cursor'])->toBeGreaterThan(0);
 
     // An installation credential reads no feed, so it names no position in it
     expect($responses['device/token'])->not->toHaveKey('feed_cursor')

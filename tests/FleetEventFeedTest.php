@@ -160,7 +160,12 @@ it('pages the whole feed in ID order, exactly once, with provenance', function (
     expect($seen)->toBe(FleetEvent::query()->orderBy('id')->pluck('id')->all())
         ->and($seen)->toBe(array_values(array_unique($seen)));
 
-    $first = arrayValue($this->machine($token)->getJson(route('robot-council.events.index'))->json('events.0'));
+    // `after=0` explicitly, because the loop above acknowledged its way to the end of the feed:
+    // an omitted cursor now resumes from what this session last acknowledged (#86), which here is
+    // everything. The window this reads is the one this assertion has always been made against.
+    $first = arrayValue($this->machine($token)
+        ->getJson(route('robot-council.events.index', ['after' => 0]))
+        ->json('events.0'));
 
     expect(arrayValue($first['actor']))->toBe([
         'session_id' => $session->id,
@@ -577,7 +582,13 @@ it("does not let a reused session id hand one developer another developer's narr
 
     [, $token] = sessionFor($this, $this->mine, [Ability::EventsPost->value]);
 
-    $read = $this->machine($token)->getJson(route('robot-council.events.index'))->assertOk();
+    // `after=0` explicitly. The events under test were written before this reader enrolled, and
+    // an omitted cursor now resumes from this session's own starting position (#86) rather than
+    // from the beginning of the feed. Naming the window keeps the visibility assertions below
+    // being made against exactly the events they were written for.
+    $read = $this->machine($token)
+        ->getJson(route('robot-council.events.index', ['after' => 0]))
+        ->assertOk();
 
     $bodies = array_column(arrayValue($read->json('events')), 'body');
 

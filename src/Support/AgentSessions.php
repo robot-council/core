@@ -31,11 +31,13 @@ final class AgentSessions
      * @param  Credentials  $credentials  The configured lifetimes.
      * @param  FleetEvents  $events  The change feed.
      * @param  SessionPresence  $presence  Where contact is recorded.
+     * @param  FeedCursors  $cursors  Where each session's feed position is kept.
      */
     public function __construct(
         private readonly Credentials $credentials,
         private readonly FleetEvents $events,
-        private readonly SessionPresence $presence
+        private readonly SessionPresence $presence,
+        private readonly FeedCursors $cursors
     ) {}
 
     /**
@@ -82,6 +84,13 @@ final class AgentSessions
             // belonged to a writer that held the lock before us and therefore committed before us.
             // A `MAX(id)` taken outside that lock could observe 6 committed while 5 was still in
             // flight, and a reader paging `id > cursor` would pass 6 and never see 5 again.
+            //
+            // Kept on the row as well as returned, so a process that loses it can ask for it back
+            // (#86). Written after the event because the event needs the session's id, which does
+            // not invert the lock order: this transaction has held an exclusive lock on the row
+            // since it inserted it, so the update acquires nothing the sentinel was taken ahead of.
+            $this->cursors->seed($session, $enrolled->id);
+
             return new IssuedCredential(
                 $session,
                 $this->issueToken($session, $abilities),
@@ -117,14 +126,16 @@ final class AgentSessions
 
             $session->tokens()->delete();
 
-            // No cursor, which is what the omitted fourth argument means. A renewal does not move
-            // where the session reads: the helper keeps the position it had, and handing back a
-            // fresh one here would replay everything since the session started or skip everything
-            // it had not yet read, depending on which way the position moved.
+            // The position the session has ACKNOWLEDGED, read back from the row -- not a fresh
+            // one. A renewal must not move where the session reads: handing back the feed's head
+            // would skip everything it had not read, and handing back its starting position would
+            // replay everything since. Restating what it already holds is what lets a restarted
+            // process recover instead of guessing (#86).
             return new IssuedCredential(
                 $session,
                 $this->issueToken($session, $abilities),
                 $abilities,
+                $this->cursors->of($session),
             );
         });
     }

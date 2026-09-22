@@ -8,6 +8,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use RobotCouncil\Access\Tokens;
 use RobotCouncil\Http\Principal;
+use RobotCouncil\Support\FeedCursors;
 
 /**
  * Tells an agent process what its own session is. The bridge calls it after starting or renewing,
@@ -24,9 +25,10 @@ final class AgentSessionController
      * Describe the session this request authenticated as.
      *
      * @param  Request  $request  The incoming request.
+     * @param  FeedCursors  $cursors  Where each session has read to.
      * @return JsonResponse The session, without anything secret in it.
      */
-    public function __invoke(Request $request): JsonResponse
+    public function __invoke(Request $request, FeedCursors $cursors): JsonResponse
     {
         $session = Principal::agentSession($request);
 
@@ -35,6 +37,11 @@ final class AgentSessionController
             'installation_id' => $session->installation_id,
             'status' => $session->status->value,
             'project_id' => $session->project_id,
+
+            // Read from the row rather than from this instance, which the guard hydrated before
+            // the request ran. A process that has lost its position asks here and resumes,
+            // instead of replaying the feed from the beginning (#86).
+            'feed_cursor' => $cursors->of($session),
 
             // What this token carries, which an admin may have narrowed since it was issued
             'abilities' => Tokens::abilities($session->currentAccessToken()),

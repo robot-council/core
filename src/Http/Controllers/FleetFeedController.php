@@ -32,9 +32,12 @@ final class FleetFeedController
             'limit' => ['sometimes', 'integer', 'min:1', 'max:'.FleetFeed::MAX_PAGE],
         ]);
 
+        // `null` rather than `integer('after')`, which answers 0 for a missing argument and is
+        // indistinguishable from a client asking for the whole history. Null means resume from
+        // where this session last acknowledged (#86).
         $page = $feed->after(
             Principal::agentSession($request),
-            $request->integer('after'),
+            $request->has('after') ? $request->integer('after') : null,
             $request->integer('limit', FleetFeed::MAX_PAGE)
         );
 
