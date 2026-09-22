@@ -149,17 +149,49 @@ final class GitHubCallbackController
             throw new ConflictHttpException;
         }
 
+        // **Asked of the table, because the check above was asked of the model** (#38). A host using
+        // `SoftDeletes` -- or any other global scope -- hides a row from `findByEmail()` that the
+        // `users.email` unique index still sees, so without this the create below raises an
+        // integrity error and the developer is told nothing but `409`, forever, with no action that
+        // would fix it.
+        if ($email !== null && $hostUsers->emailIsHeld($email)) {
+            Log::warning('robot-council refused a GitHub account whose email is held by a user the host model cannot see.', [
+                'github_id' => $githubId,
+            ]);
+
+            throw new ConflictHttpException(
+                'Your GitHub email address already belongs to an account in this application that has been '
+                .'deleted or is otherwise hidden. An administrator has to restore or remove that account, or '
+                .'change its email address, before you can sign in.'
+            );
+        }
+
         try {
             return $hostUsers->create([
                 'name' => $login,
                 'email' => $email,
             ]);
         } catch (UniqueConstraintViolationException) {
-            // Two callbacks raced: whichever lost reads what the winner wrote
+            // **Two callbacks raced**, which is now the only state that reaches here: both read no
+            // user, both tried to create one, and the loser is holding this exception. The
+            // soft-deleted and otherwise-hidden cases are refused above with a message that says
+            // what to do, rather than arriving here and being reported as a race that did not
+            // happen.
+            //
+            // A lost race still has to find the winner's row, and it looks for the identity rather
+            // than the email, because the identity is what says who somebody is.
             $identity = $hostUsers->findIdentity($githubId);
             $user = $identity instanceof GithubIdentity ? $hostUsers->findUserFor($identity) : null;
 
             if (! $user instanceof Model) {
+                // The winner wrote a user this reader cannot see, or the violation was on a column
+                // this package does not write. Neither is a state an explanation can be invented
+                // for, so it stays a bare conflict -- and the log line above is what distinguishes
+                // it from the case that now has one.
+                Log::warning('robot-council could not resolve a user after a unique-constraint violation.', [
+                    'github_id' => $githubId,
+                ]);
+
                 throw new ConflictHttpException;
             }
 

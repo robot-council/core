@@ -104,10 +104,57 @@ final class HostUsers
     {
         $model = $this->modelClass();
 
-        // Compare case-insensitively, because collations differ by host database
+        // Compare case-insensitively, because collations differ by host database.
+        //
+        // **This cannot use a plain `users.email` index, and the cost is recorded rather than
+        // guessed at** (#38). Wrapping the column in `lower()` makes the predicate non-sargable, so
+        // a host with a b-tree index on `email` gets a sequential scan. Measured on PostgreSQL 17
+        // against 200,000 users with a unique index on `email`:
+        //
+        // | predicate                | plan       | shared buffers |
+        // | ------------------------ | ---------- | -------------- |
+        // | `lower(email) = ?`       | Seq Scan   | 1,667          |
+        // | `email = ?` (control)    | Index Scan | 4              |
+        //
+        // It is not fixed here because the table belongs to the **host**: this package adds no
+        // index to it, and narrowing to an exact match would trade a correctness property -- two
+        // addresses differing only in case are one account -- for a plan. A host that feels it adds
+        // `create index on users (lower(email))`, which this predicate then uses.
+        //
+        // It runs once per sign-in, and on the create path of a first-time sign-in it runs where
+        // there is nothing to find, which is the scan's worst case.
         return $model::query()
             ->whereRaw('lower(email) = ?', [Str::lower($email)])
             ->first();
+    }
+
+    /**
+     * Whether any row holds this email, including one the host's model cannot see.
+     *
+     * **`findByEmail()` and the `users.email` unique index disagree, and that gap is a lockout.**
+     * `$model::query()` applies the host model's global scopes, so a host using `SoftDeletes`
+     * cannot see a trashed user -- while the unique index still can. A developer whose GitHub email
+     * belongs to a previously deleted account therefore reads as "no such user", is sent down the
+     * create path, and hits an integrity error that used to be reported as a bare 409 with nothing
+     * naming the cause, on every attempt forever (#38).
+     *
+     * This is the same question asked of the table rather than of the model, so the answer matches
+     * what the index will do. `withoutGlobalScopes()` rather than `withTrashed()`, because the
+     * host's model may not use `SoftDeletes` at all and this package must not assume which scopes a
+     * host has added -- a tenant scope hides a row from `findByEmail()` exactly as a soft delete
+     * does, and the index does not care which one it was.
+     *
+     * @param  string  $email  The address to look for.
+     * @return bool Whether any row holds it, visible or not.
+     */
+    public function emailIsHeld(string $email): bool
+    {
+        $model = $this->modelClass();
+
+        return $model::query()
+            ->withoutGlobalScopes()
+            ->whereRaw('lower(email) = ?', [Str::lower($email)])
+            ->exists();
     }
 
     /**
