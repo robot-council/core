@@ -214,9 +214,23 @@ final class Installations
 
             $held = $installation->abilities();
 
-            $abilities = $granted
-                ? array_values(array_unique([...$held, $ability->value]))
-                : array_values(array_filter($held, static fn (string $current): bool => $current !== $ability->value));
+            // **One `array_values` over both branches, and the shape is deliberate.** Written as
+            // one per branch, the granting side's was an equivalent mutant: `$held` is a list, so
+            // the spread is a list, and `array_unique` can only drop the element just appended --
+            // the highest key -- leaving `0..n-1` either way. Measured: unwrapping it left the
+            // whole suite green AND `composer analyse` clean, so neither gate could tell.
+            //
+            // The plugin's per-line ignore marker did not suppress it either: the marker stops
+            // traversal of a node's CHILDREN, and `UnwrapArrayValues` targets the annotated node
+            // itself, so `leaveNode()` still ran -- measured, the survivor count did not move.
+            // `adversarial-review` says to prefer killing or restructuring over a trailing marker,
+            // whose line map depends on the checkout's line endings under Windows PHP, and CI runs
+            // Windows. Hoisting the call leaves one, which the removing branch makes killable:
+            // `array_filter` preserves keys, so dropping it writes a JSON object instead of an
+            // array.
+            $abilities = array_values($granted
+                ? array_unique([...$held, $ability->value])
+                : array_filter($held, static fn (string $current): bool => $current !== $ability->value));
 
             // Nothing changed means nothing happened, and an event saying otherwise is noise in
             // the one feed an authorization change has to be legible in. `array_values` on both
