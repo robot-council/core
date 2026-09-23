@@ -124,6 +124,38 @@ final class DeviceCode extends Model
     }
 
     /**
+     * The abilities this enrollment asked for, as text.
+     *
+     * **A claim rather than a fact, and read totally for the same reason
+     * `Models\Installation::abilities()` is.** `requested_abilities` is a `json` column with an
+     * `array` cast, so `@property list<string>` states what this package writes and not what a
+     * read can be handed -- and unlike that column, this one is written by a public store method,
+     * `Support\DeviceCodes::issue()`, which bounds `harness`, `machine_label`, and `requested_ip`
+     * and does not bound these (#170). Two paths read it and each 500s on a value the cast
+     * returns: `resources/views/enroll.blade.php` iterates it, and
+     * `Http\Controllers\EnrollmentDecisionController` hands it to `Access\Ability::granted()`.
+     *
+     * The container is guarded as well as its elements: the column is NOT NULL, which stops SQL
+     * `NULL` and not the JSON literal `null`, and a `foreach` over that raises rather than
+     * iterating nothing.
+     *
+     * Nothing is compared against the requestable list here, because the page's subject is what
+     * was *asked for*. What is granted is `Ability::granted()`'s answer and is computed from this.
+     *
+     * @return list<string> The requested abilities, with anything that is not text dropped.
+     */
+    public function requestedAbilities(): array
+    {
+        $requested = $this->getAttribute('requested_abilities');
+
+        if (! \is_array($requested)) {
+            return [];
+        }
+
+        return array_values(array_filter($requested, is_string(...)));
+    }
+
+    /**
      * How long ago the helper asked for this code.
      *
      * Shown on the verification page: a code a developer did not just request is the shape a

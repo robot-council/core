@@ -97,7 +97,17 @@ enum Ability: string
      * -- `*`, an unknown name, or the coordinator's -- is dropped rather than refused, because the
      * request that carried it was already validated when the code was issued.
      *
-     * @param  list<string>  $requested  The abilities the enrollment asked for.
+     * **The elements are `mixed`, because the caller's source is a `json` column.** The in-package
+     * caller hands over `Models\DeviceCode::requestedAbilities()`, which is already narrowed, but
+     * this is a public static on a `final` class a host can call with anything -- and a declared
+     * `string` parameter here raised a `TypeError` for a `null` or a nested value rather than
+     * dropping it, which is the same defect #167 fixed one column over. The parameter type is the
+     * whole fix: the strict `in_array()` below already refuses every non-string, and PHPStan
+     * narrows the element from the same fact, so no type guard is needed beside it and one added
+     * there would be dead. Checked rather than assumed -- removing `array_values()` makes this
+     * file fail with `should return list<string>`, so a clean analysis of it is a result.
+     *
+     * @param  array<array-key, mixed>  $requested  The abilities the enrollment asked for.
      * @return list<string> The abilities to grant, without duplicates.
      */
     public static function granted(array $requested): array
@@ -106,7 +116,7 @@ enum Ability: string
 
         return array_values(array_unique(array_filter(
             $requested,
-            static fn (string $ability): bool => \in_array($ability, $requestable, true)
+            static fn (mixed $ability): bool => \in_array($ability, $requestable, true)
         )));
     }
 

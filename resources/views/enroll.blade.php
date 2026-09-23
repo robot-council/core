@@ -100,7 +100,7 @@
                 <dt>Asked for</dt>
                 <dd>
                     <ul>
-                        @foreach ($code->requested_abilities as $ability)
+                        @foreach ($code->requestedAbilities() as $ability)
                             <li><code>{{ $ability }}</code></li>
                         @endforeach
                     </ul>

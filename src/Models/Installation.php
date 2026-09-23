@@ -130,17 +130,58 @@ final class Installation extends Model implements AuthenticatableContract
     /**
      * The abilities this installation's session tokens carry.
      *
+     * **It reads the attribute as `mixed`, because the column is `json` and the row decides.**
+     * `@property list<string>` states what this package writes, not what the accessor can be
+     * handed: a host calling the model directly, a seeder, a hand-edited row, or a restore can
+     * leave `null`, a scalar, or a nested value there. A declared `string` parameter on the
+     * filter raised a `TypeError` for any of them, and since #159 `Support\FleetAbilities` reads
+     * **every** usable installation to answer one request -- so one malformed row 500s
+     * `GET {prefix}/api/agent/session` for every agent in the fleet, on the route a bridge calls
+     * after every start and renewal. Dropping the value answers that request instead of failing it.
+     *
+     * **Dropping does not make one bad row that row's own problem, and it should not be read as
+     * doing so.** `fleet_can_direct` is computed across the fleet, so an installation whose
+     * abilities cannot be read still changes what every other session is told: the answer goes
+     * from a 500 to a quiet `false`, which `Http\Controllers\AgentSessionController` documents as
+     * meaning nothing will ever arrive. Nothing logs the drop and `robot-council:doctor` has no
+     * check that would name it. #171 is that gap.
+     *
+     * The same reasoning covers the container: a row holding the JSON literal `null` or a bare
+     * scalar decodes to something `array_filter()` cannot take at all. The column is NOT NULL,
+     * which stops SQL `NULL` and not `'null'::json`.
+     *
+     * **A top-level JSON object is accepted rather than dropped**, because `json_decode($v, true)`
+     * turns one into a PHP array and `array_values()` discards its keys. That is deliberate rather
+     * than missed: a row holding `{"a": "tasks:create"}` grants `tasks:create`, which is no wider
+     * than the row already claimed, since every value still has to be in the fixed list. It is
+     * also not separable from a well-formed one, because `{"0": "tasks:create"}` decodes to a list.
+     *
      * @return list<string> The granted abilities, with anything outside the fixed list dropped.
      */
     public function abilities(): array
     {
         $known = Ability::values(Ability::grantable());
+        $stored = $this->getAttribute('granted_abilities');
+
+        if (! \is_array($stored)) {
+            return [];
+        }
 
         // Drop anything the fixed list no longer holds, so a renamed or retired ability cannot
-        // survive in a stored row and be checked against a route later
+        // survive in a stored row and be checked against a route later.
+        //
+        // **The strict `in_array()` is the whole filter, and an `is_string()` beside it was
+        // measured dead.** `$known` is a `list<string>`, so a strict comparison already refuses
+        // every non-string a row can hold -- over null, the booleans, ints, floats, arrays, an
+        // object and a resource the two expressions disagree on nothing -- and PHPStan narrows
+        // the element from the same fact, so the declared `list<string>` verifies without it.
+        // That second half was checked rather than assumed: removing `array_values()` makes this
+        // file fail with `should return list<string>`, so a passing analysis here is a result and
+        // not a silence. **Do not add a type guard back**; what stops the `TypeError` is the
+        // parameter being `mixed` rather than `string`
         return array_values(array_filter(
-            $this->granted_abilities,
-            static fn (string $ability): bool => \in_array($ability, $known, true)
+            $stored,
+            static fn (mixed $ability): bool => \in_array($ability, $known, true)
         ));
     }
 }
