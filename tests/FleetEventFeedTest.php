@@ -68,7 +68,7 @@ it('stores narration as narration, attributed to the session that posted it', fu
             'meta' => ['file' => 'database/migrations/x.php'],
 
             // What an agent would send to dress its opinion as fleet state
-            'type' => FleetEventType::SessionStarted->value,
+            'type' => FleetEventType::SessionJoined->value,
             'posted_with_coordinator' => true,
             'agent_session_id' => 9999,
         ])
@@ -116,10 +116,10 @@ it('records a directive from a coordinator', function (): void {
         ->toBeTrue();
 });
 
-it('writes one session.started event when a session starts', function (): void {
+it('writes one session.joined event when a session starts', function (): void {
     [$session] = sessionFor($this, $this->mine, [Ability::EventsPost->value]);
 
-    $enrolled = FleetEvent::query()->where('type', FleetEventType::SessionStarted->value)->get();
+    $enrolled = FleetEvent::query()->where('type', FleetEventType::SessionJoined->value)->get();
 
     expect($enrolled)->toHaveCount(1);
 
@@ -268,12 +268,12 @@ it('shows every state change and directive to everyone', function (): void {
 
     // Their session starting is a state change, and it reaches this reader too, even though the
     // session belongs to another developer and held no coordinator ability
-    expect($events->pluck('type')->all())->toContain(FleetEventType::SessionStarted->value);
+    expect($events->pluck('type')->all())->toContain(FleetEventType::SessionJoined->value);
 
     $foreign = $events->filter(function (mixed $event): bool {
         $event = arrayValue($event);
 
-        return $event['type'] === FleetEventType::SessionStarted->value
+        return $event['type'] === FleetEventType::SessionJoined->value
             && arrayValue($event['actor'])['github_login'] === 'otherdev';
     });
 
@@ -426,7 +426,7 @@ it('refuses a project id outside the safe character set', function (): void {
     $installation = $this->approveInstallation($this->mine, [Ability::EventsPost->value]);
     $credential = $this->installationCredential($installation);
 
-    // It reaches every agent in the fleet through `session.started`, from a credential holding
+    // It reaches every agent in the fleet through `session.joined`, from a credential holding
     // nothing but `sessions:start`
     $this->machine($credential)
         ->postJson(route('robot-council.sessions.start'), [
@@ -435,7 +435,7 @@ it('refuses a project id outside the safe character set', function (): void {
         ->assertStatus(422)
         ->assertJsonValidationErrors('project_id');
 
-    expect(FleetEvent::query()->where('type', FleetEventType::SessionStarted->value)->count())->toBe(0);
+    expect(FleetEvent::query()->where('type', FleetEventType::SessionJoined->value)->count())->toBe(0);
 });
 
 it('asks the enum which types are restricted', function (): void {
@@ -444,7 +444,7 @@ it('asks the enum which types are restricted', function (): void {
     expect(FleetEventType::restrictedValues())->toBe([FleetEventType::Narration->value])
         ->and(FleetEventType::Narration->isRestricted())->toBeTrue()
         ->and(FleetEventType::Directive->isRestricted())->toBeFalse()
-        ->and(FleetEventType::SessionStarted->isRestricted())->toBeFalse();
+        ->and(FleetEventType::SessionJoined->isRestricted())->toBeFalse();
 });
 
 it('starts a session at the head of the feed, so it reaches current events in one request', function (): void {
@@ -473,7 +473,7 @@ it('starts a session at the head of the feed, so it reaches current events in on
     // `id > 6` still excludes `Old 005`, and every absence assertion below still passes. The exact
     // id is the claim, so the exact id is what is asserted.
     $enrolled = FleetEvent::query()
-        ->where('type', FleetEventType::SessionStarted->value)
+        ->where('type', FleetEventType::SessionJoined->value)
         ->where('agent_session_id', intValue($started->json('session_id')))
         ->sole();
 

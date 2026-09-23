@@ -78,7 +78,7 @@ it('gives user_id one meaning across an agent-written and an admin-written event
     $this->service(Installations::class)
         ->setAbility($this->installation, Ability::LocksAcquire, true, keyValue($this->admin->getKey()));
 
-    $enrolled = FleetEvent::query()->where('type', FleetEventType::SessionStarted)->sole();
+    $enrolled = FleetEvent::query()->where('type', FleetEventType::SessionJoined)->sole();
     $granted = FleetEvent::query()->where('type', FleetEventType::InstallationAbilityGranted)->sole();
 
     expect($enrolled->user_id)->toBe(keyValue($this->developer->getKey()))
@@ -134,7 +134,7 @@ it('resolves both developers for the dashboard, and neither for an ordinary even
     $feed = collect($this->service(FleetFeed::class)->latest(50));
 
     $granted = $feed->firstWhere('type', FleetEventType::InstallationAbilityGranted->value);
-    $enrolled = $feed->firstWhere('type', FleetEventType::SessionStarted->value);
+    $enrolled = $feed->firstWhere('type', FleetEventType::SessionJoined->value);
 
     expect(arrayValue($granted['actor'] ?? [])['github_login'] ?? null)->toBe('octodev')
         ->and(arrayValue($granted['performed_by'] ?? [])['github_login'] ?? null)->toBe('octoadmin')

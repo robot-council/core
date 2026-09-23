@@ -21,7 +21,7 @@ use RobotCouncil\Models\FleetEventType;
  * Those rows exist. Sessions started on the deployed fleet on 2026-09-23 moved the cursor from 313
  * to 368, inside the window `robot-council:prune-events` keeps (#217).
  *
- * @command  vendor/bin/pest tests/SessionStartedRenameTest.php
+ * @command  vendor/bin/pest tests/SessionJoinedRenameTest.php
  */
 beforeEach(function (): void {
     $this->migrateUsersTableWithPackageColumns();
@@ -95,7 +95,7 @@ it('leaves no row holding the old value once the migration has run', function ()
     runMigration(theRenameMigration(), 'up');
 
     expect(DB::table('robot_council_events')->where('id', $id)->value('type'))
-        ->toBe('session.started');
+        ->toBe('session.joined');
 });
 
 it('reads a migrated row back through the model that could not read the old one', function (): void {
@@ -109,7 +109,7 @@ it('reads a migrated row back through the model that could not read the old one'
 
     runMigration(theRenameMigration(), 'up');
 
-    expect(FleetEvent::query()->findOrFail($id)->type)->toBe(FleetEventType::SessionStarted);
+    expect(FleetEvent::query()->findOrFail($id)->type)->toBe(FleetEventType::SessionJoined);
 });
 
 it('is safe to run again, and on a table with nothing to rewrite', function (): void {
@@ -120,7 +120,7 @@ it('is safe to run again, and on a table with nothing to rewrite', function (): 
     runMigration(theRenameMigration(), 'up');
     runMigration(theRenameMigration(), 'up');
 
-    expect(DB::table('robot_council_events')->where('id', $id)->value('type'))->toBe('session.started')
+    expect(DB::table('robot_council_events')->where('id', $id)->value('type'))->toBe('session.joined')
         ->and(DB::table('robot_council_events')->where('type', 'session.enrolled')->count())->toBe(0);
 
     // The fresh-install population: nothing to rewrite, and it must not error.
@@ -138,7 +138,7 @@ it('points a rolled-back row back, so the previous release can still read it', f
 
     runMigration(theRenameMigration(), 'up');
 
-    expect(DB::table('robot_council_events')->where('id', $id)->value('type'))->toBe('session.started');
+    expect(DB::table('robot_council_events')->where('id', $id)->value('type'))->toBe('session.joined');
 
     runMigration(theRenameMigration(), 'down');
 
