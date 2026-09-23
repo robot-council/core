@@ -97,45 +97,74 @@
                 <h2 id="robot-council-menu-heading"
                     class="px-4 pt-4 text-xs font-semibold uppercase tracking-wide opacity-60">Menu</h2>
 
+                {{--
+                    The console's sections are children of the page they belong to rather than peers
+                    of it. daisyUI draws the indent and the vertical rule through
+                    `.menu :where(li ul,li menu)`, so there is no CSS here.
+
+                    That selector was already in the committed artifact before any view nested a
+                    menu, because daisyUI emits a component's rules together rather than per class
+                    found. So asserting it guards a daisyUI version that stopped shipping the rule
+                    rather than a scan that stopped finding a class, and `DashboardShellTest`
+                    asserts it on exactly that narrower ground.
+
+                    **Name no class in this comment that the markup does not use.** Tailwind scans
+                    this file whole and cannot tell a sentence from an attribute, so a class named
+                    here only to discuss it is emitted into the shipped stylesheet. An earlier draft
+                    of this comment named two, and added 1,385 bytes of rules for components nothing
+                    renders; a later one used an ordinary English word that is also a plugin's class
+                    name, and added three more. Check the artifact after editing this, not before.
+
+                    The nested list needs `flex flex-col gap-1` of its own. `gap` is not inherited
+                    and applies only to a flex or grid box; `.menu` makes the OUTER list flex, and
+                    the rule above gives the nested one margin and padding but no display, so it is
+                    a block box on which the parent's `gap-1` does nothing. Without these three the
+                    four sections sit flush while the two entries above them are spaced.
+
+                    `Enroll a machine` stays outside the group deliberately: it is a destination of
+                    its own rather than a section of the console, and the nesting is what says so.
+                --}}
                 <ul class="menu w-full gap-1 p-4">
                     <li>
                         <a href="{{ route('robot-council.dashboard') }}"
                             @class(['menu-active' => $currentRoute === 'robot-council.dashboard'])
-                            @if ($currentRoute === 'robot-council.dashboard') aria-current="page" @endif>Overview</a>
-                    </li>
+                            @if ($currentRoute === 'robot-council.dashboard') aria-current="page" @endif>Dashboard</a>
 
-                    <li>
-                        <a href="{{ route('robot-council.presence') }}"
-                            @class(['menu-active' => $currentRoute === 'robot-council.presence'])
-                            @if ($currentRoute === 'robot-council.presence') aria-current="page" @endif>Presence</a>
-                    </li>
+                        <ul class="flex flex-col gap-1">
+                            <li>
+                                <a href="{{ route('robot-council.presence') }}"
+                                    @class(['menu-active' => $currentRoute === 'robot-council.presence'])
+                                    @if ($currentRoute === 'robot-council.presence') aria-current="page" @endif>Presence</a>
+                            </li>
 
-                    <li>
-                        <a href="{{ route('robot-council.queue') }}"
-                            @class(['menu-active' => $currentRoute === 'robot-council.queue'])
-                            @if ($currentRoute === 'robot-council.queue') aria-current="page" @endif>Queue</a>
-                    </li>
+                            <li>
+                                <a href="{{ route('robot-council.queue') }}"
+                                    @class(['menu-active' => $currentRoute === 'robot-council.queue'])
+                                    @if ($currentRoute === 'robot-council.queue') aria-current="page" @endif>Queue</a>
+                            </li>
 
-                    <li>
-                        <a href="{{ route('robot-council.feed') }}"
-                            @class(['menu-active' => $currentRoute === 'robot-council.feed'])
-                            @if ($currentRoute === 'robot-council.feed') aria-current="page" @endif>Change feed</a>
-                    </li>
+                            <li>
+                                <a href="{{ route('robot-council.feed') }}"
+                                    @class(['menu-active' => $currentRoute === 'robot-council.feed'])
+                                    @if ($currentRoute === 'robot-council.feed') aria-current="page" @endif>Change feed</a>
+                            </li>
 
-                    {{--
-                        Offered only to an admin, decided in `Http\ViewComposers\DashboardLayoutComposer`
-                        on the package's own guard rather than with `@can`, which resolves the host's
-                        default and would hide a real admin's own page from them. The component
-                        refuses in `mount()` regardless, so the route is safe whether or not this is
-                        drawn -- a control that is not drawn is not an authorization boundary.
-                    --}}
-                    @if ($isAdmin)
-                        <li>
-                            <a href="{{ route('robot-council.administration') }}"
-                                @class(['menu-active' => $currentRoute === 'robot-council.administration'])
-                                @if ($currentRoute === 'robot-council.administration') aria-current="page" @endif>Administration</a>
-                        </li>
-                    @endif
+                            {{--
+                                Offered only to an admin, decided in `Http\ViewComposers\DashboardLayoutComposer`
+                                on the package's own guard rather than with `@can`, which resolves the host's
+                                default and would hide a real admin's own page from them. The component
+                                refuses in `mount()` regardless, so the route is safe whether or not this is
+                                drawn -- a control that is not drawn is not an authorization boundary.
+                            --}}
+                            @if ($isAdmin)
+                                <li>
+                                    <a href="{{ route('robot-council.administration') }}"
+                                        @class(['menu-active' => $currentRoute === 'robot-council.administration'])
+                                        @if ($currentRoute === 'robot-council.administration') aria-current="page" @endif>Administration</a>
+                                </li>
+                            @endif
+                        </ul>
+                    </li>
 
                     <li>
                         <a href="{{ route('robot-council.enroll.show') }}"

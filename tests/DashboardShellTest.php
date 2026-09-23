@@ -138,6 +138,17 @@ it('serves a stylesheet that carries the utilities the pages use, and not the on
         expect($stylesheet)->toContain('.'.$class);
     }
 
+    // The rule that draws #214's nested sections: the indent and the vertical rule that are the
+    // only things visually saying those four entries are inside the Dashboard entry. The sidebar
+    // writes no class for it, so nothing in the list above reaches it.
+    //
+    // **This guards a different thing from the entries above, and the difference is the point.**
+    // daisyUI emits the `menu` component wholesale, so this selector was in the artifact before any
+    // view nested a menu -- it cannot report a scan that stopped finding a class, the way
+    // `menu-active` can. What it can report is a daisyUI version that stops shipping the rule, or a
+    // hand-trimmed artifact. Asserted on that ground rather than the one #216 recorded as a trap.
+    expect($stylesheet)->toContain('.menu :where(li ul');
+
     // Absent, and that absence is the control. These are ordinary Tailwind utilities and one
     // daisyUI modifier that no view in this package uses; if the build emitted everything, or if
     // scanning reached something it should not, they would be here.
