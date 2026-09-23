@@ -2,6 +2,41 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.3.0 — A Clock That Does Not Shift (2026-09-23)
+
+Presence, lock leases, and enrollment codes move onto a clock that cannot shift under them; an event now says both who it is about and who acted; and a session can ask whether anything on the fleet can reach it.
+
+**Breaking change** — run `php artisan migrate`. On a host whose `app.timezone` is not UTC, outstanding presence, lock, and device-code rows are reinterpreted once at the upgrade -- east of UTC that briefly extends a device code's life, west of it expires outstanding codes at once. And `robot_council_events.user_id` now always means the developer an event is **about**, with the developer who acted in the new `actor_user_id` column.
+
+### Breaking changes
+- Measure presence on a clock that does not shift [#150](https://github.com/robot-council/core/pull/150).
+- Measure a lock's lease on a clock that does not shift [#161](https://github.com/robot-council/core/pull/161).
+- Measure a device code's expiry on a clock that does not shift [#164](https://github.com/robot-council/core/pull/164).
+- Give an event one meaning for who it is about, and a column for who did it [#165](https://github.com/robot-council/core/pull/165).
+- Date the identities migration, so something dated can alter its table [#166](https://github.com/robot-council/core/pull/166).
+
+### What's new
+- Make a session's feed position recoverable [`46ec620`](https://github.com/robot-council/core/commit/46ec620f69e4b3f97c3fbc1c24f1fc23a88be518)
+- Let a host supply a developer's user attributes [#152](https://github.com/robot-council/core/pull/152)
+- Name the installation whose stored abilities cannot be read [#176](https://github.com/robot-council/core/pull/176)
+- Tell a session whether anything on the fleet can post a directive [#162](https://github.com/robot-council/core/pull/162)
+
+### What's fixed
+- Bound the abilities every device-code path writes [#174](https://github.com/robot-council/core/pull/174)
+- Drop a malformed abilities value instead of raising a `TypeError` [#173](https://github.com/robot-council/core/pull/173)
+- Name the collision a hidden user causes [#151](https://github.com/robot-council/core/pull/151)
+
+### Security
+- End the installation a re-enrollment replaces [#147](https://github.com/robot-council/core/pull/147)
+
+### Maintenance and tooling
+- Close the surviving mutants in the device-code classes [#177](https://github.com/robot-council/core/pull/177)
+- Close every surviving mutant in the installation store [#168](https://github.com/robot-council/core/pull/168)
+- Cover the feed cursor's ordering guarantee on a second connection [#163](https://github.com/robot-council/core/pull/163)
+- Derive the repository the release notes are about [#158](https://github.com/robot-council/core/pull/158)
+- Say what a GitHub pre-release flag does not do [#155](https://github.com/robot-council/core/pull/155)
+- Measure the task queue's plans on Postgres [`e84879f`](https://github.com/robot-council/core/commit/e84879f5247955f1a1da81e3a6e2a038bece4f60)
+
 ## v0.2.0 — The Coordination Service (2026-09-22)
 
 The first release with features: GitHub sign-in restricted to an allowlist, agent enrollment through the device-code flow, session presence, task claims, named locks with fence values, an ordered change feed, an MCP server, and a Livewire dashboard.
