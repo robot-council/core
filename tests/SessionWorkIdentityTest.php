@@ -364,26 +364,42 @@ it('serves a migrated row through the API and the change feed', function (): voi
     runTheWorkIdentityMigration('down');
     runTheWorkIdentityMigration('up');
 
-    $this->machine($this->credential)
+    $token = stringValue($this->machine($this->credential)
         ->postJson(route('robot-council.sessions.renew', ['session' => $session->getKey()]))
-        ->assertOk();
+        ->assertOk()
+        ->json('token'));
 
-    $this->machine($token = stringValue($this->machine($this->credential)
-        ->postJson(route('robot-council.sessions.renew', ['session' => $session->getKey()]))
-        ->json('token')))
+    $this->machine($token)
         ->getJson(route('robot-council.agent.session'))
         ->assertOk()
         ->assertJsonPath('repository', 'UAMS-Web/uams-statamic')
         ->assertJsonPath('work_location', 'a')
         ->assertJsonPath('project_id', 'UAMS-Web/uams-statamic/a');
 
-    // And the feed a session reads, which is where the value reaches other developers' agents
-    $events = collect(arrayValue($this->machine($token)
+    // **The migration rewrites the session ROW and not the events already written**, which is worth
+    // asserting rather than discovering. This session's own `session.joined` was recorded before
+    // the split existed and still says what it said then; what carries the two fields into the feed
+    // is a session starting afterwards, which every process does within one token lifetime.
+    $other = $this->approveInstallation($this->developer, machineLabel: 'laptop');
+
+    $this->machine($this->installationCredential($other))
+        ->postJson(route('robot-council.sessions.start'), ['project_id' => 'robot-council/cli'])
+        ->assertCreated();
+
+    $joined = collect(arrayValue($this->machine($token)
         ->getJson(route('robot-council.events.index', ['after' => 0]))
         ->assertOk()
-        ->json('events')));
+        ->json('events')))
+        ->filter(static fn (mixed $event): bool => (arrayValue($event)['type'] ?? null) === FleetEventType::SessionJoined->value)
+        ->map(static fn (mixed $event): array => arrayValue(arrayValue($event)['meta'] ?? []))
+        ->values();
 
-    expect($events)->not->toBeEmpty();
+    // Both events, in the order they were written: the old one carrying nothing, the new one
+    // carrying the derived pair. Asserted as the whole list rather than by searching for the row
+    // that agrees, which would pass with the new event missing.
+    expect($joined)->toHaveCount(2)
+        ->and($joined->pluck('repository')->all())->toBe([null, 'robot-council/cli'])
+        ->and($joined->pluck('work_location')->all())->toBe([null, null]);
 });
 
 it('rolls back and migrates twice without erroring', function (): void {
