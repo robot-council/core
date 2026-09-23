@@ -26,11 +26,16 @@ use Illuminate\Support\Carbon;
  * `sessionExpiry()` write `expires_at` on a token that **Sanctum** compares against its own
  * `now()`, which is the application's. Writing those in UTC while Sanctum reads them in the host's
  * zone would introduce exactly the mismatch this class exists to remove, in a place that decides
- * whether a credential still works. The same holds for a lock's `expires_at`, which
- * `Support\Locks` writes and compares on the application clock throughout.
+ * whether a credential still works.
  *
- * So what belongs here is the set of values that are only ever compared against each other:
- * `last_seen_at` and the cutoffs measured against it.
+ * So what belongs here is the set of values that are only ever compared against each other --
+ * `last_seen_at` and the cutoffs measured against it, and since #149 a lock's `acquired_at`,
+ * `expires_at` and its two Eloquent timestamps, which nothing outside this package reads.
+ *
+ * **A device code's `expires_at` has the same shape and has not moved yet.**
+ * `Credentials::deviceCodeExpiry()` writes it and `Support\DeviceCodes` is the only thing that
+ * compares it, so there is no Sanctum coupling to stop it; the reason it is still here is that
+ * nobody has done it, not that it cannot be done. Tracked separately.
  *
  * **Upgrading a host that is not on UTC shifts existing rows by its offset, once.** Rows written
  * before carry wall-clock time and are read as UTC afterwards, so for one sweep they read as

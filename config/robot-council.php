@@ -79,11 +79,12 @@ return [
     | `created_at`, so it would cut off a renewed session token regardless of the
     | token's own expiry; `robot-council:install` reports a non-null value.
     |
-    | These are the one thing here still measured on `app.timezone`, because
-    | Sanctum compares a token's `expires_at` against the application's clock
-    | and writing it on another would put the two sides an offset apart. So a
-    | daylight-saving transition can expire or extend a credential by an hour,
-    | and `robot-council:doctor` reports a non-UTC `app.timezone` for this.
+    | These are what is still measured on `app.timezone`. A token's expiry has
+    | to be: Sanctum compares `expires_at` against the application's clock, and
+    | writing it on another would put the two sides an offset apart. A device
+    | code's has no such coupling and simply has not moved yet. So a
+    | daylight-saving transition can expire or extend either by an hour, and
+    | `robot-council:doctor` reports a non-UTC `app.timezone` for this.
     |
     */
 
@@ -152,9 +153,9 @@ return [
     | Both measure ELAPSED time, and `app.timezone` does not reach them. Contact
     | times and cutoffs are written, compared, and read back on one fixed clock
     | (`Support\PresenceClock`, which is UTC), so a daylight-saving transition
-    | moves neither. A lock's lease is on the same clock, so it does not shift
-    | either. What still rides `app.timezone` is a credential's expiry, which
-    | Sanctum compares against the application's clock -- see the note there.
+    | moves neither. A lock's lease is on the same clock -- see the Locks
+    | block. What still rides `app.timezone` is a token's expiry and a device
+    | code's -- see the Credentials block.
     |
     */
 
@@ -193,6 +194,15 @@ return [
     | advertises is one a renewal can actually be granted. Re-acquiring a name
     | after letting it lapse starts a new hold, with a new fence.
     | `max_per_session` bounds how many one session can hold at once.
+    |
+    | A lease measures ELAPSED time, and `app.timezone` does not reach it.
+    | `acquired_at` and `expires_at` are written, compared, and read back on
+    | one fixed clock (`Support\PresenceClock`, which is UTC), so a
+    | daylight-saving transition cannot lapse a held lock. Upgrading a host
+    | that is NOT on UTC reinterprets its existing lock rows once, and west of
+    | UTC that reads every held lease as lapsed for up to the offset -- see the
+    | note on `Models\Lock`. No lease outlives `max_ttl_seconds`, so the
+    | window closes on its own.
     |
     */
 
