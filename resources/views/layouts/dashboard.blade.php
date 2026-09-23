@@ -18,7 +18,14 @@
     `Htmlable`, because `{{ }}` does not escape one of those either.
 --}}
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" data-theme="{{ $theme ?? 'light' }}">
+{{--
+    `data-theme` is written only when a theme was asked for. Pinning it unconditionally -- which is
+    what `$theme ?? 'light'` did -- made the attribute always present, and the dark theme is served
+    by `:root:not([data-theme])`, so it could never match: the theme shipped but nothing could
+    reach it. Omitted, an unthemed page is light by default and dark where the system asks, and an
+    explicit value still wins over the system.
+--}}
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" @if (($theme ?? null) !== null) data-theme="{{ $theme }}" @endif>
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">

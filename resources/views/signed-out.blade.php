@@ -13,7 +13,8 @@
     Nothing from the request is printed.
 --}}
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+{{-- No `data-theme`, for the reason the shell has none: it is what lets the dark theme apply. --}}
+<html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
