@@ -24,10 +24,13 @@ final class HostKey
      * The longest host user key the package stores.
      *
      * Every column holding one is `varchar(64)`: `installations.user_id` and `.approved_by`,
-     * `agent_sessions.user_id`, `tasks.user_id`, `github_identities.user_id`, and
-     * `device_codes.decided_by`. A key longer than this cannot be stored, and **truncating it would
-     * be worse than refusing it** -- two developers whose keys share a 64-character prefix would
-     * collapse into one, which is an access-control failure rather than a storage one.
+     * `agent_sessions.user_id`, `tasks.user_id`, `github_identities.user_id`,
+     * `device_codes.decided_by`, and `events.user_id` and `.actor_user_id`. Eight of them, and
+     * `tests/HostKeyComparisonTest.php`'s `hostKeyColumns()` is the list that has to stay closed --
+     * this enumeration is prose and that one is a check. A key longer than this cannot be stored,
+     * and **truncating it would be worse than refusing it** -- two developers whose keys share a
+     * 64-character prefix would collapse into one, which is an access-control failure rather than
+     * a storage one.
      */
     public const int MAX = 64;
 

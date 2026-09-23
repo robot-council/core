@@ -137,11 +137,12 @@ final class SessionPresence
      * End a session because an admin revoked it.
      *
      * @param  AgentSession  $session  The session to revoke.
+     * @param  string|null  $actor  The signed-in developer doing it, when one is.
      * @return int How many tokens were deleted, and none when it had already gone.
      */
-    public function revoke(AgentSession $session): int
+    public function revoke(AgentSession $session, ?string $actor = null): int
     {
-        return $this->goesNow($session, self::REVOKED, null) ?? 0;
+        return $this->goesNow($session, self::REVOKED, null, $actor) ?? 0;
     }
 
     /**
@@ -322,11 +323,12 @@ final class SessionPresence
      * @param  string  $reason  What ended it.
      * @param  Carbon|null  $cutoff  The contact time the sweep qualified it against, when a sweep
      *                               is what is ending it.
+     * @param  string|null  $actor  The signed-in developer ending it, when one is.
      * @return int|null How many tokens were deleted, or null when it had already gone.
      */
-    private function goesNow(AgentSession $session, string $reason, ?Carbon $cutoff): ?int
+    private function goesNow(AgentSession $session, string $reason, ?Carbon $cutoff, ?string $actor = null): ?int
     {
-        return DB::transaction(function () use ($session, $reason, $cutoff): ?int {
+        return DB::transaction(function () use ($session, $reason, $cutoff, $actor): ?int {
             $ended = $this->conditionally(
                 $session,
                 $this->movesFrom(AgentSessionStatus::Gone),
@@ -342,7 +344,14 @@ final class SessionPresence
                 FleetEventType::SessionGone,
                 $session,
                 sprintf('%s ended.', $this->describe($session)),
-                ['installation_id' => $session->installation_id, 'reason' => $reason]
+                ['installation_id' => $session->installation_id, 'reason' => $reason],
+
+                // The session names the developer the event is about; this names the admin who
+                // ended it, when an admin did. A session that ended on its own or was swept has
+                // nobody to name, and null is the honest answer there rather than the owner
+                // repeated (#115). Killing another developer's running agent is the action where
+                // "by whom" matters most, and the feed could not say it before.
+                actor: $actor
             );
 
             $deleted = Tokens::deleted($session->tokens()->delete());

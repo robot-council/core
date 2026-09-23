@@ -173,7 +173,9 @@ final class Administration extends Component
             return;
         }
 
-        $this->service(SessionPresence::class)->revoke($session);
+        // Named, like the other three administrative actions. Killing another developer's
+        // running agent was the one the feed could not attribute (#115).
+        $this->service(SessionPresence::class)->revoke($session, $this->actor());
     }
 
     /**

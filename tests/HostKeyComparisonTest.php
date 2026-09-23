@@ -51,6 +51,7 @@ function hostKeyColumns(): array
         ['robot_council_installations', 'approved_by'],
         ['robot_council_agent_sessions', 'user_id'],
         ['robot_council_events', 'user_id'],
+        ['robot_council_events', 'actor_user_id'],
         ['robot_council_tasks', 'user_id'],
         ['robot_council_device_codes', 'decided_by'],
         ['robot_council_github_identities', 'user_id'],
