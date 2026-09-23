@@ -316,16 +316,45 @@ it('names the admin who made the change, rather than leaving it unattributed', f
         ->where('type', FleetEventType::InstallationAbilityGranted)
         ->firstOrFail();
 
-    // The admin's key, not the installation owner's. Those are different accounts here precisely
-    // so that a copy of the wrong one cannot pass.
-    expect($event->user_id)->toBe(keyValue($this->admin->getKey()))
-        ->and($event->user_id)->not->toBe(keyValue($this->developer->getKey()));
+    // **Two columns, two people, and they are different accounts here precisely so a copy of the
+    // wrong one cannot pass.** Before #115 the admin's key went into `user_id`, the column #29's
+    // visibility rule reads -- so marking any `installation.*` type restricted would have served
+    // the event to the admin and hidden it from the owner. `user_id` is the owner now.
+    expect($event->user_id)->toBe(keyValue($this->developer->getKey()))
+        ->and($event->actor_user_id)->toBe(keyValue($this->admin->getKey()))
+        ->and($event->user_id)->not->toBe($event->actor_user_id);
 
-    // And the feed resolves it to a login, which is what the dashboard renders
+    // And the feed's payload resolves both. **The PAGE is `ChangeFeedTest`'s**, not this -- an
+    // earlier version of this comment claimed otherwise, which is what let the dashboard render
+    // the owner where it had rendered the admin with every test still green.
     $shown = collect($this->service(FleetFeed::class)->latest(50))
         ->firstWhere('type', FleetEventType::InstallationAbilityGranted->value);
 
-    expect(arrayValue($shown['actor'] ?? [])['github_login'] ?? null)->toBe('octoadmin');
+    expect(arrayValue($shown['actor'] ?? [])['github_login'] ?? null)->toBe('octodev')
+        ->and(arrayValue($shown['performed_by'] ?? [])['github_login'] ?? null)->toBe('octoadmin');
+});
+
+it('names the admin who revoked a session, through the page rather than the store', function (): void {
+    // **The fourth administrative action, and the one that went unattributed.** The other three
+    // named the admin; `revokeSession()` went through a store method that took no actor, so the
+    // feed could say a session was revoked and not by whom -- for the action that kills another
+    // developer's running agent (#115).
+    //
+    // Driven through the component rather than through `SessionPresence::revoke()`, because the
+    // store's own coverage passes whatever the test hands it: only this path shows that the page
+    // passes the signed-in admin at all.
+    [, $session] = installationWithSession($this, $this->developer);
+
+    Livewire::actingAs($this->admin)
+        ->test(Administration::class)
+        ->call('revokeSession', $session->id);
+
+    $event = FleetEvent::query()->where('type', FleetEventType::SessionGone)->firstOrFail();
+
+    expect($event->actor_user_id)->toBe(keyValue($this->admin->getKey()))
+        // And the session's own developer is still who the event is about.
+        ->and($event->user_id)->toBe(keyValue($this->developer->getKey()))
+        ->and($event->user_id)->not->toBe($event->actor_user_id);
 });
 
 it('shows no credential, device code, or verifier on the page', function (): void {

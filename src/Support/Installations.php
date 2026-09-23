@@ -280,7 +280,12 @@ final class Installations
             null,
             sprintf('%s on %s %s.', $installation->harness, $installation->machine_label, $happened),
             ['installation_id' => $installation->id, ...$meta],
-            actor: $actor
+
+            // Both, and they are different people: the event is ABOUT this installation's owner
+            // and was DONE by the admin. Before #115 only the admin was recorded, in the column
+            // #29's visibility rule reads.
+            actor: $actor,
+            subject: $installation->user_id
         );
     }
 

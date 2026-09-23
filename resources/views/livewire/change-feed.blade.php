@@ -37,6 +37,23 @@
                                     the server
                                 @endif
 
+                                {{-- **Who DID it, where that is somebody other than who it is
+                                     about** -- and the comparison is what makes that true rather
+                                     than only intended. A developer re-enrolling their own machine
+                                     supersedes their own installation, so `Installations` records
+                                     an `installation.revoked` whose actor and subject are the same
+                                     person; without the second clause the panel would print
+                                     `octodev by octodev` and read as two parties.
+                                     `actor` above is the developer the event concerns,
+                                     which for an administrative event is the installation's owner
+                                     -- so without this line the panel would name the developer
+                                     whose agent was acted ON as the one who acted, which is the
+                                     inversion #115 exists to remove. --}}
+                                @if (($event['performed_by']['github_login'] ?? null) !== null
+                                    && $event['performed_by']['github_login'] !== $event['actor']['github_login'])
+                                    &middot; by {{ $event['performed_by']['github_login'] }}
+                                @endif
+
                                 {{-- Recorded on the event when it was written, so revoking the
                                      ability afterwards does not rewrite what the page says --}}
                                 @if ($event['actor']['coordinator_direct'])

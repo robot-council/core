@@ -15,8 +15,10 @@ use RobotCouncil\Livewire\ChangeFeed;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\FleetEventType;
+use RobotCouncil\Support\DeviceCodes;
 use RobotCouncil\Support\FleetEvents;
 use RobotCouncil\Support\FleetFeed;
+use RobotCouncil\Support\Installations;
 use RobotCouncil\Tests\TestCase;
 
 beforeEach(function (): void {
@@ -48,6 +50,74 @@ function otherSession(TestCase $case, array $abilities = [Ability::EventsPost->v
 
     return $case->startAgentSession($installation);
 }
+
+it('names both the owner and the admin on an administrative event', function (): void {
+    // **The gap that let the defect through the first time.** #115 repointed `actor` from the
+    // admin to the installation's owner and put the admin in `performed_by` -- but no view read
+    // `performed_by`, so the one rendered audit surface went from naming the admin to naming the
+    // developer whose agent was acted ON. The payload was right and the page was inverted, and
+    // every assertion in this file was about narration and session events, so nothing caught it.
+    //
+    // **Asserted in ORDER, on one row, rather than as two page-wide substrings.** `assertSee` is a
+    // whole-page check: `beforeEach` starts a session, whose `session.enrolled` row already names
+    // `octodev`, so a bare `assertSee('octodev')` here would be satisfied by that row whatever the
+    // administrative row said. `latest()` orders newest first, so the administrative row renders
+    // above it and the sequence pins both names to that row.
+    $admin = $this->enrollDeveloper(77, 'octoadmin');
+
+    $this->service(Installations::class)
+        ->setAbility($this->installation, Ability::LocksAcquire, true, keyValue($admin->getKey()));
+
+    Livewire::test(ChangeFeed::class)
+        ->assertSeeInOrder([
+            FleetEventType::InstallationAbilityGranted->value,
+            'octodev',
+            'by octoadmin',
+        ]);
+});
+
+it('names one person once, where the actor and the subject are the same developer', function (): void {
+    // **A developer re-enrolling their own machine supersedes their own installation**, so
+    // `Installations::createFrom()` revokes it and passes the approver -- who is that
+    // installation's own owner. Actor and subject are then the same person, and a view that only
+    // asked whether `performed_by` was present would print `octodev by octodev`.
+    $code = $this->service(DeviceCodes::class)->issue(
+        [Ability::EventsPost->value],
+        'claude-code',
+        'workbench',
+        hash('sha256', 'v'),
+        null
+    );
+
+    $this->service(DeviceCodes::class)
+        ->approve($code->record, keyValue($this->developer->getKey()), [Ability::EventsPost->value]);
+
+    $this->service(Installations::class)->createFrom($code->record->refresh());
+
+    Livewire::test(ChangeFeed::class)
+        ->assertSee(FleetEventType::InstallationRevoked->value)
+        ->assertSee('octodev')
+        // The whole point: one name, not the same name twice.
+        ->assertDontSee('by octodev');
+});
+
+it('names nobody where nobody signed in acted', function (): void {
+    // The control for the administrative test. **What it discriminates is naming `actor` in the
+    // by-clause** -- a view that read the wrong key would render `octodev by octodev` here.
+    // Deleting the `@if` outright is caught elsewhere and more loudly: `performed_by` is null on
+    // an agent's event, so an unguarded read raises `Trying to access array offset on null`, which
+    // `HandleExceptions` turns into an `ErrorException` and four other tests in this file fail on.
+    app(FleetEvents::class)->record(
+        FleetEventType::Narration,
+        $this->session,
+        'Nobody administered this.',
+    );
+
+    Livewire::test(ChangeFeed::class)
+        ->assertSee('Nobody administered this.')
+        ->assertSee('octodev')
+        ->assertDontSee('by octodev');
+});
 
 it('shows an event with its type, body, actor and age', function (): void {
     app(FleetEvents::class)->record(
