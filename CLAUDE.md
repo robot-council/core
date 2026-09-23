@@ -70,11 +70,10 @@ A **Laravel package** (`robot-council/core`), not an application. It is the core
 - **Nothing reads from Slack, and a test enforces it.** The package's only outbound HTTP call is one POST in `Jobs\MirrorEventToSlack`. A read would let a coordination decision depend on Slack being up and honest.
 - **Read what Rector does to a queued job.** It renamed a private `retryAfter()` helper to `backoff()`, which is a framework hook, so `Illuminate\Queue\Queue` began calling it with a signature it does not have; it also rewrote `public int $tries` into `#[Tries(5)]`. Neither is announced. Do not name anything on a job `retryAfter` or `backoff`.
 - **Every migration in `database/migrations/` carries a date prefix, and
-  `tests/MigrationPrefixGuardTest.php` refuses one that does not.** `database/stubs/` is out of
-  scope, as it is for the timestamp guard: `robot-council:install` names those at copy time with
-  `Carbon::now()->format('Y_m_d_His')`. Laravel runs migrations in filename order and digits sort before letters, so an
-  unprefixed file runs **after every dated one** -- which means nothing dated can ever alter the
-  table it creates. That is not style: `create_robot_council_github_identities_table.php` had no
+  `tests/MigrationPrefixGuardTest.php` refuses one that does not.** Laravel runs migrations in
+  filename order and digits sort before letters, so an unprefixed file runs **after every dated
+  one** -- which means nothing dated can ever alter the table it creates. That is not style:
+  `create_robot_council_github_identities_table.php` had no
   prefix, #54's dated collation migration therefore ran before that table existed, and its
   `Schema::hasTable()` guard **skipped the column silently**. An access-control change shipped
   covering six of seven key columns and reported success, caught only because it asserts the
@@ -87,6 +86,8 @@ A **Laravel package** (`robot-council/core`), not an application. It is the core
   whose file is absent with a `Migration not found` warning and never deletes the row. **The
   rename's `down()` needs a guard too**, and for a worse reason than `up()`: the re-run logs a row
   at the next batch number, so one `migrate:rollback` would otherwise drop a populated table.
+  `database/stubs/` is out of scope, as it is for the timestamp guard: `robot-council:install`
+  names those at copy time with `Carbon::now()->format('Y_m_d_His')`.
 - **A schema change now ADDS a migration. The era of editing the create migrations is over.** It was safe only while nothing that had run them existed: `v0.1.0` ships no `database/` directory at all (`git ls-tree -r --name-only v0.1.0 -- database/` is empty), so no host could have run one from a release, and `4b1fdda` and `6afeb05` edited three create migrations on that basis. **That condition lapsed when `robot-council/robot-council` installed from `dev-main` and migrated**, exactly as this note warned it would, and silently: #94 then dropped two indexes by editing the events create migration, leaving the deployed database carrying indexes a fresh install no longer creates. Measured on the deployment afterwards -- `robot_council_events_user_id_id_index` and `robot_council_events_type_id_index` were both still there. `2026_09_18_000007_drop_robot_council_event_indexes.php` is the repair, and the shape to copy: guard on what the schema actually reports rather than assuming presence, because the three populations -- installed before the change, installed after it, and rolled back -- all run the same file.
 - `database/migrations/` — the package's own tables, loaded by the provider so `php artisan migrate` picks them up. `robot_council_agent_sessions.last_seen_at` is a non-nullable `dateTime` rather than a `timestamp`: MySQL gives the first NOT NULL `TIMESTAMP` column an implicit `ON UPDATE CURRENT_TIMESTAMP` while `explicit_defaults_for_timestamp` is off, so marking a session stale would restart the clock deciding when it goes, and nullable would exempt a row from both cutoffs forever. `robot_council_github_identities` maps a host user to a GitHub account, and the package owns it because that mapping is what the access lists are checked against. `robot_council_installations`, `robot_council_agent_sessions`, and `robot_council_device_codes` hold enrollment.
 - `database/stubs/` — migrations `robot-council:install` writes into the host application, because they change tables the host owns. Only nullability on `users.password` and `users.email`, skipped when already nullable. The suite runs the stub itself, so it is covered. The command also copies Sanctum's `personal_access_tokens` migration, guarding on the file-name suffix rather than the name, because a publish rewrites the timestamp.
