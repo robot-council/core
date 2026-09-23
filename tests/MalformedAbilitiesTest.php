@@ -17,19 +17,30 @@ declare(strict_types=1);
  * API without anybody editing a row by hand. #170 is that gap; this file covers the reads, which
  * is what stops any of it from raising.
  *
- * **The blast radius is the fleet, not the row's owner.** Before #159, `abilities()` was called on
- * the requesting principal's own installation. `Support\FleetAbilities::anyInstallationHolds()`
- * now calls it on every usable installation to answer `fleet_can_direct`, so a value the accessor
- * could not take answered `GET {prefix}/api/agent/session` with a 500 for every agent in the
- * fleet -- the route a bridge calls after every start and every renewal (#167).
+ * **The blast radius was the fleet, and `robot-council/core#223` narrowed it back.** Before #159,
+ * `abilities()` was called on the requesting principal's own installation. #159 had
+ * `Support\FleetAbilities` call it on every usable installation to answer `fleet_can_direct`, so a
+ * value the accessor could not take answered `GET {prefix}/api/agent/session` with a 500 for every
+ * agent in the fleet -- the route a bridge calls after every start and every renewal (#167). #223
+ * moved that question onto live sessions and their roles, so the column is out of the loop again
+ * and one malformed row costs only its own installation.
+ *
+ * **That is asserted rather than assumed.** A column nothing reads is a column whose shape stops
+ * mattering silently, so the two fleet-level tests below pin it in both directions: a malformed
+ * row no longer suppresses the answer, and a well-formed `coordinator:direct` row no longer
+ * supplies it. The guard on the accessor stays either way -- it is public on a `final` class, and
+ * `Models\Installation::abilities()` is still what the enrollment page and the approval path read.
  *
  * @command  vendor/bin/pest --compact tests/MalformedAbilitiesTest.php
  */
 
 use Illuminate\Support\Facades\DB;
 use RobotCouncil\Access\Ability;
+use RobotCouncil\Access\Role;
+use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\Installation;
 use RobotCouncil\Support\FleetAbilities;
+use RobotCouncil\Support\SessionPresence;
 
 beforeEach(function (): void {
     $this->migrateUsersTableWithPackageColumns();
@@ -155,6 +166,11 @@ it('answers the session endpoint for a fleet that contains a malformed row', fun
     // **The blast radius, asserted against the endpoint rather than the accessor.** The row
     // planted here belongs to a different developer and a different installation from the one
     // asking, and the request still has to be answered -- which is the whole difference #159 made.
+    //
+    // **Since #223 the malformed row no longer decides the answer, so the test asserts that it
+    // does not.** A coordinator is running on the malformed installation, and `fleet_can_direct`
+    // reads `true` through it: the column is unreadable and irrelevant at once. Asserting only the
+    // 200 would leave a version that still consulted the column passing.
     $receiver = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
 
     $coordinator = $this->approveInstallation(
@@ -163,6 +179,8 @@ it('answers the session endpoint for a fleet that contains a malformed row', fun
         'coordinator-machine'
     );
 
+    $this->startCoordinatorSession($coordinator);
+
     plantAbilities($coordinator, (string) json_encode([null, ['coordinator:direct']]));
 
     [, $token] = $this->startAgentSession($receiver);
@@ -170,24 +188,25 @@ it('answers the session endpoint for a fleet that contains a malformed row', fun
     $this->machine($token)
         ->getJson(route('robot-council.agent.session'))
         ->assertOk()
-        ->assertJson([
-            'abilities' => [Ability::TasksCreate->value],
-            // The malformed row held the only `coordinator:direct` on the fleet, and dropping its
-            // contents is what the answer reflects. A row nobody can read grants nothing.
-            'fleet_can_direct' => false,
-        ]);
+        ->assertJsonPath('abilities', Role::Build->tokenAbilities())
+        ->assertJsonPath('fleet_can_direct', true);
 
-    // The control: the same installation, the same request, one well-formed row. Without it a
-    // broken fixture -- an installation the walk never reached -- would answer `false` too, and
-    // the assertion above would pass for the wrong reason.
+    // The other direction, and the control for the assertion above: the column is put back into
+    // perfect shape and the session is ended. If the column still reached the answer this would
+    // read `true`, and if the fixture never reached the installation at all the assertion above
+    // could not have read `true`.
     plantAbilities($coordinator, (string) json_encode([Ability::CoordinatorDirect->value]));
+
+    $this->service(SessionPresence::class)->revoke(
+        AgentSession::query()->where('installation_id', $coordinator->getKey())->sole()
+    );
 
     [, $second] = $this->startAgentSession($receiver);
 
     $this->machine($second)
         ->getJson(route('robot-council.agent.session'))
         ->assertOk()
-        ->assertJson(['fleet_can_direct' => true]);
+        ->assertJsonPath('fleet_can_direct', false);
 });
 
 it('renders the enrollment page for a malformed requested_abilities row', function (): void {
@@ -281,14 +300,25 @@ it('narrows what a host hands Ability::granted directly', function (): void {
         ->and(Ability::granted([Ability::CoordinatorDirect->value]))->toBeEmpty();
 });
 
-it('answers the fleet-level question directly for a malformed row', function (): void {
+it('answers the fleet-level question directly for a malformed row', function (string $planted): void {
     // `Support\FleetAbilities` is a public method on a `final` class a host can resolve and call,
     // so a guarantee held only by the controller would protect the route and nothing else.
+    //
+    // **`null` is the shape that raised.** `abilities()` took it before the guard and a fleet-wide
+    // walk turned one row into a 500 for every agent; the other two are the shapes the accessor
+    // drops from. Since #223 none of them are read for this question at all, which is what the
+    // pair of assertions pins: the answer does not move when the column does.
     $installation = $this->approveInstallation($this->developer, [Ability::CoordinatorDirect->value]);
 
-    expect(app(FleetAbilities::class)->anyInstallationHolds(Ability::CoordinatorDirect))->toBeTrue();
+    $this->startCoordinatorSession($installation);
 
-    plantAbilities($installation, 'null');
+    expect(app(FleetAbilities::class)->anyLiveSessionHolds(Ability::CoordinatorDirect))->toBeTrue();
 
-    expect(app(FleetAbilities::class)->anyInstallationHolds(Ability::CoordinatorDirect))->toBeFalse();
-});
+    plantAbilities($installation, $planted);
+
+    expect(app(FleetAbilities::class)->anyLiveSessionHolds(Ability::CoordinatorDirect))->toBeTrue();
+})->with([
+    'null' => 'null',
+    'a scalar' => '42',
+    'a nested list' => '[["coordinator:direct"]]',
+]);
