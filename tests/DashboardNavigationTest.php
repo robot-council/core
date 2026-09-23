@@ -92,8 +92,15 @@ it('links to every page a signed-in developer can reach', function (): void {
         ->get(route('robot-council.dashboard'))
         ->assertOk();
 
-    // Both pages the package mounts behind the gate, reachable by clicking rather than by typing
-    $page->assertSeeHtml(route('robot-council.dashboard'))->assertSeeHtml(route('robot-council.enroll.show'));
+    // Both pages the package mounts behind the gate, reachable by clicking rather than by typing.
+    //
+    // Through `anchorTagFor` rather than `assertSeeHtml`, because the sections are mounted UNDER
+    // the dashboard path: `.../dashboard` is a substring of `.../dashboard/presence`, so a
+    // document-wide check for the dashboard's URL is satisfied by any one of its four children.
+    // Delete the Dashboard entry entirely and the string form still passes.
+    expect(anchorTagFor($page->getContent(), route('robot-council.dashboard')))->not->toBeEmpty();
+
+    $page->assertSeeHtml(route('robot-council.enroll.show'));
 });
 
 it('marks the page being shown, and only that page, as current', function (): void {
@@ -309,9 +316,14 @@ it('renders the enrollment page inside the same shell', function (): void {
         ->assertOk();
 
     // The shell's own furniture, not the page's: before #189 this page was a standalone document
-    // with its own inline `<style>` and no way back to anywhere
-    $page->assertSeeHtml(route('robot-council.dashboard'))
-        ->assertSeeHtml(route('robot-council.dashboard.stylesheet'))
+    // with its own inline `<style>` and no way back to anywhere.
+    //
+    // The way back is read as an anchor, for the reason given on the test above: the dashboard's
+    // URL is a prefix of all four section URLs, so the string form cannot tell "there is a link
+    // home" from "there is a link to one of its sections".
+    expect(anchorTagFor($page->getContent(), route('robot-council.dashboard')))->not->toBeEmpty();
+
+    $page->assertSeeHtml(route('robot-council.dashboard.stylesheet'))
         ->assertSeeHtml('drawer-toggle')
         ->assertSeeHtml('Sign out');
 
