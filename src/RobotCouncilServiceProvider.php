@@ -186,6 +186,10 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
         $this->registerMigrations();
         $this->registerReleases();
         $this->registerRateLimits();
+        // Before the routes, and outside their cache guard: a host that has cached its routes
+        // still needs the component names, or no dashboard page can render (#219).
+        $this->registerLivewireComponents();
+
         $this->registerRoutes();
         $this->registerViewComposers();
         $this->registerAbilities();
@@ -276,10 +280,45 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
     }
 
     /**
+     * Name the package's Livewire components, and keep its middleware on Livewire's update endpoint.
+     *
+     * **Deliberately not inside `registerRoutes()`, and #219 is why.** That method returns early
+     * when a host has cached its routes, and these are not routes. Behind that guard, a host with a
+     * cached route collection got no component names at all -- and every dashboard page mounts at
+     * least one **by name**, so Livewire raised `ComponentNotFoundException` and the page could not
+     * render. Livewire has no fallback for an unregistered name: measured, a name nothing registers
+     * is refused outright.
+     *
+     * Named so the dashboard page can mount them, and prefixed so a host's own component of the
+     * same name is not shadowed -- the failure that ruled out a Blade component library on #30.
+     *
+     * Livewire strips every middleware from its update endpoint that is not on its own fixed
+     * persistent list, so `EnsureAllowlistedDeveloper` does not run there and a developer removed
+     * from the access list keeps driving components from a page already open.
+     */
+    private function registerLivewireComponents(): void
+    {
+        Livewire::component('robot-council-administration', Administration::class);
+        Livewire::component('robot-council-change-feed', ChangeFeed::class);
+        Livewire::component('robot-council-fleet-presence', FleetPresenceComponent::class);
+        Livewire::component('robot-council-fleet-totals', FleetTotals::class);
+        Livewire::component('robot-council-task-board', TaskBoard::class);
+
+        Livewire::addPersistentMiddleware([
+            EnsureAllowlistedDeveloper::class,
+            DenyFraming::class,
+        ]);
+    }
+
+    /**
      * Mount the package's routes under their configured prefixes and middleware groups.
      *
      * A host that has cached its routes already holds these, and re-registering them means parsing
      * and grouping them on every request only for `Router::setCompiledRoutes()` to discard the lot.
+     *
+     * **Only routes live behind that guard**, which is what the paragraph above always claimed and
+     * what #219 made true. The MCP server stays here deliberately: `Mcp::web()` is `Router::get`,
+     * `Router::delete` and `Router::post` and nothing else, so it is routes by any reading.
      *
      * A mistyped value falls back to the documented default rather than throwing. Throwing from a
      * service provider takes down every request AND every artisan command, including the
@@ -316,24 +355,6 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
             ->prefix($webPrefix)
             ->name('robot-council.')
             ->group(__DIR__.'/../routes/web.php');
-
-        // Livewire strips every middleware from its update endpoint that is not on its own fixed
-        // persistent list, so `EnsureAllowlistedDeveloper` does not run there and a developer
-        // removed from the access list keeps driving components from a page already open. Every
-        // dashboard slice mounts inside one, so this is registered with the routes rather than
-        // beside the component it happens to protect first.
-        // Named so the dashboard page can mount them, and prefixed so a host's own component of the
-        // same name is not shadowed -- the failure that ruled out a Blade component library on #30.
-        Livewire::component('robot-council-administration', Administration::class);
-        Livewire::component('robot-council-change-feed', ChangeFeed::class);
-        Livewire::component('robot-council-fleet-presence', FleetPresenceComponent::class);
-        Livewire::component('robot-council-fleet-totals', FleetTotals::class);
-        Livewire::component('robot-council-task-board', TaskBoard::class);
-
-        Livewire::addPersistentMiddleware([
-            EnsureAllowlistedDeveloper::class,
-            DenyFraming::class,
-        ]);
 
         Route::middleware($apiMiddleware)
             ->prefix($apiPrefix)

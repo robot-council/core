@@ -96,6 +96,23 @@ class TestCase extends Orchestra
     private array $bootConfiguration = [];
 
     /**
+     * The route cache this test wrote, removed when it finishes.
+     *
+     * It lives in the Testbench skeleton and outlives the process, so leaving one behind makes
+     * every later run in the checkout boot with routes cached. That happened while #219 was being
+     * investigated, and made an unrelated test report a defect in a file it had created itself.
+     */
+    private ?string $cachedRoutesPath = null;
+
+    /**
+     * The substring in a test class name that asks for a cached route collection.
+     *
+     * Pest builds a class per test file from its path, so a file named `...CachedRoutes...Test.php`
+     * selects this without any per-test wiring.
+     */
+    private const string CACHED_ROUTES_MARKER = 'CachedRoutes';
+
+    /**
      * Register the package's service provider with the Testbench application.
      *
      * @param  Application  $app  The Testbench application.
@@ -127,6 +144,27 @@ class TestCase extends Orchestra
      */
     protected function defineEnvironment($app)
     {
+        // **A test whose class name carries `CachedRoutes` boots with its route collection already
+        // cached.** Keyed on the class rather than on a PHPUnit group because `groups()` and
+        // `name()` are both marked `@internal` and outside PHPUnit's compatibility promise, which
+        // `composer analyse` refuses.
+        // Written here rather than by a test body, because `routesAreCached()` is read while
+        // providers boot -- and `refreshApplication()` cannot stand in for it: rebooting mid-test
+        // leaves Livewire unable to resolve ANY component name, so a probe built that way reported
+        // a name nobody had registered as resolvable. Measured, with a negative control (#219).
+        //
+        // The file is inert on purpose. `routesAreCached()` is a file-exists check and Laravel
+        // `require`s the file at `booted()`, so one declaring no routes puts the application in the
+        // state under test without pinning anything to the shape of a compiled route collection.
+        if (str_contains(static::class, self::CACHED_ROUTES_MARKER)) {
+            $path = $app->getCachedRoutesPath();
+
+            File::ensureDirectoryExists(\dirname($path));
+            File::put($path, '<?php // A cached route collection holding no routes.'.PHP_EOL);
+
+            $this->cachedRoutesPath = $path;
+        }
+
         // Sessions and cookies are encrypted, so the application needs a key of its own. Not
         // Testbench's `.env`, which only exists once something has copied `.env.example` over.
         $app['config']->set('app.key', 'base64:AckfSECXIvnK5r28GVIWUAxmbBSjTsmFAckfSECXIvk=');
@@ -176,6 +214,12 @@ class TestCase extends Orchestra
         }
 
         $this->temporaryDirectories = [];
+
+        if ($this->cachedRoutesPath !== null) {
+            File::delete($this->cachedRoutesPath);
+
+            $this->cachedRoutesPath = null;
+        }
 
         parent::tearDown();
     }
