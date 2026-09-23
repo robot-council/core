@@ -191,10 +191,18 @@ it('reports whole seconds since contact, not a fraction of one', function (): vo
 
     expect($described[0]['seconds_since_contact'])->toBeInt();
 
-    // And the rendered form, because the store returning an int is only half of it
-    $html = Livewire::test(FleetPresence::class)->html();
+    // And the rendered form, because the store returning an int is only half of it. The column
+    // now reads in words rather than as a second count -- it grows through minutes, hours and days
+    // beside the queue's `Age` -- so the shape asserted here moved with it. The property is the
+    // same one: no fraction of a unit reaches the page.
+    $html = (string) Livewire::test(FleetPresence::class)->html();
 
-    expect($html)->toMatch('/\d+s ago/')->not->toMatch('/\d+\.\d+s ago/');
+    expect($html)->toMatch('/\d+ seconds? ago/')
+        ->not->toMatch('/\d+\.\d+ \w+ ago/')
+
+        // The old shape, asserted absent rather than merely not asserted present: both could be
+        // true at once if the panel grew a second column
+        ->not->toMatch('/\d+s ago/');
 });
 
 it('shows which checkout a session belongs to', function (): void {
