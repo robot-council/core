@@ -63,7 +63,14 @@ function targetedSessionFor(TestCase $case, User $developer, array $abilities): 
         machineLabel: 'm-'.keyValue($developer->getKey()).'-'.Str::random(4)
     );
 
-    return $case->startAgentSession($installation);
+    // **A coordinator is made by an administrator, not by a grant.** Since
+    // `robot-council/core#222` a session starts as `build` whatever its installation holds, so a
+    // caller asking for `coordinator:direct` wants the role an administrator would impose. Branching
+    // here keeps every call site reading as "a session that can direct" rather than spelling the
+    // two-step out at each one.
+    return \in_array(Ability::CoordinatorDirect->value, $abilities, true)
+        ? $case->startCoordinatorSession($installation)
+        : $case->startAgentSession($installation);
 }
 
 /**

@@ -13,11 +13,13 @@ use Livewire\Attributes\Url;
 use Livewire\Component;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Access\CurrentDeveloper;
+use RobotCouncil\Access\Role;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\Installation;
 use RobotCouncil\Support\InstallationList;
 use RobotCouncil\Support\Installations;
 use RobotCouncil\Support\PollInterval;
+use RobotCouncil\Support\RoleRequests;
 use RobotCouncil\Support\Scope;
 use RobotCouncil\Support\SessionPresence;
 use RuntimeException;
@@ -205,6 +207,97 @@ final class Administration extends Component
     }
 
     /**
+     * Approve a session's pending request, naming the role this page rendered.
+     *
+     * **The role is passed in, and that is a security property rather than plumbing.** The control
+     * carries what the administrator was shown; the store refuses if the row has moved on. Reading
+     * it off the row instead let a session ask for `ci`, wait for a button to render with no
+     * coordinator warning on it, ask for `coordinator`, and collect `coordinator:direct` from the
+     * next click. `Support\RoleRequests::approve()` records the mechanism.
+     *
+     * The role arrives as a string from rendered markup, so it goes through the enum rather than
+     * being trusted: a Livewire action is an ordinary POST a client can shape however it likes.
+     *
+     * @param  int  $sessionId  The session whose request to approve.
+     * @param  string  $role  The role the page rendered as pending.
+     */
+    public function approveRole(int $sessionId, string $role): void
+    {
+        $this->authorizeAdmin();
+
+        $expected = Role::tryFrom($role);
+
+        if (! $expected instanceof Role) {
+            throw new UnprocessableEntityHttpException(sprintf(
+                'Roles are: %s.',
+                implode(', ', array_map(static fn (Role $case): string => $case->value, Role::cases()))
+            ));
+        }
+
+        $session = AgentSession::query()->find($sessionId);
+
+        if (! $session instanceof AgentSession) {
+            return;
+        }
+
+        $this->service(RoleRequests::class)->approve($session, $expected, $this->actor());
+    }
+
+    /**
+     * Refuse what a session asked to be, leaving it as it is.
+     *
+     * @param  int  $sessionId  The session whose request to refuse.
+     */
+    public function denyRole(int $sessionId): void
+    {
+        $this->authorizeAdmin();
+
+        $session = AgentSession::query()->find($sessionId);
+
+        if (! $session instanceof AgentSession) {
+            return;
+        }
+
+        $this->service(RoleRequests::class)->deny($session, $this->actor());
+    }
+
+    /**
+     * Put a session in a role with no request outstanding.
+     *
+     * **This is the emergency demotion**, and the administrator's own action is the approval. It is
+     * also the only way a role narrows: `Support\Installations::setAbility()` stopped reaching
+     * sessions when a role became the thing that decides what one may do.
+     *
+     * The role arrives as a string from a rendered control, so it goes through the enum rather than
+     * being trusted: an unknown name is refused with a 422, because a Livewire action is an
+     * ordinary POST a client can shape however it likes.
+     *
+     * @param  int  $sessionId  The session to change.
+     * @param  string  $role  The role to impose.
+     */
+    public function imposeRole(int $sessionId, string $role): void
+    {
+        $this->authorizeAdmin();
+
+        $resolved = Role::tryFrom($role);
+
+        if (! $resolved instanceof Role) {
+            throw new UnprocessableEntityHttpException(sprintf(
+                'Roles are: %s.',
+                implode(', ', array_map(static fn (Role $case): string => $case->value, Role::cases()))
+            ));
+        }
+
+        $session = AgentSession::query()->find($sessionId);
+
+        if (! $session instanceof AgentSession) {
+            return;
+        }
+
+        $this->service(RoleRequests::class)->impose($session, $resolved, $this->actor());
+    }
+
+    /**
      * Render the panel.
      *
      * @param  InstallationList  $installations  The installation reader.
@@ -229,6 +322,10 @@ final class Administration extends Component
             // The fixed list, so the controls offered are exactly what `setAbility()` accepts and
             // the two cannot drift apart
             'grantable' => Ability::grantable(),
+
+            // Every role, for the same reason: a control per case, so a fourth role is offered the
+            // day it exists rather than the day somebody remembers this file.
+            'roles' => Role::cases(),
         ]);
     }
 

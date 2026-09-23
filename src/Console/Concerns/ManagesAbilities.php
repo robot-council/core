@@ -21,7 +21,12 @@ trait ManagesAbilities
     use ManagesInstallations;
 
     /**
-     * Add or remove one ability, on the installation and on its live session tokens.
+     * Add or remove one ability on an installation.
+     *
+     * **It reaches no session.** Since `robot-council/core#222` a session's abilities come from its
+     * role, and its role is `build` at start and an administrator's decision after that, so this
+     * writes a stored list and records an event. The output says so rather than reporting a count
+     * of rewritten tokens that would now always be zero.
      *
      * @param  Installations  $installations  The installation store.
      * @param  bool  $granted  True to add the ability, false to remove it.
@@ -41,15 +46,15 @@ trait ManagesAbilities
             return self::FAILURE;
         }
 
-        $rewritten = $installations->setAbility($installation, $ability, $granted);
+        $changed = $installations->setAbility($installation, $ability, $granted);
 
         $this->components->info(sprintf(
-            '%s `%s` %s installation %d. %d live session token(s) rewritten.',
+            '%s `%s` %s installation %d.%s No session is affected: a role decides what a session may do.',
             $granted ? 'Granted' : 'Revoked',
             $ability->value,
             $granted ? 'to' : 'from',
             $installation->id,
-            $rewritten
+            $changed ? '' : ' It already said that.'
         ));
 
         return self::SUCCESS;

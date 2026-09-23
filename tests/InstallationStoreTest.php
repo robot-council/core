@@ -141,22 +141,23 @@ it('answers zero and records nothing when the ability is already what was asked 
     // The "nothing changed" answer from a conditional write, which is the pattern every store here
     // decides by. A mutant returning 1 or -1 says an authorization change happened when none did.
     //
-    // Asserted alongside the event count, because `setAbility()`'s return is tokens rewritten and
-    // a fleet with no live session rewrites none -- so the number alone cannot tell "nothing
-    // changed" from "changed, and nobody was holding a token". The absent event can.
+    // Asserted alongside the event count. Since `robot-council/core#222` the return says whether
+    // the STORED list changed and no token is ever rewritten by this path, so `false` here means
+    // exactly one thing -- but the absent event is kept beside it, because a return that said
+    // `false` while an event was written would be the more interesting failure.
     $installation = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
 
     $before = FleetEvent::query()->count();
 
     expect($this->service(Installations::class)
         ->setAbility($installation, Ability::TasksCreate, true, keyValue($this->admin->getKey())))
-        ->toBe(0)
+        ->toBeFalse()
         ->and(FleetEvent::query()->count())->toBe($before);
 
     // And the same for removing one that was never held.
     expect($this->service(Installations::class)
         ->setAbility($installation, Ability::LocksAcquire, false, keyValue($this->admin->getKey())))
-        ->toBe(0)
+        ->toBeFalse()
         ->and(FleetEvent::query()->count())->toBe($before);
 });
 
@@ -172,18 +173,16 @@ it('stores the remaining abilities as a list after removing the first of three',
         Ability::EventsPost->value,
     ]);
 
-    // A live session, whose token this deliberately does NOT re-mint. Since #221 the return value
-    // counts tokens re-minted by a demotion, and `tasks:create` gates no role -- so `0` here is the
-    // correct answer and the column write below is the subject. That widens an ambiguity worth
-    // naming: `0` now means "nothing to do", "no session held a token", **and** "the change moved
-    // no role", so a caller cannot read it as a success flag at all.
-    // `Console\Concerns\ManagesAbilities` prints it verbatim and `Livewire\Administration`
-    // discards it, so neither is misled today.
+    // A live session, which this deliberately does not touch. Since `robot-council/core#222` the
+    // return says whether the STORED list changed and no session is reached at all, so the column
+    // write below is the whole subject. The session assertion is kept as a reminder of that, not as
+    // a discriminator -- `AdministrationTest` and `SessionRoleTest` both make a session a
+    // coordinator first, which is what it takes to show the inertness.
     [$session] = $this->startAgentSession($installation);
 
     expect($this->service(Installations::class)
         ->setAbility($installation, Ability::TasksCreate, false, keyValue($this->admin->getKey())))
-        ->toBe(0)
+        ->toBeTrue()
         ->and($session->refresh()->role)->toBe(Role::Build);
 
     // The RAW column, because the cast on the way out would hide a keyed write.

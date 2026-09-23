@@ -13,10 +13,11 @@ namespace RobotCouncil\Access;
  * the others lacked. The preset moves that decision onto the session, where the process it
  * describes actually is.
  *
- * **A role's preset is the whole answer.** `Support\AgentSessions` mints a token from it and from
- * nothing else, so an installation's stored abilities no longer widen or narrow what a session
- * holds. What they still decide is `permittedBy()` below -- whether this machine may run a session
- * in a given role at all -- which is eligibility rather than a ceiling.
+ * **A role's preset is the whole answer, and nothing else contributes.** `Support\AgentSessions`
+ * mints a token from it; an installation's stored abilities decide neither what a session holds nor
+ * which role it may be. `robot-council/core#221` left them deciding eligibility and
+ * `robot-council/core#222` removed even that: a role is `build` at start and an administrator's
+ * decision after that, which is the only thing a client cannot assert.
  *
  * **`sessions:start` is in no preset, and that is not an omission.** It is the installation
  * credential's own ability, the one thing that credential can do; a session token carrying it could
@@ -101,73 +102,5 @@ enum Role: string
     public function holds(Ability $ability): bool
     {
         return \in_array($ability, $this->abilities(), true);
-    }
-
-    /**
-     * Whether an installation holding these abilities may run a session in this role.
-     *
-     * **Eligibility, not a ceiling.** An ability an enrollment can ask for is one the server is
-     * willing to give any agent that enrolls, so it decides nothing about which role a machine may
-     * run; the abilities that gate a role are the ones only an admin can hand out, which today is
-     * `coordinator:direct` alone. Written as the general rule rather than as that one name, so a
-     * fourth role carrying a second administered ability is covered without an edit here.
-     *
-     * The list is whatever `Models\Installation::abilities()` returned, which has already dropped
-     * anything outside the fixed list.
-     *
-     * @param  list<string>  $installationAbilities  What the installation holds.
-     * @return bool True when the machine may run this role.
-     */
-    public function permittedBy(array $installationAbilities): bool
-    {
-        $requestable = Ability::requestable();
-
-        foreach ($this->abilities() as $ability) {
-            if (\in_array($ability, $requestable, true)) {
-                continue;
-            }
-
-            if (! \in_array($ability->value, $installationAbilities, true)) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * The role a session starts in when nothing has asked for one.
-     *
-     * **Derived from the installation rather than fixed at `build`, and that is a compatibility
-     * decision with a shelf life.** Every session that exists today takes its abilities from its
-     * installation, so a machine an admin made a coordinator produces coordinator sessions; fixing
-     * this at `build` would take `coordinator:direct` away from that machine the next time its
-     * agent started, with nothing in the fleet saying why. Requesting a role is a later slice
-     * (`robot-council/core#222`), and this derivation is what stands in until one exists -- it is
-     * the same rule the backfill migration applies to rows written before the column, stated
-     * forward.
-     *
-     * @param  list<string>  $installationAbilities  What the installation holds.
-     * @return self The role to start in.
-     */
-    public static function defaultFor(array $installationAbilities): self
-    {
-        return self::Coordinator->permittedBy($installationAbilities) ? self::Coordinator : self::Build;
-    }
-
-    /**
-     * This role, or the floor when the installation may no longer run it.
-     *
-     * The one place a role is narrowed, so an admin taking `coordinator:direct` off a machine
-     * demotes its live coordinator sessions rather than leaving them holding an ability the
-     * machine no longer has. It never widens: a role the installation is eligible for is returned
-     * unchanged, and every other answer is `build`.
-     *
-     * @param  list<string>  $installationAbilities  What the installation holds.
-     * @return self This role, or `build`.
-     */
-    public function narrowedBy(array $installationAbilities): self
-    {
-        return $this->permittedBy($installationAbilities) ? $this : self::Build;
     }
 }

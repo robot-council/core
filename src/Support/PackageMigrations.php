@@ -61,6 +61,7 @@ final class PackageMigrations
         '2026_09_23_000002_rename_session_enrolled_events',
         '2026_09_23_000003_add_role_to_robot_council_agent_sessions',
         '2026_09_23_000004_add_work_identity_to_robot_council_agent_sessions',
+        '2026_09_23_000005_add_role_requests_to_robot_council_agent_sessions',
 
         // Retired by #132, which dated the create so something dated could alter its table. Both
         // names stay here forever: a host that migrated before that change has a row for each.
