@@ -60,7 +60,7 @@ final class EnrollmentDecisionController
 
         // Read from the stored row rather than the request, so abilities added to this POST reach
         // nothing, and so the list shown on the page is the list that is granted
-        $granted = Ability::granted($code->requested_abilities);
+        $granted = Ability::granted($code->requestedAbilities());
 
         if (! $this->deviceCodes->approve($code, $this->developerKey(), $granted)) {
             throw new ConflictHttpException;
