@@ -299,6 +299,28 @@ function compositeOver(string $foreground, string $background, float $alpha): ar
 }
 
 /**
+ * Composite a colour over a background already expressed in linear sRGB.
+ *
+ * `compositeOver()` takes two `oklch()` strings, which is every case but one: a surface that is
+ * itself composited -- daisyUI's hovered menu row -- has no token of its own to name.
+ *
+ * @param  array{float, float, float}  $front  Linear channels of the top colour.
+ * @param  array{float, float, float}  $back  Linear channels of what it sits on.
+ * @param  float  $alpha  The opacity, 0-1.
+ * @return array{float, float, float} Linear channels of the result.
+ */
+function overLinear(array $front, array $back, float $alpha): array
+{
+    $painted = [];
+
+    foreach ([0, 1, 2] as $channel) {
+        $painted[] = gammaDecode(gammaEncode($front[$channel]) * $alpha + gammaEncode($back[$channel]) * (1 - $alpha));
+    }
+
+    return [$painted[0], $painted[1], $painted[2]];
+}
+
+/**
  * The contrast ratio of dimmed text against what it sits on.
  *
  * @param  string  $foreground  The text colour, as an `oklch()` value.
@@ -322,10 +344,20 @@ it('composites an opacity the way a browser does, not the way linear light would
 
     expect($ratio)->toEqualWithDelta(8.52, 0.05);
 
-    // The painted channel itself, so a reader can check the number rather than trust it: 0x4D is 77.
+    // The painted channel itself, so a reader can check the number rather than trust it. Black at
+    // 70% over white leaves 30% of the encoded range, which is 76.5 of 255 -- and a browser
+    // rounding half up paints `0x4D`, the 77 in `#4D4D4D`.
+    //
+    // **Asserted before the rounding, not after.** The value is exactly 76.5, so `round()` sits on
+    // the half-way boundary and one unit in the last place of a platform's `pow()` decides between
+    // 76 and 77. Measured on PHP 8.4.23: the raw value differs from 76.5 by 0.0e+0, and
+    // `round(76.5 - 1e-14)` is 76.0. The matrix runs two operating systems and two PHP versions,
+    // none of them this build, and `gammaEncode(gammaDecode(x))` is not exact in general -- at 0.5
+    // it lands on 127.49999999999999, which rounds the other way. The delta states the same fact
+    // and cannot flip.
     $painted = compositeOver('oklch(0% 0 0)', 'oklch(100% 0 0)', 0.7);
 
-    expect(round(gammaEncode($painted[0]) * 255))->toBe(77.0);
+    expect(gammaEncode($painted[0]) * 255)->toEqualWithDelta(76.5, 0.001);
 
     // And the ends, which no compositing error can satisfy by accident
     expect(dimmedContrastRatio('oklch(0% 0 0)', 'oklch(100% 0 0)', 1.0))->toEqualWithDelta(21.0, 0.05)
@@ -362,9 +394,19 @@ it('measures every dimmed step the views actually use', function (): void {
     // are legible and says nothing about a third somebody adds later -- which is exactly how #197
     // arrived, as a step nobody had measured. This reads the steps out of the views and fails when
     // one of them is not in the measured set, so a new step has to be measured before it ships.
+    // **`bladeTemplatesIn()`, not `glob`, and the difference is not style.** A `{,*/}` brace
+    // pattern expands to two branches and `*` does not cross a separator, so it reads the top level
+    // and one directory below and stops. Tailwind's `@source` is recursive, so a view at
+    // `resources/views/<dir>/<dir>/` would ship its classes while this reported clean.
+    //
+    // `EscapingGuardTest` already paid for this: its scanner carries a test named "finds a template
+    // at any depth, not only at the top of the tree", whose comment records that a top-level walk
+    // "would keep passing once #30 adds `resources/views/livewire/` -- green, and covering nothing
+    // in it". No view sits that deep today, which is exactly why a depth-limited walk would have
+    // gone unnoticed until one did.
     $found = [];
 
-    foreach (glob(__DIR__.'/../resources/views/{,*/}*.blade.php', GLOB_BRACE) ?: [] as $view) {
+    foreach (bladeTemplatesIn(__DIR__.'/../resources/views') as $view) {
         preg_match_all('/opacity-(\d+)/', (string) file_get_contents($view), $matches);
 
         foreach ($matches[1] as $step) {
@@ -372,8 +414,84 @@ it('measures every dimmed step the views actually use', function (): void {
         }
     }
 
-    // The instrument has to have found something, or this passes by reading nothing
+    // The instrument has to have found something, or this passes by reading nothing. It is too weak
+    // on its own -- one view keeps it true however much of the tree goes unread -- which is what
+    // the recursive walk above is for rather than this line.
     expect($found)->not->toBeEmpty();
 
+    // **The containment is one-directional on purpose.** A step in a view must be measured; a
+    // measured step no view uses is allowed, because removing its last usage should not fail a
+    // suite. The cost is that a dead entry is measured forever with nothing reporting it.
     expect(array_keys($found))->each->toBeIn(array_keys(DIMMED_STEPS));
+});
+
+it('keeps dimmed text legible on the surface a hovered menu row paints', function (): void {
+    // **A third surface, and the views reach it.** daisyUI paints a hovered or keyboard-focused
+    // menu row with `color-mix(in oklab, var(--color-base-content) 10%, transparent)`, which is
+    // `base-content` at alpha 0.1 over whatever is behind the row. That lifts the background toward
+    // the text, so dimmed text inside a menu is measured against a different surface from the same
+    // text on a card -- and the test above, which measures the two page surfaces, cannot see it.
+    //
+    // Found by review of #197: the overview's four section descriptions were one level dimmer and
+    // measured 4.33:1 here while passing at rest. A row that fails only while it is being pointed
+    // at is still a row that fails, and WCAG does not exempt a hover state.
+    //
+    // **Read out of the rendered page rather than from a list**, so this covers whatever a view
+    // puts inside a menu rather than the one case that prompted it.
+    $this->migrateUsersTableWithPackageColumns();
+    $this->setAccessLists(developers: [4242], admins: [4242]);
+    $this->actingAs($this->enrollDeveloper(4242), 'web');
+
+    $html = (string) $this->get(route('robot-council.dashboard'))->assertOk()->getContent();
+
+    // An empty page parses to an empty document, which finds no dimmed text and would read as a
+    // page with none. Refused here so that case is a broken test rather than a quiet pass.
+    if ($html === '') {
+        throw new RuntimeException('The overview rendered nothing, so there is no menu to measure.');
+    }
+
+    $document = new DOMDocument;
+    $previous = libxml_use_internal_errors(true);
+    $document->loadHTML($html, LIBXML_NOERROR | LIBXML_NOWARNING);
+    libxml_clear_errors();
+    libxml_use_internal_errors($previous);
+
+    $xpath = new DOMXPath($document);
+
+    $found = $xpath->query('//ul[contains(@class, "menu")]//*[contains(@class, "opacity-")]');
+
+    if (! $found instanceof DOMNodeList) {
+        throw new RuntimeException('The menu query failed, which is not the same as finding nothing.');
+    }
+
+    $steps = [];
+
+    foreach ($found as $node) {
+        if ($node instanceof DOMElement && preg_match('/opacity-(\d+)/', $node->getAttribute('class'), $matched) === 1) {
+            $steps[(int) $matched[1]] = true;
+        }
+    }
+
+    // The control: this page is known to dim text inside a menu, so an empty result is the query
+    // having failed rather than the page being clean.
+    expect($steps)->not->toBeEmpty();
+
+    $tokens = themeTokens(':where(:root)');
+    $content = linearRgb($tokens['color-base-content']);
+
+    foreach (array_keys($steps) as $step) {
+        foreach (['color-base-100', 'color-base-200'] as $under) {
+            $hover = overLinear($content, linearRgb($tokens[$under]), 0.1);
+
+            $text = relativeLuminance(overLinear($content, $hover, $step / 100)) + 0.05;
+            $behind = relativeLuminance($hover) + 0.05;
+
+            $ratio = $text > $behind ? $text / $behind : $behind / $text;
+
+            expect($ratio)->toBeGreaterThanOrEqual(
+                4.5,
+                sprintf('opacity-%d on a hovered menu row over %s: %.2f:1 against a 4.5:1 bar', $step, $under, $ratio)
+            );
+        }
+    }
 });
