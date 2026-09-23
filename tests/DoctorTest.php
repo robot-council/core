@@ -16,6 +16,7 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\PendingCommand;
+use RobotCouncil\Access\Ability;
 use RobotCouncil\Support\Diagnosis;
 use RobotCouncil\Support\DiagnosisStatus;
 use RobotCouncil\Support\Doctor;
@@ -78,7 +79,7 @@ it('passes every check on a configuration with nothing wrong with it', function 
     ));
 
     expect($failed)->toBeEmpty()
-        ->and(app(Doctor::class)->examine())->toHaveCount(8);
+        ->and(app(Doctor::class)->examine())->toHaveCount(9);
 });
 
 it('fails when the sanctum guard names no provider, and passes when it does', function (): void {
@@ -250,6 +251,61 @@ it('fails when the application timezone can shift, and passes on UTC', function 
 
     expect($failed->status)->toBe(DiagnosisStatus::Failed)
         ->and($failed->detail)->toContain('America/Chicago');
+});
+
+it('reports whether anything on the fleet can post a directive, passing either way', function (): void {
+    // **It reports rather than fails, and both directions are asserted.** A fleet whose agents
+    // only ever receive is a legitimate configuration, so a check that failed on one is a check
+    // people switch off -- but a check that only ever said the same thing would pass identically
+    // against a stub, which is what this file's opening note is about.
+    $this->migrateUsersTableWithPackageColumns();
+
+    $quiet = diagnosis('fleet coordination');
+
+    expect($quiet->status)->toBe(DiagnosisStatus::Passed)
+        ->and($quiet->detail)->toContain('No installation holds');
+
+    $developer = $this->enrollDeveloper(4242);
+
+    $this->approveInstallation($developer, [Ability::CoordinatorDirect->value], 'coordinator-machine');
+
+    $granted = diagnosis('fleet coordination');
+
+    expect($granted->status)->toBe(DiagnosisStatus::Passed)
+        ->and($granted->detail)->toContain('At least one installation holds');
+});
+
+it('says fleet coordination is undetermined when it cannot read the installations', function (): void {
+    $this->migrateUsersTableWithPackageColumns();
+
+    // The same probe the migration check uses, and for the same reason: pointing the default
+    // connection at an empty database rather than dropping the real schema, which would corrupt
+    // whichever test ran next on an engine that persists.
+    config()->set('database.connections.rc_empty_probe', [
+        'driver' => 'sqlite',
+        'database' => ':memory:',
+        'prefix' => '',
+        'foreign_key_constraints' => false,
+    ]);
+
+    $default = config('database.default');
+
+    config()->set('database.default', 'rc_empty_probe');
+
+    try {
+        $unknown = diagnosis('fleet coordination');
+
+        expect($unknown->status)->toBe(DiagnosisStatus::Undetermined)
+            ->and($unknown->detail)->toContain('migrate');
+    } finally {
+        config()->set('database.default', $default);
+
+        DB::purge('rc_empty_probe');
+    }
+
+    // The control: back on the real connection it concludes, so the undetermined above is the
+    // table being unreadable rather than the check never reaching an answer.
+    expect(diagnosis('fleet coordination')->status)->toBe(DiagnosisStatus::Passed);
 });
 
 it('reports the slack webhook either way without ever failing on it', function (): void {

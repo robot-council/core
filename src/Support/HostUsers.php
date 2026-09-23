@@ -256,6 +256,47 @@ final class HostUsers
      * @param  mixed  $key  The user's primary key, as the host's model types it.
      * @return int|null The account's GitHub user ID, or null when no identity points at that key.
      */
+    /**
+     * The GitHub account IDs behind several host user keys, in one query.
+     *
+     * **The bulk form exists so a fleet-wide question is not N queries.** `githubIdForKey()` is
+     * right for one principal on one request; `Support\FleetAbilities` asks about every usable
+     * installation at once, on a route an agent may call twice a second.
+     *
+     * A key the identity table does not know is absent from the result rather than null in it,
+     * because every caller reads absence as "not admitted" and a null would have to be checked
+     * for separately to mean the same thing.
+     *
+     * @param  list<mixed>  $keys  The host user keys to look up.
+     * @return array<string, int> The GitHub ID per key, for the keys that have one.
+     */
+    public function githubIdsForKeys(array $keys): array
+    {
+        $narrowed = [];
+
+        foreach ($keys as $key) {
+            $userId = HostKey::tryFrom($key);
+
+            if ($userId !== null) {
+                $narrowed[$userId] = true;
+            }
+        }
+
+        if ($narrowed === []) {
+            return [];
+        }
+
+        $found = [];
+
+        // Compared as text, for the reason `githubIdForKey()` records: the column is text, and
+        // binding an integer against it is a type error on Postgres rather than a miss.
+        foreach (GithubIdentity::query()->whereIn('user_id', array_keys($narrowed))->get() as $identity) {
+            $found[$identity->user_id] = $identity->github_id;
+        }
+
+        return $found;
+    }
+
     public function githubIdForKey(mixed $key): ?int
     {
         $userId = HostKey::tryFrom($key);
