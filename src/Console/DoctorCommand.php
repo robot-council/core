@@ -91,32 +91,16 @@ final class DoctorCommand extends Command
     /**
      * The checks named by `--only`, flattened.
      *
-     * Accepts both shapes an operator is likely to reach for -- the option repeated, and one
-     * comma-separated list -- because guessing wrong costs a failed deploy to discover.
+     * Delegated to `Argument::texts()`, which takes `mixed`. Reading the option directly passed
+     * locally and failed in CI -- the analyzer narrows `option()` differently depending on whether
+     * it could boot the application and read the signature, and a `foreach` written for one answer
+     * is refused by the other.
      *
      * @return list<string> The names asked for, or empty for all of them.
      */
     private function requestedChecks(): array
     {
-        $names = [];
-
-        // Declared `--only=*`, so Symfony always hands back an array; each entry may be null when
-        // the option was passed without a value.
-        foreach ($this->option('only') as $value) {
-            if (! \is_string($value)) {
-                continue;
-            }
-
-            foreach (explode(',', $value) as $name) {
-                $name = trim($name);
-
-                if ($name !== '') {
-                    $names[] = $name;
-                }
-            }
-        }
-
-        return $names;
+        return Argument::texts($this->option('only'));
     }
 
     /**
