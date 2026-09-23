@@ -106,6 +106,13 @@ it('serves a stylesheet that carries the utilities the pages use, and not the on
         // and asserting it would fail. `menu-title` is still IN the artifact with no view using it,
         // which is the other failure mode this list guards against: daisyUI emits that part
         // wholesale, so the assertion would have passed whether or not scanning worked.
+        //
+        // **And four came IN**, which is the half a removal note leaves undone. The sidebar's
+        // heading is built from plain utilities rather than daisyUI's `menu-title`, so each one
+        // reaches the artifact only by being scanned out of a view. Comparing the two builds'
+        // selector sets, these are exactly what this rebuild added -- so an artifact that went
+        // stale against the new layout renders the heading as unstyled body text.
+        'uppercase', 'tracking-wide', 'pt-4', 'p-0',
 
         // the totals row #185 added. `stats-vertical` is the modifier that stacks it on a narrow
         // screen, so a build that dropped it would render three tiles side by side at phone width.

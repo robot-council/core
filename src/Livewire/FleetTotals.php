@@ -65,7 +65,7 @@ final class FleetTotals extends Component
     {
         // Null when a route mounted this directly rather than the overview passing it down,
         // which is every visit now that each panel has a page of its own.
-        $this->pollSeconds = $pollSeconds ?? PollInterval::fromConfig($config);
+        $this->pollSeconds = PollInterval::orConfig($pollSeconds, $config);
     }
 
     /**

@@ -58,15 +58,20 @@ final class ChangeFeed extends Component
     public ?int $before = null;
 
     /**
-     * Take the polling interval from the page that mounts this component.
+     * Take the polling interval, from a parent when there is one and from the host otherwise.
      *
-     * @param  int  $pollSeconds  The interval the dashboard resolved.
+     * A route mounts this component now, so `$pollSeconds` is null on every visit through the
+     * dashboard; it stays a parameter because a host may embed the component in a page of its own.
+     * `PollInterval::orConfig()` bounds both paths.
+     *
+     * @param  Repository  $config  The application's configuration repository.
+     * @param  int|null  $pollSeconds  The interval a parent passed, or null to read the host's.
      */
     public function mount(Repository $config, ?int $pollSeconds = null): void
     {
         // Null when a route mounted this directly rather than the overview passing it down,
         // which is every visit now that each panel has a page of its own.
-        $this->pollSeconds = $pollSeconds ?? PollInterval::fromConfig($config);
+        $this->pollSeconds = PollInterval::orConfig($pollSeconds, $config);
     }
 
     /**

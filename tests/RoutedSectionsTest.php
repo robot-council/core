@@ -14,7 +14,14 @@ declare(strict_types=1);
  */
 
 use Illuminate\Foundation\Auth\User;
+use Livewire\Livewire;
 use RobotCouncil\Access\Ability;
+use RobotCouncil\Http\Middleware\EnsureAllowlistedDeveloper;
+use RobotCouncil\Livewire\Administration;
+use RobotCouncil\Livewire\ChangeFeed;
+use RobotCouncil\Livewire\FleetPresence;
+use RobotCouncil\Livewire\FleetTotals;
+use RobotCouncil\Livewire\TaskBoard;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\Installation;
 use RobotCouncil\Models\Task;
@@ -131,6 +138,10 @@ it('refuses the administration route from the component, not the route', functio
     // whether or not the sidebar drew the link.
     signInWithAFleet($this, githubId: 77);
 
+    // **Shown to pass the gate first.** Without this, the 403 below could be the allowlist refusing
+    // a developer who was never on it -- the opposite of what this test is named for.
+    $this->get(route('robot-council.presence'))->assertOk();
+
     $this->get(route('robot-council.administration'))->assertForbidden();
 
     // And the route itself has nothing but the group's own middleware
@@ -139,7 +150,12 @@ it('refuses the administration route from the component, not the route', functio
         ->flatMap(fn ($route): array => $route->gatherMiddleware())
         ->all();
 
-    expect($middleware)->not->toContain('can:'.RobotCouncilServiceProvider::ADMIN_ABILITY);
+    // `not->toContain()` is satisfied by an EMPTY array, so a filter that matched no route would
+    // report the absence of an admin gate just as loudly as a route that genuinely carries none.
+    // The control is in the same expectation: `web` and the allowlist gate must both be there.
+    expect($middleware)->toContain('web')
+        ->and($middleware)->toContain(EnsureAllowlistedDeveloper::class)
+        ->and($middleware)->not->toContain('can:'.RobotCouncilServiceProvider::ADMIN_ABILITY);
 });
 
 it('gives every page the same validated interval, from one place', function (): void {
@@ -149,7 +165,7 @@ it('gives every page the same validated interval, from one place', function (): 
 
     // Each panel reads `Support\PollInterval` itself now that each has a route. A second copy of
     // the bounds is how two pages come to poll at different rates on one host.
-    foreach (['dashboard', 'presence', 'queue', 'feed'] as $section) {
+    foreach (['dashboard', 'presence', 'queue', 'feed', 'administration'] as $section) {
         $html = (string) $this->get(route('robot-council.'.$section))->assertOk()->getContent();
 
         preg_match_all('/wire:poll\.(\d+)s/', $html, $found);
@@ -229,4 +245,23 @@ it('takes a scope filter from the query string on the page that owns it', functi
     'presence, widened to every lock' => ['presence', 'locks=all', 'migrate', null],
     'the queue, narrowed to what is done' => ['queue', 'status=done', null, 'Open work'],
     'administration, widened to every installation' => ['administration', 'installations=all', 'retired-box', null],
+]);
+
+it('bounds an interval a parent passed, not just the one a host configured', function (string $component): void {
+    signInWithAFleet($this);
+
+    // A host may embed any of these components in a page of its own and pass what it likes. The
+    // parameter is the one path `fromConfig()` never saw, and `Wire::of()`'s charset admits a
+    // leading minus, so an unbounded value would reach the browser as `wire:poll.-1s` -- an
+    // attribute it ignores, leaving a panel that never refreshes and says nothing about it.
+    $rendered = Livewire::test($component, ['pollSeconds' => -1])->html();
+
+    expect($rendered)->toContain('wire:poll.'.PollInterval::DEFAULT.'s')
+        ->and($rendered)->not->toContain('wire:poll.-1s');
+})->with([
+    FleetPresence::class,
+    TaskBoard::class,
+    ChangeFeed::class,
+    FleetTotals::class,
+    Administration::class,
 ]);

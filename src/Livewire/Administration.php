@@ -90,7 +90,7 @@ final class Administration extends Component
         $this->authorizeAdmin();
 
         // Null when a route mounted this directly rather than a parent passing it down.
-        $this->pollSeconds = $pollSeconds ?? PollInterval::fromConfig($config);
+        $this->pollSeconds = PollInterval::orConfig($pollSeconds, $config);
     }
 
     /**

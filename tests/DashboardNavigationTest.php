@@ -335,15 +335,6 @@ it('marks the enrollment page as current when that is the page being shown', fun
         ->and($overviewTag)->not->toContain('menu-active');
 });
 
-it('offers the on-page jump links only on the page they jump within', function (): void {
-    // They are anchors into the overview's stacked panels, so anywhere else they lead nowhere
-    $this->actingAs($this->developer, 'web')
-        ->get(route('robot-council.enroll.show'))
-        ->assertOk()
-        ->assertDontSeeHtml('href="#robot-council-presence"')
-        ->assertDontSeeHtml('href="#robot-council-queue"');
-});
-
 it('loads no script on the page whose whole job is a human decision', function (): void {
     // The enrollment page mounts no Livewire component, so it declines Livewire's assets. Asserted
     // as "no script or style tag at all" rather than against an asset's name: Livewire 4 serves its

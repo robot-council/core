@@ -13,7 +13,9 @@ use Illuminate\Contracts\Config\Repository;
  * while that component was the only one a route mounted and the panels took the number as a
  * parameter from it. Once each panel has a route of its own, each one has to validate the host's
  * configuration itself -- and a second copy of `is_int && >= 1 && <= MAX` is how two pages come to
- * poll at different rates on the same host.
+ * poll at different rates on the same host. **Both paths into a panel are bounded**, the host's
+ * config through `fromConfig()` and a parent's argument through `orConfig()`; a bound that held on
+ * one of two paths would be the thing this package keeps saying a validation rule is.
  *
  * A host may put anything in a published config file. A non-integer renders a `wire:poll` attribute
  * the browser silently ignores, leaving a page that never refreshes and says nothing about it; a
@@ -47,6 +49,24 @@ final class PollInterval
         $configured = $config->get('robot-council.dashboard.poll_seconds', self::DEFAULT);
 
         return self::usable($configured) ? $configured : self::DEFAULT;
+    }
+
+    /**
+     * The interval a parent supplied, or the host's, or the default -- bounded whichever it is.
+     *
+     * Every routable panel calls this rather than `?? self::fromConfig()`, because the parameter
+     * is the one path the bounds would otherwise not cover: a host may embed any of these
+     * components in a page of its own and pass what it likes, and `Wire::of()` admits `-1`, so
+     * `wire:poll.-1s` would reach the browser. The package's own overview passes a value this
+     * class already returned, so nothing in it changes -- the bound is here for the host.
+     *
+     * @param  int|null  $given  What a parent passed, or null when a route mounted the panel.
+     * @param  Repository  $config  The application's configuration repository.
+     * @return int Seconds between refreshes, from 1 to `MAX`.
+     */
+    public static function orConfig(?int $given, Repository $config): int
+    {
+        return self::usable($given) ? $given : self::fromConfig($config);
     }
 
     /**
