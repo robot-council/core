@@ -156,6 +156,13 @@ final class FleetPresence extends Component
         $sessions = $presence->sessions(self::SESSIONS, Scope::orDefault($this->sessionScope, Scope::All), $this->afterSession);
         $locks = $presence->locks(self::LOCKS, Scope::orDefault($this->lockScope, Scope::Live), $this->afterLock);
 
+        // Rewritten in place rather than spread-and-overridden. `[...$locks, 'locks' => ...]` is
+        // correct PHP -- a later explicit key wins over a spread one -- but PHPStan 2.2.15 reads
+        // the two as duplicate keys and refuses the file, where 2.2.14 did not. No `composer.lock`
+        // is committed, so that patch arrived on CI without a commit here and turned `main` red on
+        // a file nobody had touched. This form says the same thing and has no key to duplicate.
+        $locks['locks'] = array_map($this->withLapse(...), $locks['locks']);
+
         // Pinned, because whether the analyzer can resolve a package view depends on whether it
         // could boot the application, which differs between a developer's machine and CI
         /** @var view-string $template */
@@ -163,7 +170,7 @@ final class FleetPresence extends Component
 
         return view($template, [
             'sessions' => $sessions,
-            'locks' => [...$locks, 'locks' => array_map($this->withLapse(...), $locks['locks'])],
+            'locks' => $locks,
             'sessionScope' => Scope::orDefault($this->sessionScope, Scope::All),
             'lockScope' => Scope::orDefault($this->lockScope, Scope::Live),
             'scopes' => Scope::cases(),
