@@ -248,16 +248,19 @@ it('changes no session when an installation ability moves, in either direction',
     expect($session->refresh()->role)->toBe(Role::Coordinator)
         ->and(Tokens::abilities($session->tokens()->sole()))->toBe(Role::Coordinator->tokenAbilities());
 
-    // And granting one back does not promote anything either
+    // And granting one back does not promote anything either. **Started under `$installation`,
+    // which holds `coordinator:direct` at this point** -- an earlier version started it under a
+    // fresh installation that never held the ability, so the assertion was equally true with the
+    // derivation restored and could not fail.
     expect($this->service(Installations::class)
         ->setAbility($installation, Ability::CoordinatorDirect, true))
-        ->toBeTrue();
+        ->toBeTrue()
+        ->and($installation->refresh()->abilities())->toContain(Ability::CoordinatorDirect->value);
 
-    $other = $this->approveInstallation($this->developer, machineLabel: 'plain');
+    [$next] = $this->startAgentSession($installation);
 
-    [$plain] = $this->startAgentSession($other);
-
-    expect($plain->role)->toBe(Role::Build);
+    expect($next->role)->toBe(Role::Build)
+        ->and(Tokens::abilities($next->tokens()->sole()))->not->toContain(Ability::CoordinatorDirect->value);
 });
 
 it('answers false when an ability change asks for what is already stored', function (): void {

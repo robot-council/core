@@ -423,7 +423,12 @@ class TestCase extends Orchestra
     {
         [$session, $token] = $this->startAgentSession($installation);
 
-        $this->service(RoleRequests::class)->impose($session, Role::Coordinator, 'test-administrator');
+        // **Checked rather than discarded.** A helper that swallowed a `false` here would hand back
+        // a build session under a coordinator name, and every caller would fail somewhere further
+        // on for a reason that says nothing about what went wrong.
+        if (! $this->service(RoleRequests::class)->impose($session, Role::Coordinator, 'test-administrator')) {
+            throw new RuntimeException('The administrator could not make this session a coordinator.');
+        }
 
         return [$session->refresh(), $token];
     }

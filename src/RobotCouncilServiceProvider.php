@@ -573,18 +573,26 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
         });
 
         RateLimiter::for(self::ROLE_REQUEST_LIMITER, static function (Request $request) use ($credentials): Limit {
-            // Keyed on the session, resolved through the guard for the reason the other limiters
-            // record: the route declares this ahead of the principal middleware, so nothing has
-            // been left on the request yet. An unauthenticated caller is keyed by address, which is
-            // what makes the flood the guard would refuse limited as well.
+            // **This one runs AFTER the guard, unlike every other limiter here, and that is worth
+            // stating because the opposite is the habit in this file.** It is declared on the route
+            // rather than on the group, so `RouteGroup::merge()` puts the group's middleware first
+            // and `Route::middleware()` appends this one last; `sortMiddleware()` then leaves both
+            // throttles where they are, because it only moves a middleware whose priority index is
+            // strictly lower than the last one seen and both resolve to `ThrottleRequests`. The
+            // chain is therefore `throttle:agent`, `EnsureAgentSession`, `throttle:role-request`.
+            //
+            // That ordering is deliberate: declared on the group this would REPLACE the agent
+            // limiter rather than stack with it, and stacking is the point -- an unauthenticated
+            // flood is already bounded by `AGENT_LIMITER`, which does run ahead of the guard, while
+            // this one exists to stop an authenticated session filling an administrator's queue.
+            //
+            // So the session always resolves by the time this runs, and there is no `ip:` fallback
+            // pretending otherwise. An earlier version had one, and it was unreachable code that
+            // read as covered.
             $session = $request->user(ApiGuards::AGENT);
 
-            $subject = $session instanceof AgentSession
-                ? (string) $session->id
-                : 'ip:'.$request->ip();
-
             return Limit::perMinute($credentials->rateLimit('role_requests_per_session', 5))
-                ->by('role-request:'.$subject);
+                ->by('role-request:'.($session instanceof AgentSession ? (string) $session->id : 'unresolved'));
         });
 
         // One limit across every worker, because Slack's is per webhook rather than per process

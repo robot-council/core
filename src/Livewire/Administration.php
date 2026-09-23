@@ -207,18 +207,32 @@ final class Administration extends Component
     }
 
     /**
-     * Approve whatever a session asked to be.
+     * Approve a session's pending request, naming the role this page rendered.
      *
-     * **The pending role is not passed in.** It is read from the row inside the store, so an
-     * administrator approves what was actually asked for rather than what the panel said a poll
-     * ago -- which matters because this panel refreshes on `wire:poll` and a session may have
-     * asked for something else in between.
+     * **The role is passed in, and that is a security property rather than plumbing.** The control
+     * carries what the administrator was shown; the store refuses if the row has moved on. Reading
+     * it off the row instead let a session ask for `ci`, wait for a button to render with no
+     * coordinator warning on it, ask for `coordinator`, and collect `coordinator:direct` from the
+     * next click. `Support\RoleRequests::approve()` records the mechanism.
+     *
+     * The role arrives as a string from rendered markup, so it goes through the enum rather than
+     * being trusted: a Livewire action is an ordinary POST a client can shape however it likes.
      *
      * @param  int  $sessionId  The session whose request to approve.
+     * @param  string  $role  The role the page rendered as pending.
      */
-    public function approveRole(int $sessionId): void
+    public function approveRole(int $sessionId, string $role): void
     {
         $this->authorizeAdmin();
+
+        $expected = Role::tryFrom($role);
+
+        if (! $expected instanceof Role) {
+            throw new UnprocessableEntityHttpException(sprintf(
+                'Roles are: %s.',
+                implode(', ', array_map(static fn (Role $case): string => $case->value, Role::cases()))
+            ));
+        }
 
         $session = AgentSession::query()->find($sessionId);
 
@@ -226,7 +240,7 @@ final class Administration extends Component
             return;
         }
 
-        $this->service(RoleRequests::class)->approve($session, $this->actor());
+        $this->service(RoleRequests::class)->approve($session, $expected, $this->actor());
     }
 
     /**
@@ -255,8 +269,8 @@ final class Administration extends Component
      * sessions when a role became the thing that decides what one may do.
      *
      * The role arrives as a string from a rendered control, so it goes through the enum rather than
-     * being trusted: an unknown name changes nothing rather than throwing, because a Livewire
-     * action is an ordinary POST a client can shape however it likes.
+     * being trusted: an unknown name is refused with a 422, because a Livewire action is an
+     * ordinary POST a client can shape however it likes.
      *
      * @param  int  $sessionId  The session to change.
      * @param  string  $role  The role to impose.

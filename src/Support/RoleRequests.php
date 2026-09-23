@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RobotCouncil\Support;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use RobotCouncil\Access\Role;
 use RobotCouncil\Models\AgentSession;
@@ -63,6 +64,17 @@ final class RoleRequests
                 return false;
             }
 
+            // **Already pending is not a new request, and saying so here is what keeps the three
+            // engines agreeing.** `Builder::update()` returns rows CHANGED on MySQL and rows
+            // MATCHED on SQLite and Postgres, and `requested_at` is a `dateTime` bound at second
+            // precision -- so a session re-asking for what is already pending, inside the same
+            // second, writes byte-identical values and reports 0 on MySQL and 1 on the other two.
+            // Without this the endpoint would answer `pending: false` on one engine while a request
+            // WAS pending, which is the state the field exists to let a client tell apart.
+            if ($current->requested_role === $role) {
+                return true;
+            }
+
             $changed = AgentSession::query()
                 ->whereKey($current->getKey())
                 ->where('status', '!=', AgentSessionStatus::Gone->value)
@@ -91,25 +103,41 @@ final class RoleRequests
     }
 
     /**
-     * Approve whatever a session has asked for.
+     * Approve a session's pending request, when it is still the one that was shown.
      *
-     * The pending role is read from the ROW rather than taken from the caller, so an administrator
-     * approves what was actually asked for even if the panel they are looking at is a poll behind.
+     * **`$expected` is the whole gate, and reading the role off the row instead was a privilege
+     * escalation.** The panel renders one control per session carrying only its id, and the
+     * coordinator warning is gated on the role it rendered -- so an earlier version that settled
+     * whatever the row held at click time could be walked: ask for `ci`, wait for the page to
+     * render an Approve button with no warning on it, ask for `coordinator`, and the next click
+     * grants `coordinator:direct` from an administrator who consented to `ci`. Requests replace
+     * rather than queue, the poll interval is at least five seconds and `wire:poll` pauses on a
+     * hidden tab, so the window is wide and costs the asker nothing to wait for.
+     *
+     * So this is a compare-and-swap: the update names the role the administrator was looking at,
+     * and a request that changed underneath is refused rather than approved into something else.
+     * That is the same discipline every other write here follows -- conditional on the ROW, with
+     * the changed count as the decision -- applied to the value being decided rather than only to
+     * the status.
      *
      * @param  AgentSession  $session  The session to approve.
+     * @param  Role  $expected  The role the administrator was shown and is consenting to.
      * @param  string|null  $actor  The administrator deciding.
-     * @return Role|null The role it now holds, or null when there was nothing pending to approve.
+     * @return Role|null The role it now holds, or null when nothing was pending or the request had
+     *                   changed since it was rendered.
      */
-    public function approve(AgentSession $session, ?string $actor = null): ?Role
+    public function approve(AgentSession $session, Role $expected, ?string $actor = null): ?Role
     {
-        return DB::transaction(function () use ($session, $actor): ?Role {
+        return DB::transaction(function () use ($session, $expected, $actor): ?Role {
             $current = $this->locked($session);
 
-            if (! $current instanceof AgentSession || $current->requested_role === null) {
+            // Read under the lock, so the comparison cannot be raced by a request arriving between
+            // the read and the write.
+            if (! $current instanceof AgentSession || $current->requested_role !== $expected) {
                 return null;
             }
 
-            return $this->settle($current, $current->requested_role, $actor, 'approved') ? $current->requested_role : null;
+            return $this->settle($current, $expected, $actor, 'approved', $expected) ? $expected : null;
         });
     }
 
@@ -134,6 +162,11 @@ final class RoleRequests
             $changed = AgentSession::query()
                 ->whereKey($current->getKey())
                 ->whereNotNull('requested_role')
+
+                // The same gate `settle()` takes, rather than the asymmetry an earlier version
+                // left: a session that ended between the panel rendering and the click has nothing
+                // an administrator can decide about, in either direction.
+                ->where('status', '!=', AgentSessionStatus::Gone->value)
                 ->update(['requested_role' => null, 'requested_at' => null]);
 
             if ($changed !== 1) {
@@ -189,7 +222,7 @@ final class RoleRequests
      * @param  string  $how  `approved` or `imposed`, which the event carries.
      * @return bool True when the row changed.
      */
-    private function settle(AgentSession $session, Role $role, ?string $actor, string $how): bool
+    private function settle(AgentSession $session, Role $role, ?string $actor, string $how, ?Role $expected = null): bool
     {
         $from = $session->role;
 
@@ -211,6 +244,12 @@ final class RoleRequests
         $changed = AgentSession::query()
             ->whereKey($session->getKey())
             ->where('status', '!=', AgentSessionStatus::Gone->value)
+
+            // **The pending role is part of the predicate on the approval path**, so a request that
+            // changed between the render and the click loses rather than being approved into
+            // something the administrator never saw. `impose()` passes null, because an imposition
+            // answers the question whatever was pending -- including nothing.
+            ->when($expected instanceof Role, fn (Builder $query): Builder => $query->where('requested_role', $expected?->value))
             ->update([
                 'role' => $role->value,
                 'requested_role' => null,

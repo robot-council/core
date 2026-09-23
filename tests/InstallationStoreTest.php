@@ -173,13 +173,11 @@ it('stores the remaining abilities as a list after removing the first of three',
         Ability::EventsPost->value,
     ]);
 
-    // A live session, whose token this deliberately does NOT re-mint. Since #221 the return value
-    // counts tokens re-minted by a demotion, and `tasks:create` gates no role -- so `0` here is the
-    // correct answer and the column write below is the subject. That widens an ambiguity worth
-    // naming: `0` now means "nothing to do", "no session held a token", **and** "the change moved
-    // no role", so a caller cannot read it as a success flag at all.
-    // `Console\Concerns\ManagesAbilities` prints it verbatim and `Livewire\Administration`
-    // discards it, so neither is misled today.
+    // A live session, which this deliberately does not touch. Since `robot-council/core#222` the
+    // return says whether the STORED list changed and no session is reached at all, so the column
+    // write below is the whole subject. The session assertion is kept as a reminder of that, not as
+    // a discriminator -- `AdministrationTest` and `SessionRoleTest` both make a session a
+    // coordinator first, which is what it takes to show the inertness.
     [$session] = $this->startAgentSession($installation);
 
     expect($this->service(Installations::class)

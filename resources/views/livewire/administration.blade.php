@@ -163,7 +163,7 @@
                                             <span class="badge badge-sm badge-warning">asked for {{ $session['requested_role'] }}</span>
 
                                             <button type="button"
-                                                wire:click="approveRole({{ Wire::of($session['id']) }})"
+                                                wire:click="approveRole({{ Wire::of($session['id']) }}, '{{ Wire::of($session['requested_role']) }}')"
                                                 @if ($session['requested_role'] === \RobotCouncil\Access\Role::Coordinator->value)
                                                     wire:confirm="Approve coordinator? This session will be able to release, reassign or cancel any developer's task, and post directives to the whole fleet."
                                                 @endif

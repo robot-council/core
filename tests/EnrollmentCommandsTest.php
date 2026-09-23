@@ -20,6 +20,7 @@ use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\PersonalAccessToken;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Access\Role;
+use RobotCouncil\Access\Tokens;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\DeviceCode;
 use RobotCouncil\Models\Installation;
@@ -64,14 +65,20 @@ it('grants and revokes an ability without reaching any session', function (): vo
 
     expect($session->refresh()->role)->toBe(Role::Build);
 
-    // Revoking is the same: the stored list moves and nothing else does
-    expect(Artisan::call('robot-council:revoke-ability', [
-        'installation' => $this->installation->getKey(),
-        'ability' => Ability::CoordinatorDirect->value,
-    ]))->toBe(0);
+    // **Revoking is the same, asserted against a COORDINATOR session.** The only session-reaching
+    // behavior the deleted code had was a demotion to `build`, so checking that a build session is
+    // still `build` afterwards is a tautology -- it would pass with the demotion restored.
+    [$coordinator] = $this->startCoordinatorSession($this->installation->refresh());
 
-    expect($this->installation->refresh()->granted_abilities)->toBe([Ability::TasksCreate->value])
-        ->and($session->refresh()->role)->toBe(Role::Build);
+    expect($coordinator->role)->toBe(Role::Coordinator)
+        ->and(Artisan::call('robot-council:revoke-ability', [
+            'installation' => $this->installation->getKey(),
+            'ability' => Ability::CoordinatorDirect->value,
+        ]))->toBe(0)
+        ->and($this->installation->refresh()->granted_abilities)->toBe([Ability::TasksCreate->value])
+        ->and($session->refresh()->role)->toBe(Role::Build)
+        ->and($coordinator->refresh()->role)->toBe(Role::Coordinator)
+        ->and(Tokens::abilities($coordinator->tokens()->sole()))->toContain(Ability::CoordinatorDirect->value);
 });
 
 it('leaves a running session alone when an ability outside the role gate moves', function (): void {

@@ -16,7 +16,6 @@ declare(strict_types=1);
  * @command  vendor/bin/pest --compact tests/SessionRoleRequestTest.php
  */
 
-use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Access\Role;
@@ -136,7 +135,7 @@ it('lets an approved session direct where it was refused a moment before', funct
 
     Livewire::actingAs($this->admin)
         ->test(Administration::class)
-        ->call('approveRole', $this->session->getKey());
+        ->call('approveRole', $this->session->getKey(), Role::Coordinator->value);
 
     $session = $this->session->refresh();
 
@@ -178,18 +177,23 @@ it('leaves a denied session where it was, and says so in the feed', function ():
 });
 
 it('imposes a role with no request outstanding, in either direction', function (string $from, string $to): void {
-    DB::table('robot_council_agent_sessions')
-        ->where('id', $this->session->getKey())
-        ->update(['role' => $from]);
+    // **Through the store rather than a raw column write**, so the token genuinely carries what the
+    // starting role implies. Setting only the column left the demotion row asserting that a token
+    // which never held `coordinator:direct` still does not hold it.
+    $session = $from === Role::Coordinator->value
+        ? $this->startCoordinatorSession($this->installation)[0]
+        : $this->session;
 
-    expect($this->session->refresh()->requested_role)->toBeNull();
+    expect($session->refresh()->role)->toBe(Role::from($from))
+        ->and($session->requested_role)->toBeNull()
+        ->and(Tokens::abilities($session->tokens()->sole()))->toBe(Role::from($from)->tokenAbilities());
 
     Livewire::actingAs($this->admin)
         ->test(Administration::class)
-        ->call('imposeRole', $this->session->getKey(), $to);
+        ->call('imposeRole', $session->getKey(), $to);
 
-    expect($this->session->refresh()->role)->toBe(Role::from($to))
-        ->and(Tokens::abilities($this->session->tokens()->sole()))->toBe(Role::from($to)->tokenAbilities());
+    expect($session->refresh()->role)->toBe(Role::from($to))
+        ->and(Tokens::abilities($session->tokens()->sole()))->toBe(Role::from($to)->tokenAbilities());
 })->with([
     'promotion' => ['build', 'coordinator'],
     'demotion' => ['coordinator', 'build'],
@@ -223,7 +227,7 @@ it('will not approve a session that has gone', function (): void {
 
     $requests = $this->service(RoleRequests::class);
 
-    expect($requests->approve($this->session, keyValue($this->admin->getKey())))->toBeNull()
+    expect($requests->approve($this->session, Role::Coordinator, keyValue($this->admin->getKey())))->toBeNull()
         ->and($this->session->refresh()->role)->toBe(Role::Build);
 
     // The control beside it: a live session with the same pending request IS approved, so the
@@ -231,7 +235,7 @@ it('will not approve a session that has gone', function (): void {
     [$alive] = $this->startAgentSession($this->installation);
 
     expect($requests->request($alive, Role::Coordinator))->toBeTrue()
-        ->and($requests->approve($alive, keyValue($this->admin->getKey())))->toBe(Role::Coordinator);
+        ->and($requests->approve($alive, Role::Coordinator, keyValue($this->admin->getKey())))->toBe(Role::Coordinator);
 });
 
 it('will not record a request from a session that has gone', function (): void {
@@ -244,7 +248,7 @@ it('will not record a request from a session that has gone', function (): void {
 it('answers nothing to approve or deny when nothing is pending', function (): void {
     $requests = $this->service(RoleRequests::class);
 
-    expect($requests->approve($this->session, keyValue($this->admin->getKey())))->toBeNull()
+    expect($requests->approve($this->session, Role::Coordinator, keyValue($this->admin->getKey())))->toBeNull()
         ->and($requests->deny($this->session, keyValue($this->admin->getKey())))->toBeFalse()
         ->and($this->session->refresh()->role)->toBe(Role::Build);
 });
@@ -253,7 +257,7 @@ it('writes one event per role change, naming the old role, the new one and who d
     $requests = $this->service(RoleRequests::class);
 
     $requests->request($this->session, Role::Coordinator);
-    $requests->approve($this->session, keyValue($this->admin->getKey()));
+    $requests->approve($this->session, Role::Coordinator, keyValue($this->admin->getKey()));
 
     $event = FleetEvent::query()->where('type', FleetEventType::SessionRoleChanged->value)->sole();
 
@@ -298,13 +302,15 @@ it('refuses every new entry point to a developer who is not an admin', function 
         ? [$this->session->getKey(), Role::Coordinator->value]
         : [$this->session->getKey()];
 
+    // `approveRole` and `imposeRole` both carry a role; `denyRole` does not.
+
     // A status rather than a thrown exception: Livewire's harness renders `AuthorizationException`
     // into a response instead of propagating it.
     $component->call($action, ...$arguments)->assertForbidden();
 
     expect($this->session->refresh()->role)->toBe(Role::Build);
 })->with([
-    'approveRole' => ['approveRole', false],
+    'approveRole' => ['approveRole', true],
     'denyRole' => ['denyRole', false],
     'imposeRole' => ['imposeRole', true],
 ]);
@@ -329,21 +335,195 @@ it('limits how fast a session can ask, so a denial cannot fill the queue', funct
             ->getStatusCode();
     }
 
-    expect($seen)->toContain(429);
+    // **Pinned at five, which is what says WHICH limiter fired.** `toContain(429)` alone would
+    // read the same if the route's own throttle were deleted and `agent_per_session` lowered --
+    // the bound is the discriminator.
+    expect($seen[4])->not->toBe(429)
+        ->and($seen[5])->toBe(429)
+        ->and($seen[0])->toBe(202);
 
-    // The control: the first call was not itself refused, so the 429 above is a limit rather than
-    // the route being broken
-    expect($seen[0])->toBe(202);
+    // **And it is keyed per session, not globally.** A single bucket would let one noisy session
+    // lock every other session in the fleet out of asking, which is the opposite of what the
+    // limiter exists for.
+    $other = $this->approveInstallation($this->developer, machineLabel: 'unrelated');
+
+    [, $otherToken] = $this->startAgentSession($other);
+
+    $this->machine($otherToken)
+        ->postJson(route('robot-council.agent.role'), ['role' => Role::Coordinator->value])
+        ->assertStatus(202);
 });
 
-it('shows a pending request on the panel without pre-filling the answer', function (): void {
-    $this->machine($this->token)
+it('shows a pending request on the panel, and carries the role it rendered into the control', function (): void {
+    // **A second installation first, so the two id sequences diverge.** With one of each, the
+    // session id and the installation id are both 1 and an assertion naming `approveRole(1)` cannot
+    // tell them apart -- it would keep passing with the control wired to the installation, which
+    // would send an administrator's approval at the wrong row forever.
+    $this->approveInstallation($this->developer, machineLabel: 'second-machine');
+    $this->approveInstallation($this->developer, machineLabel: 'third-machine');
+
+    [$session, $token] = $this->startAgentSession($this->installation);
+
+    expect($session->getKey())->not->toBe($this->installation->getKey());
+
+    $this->machine($token)
         ->postJson(route('robot-council.agent.role'), ['role' => Role::Coordinator->value])
         ->assertStatus(202);
 
     Livewire::actingAs($this->admin)
         ->test(Administration::class)
         ->assertSeeHtml('asked for coordinator')
-        ->assertSeeHtml('approveRole('.keyValue($this->session->getKey()).')')
-        ->assertSeeHtml('denyRole('.keyValue($this->session->getKey()).')');
+
+        // The role rides the control, which is what makes the approval a compare-and-swap rather
+        // than a read of whatever the row says when the click lands.
+        ->assertSeeHtml('approveRole('.keyValue($session->getKey()).", 'coordinator')")
+        ->assertSeeHtml('denyRole('.keyValue($session->getKey()).')');
 });
+
+it('offers no control for the role a session already holds', function (): void {
+    // The "minus the one it already holds" rule, which nothing asserted.
+    Livewire::actingAs($this->admin)
+        ->test(Administration::class)
+        ->assertSeeHtml('Make coordinator')
+        ->assertSeeHtml('Make ci')
+        ->assertDontSeeHtml('Make build');
+});
+
+it('refuses an approval when the request changed after the page rendered it', function (): void {
+    // **The escalation this exists to refuse.** The Approve control carries only what the page
+    // showed, and the coordinator warning is gated on that value -- so a session that asks for a
+    // harmless role, waits for the button to render with no warning on it, then asks for
+    // `coordinator`, would collect `coordinator:direct` from an administrator who consented to
+    // something else. Requests replace rather than queue, `wire:poll` pauses on a hidden tab, and
+    // the asker pays nothing to wait, so the window is wide and free.
+    $this->machine($this->token)
+        ->postJson(route('robot-council.agent.role'), ['role' => Role::Ci->value])
+        ->assertStatus(202);
+
+    // The administrator's page renders here, showing `ci` and no confirmation.
+    $rendered = Role::Ci;
+
+    // The session moves the goalposts before the click lands.
+    $this->machine($this->token)
+        ->postJson(route('robot-council.agent.role'), ['role' => Role::Coordinator->value])
+        ->assertStatus(202);
+
+    Livewire::actingAs($this->admin)
+        ->test(Administration::class)
+        ->call('approveRole', $this->session->getKey(), $rendered->value);
+
+    $session = $this->session->refresh();
+
+    // Nothing was granted, and the request is still pending for somebody to look at properly.
+    expect($session->role)->toBe(Role::Build)
+        ->and($session->requested_role)->toBe(Role::Coordinator);
+
+    $this->machine($this->token)
+        ->postJson(route('robot-council.directives.store'), ['body' => 'everyone stop'])
+        ->assertForbidden();
+
+    // The control: approving the role that IS pending goes through, so the refusal above is the
+    // compare-and-swap rather than approval being broken.
+    Livewire::actingAs($this->admin)
+        ->test(Administration::class)
+        ->call('approveRole', $this->session->getKey(), Role::Coordinator->value);
+
+    expect($this->session->refresh()->role)->toBe(Role::Coordinator);
+});
+
+it('clears both request columns on a denial, not just the role', function (): void {
+    // The migration's own docblock says the two move together, so a row can never say a role was
+    // asked for at no time. Only the approval path asserted it.
+    $this->machine($this->token)
+        ->postJson(route('robot-council.agent.role'), ['role' => Role::Coordinator->value])
+        ->assertStatus(202);
+
+    expect($this->session->refresh()->requested_at)->not->toBeNull();
+
+    $this->service(RoleRequests::class)->deny($this->session, keyValue($this->admin->getKey()));
+
+    $session = $this->session->refresh();
+
+    expect($session->requested_role)->toBeNull()
+        ->and($session->requested_at)->toBeNull();
+});
+
+it('says which role was refused and which it stays, in that order', function (): void {
+    // A feed saying "was refused build and stays coordinator" is the exact inversion, and
+    // `toContain('refused')` cannot tell the two apart. `InstallationStoreTest` pins a whole event
+    // body for the same reason.
+    $this->machine($this->token)
+        ->postJson(route('robot-council.agent.role'), ['role' => Role::Coordinator->value])
+        ->assertStatus(202);
+
+    $this->service(RoleRequests::class)->deny($this->session, keyValue($this->admin->getKey()));
+
+    $event = FleetEvent::query()
+        ->where('type', FleetEventType::SessionRoleRequested->value)
+        ->orderByDesc('id')
+        ->firstOrFail();
+
+    expect($event->body)->toBe(sprintf(
+        'session %s was refused coordinator and stays build.',
+        keyValue($this->session->getKey())
+    ))
+        ->and(arrayValue($event->meta)['refused'] ?? null)->toBe(Role::Coordinator->value)
+        ->and(arrayValue($event->meta)['stays'] ?? null)->toBe(Role::Build->value);
+});
+
+it('says which way a request was asked, in that order', function (): void {
+    $this->service(RoleRequests::class)->request($this->session, Role::Coordinator);
+
+    $event = FleetEvent::query()
+        ->where('type', FleetEventType::SessionRoleRequested->value)
+        ->orderBy('id')
+        ->firstOrFail();
+
+    expect($event->body)->toBe(sprintf(
+        'session %s asked to change from build to coordinator.',
+        keyValue($this->session->getKey())
+    ))
+        ->and(arrayValue($event->meta)['from'] ?? null)->toBe(Role::Build->value)
+        ->and(arrayValue($event->meta)['to'] ?? null)->toBe(Role::Coordinator->value)
+
+        // Nobody decided anything yet, so nobody is recorded as having
+        ->and($event->actor_user_id)->toBeNull();
+});
+
+it('reports a pending request to the session itself', function (): void {
+    // What lets a bridge tell "nobody has decided yet" from "it was refused". Without it a client
+    // either asks forever or gives up the first time.
+    $this->machine($this->token)
+        ->getJson(route('robot-council.agent.session'))
+        ->assertOk()
+        ->assertJsonPath('requested_role', null);
+
+    $this->machine($this->token)
+        ->postJson(route('robot-council.agent.role'), ['role' => Role::Coordinator->value])
+        ->assertStatus(202);
+
+    $this->machine($this->token)
+        ->getJson(route('robot-council.agent.session'))
+        ->assertOk()
+        ->assertJsonPath('requested_role', Role::Coordinator->value);
+
+    $this->service(RoleRequests::class)->deny($this->session, keyValue($this->admin->getKey()));
+
+    $this->machine($this->token)
+        ->getJson(route('robot-council.agent.session'))
+        ->assertOk()
+        ->assertJsonPath('requested_role', null);
+});
+
+it('answers a stale click on a session that no longer exists, rather than failing', function (string $action, array $extra): void {
+    // An administrator's page can outlive the rows it rendered. A 500 here would be an unhandled
+    // `TypeError` on a null, which is a worse answer than doing nothing.
+    Livewire::actingAs($this->admin)
+        ->test(Administration::class)
+        ->call($action, 987654, ...$extra)
+        ->assertOk();
+})->with([
+    'approveRole' => ['approveRole', ['coordinator']],
+    'denyRole' => ['denyRole', []],
+    'imposeRole' => ['imposeRole', ['coordinator']],
+]);
