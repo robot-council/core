@@ -66,7 +66,8 @@ return new class extends Migration
         }
 
         // **Outside the guard, deliberately.** MySQL does not wrap a migration in a transaction --
-        // only `PostgresGrammar` sets `$transactions` -- and `alter table` commits implicitly. So a
+        // only `PostgresGrammar` and `SqlServerGrammar` set `$transactions` -- and `alter table`
+        // commits implicitly. So a
         // failure between adding the column and collating it leaves the column durably present and
         // the `migrations` row unwritten; a re-run that returned early on the column's presence
         // would record the migration as done and leave the collation wrong forever. Re-applying a
@@ -107,7 +108,12 @@ return new class extends Migration
      */
     private function collate(string $collation): void
     {
-        if (DB::getDriverName() !== 'mysql' || ! Schema::hasColumn('robot_council_events', 'actor_user_id')) {
+        // The driver test only. **A column check here could never be false**: `collate()` has one
+        // caller, and by the time it runs the column either pre-existed or was added by the
+        // statement above, which would have thrown otherwise. The sibling's equivalent guard is
+        // reachable because it loops over six columns that may or may not exist; copied into this
+        // position it is one `information_schema` round trip that cannot change the outcome.
+        if (DB::getDriverName() !== 'mysql') {
             return;
         }
 

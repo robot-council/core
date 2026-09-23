@@ -141,10 +141,21 @@ enum FleetEventType: string
      * `Support\FleetFeed` serves a restricted event to the developer named in the event's
      * `user_id`, which used to hold the acting ADMIN for an administrative event -- so restricting
      * one would have served it to the admin and hidden it from the owner whose agent was affected.
-     * #115 proposed a tripwire here against exactly that, and the column split removed the need
-     * for one: `user_id` is the developer the event is about for every type, so the rule points at
-     * the right person whatever is restricted. The tripwire is recorded as not built, with its
-     * reason, rather than left as an unmet line on a closed ticket.
+     * #115 proposed a tripwire here against exactly that, and the column split removed the need for
+     * one **for the `installation.*` types**, which is all it verified.
+     *
+     * **It is not safe for every type, and the tripwire question stays open for two shapes.** A
+     * sweep records what the service observed with no session and no subject, so
+     * `Support\Tasks`'s `task.released` and `Support\Locks`'s `lock.released` carry a **null**
+     * `user_id` -- and `NULL = 'x'` is unknown in SQL, so restricting either would hide it from
+     * everyone including the developer whose work was released. And a transition records the
+     * ACTING session: `task.assigned` from a reassignment names the reassigner while the assignee
+     * is only in `meta`, as `lock.taken_over` and `lock.force_released` name the taker while the
+     * dispossessed holder is only in `meta.taken_from`. Restricting one of those is the same
+     * inversion #115 removed, arriving through a different door.
+     *
+     * So: restricting an `installation.*` type is safe. Restricting anything else needs the
+     * event's `user_id` checked first.
      *
      * @return bool True for narration, which #29 restricts, and false for everything else.
      */
