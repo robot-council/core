@@ -76,12 +76,15 @@ final class AgentSessions
         return DB::transaction(function () use ($installation, $projectId, $repository, $workLocation): IssuedCredential {
             $current = $this->locked($installation);
 
-            // **The role is the whole answer, and the installation's stored abilities are no
-            // longer part of it.** They decide only which roles this machine is eligible for,
-            // which is what `Role::defaultFor()` reads them for. Nothing has asked for a role yet
-            // -- that is `robot-council/core#222` -- so the derivation stands in, and it is the
-            // same rule the backfill migration applied to the rows written before the column.
-            $role = Role::defaultFor($current->abilities());
+            // **Every session starts as `build`, and that is the decision rather than a default
+            // nobody chose.** `robot-council/core#221` derived the role from the installation's
+            // abilities as a compatibility measure, which left the defect the epic was filed about
+            // standing: one machine runs seven checkouts from one installation, and a derived role
+            // gives `coordinator` to all seven. `robot-council/core#222` removed the derivation, so
+            // the one checkout that should direct asks and an administrator decides -- measured at
+            // roughly eight approvals a day on the deployed fleet, which is the cost that decision
+            // was taken with its eyes open about.
+            $role = Role::Build;
 
             $abilities = $role->tokenAbilities();
 

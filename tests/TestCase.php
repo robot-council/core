@@ -17,6 +17,7 @@ use Livewire\LivewireServiceProvider;
 use Orchestra\Testbench\TestCase as Orchestra;
 use ReflectionClass;
 use RobotCouncil\Access\Ability;
+use RobotCouncil\Access\Role;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
 use RobotCouncil\Models\GithubIdentity;
@@ -26,6 +27,7 @@ use RobotCouncil\RobotCouncilServiceProvider;
 use RobotCouncil\Support\AgentSessions;
 use RobotCouncil\Support\Credentials;
 use RobotCouncil\Support\Installations;
+use RobotCouncil\Support\RoleRequests;
 use RobotCouncil\Support\Tasks;
 use RuntimeException;
 
@@ -400,6 +402,35 @@ class TestCase extends Orchestra
         $issued = $this->service(AgentSessions::class)->start($installation, null);
 
         return [$issued->owner, $issued->plainTextToken];
+    }
+
+    /**
+     * Start a session and have an administrator make it a coordinator.
+     *
+     * **Two steps, because since `robot-council/core#222` there is no other way to get one.** A
+     * session starts as `build` whatever its installation holds; a coordinator exists only where an
+     * administrator decided, which is what stops a checkout asserting the role by asking. Granting
+     * the installation `coordinator:direct` reaches no session at all.
+     *
+     * The plaintext token is the one `startAgentSession()` issued and is still valid: `impose()`
+     * rewrites the abilities on the token ROW rather than replacing the token, so a process holding
+     * one does not have to renew to feel the change.
+     *
+     * @param  Installation  $installation  The installation to start it under.
+     * @return array{AgentSession, string} The session and its plaintext token.
+     */
+    public function startCoordinatorSession(Installation $installation): array
+    {
+        [$session, $token] = $this->startAgentSession($installation);
+
+        // **Checked rather than discarded.** A helper that swallowed a `false` here would hand back
+        // a build session under a coordinator name, and every caller would fail somewhere further
+        // on for a reason that says nothing about what went wrong.
+        if (! $this->service(RoleRequests::class)->impose($session, Role::Coordinator, 'test-administrator')) {
+            throw new RuntimeException('The administrator could not make this session a coordinator.');
+        }
+
+        return [$session->refresh(), $token];
     }
 
     /**

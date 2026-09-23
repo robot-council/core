@@ -44,6 +44,11 @@ final class AgentSessionController
             // bridge that reported only the ability list could tell a developer what it may do and
             // not why, which is the difference between "ask an admin" and "this is a build agent".
             'role' => $session->role->value,
+
+            // What it asked to be, so a bridge can tell "nobody has decided yet" from "it was
+            // refused" -- the two look identical from the role alone, and a client that could not
+            // tell them apart would either ask forever or give up the first time.
+            'requested_role' => $session->requested_role?->value,
             'project_id' => $session->project_id,
 
             // Where the work is, as two fields rather than one label a reader has to parse.

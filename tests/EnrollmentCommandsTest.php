@@ -20,6 +20,7 @@ use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\PersonalAccessToken;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Access\Role;
+use RobotCouncil\Access\Tokens;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\DeviceCode;
 use RobotCouncil\Models\Installation;
@@ -34,8 +35,12 @@ beforeEach(function (): void {
     $this->credential = $this->installationCredential($this->installation);
 });
 
-it('grants the coordinator ability to the next session, and leaves the running one alone', function (): void {
-    [, $token] = $this->startAgentSession($this->installation);
+it('grants and revokes an ability without reaching any session', function (): void {
+    // **Since `robot-council/core#222` this command writes a stored list and records an event, and
+    // that is all it does.** A session's abilities come from its role, and its role is `build` at
+    // start and an administrator's decision after that -- so neither direction reaches a running
+    // process or a future one. `robot-council/core#231` retires the command with the column.
+    [$session, $token] = $this->startAgentSession($this->installation);
 
     expect(Artisan::call('robot-council:grant-ability', [
         'installation' => $this->installation->getKey(),
@@ -43,49 +48,37 @@ it('grants the coordinator ability to the next session, and leaves the running o
     ]))->toBe(0)
         ->and($this->installation->refresh()->granted_abilities)->toBe([Ability::TasksCreate->value, Ability::CoordinatorDirect->value]);
 
-    // **The session already running is untouched, deliberately.** A role is chosen when a session
-    // starts, and `Installations::demoteSessions()` narrows without ever widening -- so a grant
-    // cannot promote a process that is mid-run into something the developer did not start.
     $this->machine($token)
         ->getJson(route('robot-council.agent.session'))
         ->assertOk()
         ->assertJsonPath('role', Role::Build->value)
         ->assertJsonPath('abilities', Role::Build->tokenAbilities());
 
-    // The next one is the coordinator, which is what the grant bought
+    // And the NEXT session is a build session too, which is the half that changed: #221 derived a
+    // coordinator here, and the derivation is gone.
     [, $next] = $this->startAgentSession($this->installation->refresh());
 
     $this->machine($next)
         ->getJson(route('robot-council.agent.session'))
         ->assertOk()
-        ->assertJsonPath('role', Role::Coordinator->value)
-        ->assertJsonPath('abilities', Role::Coordinator->tokenAbilities());
-});
+        ->assertJsonPath('role', Role::Build->value);
 
-it('demotes the sessions already in flight when the coordinator ability is revoked', function (): void {
-    Artisan::call('robot-council:grant-ability', [
-        'installation' => $this->installation->getKey(),
-        'ability' => Ability::CoordinatorDirect->value,
-    ]);
+    expect($session->refresh()->role)->toBe(Role::Build);
 
-    [$session, $token] = $this->startAgentSession($this->installation->refresh());
+    // **Revoking is the same, asserted against a COORDINATOR session.** The only session-reaching
+    // behavior the deleted code had was a demotion to `build`, so checking that a build session is
+    // still `build` afterwards is a tautology -- it would pass with the demotion restored.
+    [$coordinator] = $this->startCoordinatorSession($this->installation->refresh());
 
-    expect($session->role)->toBe(Role::Coordinator)
+    expect($coordinator->role)->toBe(Role::Coordinator)
         ->and(Artisan::call('robot-council:revoke-ability', [
             'installation' => $this->installation->getKey(),
             'ability' => Ability::CoordinatorDirect->value,
-        ]))->toBe(0);
-
-    // The running process loses it now rather than in an hour, which is what makes the revocation
-    // a control rather than a note about future sessions
-    $this->machine($token)
-        ->getJson(route('robot-council.agent.session'))
-        ->assertOk()
-        ->assertJsonPath('role', Role::Build->value)
-        ->assertJsonPath('abilities', Role::Build->tokenAbilities());
-
-    expect($session->refresh()->role)->toBe(Role::Build)
-        ->and($this->installation->refresh()->granted_abilities)->toBe([Ability::TasksCreate->value]);
+        ]))->toBe(0)
+        ->and($this->installation->refresh()->granted_abilities)->toBe([Ability::TasksCreate->value])
+        ->and($session->refresh()->role)->toBe(Role::Build)
+        ->and($coordinator->refresh()->role)->toBe(Role::Coordinator)
+        ->and(Tokens::abilities($coordinator->tokens()->sole()))->toContain(Ability::CoordinatorDirect->value);
 });
 
 it('leaves a running session alone when an ability outside the role gate moves', function (): void {

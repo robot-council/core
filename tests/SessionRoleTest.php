@@ -152,7 +152,7 @@ it('mints a renewal from the role on the row, not from the instance the request 
         Ability::CoordinatorDirect->value,
     ], machineLabel: 'coordinator-machine');
 
-    [$session, $first] = $this->startAgentSession($coordinatorInstallation);
+    [$session, $first] = $this->startCoordinatorSession($coordinatorInstallation);
 
     expect(Tokens::abilities($session->tokens()->sole()))->toBe(Role::Coordinator->tokenAbilities());
 
@@ -184,7 +184,7 @@ it('renews from the row even when the caller holds an instance that disagrees', 
         Ability::CoordinatorDirect->value,
     ], machineLabel: 'coordinator-machine');
 
-    [$session] = $this->startAgentSession($coordinatorInstallation);
+    [$session] = $this->startCoordinatorSession($coordinatorInstallation);
 
     expect($session->role)->toBe(Role::Coordinator);
 
@@ -213,7 +213,7 @@ it('falls back to the instance when the session row has gone, rather than failin
         Ability::CoordinatorDirect->value,
     ], machineLabel: 'coordinator-machine');
 
-    [$session] = $this->startAgentSession($coordinatorInstallation);
+    [$session] = $this->startCoordinatorSession($coordinatorInstallation);
 
     expect($session->role)->toBe(Role::Coordinator);
 
@@ -224,56 +224,54 @@ it('falls back to the instance when the session row has gone, rather than failin
     expect($issued->abilities)->toBe(Role::Coordinator->tokenAbilities());
 });
 
-it('leaves a role the installation may still run exactly where it is', function (): void {
-    // The half of `Role::narrowedBy()` that says it narrows only what it must. Without this,
-    // rewriting that method to `return self::Build;` -- demote every session on every ability
-    // change -- survives the whole suite, because every other fixture either is already `build` or
-    // is having `coordinator:direct` taken away, and `build` is the wanted answer in both.
-    $coordinatorInstallation = $this->approveInstallation($this->developer, [
+it('changes no session when an installation ability moves, in either direction', function (): void {
+    // **The property that replaced two tests here.** `robot-council/core#221` let an ability change
+    // demote a machine's coordinator sessions, and `robot-council/core#222` took that away: a role
+    // is `build` at start and an administrator's decision after that, so `granted_abilities` decides
+    // nothing about any session. `Support\RoleRequests::impose()` is the demotion now, and it acts
+    // on the one session that needs it rather than on every session of a machine.
+    $installation = $this->approveInstallation($this->developer, [
         Ability::EventsPost->value,
         Ability::CoordinatorDirect->value,
     ], machineLabel: 'coordinator-machine');
 
-    [$session] = $this->startAgentSession($coordinatorInstallation);
+    [$session] = $this->startCoordinatorSession($installation);
 
     expect($session->role)->toBe(Role::Coordinator);
 
-    // An ability every preset already carries, so the machine stays coordinator-eligible
-    $rewritten = $this->service(Installations::class)
-        ->setAbility($coordinatorInstallation, Ability::EventsPost, false);
+    // Revoking the very ability the role carries, which is the sharpest case: before #222 this
+    // demoted the session, and now it reaches nothing.
+    expect($this->service(Installations::class)
+        ->setAbility($installation, Ability::CoordinatorDirect, false))
+        ->toBeTrue();
 
-    expect($rewritten)->toBe(0)
-        ->and($session->refresh()->role)->toBe(Role::Coordinator)
+    expect($session->refresh()->role)->toBe(Role::Coordinator)
         ->and(Tokens::abilities($session->tokens()->sole()))->toBe(Role::Coordinator->tokenAbilities());
+
+    // And granting one back does not promote anything either. **Started under `$installation`,
+    // which holds `coordinator:direct` at this point** -- an earlier version started it under a
+    // fresh installation that never held the ability, so the assertion was equally true with the
+    // derivation restored and could not fail.
+    expect($this->service(Installations::class)
+        ->setAbility($installation, Ability::CoordinatorDirect, true))
+        ->toBeTrue()
+        ->and($installation->refresh()->abilities())->toContain(Ability::CoordinatorDirect->value);
+
+    [$next] = $this->startAgentSession($installation);
+
+    expect($next->role)->toBe(Role::Build)
+        ->and(Tokens::abilities($next->tokens()->sole()))->not->toContain(Ability::CoordinatorDirect->value);
 });
 
-it('keeps walking past a session whose role did not move', function (): void {
-    // **Two sessions under one machine, the first already at the floor.** The demotion loop skips a
-    // role it does not have to narrow, and skipping has to mean `continue` rather than `break`:
-    // turning it into a `break` leaves every session after the first unchanged, so the coordinator
-    // below keeps `coordinator:direct` after an admin took it away. With one session, or with the
-    // coordinator first, the two spellings are indistinguishable.
-    $installation = $this->approveInstallation($this->developer, [
-        Ability::CoordinatorDirect->value,
-    ], machineLabel: 'coordinator-machine');
+it('answers false when an ability change asks for what is already stored', function (): void {
+    // The "nothing changed" answer from a conditional write, which is what the return means now
+    // that no token is ever re-minted by this path.
+    $installation = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
 
-    [$first] = $this->startAgentSession($installation);
-    [$second] = $this->startAgentSession($installation);
-
-    // The earlier row is a build session, so the loop reaches its skip before it reaches the
-    // coordinator. `sessionsOf()` takes no explicit order, so this leans on insertion order --
-    // which is why the assertion below names both rows rather than counting.
-    DB::table('robot_council_agent_sessions')
-        ->where('id', $first->getKey())
-        ->update(['role' => Role::Build->value]);
-
-    $rewritten = $this->service(Installations::class)
-        ->setAbility($installation, Ability::CoordinatorDirect, false);
-
-    expect($rewritten)->toBe(1)
-        ->and($first->refresh()->role)->toBe(Role::Build)
-        ->and($second->refresh()->role)->toBe(Role::Build)
-        ->and(Tokens::abilities($second->tokens()->sole()))->not->toContain(Ability::CoordinatorDirect->value);
+    expect($this->service(Installations::class)->setAbility($installation, Ability::TasksCreate, true))
+        ->toBeFalse()
+        ->and($this->service(Installations::class)->setAbility($installation, Ability::TasksCreate, false))
+        ->toBeTrue();
 });
 
 it('takes the installation row while it renews, which is the package lock order', function (): void {

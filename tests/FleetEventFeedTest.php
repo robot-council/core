@@ -14,15 +14,16 @@ declare(strict_types=1);
 
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Auth\User;
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use RobotCouncil\Access\Ability;
+use RobotCouncil\Access\Role;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\FleetEventType;
 use RobotCouncil\Support\FleetEvents;
 use RobotCouncil\Support\FleetFeed;
+use RobotCouncil\Support\RoleRequests;
 use RobotCouncil\Tests\TestCase;
 
 beforeEach(function (): void {
@@ -52,7 +53,14 @@ function sessionFor(TestCase $case, User $developer, array $abilities): array
 {
     $installation = $case->approveInstallation($developer, $abilities, machineLabel: 'm-'.keyValue($developer->getKey()));
 
-    return $case->startAgentSession($installation);
+    // **A coordinator is made by an administrator, not by a grant.** Since
+    // `robot-council/core#222` a session starts as `build` whatever its installation holds, so a
+    // caller asking for `coordinator:direct` wants the role an administrator would impose. Branching
+    // here keeps every call site reading as "a session that can direct" rather than spelling the
+    // two-step out at each one.
+    return \in_array(Ability::CoordinatorDirect->value, $abilities, true)
+        ? $case->startCoordinatorSession($installation)
+        : $case->startAgentSession($installation);
 }
 
 it('refuses narration from a session whose token lacks the ability', function (): void {
@@ -238,17 +246,17 @@ it('keeps showing narration posted while the ability was held, after it is revok
         machineLabel: 'theirs'
     );
 
-    [, $theirs] = $this->startAgentSession($theirInstallation);
+    [$theirSession, $theirs] = $this->startCoordinatorSession($theirInstallation);
 
     $this->machine($theirs)
         ->postJson(route('robot-council.events.store'), ['body' => 'said while coordinating'])
         ->assertCreated();
 
-    // The admin takes the ability away, which rewrites the live session tokens
-    Artisan::call('robot-council:revoke-ability', [
-        'installation' => $theirInstallation->getKey(),
-        'ability' => Ability::CoordinatorDirect->value,
-    ]);
+    // **The administrator demotes the SESSION, which is what takes the ability away now.** Before
+    // `robot-council/core#222` this revoked the ability from the installation and the session
+    // tokens were rewritten with it; a role is the thing that decides now, so the demotion names
+    // the session. What the test is about is unchanged: the flag was recorded on the event.
+    $this->service(RoleRequests::class)->impose($theirSession, Role::Build, keyValue($this->mine->getKey()));
 
     $this->machine($theirs)
         ->postJson(route('robot-council.events.store'), ['body' => 'said after losing it'])
