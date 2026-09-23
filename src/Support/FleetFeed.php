@@ -127,7 +127,12 @@ final class FleetFeed
 
         $events = FleetEvent::hydrate($found->all());
 
-        $logins = $this->logins->forUsers($events->pluck('user_id')->all());
+        // Both columns in one lookup. `user_id` is who the event is about and `actor_user_id` is
+        // who made it happen, and an administrative event has two different developers in them.
+        $logins = $this->logins->forUsers(array_merge(
+            $events->pluck('user_id')->all(),
+            $events->pluck('actor_user_id')->all()
+        ));
 
         /** @var list<array<string, mixed>> $described */
         $described = $events->map(fn (FleetEvent $event): array => $this->describe($event, $logins))->values()->all();
@@ -258,7 +263,12 @@ final class FleetFeed
             ->limit(max(1, min($limit, self::MAX_PAGE)))
             ->get();
 
-        $logins = $this->logins->forUsers($events->pluck('user_id')->all());
+        // Both columns in one lookup. `user_id` is who the event is about and `actor_user_id` is
+        // who made it happen, and an administrative event has two different developers in them.
+        $logins = $this->logins->forUsers(array_merge(
+            $events->pluck('user_id')->all(),
+            $events->pluck('actor_user_id')->all()
+        ));
 
         return array_values($events->map(fn (FleetEvent $event): array => $this->describe($event, $logins))->all());
     }
@@ -279,7 +289,12 @@ final class FleetFeed
             'meta' => $event->meta,
             'created_at' => $event->created_at?->toIso8601String(),
 
-            // Derived by the server on every read, never taken from what the poster claimed
+            // Derived by the server on every read, never taken from what the poster claimed.
+            //
+            // **`actor` is whoever the event is ABOUT**, which for everything a session records is
+            // the same as who posted it. For an administrative event there is no session and this
+            // is the installation's owner -- the developer whose agent was affected -- with the
+            // admin who did it in `performed_by` beside it (#115).
             'actor' => [
                 'session_id' => $event->agent_session_id,
 
@@ -291,6 +306,13 @@ final class FleetFeed
                     : ($logins[$event->user_id] ?? null),
                 'coordinator_direct' => $event->posted_with_coordinator,
             ],
+
+            // Null for everything a process, a sweep or a console command records, which is most of
+            // the feed. Present only where a signed-in developer changed somebody else's
+            // authorization, which is the case where "by whom" is the question worth answering.
+            'performed_by' => $event->actor_user_id === null
+                ? null
+                : ['github_login' => $logins[$event->actor_user_id] ?? null],
         ];
     }
 }
