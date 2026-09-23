@@ -116,17 +116,28 @@
                     @if ($currentRoute === 'robot-council.dashboard')
                         <li class="menu-title">On this page</li>
 
-                        <li><a href="#robot-council-presence">Presence</a></li>
-                        <li><a href="#robot-council-queue">Queue</a></li>
-                        <li><a href="#robot-council-change-feed">Change feed</a></li>
+                        @if (\in_array('presence', $showingSections, true))
+                            <li><a href="#robot-council-presence">Presence</a></li>
+                        @endif
+
+                        @if (\in_array('queue', $showingSections, true))
+                            <li><a href="#robot-council-queue">Queue</a></li>
+                        @endif
+
+                        @if (\in_array('feed', $showingSections, true))
+                            <li><a href="#robot-council-change-feed">Change feed</a></li>
+                        @endif
 
                         {{--
-                            Offered only to an admin, decided in `DashboardLayoutComposer` rather
-                            than with `@can`, which resolves the host's default guard and would hide
-                            this from a real admin on a host where the two differ. The component
+                            Each link is offered only when the section is actually on the page, so
+                            none of them jumps to nothing. The administration entry is filtered by
+                            `Support\DashboardSections`, which drops it for an account that is not
+                            an admin whatever the query string says -- decided there rather than
+                            with `@can`, which resolves the host's default guard and would hide it
+                            from a real admin on a host where the two differ. The component
                             authorizes its own render regardless.
                         --}}
-                        @if ($isAdmin)
+                        @if (\in_array('administration', $showingSections, true))
                             <li><a href="#robot-council-administration">Administration</a></li>
                         @endif
                     @endif
