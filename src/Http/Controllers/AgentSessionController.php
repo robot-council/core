@@ -10,7 +10,7 @@ use RobotCouncil\Access\Ability;
 use RobotCouncil\Access\Tokens;
 use RobotCouncil\Http\Principal;
 use RobotCouncil\Support\FeedCursors;
-use RobotCouncil\Support\Installations;
+use RobotCouncil\Support\FleetAbilities;
 
 /**
  * Tells an agent process what its own session is. The bridge calls it after starting or renewing,
@@ -28,10 +28,10 @@ final class AgentSessionController
      *
      * @param  Request  $request  The incoming request.
      * @param  FeedCursors  $cursors  Where each session has read to.
-     * @param  Installations  $installations  The fleet's installations.
+     * @param  FleetAbilities  $fleet  What this fleet can do, as opposed to this session.
      * @return JsonResponse The session, without anything secret in it.
      */
-    public function __invoke(Request $request, FeedCursors $cursors, Installations $installations): JsonResponse
+    public function __invoke(Request $request, FeedCursors $cursors, FleetAbilities $fleet): JsonResponse
     {
         $session = Principal::agentSession($request);
 
@@ -54,7 +54,7 @@ final class AgentSessionController
             // cannot answer that: a receive-only session holding no `coordinator:direct` is the
             // normal case, so a client warning on its own abilities would warn on almost every
             // session. False here means nothing will ever arrive, which is a finding (#159).
-            'fleet_can_direct' => $installations->anyHolds(Ability::CoordinatorDirect),
+            'fleet_can_direct' => $fleet->anyInstallationHolds(Ability::CoordinatorDirect),
         ]);
     }
 }

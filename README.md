@@ -218,8 +218,8 @@ off" are different states and only one of them wants looking at.
 is wrong with this application's configuration without being asked a specific question: whether the
 `sanctum` guard names a provider, whether `sanctum.expiration` is null, whether every migration this
 version ships has run, whether anything appears to be consuming the queue, whether anybody is on the
-developer allowlist, whether the Slack mirror would run inside an agent's request, and whether
-`app.timezone` can shift under a lock's lease.
+developer allowlist, whether anything on the fleet can post a directive, whether the Slack mirror
+would run inside an agent's request, and whether `app.timezone` can shift under a lock's lease.
 
 Every fault it looks for is invisible until something else goes wrong. It writes nothing and prints
 no secret, so it is safe to run when worried. A check it cannot reach reports as `UNKNOWN` with what
@@ -518,6 +518,16 @@ than stored.
 **Recovering it.** `POST sessions/{id}/renew` and `GET agent/session` both state the current
 position, so a restarted process reads it back instead of choosing between replaying the feed from
 `0` and starting a new session.
+
+**`GET agent/session` also answers whether anything can ever arrive.** Its `fleet_can_direct` is
+true when some installation could post a directive today -- neither revoked nor expired, and its
+developer still on the access list. It is a fleet-level answer deliberately, and not the same as
+the session's own `abilities`: a directive is the one event that reaches an idle agent, posting one
+needs `coordinator:direct`, and enrollment can never request it. A process that only ever receives
+holds none of it and is correctly configured, so a client that warned on its own abilities would
+warn on almost every session. **False means nothing will ever reach a waiting agent**, which is
+worth saying out loud, because an empty sink and a fleet with nothing to say look identical from
+the agent's side.
 
 ### Mirroring to Slack
 

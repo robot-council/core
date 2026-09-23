@@ -102,9 +102,17 @@ final class Installation extends Model implements AuthenticatableContract
      *
      * **The set-level half of `isUsable()`, and the two have to keep agreeing.** A row-level
      * predicate cannot bound a read and a `where` cannot answer for a model already in hand, so
-     * both forms exist; they are adjacent, and `InstallationUsableTest` asserts that the query
-     * returns exactly the rows `isUsable()` answers true for, because a drift between them would
-     * be invisible -- each is correct on its own terms and only the disagreement is the defect.
+     * both forms exist; they are adjacent, and `FleetCanDirectTest` asserts that the query returns
+     * exactly the rows `isUsable()` answers true for, because a drift between them would be
+     * invisible -- each is correct on its own terms and only the disagreement is the defect. That
+     * assertion includes a row expiring at this very instant, which is where `>` and `>=` differ
+     * and which no mutation run can reach, because the operator here is a string argument to
+     * `where()` rather than a PHP operator.
+     *
+     * **Usable is not the same as able to act.** `Http\Middleware\EnsureInstallation` takes a
+     * third gate this query cannot: the developer must still be on the access list. A caller
+     * asking whether anything can be done, rather than whether a credential has lapsed, has to
+     * apply that too -- `Support\FleetAbilities` is the one that does.
      *
      * `Carbon::now()` rather than a fixed clock, because `expires_at` is written on the
      * application's clock by `Support\Credentials` and compared against it by Sanctum. Moving

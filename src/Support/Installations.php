@@ -63,40 +63,6 @@ final class Installations
     }
 
     /**
-     * Whether any installation on this fleet holds one ability.
-     *
-     * **A fleet-level question, and it is not the same as the asking session's own abilities.**
-     * Delivery to a waiting agent needs *somebody* to be able to post a directive, not the agent
-     * itself: a bridge that only ever receives holds no `coordinator:direct` and is correctly
-     * configured. Answering the session-level question in its place would warn on the common case,
-     * which is how a warning gets ignored.
-     *
-     * **Read through `Installation::abilities()` rather than queried against the JSON column.**
-     * That accessor drops anything the fixed list no longer holds, so a retired ability left in a
-     * stored row cannot answer true here; and `whereJsonContains` compiles differently on each of
-     * the three engines this package supports, which is a cost with no benefit at one row per
-     * harness per machine. The read is bounded to usable installations in SQL, so a fleet's
-     * revoked history does not enter memory.
-     *
-     * A revoked or expired installation cannot start a session, so counting one would report a
-     * fleet able to deliver when it is not -- the reassuring direction, which is the one that has
-     * to be wrong before the other.
-     *
-     * @param  Ability  $ability  The ability to look for.
-     * @return bool True when at least one usable installation holds it.
-     */
-    public function anyHolds(Ability $ability): bool
-    {
-        foreach (Installation::usable()->lazyById() as $installation) {
-            if (\in_array($ability->value, $installation->abilities(), true)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
      * Create the installation an approved device code stands for, and its credential.
      *
      * Both happen in one transaction, so nothing can leave an installation with no way to reach it

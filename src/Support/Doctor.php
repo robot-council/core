@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RobotCouncil\Support;
 
 use Illuminate\Contracts\Config\Repository;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use RobotCouncil\Access\Ability;
@@ -43,12 +44,12 @@ final class Doctor
      * @param  Repository  $config  The host's configuration.
      * @param  Allowlist  $allowlist  Read rather than re-parsed, so this cannot disagree with the
      *                                thing it is checking.
-     * @param  Installations  $installations  The fleet's installations, for the coordination check.
+     * @param  FleetAbilities  $fleet  What this fleet can do, for the coordination check.
      */
     public function __construct(
         private readonly Repository $config,
         private readonly Allowlist $allowlist,
-        private readonly Installations $installations
+        private readonly FleetAbilities $fleet
     ) {}
 
     /**
@@ -307,8 +308,12 @@ final class Doctor
     private function coordination(): Diagnosis
     {
         try {
-            $anyone = $this->installations->anyHolds(Ability::CoordinatorDirect);
-        } catch (Throwable) {
+            $anyone = $this->fleet->anyInstallationHolds(Ability::CoordinatorDirect);
+        } catch (QueryException) {
+            // **`QueryException`, not `Throwable`.** The only cause this message can honestly name
+            // is a table it could not read, and a blanket catch would report a `TypeError` from a
+            // malformed row as "run `php artisan migrate`" on a schema that is already migrated --
+            // the misdiagnosis `DiagnosisStatus::Undetermined` exists to prevent rather than cause.
             return Diagnosis::undetermined(
                 'fleet coordination',
                 'The installations table could not be read, so whether anything on this fleet can post a '

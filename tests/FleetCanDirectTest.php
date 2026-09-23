@@ -18,12 +18,10 @@ declare(strict_types=1);
  */
 
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Models\Installation;
-use RobotCouncil\Support\Diagnosis;
-use RobotCouncil\Support\DiagnosisStatus;
-use RobotCouncil\Support\Doctor;
-use RobotCouncil\Support\Installations;
+use RobotCouncil\Support\FleetAbilities;
 
 beforeEach(function (): void {
     $this->migrateUsersTableWithPackageColumns();
@@ -32,22 +30,6 @@ beforeEach(function (): void {
 
     $this->developer = $this->enrollDeveloper(4242);
 });
-
-/**
- * The fleet-coordination diagnosis, by name.
- *
- * @return Diagnosis The check's result.
- */
-function coordinationDiagnosis(): Diagnosis
-{
-    foreach (app(Doctor::class)->examine() as $diagnosis) {
-        if ($diagnosis->check === 'fleet coordination') {
-            return $diagnosis;
-        }
-    }
-
-    throw new RuntimeException('the fleet coordination check is not registered');
-}
 
 it('tells a session the fleet can direct when another installation holds the ability', function (): void {
     // **The case a session-level answer gets wrong.** This session holds no `coordinator:direct`
@@ -158,8 +140,8 @@ it('reads what the fixed list still holds, not what the row happens to say', fun
         ]),
     ]);
 
-    expect(app(Installations::class)->anyHolds(Ability::SessionsStart))->toBeFalse()
-        ->and(app(Installations::class)->anyHolds(Ability::CoordinatorDirect))->toBeFalse();
+    expect(app(FleetAbilities::class)->anyInstallationHolds(Ability::SessionsStart))->toBeFalse()
+        ->and(app(FleetAbilities::class)->anyInstallationHolds(Ability::CoordinatorDirect))->toBeFalse();
 
     [, $token] = $this->startAgentSession($receiver);
 
@@ -196,13 +178,10 @@ it('keeps the query and the row-level answer agreeing about what is usable', fun
         ->and($byQuery)->toBe([$live->getKey()]);
 });
 
-it('reports the same fact from the doctor, and passes either way', function (): void {
-    // It reports rather than fails: a fleet whose agents only ever receive is a legitimate
-    // configuration, and a check that failed on one is a check people switch off.
-    $diagnosis = coordinationDiagnosis();
-
-    expect($diagnosis->status)->toBe(DiagnosisStatus::Passed)
-        ->and($diagnosis->detail)->toContain('No installation holds');
+it('answers directly, so the endpoint is not the only way in', function (): void {
+    // The endpoint is what a client reads, and `Support\FleetAbilities` is what a host can
+    // resolve and call. A rule the controller enforced would protect the route and nothing else.
+    expect(app(FleetAbilities::class)->anyInstallationHolds(Ability::CoordinatorDirect))->toBeFalse();
 
     $this->approveInstallation(
         $this->enrollDeveloper(77, 'coordinator'),
@@ -210,24 +189,94 @@ it('reports the same fact from the doctor, and passes either way', function (): 
         'coordinator-machine'
     );
 
-    $granted = coordinationDiagnosis();
-
-    expect($granted->status)->toBe(DiagnosisStatus::Passed)
-        ->and($granted->detail)->toContain('At least one installation holds');
+    expect(app(FleetAbilities::class)->anyInstallationHolds(Ability::CoordinatorDirect))->toBeTrue()
+        // And it answers about the ability it was asked about, rather than about any ability.
+        ->and(app(FleetAbilities::class)->anyInstallationHolds(Ability::LocksAcquire))->toBeFalse();
 });
 
-it('answers the store directly, so the endpoint is not the only way in', function (): void {
-    // The endpoint is what a client reads, and the store is what a host can call. A bound the
-    // controller enforced would protect the route and nothing else.
-    expect(app(Installations::class)->anyHolds(Ability::CoordinatorDirect))->toBeFalse();
+it('does not count an installation whose developer has left the access list', function (): void {
+    // **The third gate, and the one a credential-lifetime answer misses.**
+    // `EnsureInstallation` refuses a credential whose developer is no longer admitted, and
+    // `EnsureAgentSession` refuses the session token that would actually post. Nothing revokes
+    // the installation when an admin off-boards somebody -- the list is checked per request -- so
+    // a row that is neither revoked nor expired can still be unable to do anything at all.
+    //
+    // Reporting `true` there is the reassuring direction, which is the one this whole field
+    // exists to remove: the operator would read a live coordinator where there is none.
+    $receiver = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
 
-    $this->approveInstallation(
-        $this->enrollDeveloper(77, 'coordinator'),
-        [Ability::CoordinatorDirect->value],
-        'coordinator-machine'
-    );
+    $coordinator = $this->enrollDeveloper(77, 'coordinator');
 
-    expect(app(Installations::class)->anyHolds(Ability::CoordinatorDirect))->toBeTrue()
-        // And it answers about the ability it was asked about, rather than about any ability.
-        ->and(app(Installations::class)->anyHolds(Ability::LocksAcquire))->toBeFalse();
+    $this->approveInstallation($coordinator, [Ability::CoordinatorDirect->value], 'coordinator-machine');
+
+    // The control first: while 77 is admitted, the fleet can direct.
+    expect(app(FleetAbilities::class)->anyInstallationHolds(Ability::CoordinatorDirect))->toBeTrue();
+
+    // Off-boarded exactly as an admin would, by narrowing the list. The installation row is
+    // untouched: neither revoked nor expired.
+    $this->setAccessLists(developers: [4242]);
+
+    expect(Installation::usable()->count())->toBe(2)
+        ->and(app(FleetAbilities::class)->anyInstallationHolds(Ability::CoordinatorDirect))->toBeFalse();
+
+    [, $token] = $this->startAgentSession($receiver);
+
+    $this->machine($token)
+        ->getJson(route('robot-council.agent.session'))
+        ->assertOk()
+        ->assertJson(['fleet_can_direct' => false]);
+});
+
+it('does not count an installation whose developer has no GitHub identity', function (): void {
+    // The same gate reached the other way. `EnsureInstallation` refuses when
+    // `HostUsers::githubIdForKey()` answers null, which is what a host that removed the identity
+    // row -- or hid the user -- leaves behind.
+    $coordinator = $this->enrollDeveloper(77, 'coordinator');
+
+    $this->approveInstallation($coordinator, [Ability::CoordinatorDirect->value], 'coordinator-machine');
+
+    expect(app(FleetAbilities::class)->anyInstallationHolds(Ability::CoordinatorDirect))->toBeTrue();
+
+    DB::table('robot_council_github_identities')->where('github_id', 77)->delete();
+
+    expect(app(FleetAbilities::class)->anyInstallationHolds(Ability::CoordinatorDirect))->toBeFalse();
+});
+
+it('treats an installation expiring at this very instant as expired', function (): void {
+    // **Where `>` and `>=` differ, and no mutation run can reach it**: the operator is a string
+    // argument to `where()` rather than a PHP operator, so `GreaterToGreaterOrEqual` never sees
+    // it. `isUsable()` uses `Carbon::isFuture()`, which is strictly greater, and `usable()` uses
+    // `>`. They agree; nothing else pins that they keep agreeing.
+    $this->freezeTime();
+
+    $coordinator = $this->enrollDeveloper(77, 'coordinator');
+
+    $edge = $this->approveInstallation($coordinator, [Ability::CoordinatorDirect->value], 'edge-machine');
+
+    Installation::query()->whereKey($edge->getKey())->update(['expires_at' => Carbon::now()]);
+
+    expect(Installation::query()->whereKey($edge->getKey())->sole()->isUsable())->toBeFalse()
+        ->and(Installation::usable()->pluck('id')->all())->toBeEmpty()
+        ->and(app(FleetAbilities::class)->anyInstallationHolds(Ability::CoordinatorDirect))->toBeFalse();
+
+    // The control, one second the other side of the same boundary.
+    Installation::query()->whereKey($edge->getKey())->update(['expires_at' => Carbon::now()->addSecond()]);
+
+    expect(Installation::query()->whereKey($edge->getKey())->sole()->isUsable())->toBeTrue()
+        ->and(Installation::usable()->pluck('id')->all())->toBe([$edge->getKey()])
+        ->and(app(FleetAbilities::class)->anyInstallationHolds(Ability::CoordinatorDirect))->toBeTrue();
+});
+
+it('sends the field as a JSON boolean, not as something that merely compares equal', function (): void {
+    // `assertJson` is a loose subset match: measured, `1` satisfies an asserted `true` and `null`
+    // satisfies an asserted `false`. A client reading `=== true` would see neither. The return
+    // type is what guarantees it today, so this is what would notice if that changed.
+    $receiver = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
+
+    [, $token] = $this->startAgentSession($receiver);
+
+    $response = $this->machine($token)->getJson(route('robot-council.agent.session'))->assertOk();
+
+    expect($response->json('fleet_can_direct'))->toBeFalse()
+        ->and($response->json('fleet_can_direct'))->toBeBool();
 });
