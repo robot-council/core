@@ -475,7 +475,14 @@ final class SessionPresence
      */
     public function prune(Carbon $before, int $batch = self::PRUNE_BATCH, int $maxBatches = self::PRUNE_BATCHES): int
     {
-        $now = Carbon::now();
+        // **On the clock `robot_council_locks.expires_at` is written on**, which #149 moved to
+        // `PresenceClock`. Its only use is the lease comparison below, and a binding is formatted
+        // in the value's own zone by `Connection::prepareBindings()` -- so an application clock
+        // here would compare the host's wall-clock digits against UTC digits. East of UTC every
+        // live lease is shorter than the offset, so the guard would not be weakened but defeated:
+        // a gone session holding a live lock would be deleted, `holder_id` nulled by the
+        // `nullOnDelete`, and the lock freed with no `lock.released` event.
+        $now = PresenceClock::now();
 
         $held = TaskStatus::values(TaskStatus::held());
 
