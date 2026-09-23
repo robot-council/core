@@ -323,6 +323,7 @@ final class SessionPresence
      * @param  string  $reason  What ended it.
      * @param  Carbon|null  $cutoff  The contact time the sweep qualified it against, when a sweep
      *                               is what is ending it.
+     * @param  string|null  $actor  The signed-in developer ending it, when one is.
      * @return int|null How many tokens were deleted, or null when it had already gone.
      */
     private function goesNow(AgentSession $session, string $reason, ?Carbon $cutoff, ?string $actor = null): ?int

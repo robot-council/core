@@ -37,6 +37,16 @@
                                     the server
                                 @endif
 
+                                {{-- **Who DID it, where that is somebody other than who it is
+                                     about.** `actor` above is the developer the event concerns,
+                                     which for an administrative event is the installation's owner
+                                     -- so without this line the panel would name the developer
+                                     whose agent was acted ON as the one who acted, which is the
+                                     inversion #115 exists to remove. --}}
+                                @if (($event['performed_by']['github_login'] ?? null) !== null)
+                                    &middot; by {{ $event['performed_by']['github_login'] }}
+                                @endif
+
                                 {{-- Recorded on the event when it was written, so revoking the
                                      ability afterwards does not rewrite what the page says --}}
                                 @if ($event['actor']['coordinator_direct'])

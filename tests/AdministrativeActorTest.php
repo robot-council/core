@@ -90,11 +90,16 @@ it('gives user_id one meaning across an agent-written and an admin-written event
 });
 
 it('serves a restricted event to the developer it is about, not to whoever recorded it', function (): void {
-    // **The property that was backwards, asserted directly.** No `installation.*` type is
-    // restricted today and `isRestricted()` is a `match` a test cannot override -- so rather than
-    // contriving one, this writes a row in exactly the shape an administrative event now takes
-    // (`user_id` the owner, `actor_user_id` the admin) and gives it the one type that *is*
-    // restricted. What it measures is which column the visibility rule follows.
+    // **The property that was backwards, and what this test does and does not establish.** No
+    // `installation.*` type is restricted today and `isRestricted()` is a `match` a test cannot
+    // override, so rather than contriving one this plants a row in the shape an administrative
+    // event now takes and gives it the one type that *is* restricted.
+    //
+    // What it shows is that the visibility rule follows `user_id` -- which is unchanged code, and
+    // would pass on `main` too. The half that moved is that an admin's action now writes the
+    // OWNER there, which the store test above pins. **The property holds by the two together**,
+    // and neither alone is the whole of it. `actor_user_id` on the planted row is set for
+    // realism rather than because the rule reads it; it does not.
     [$ownerSession] = $this->startAgentSession($this->installation);
 
     $adminInstallation = $this->approveInstallation($this->admin, [Ability::TasksCreate->value], 'admin-machine');
@@ -138,8 +143,7 @@ it('resolves both developers for the dashboard, and neither for an ordinary even
         // reads a present null as absent and made this assertion answer for itself.
         ->and(arrayValue($enrolled['actor'] ?? [])['github_login'] ?? null)->toBe('octodev')
         ->and(arrayValue($enrolled ?? []))->toHaveKey('performed_by')
-        ->and(arrayValue($enrolled ?? [])['performed_by'])->toBeNull()
-        ->and($session->getKey())->toBeGreaterThan(0);
+        ->and(arrayValue($enrolled ?? [])['performed_by'])->toBeNull();
 });
 
 it('refuses a key it could not store, for the actor as well as the subject', function (): void {

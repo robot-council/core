@@ -17,6 +17,7 @@ use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\FleetEventType;
 use RobotCouncil\Support\FleetEvents;
 use RobotCouncil\Support\FleetFeed;
+use RobotCouncil\Support\Installations;
 use RobotCouncil\Tests\TestCase;
 
 beforeEach(function (): void {
@@ -48,6 +49,43 @@ function otherSession(TestCase $case, array $abilities = [Ability::EventsPost->v
 
     return $case->startAgentSession($installation);
 }
+
+it('names both the owner and the admin on an administrative event', function (): void {
+    // **The gap that let the defect through the first time.** #115 repointed `actor` from the
+    // admin to the installation's owner and put the admin in `performed_by` -- but no view read
+    // `performed_by`, so the one rendered audit surface went from naming the admin to naming the
+    // developer whose agent was acted ON. The payload was right and the page was inverted, and
+    // every assertion in this file was about narration and session events, so nothing caught it.
+    //
+    // `tests/AdministrationTest.php` asserts the payload. This asserts the page.
+    $admin = $this->enrollDeveloper(77, 'octoadmin');
+
+    $this->service(Installations::class)
+        ->setAbility($this->installation, Ability::LocksAcquire, true, keyValue($admin->getKey()));
+
+    Livewire::test(ChangeFeed::class)
+        ->assertSee(FleetEventType::InstallationAbilityGranted->value)
+        // Who it is about, and who did it, both on the row.
+        ->assertSee('octodev')
+        ->assertSee('octoadmin')
+        ->assertSee('by octoadmin');
+});
+
+it('names nobody where nobody signed in acted', function (): void {
+    // The control: an ordinary agent event must not grow a "by" clause. Without it the condition
+    // around `performed_by` could be deleted and the test above would still pass.
+    app(FleetEvents::class)->record(
+        FleetEventType::Narration,
+        $this->session,
+        'Nobody administered this.',
+    );
+
+    Livewire::test(ChangeFeed::class)
+        ->assertSee('Nobody administered this.')
+        ->assertSee('octodev')
+        ->assertDontSee('by octodev')
+        ->assertDontSee('by octoadmin');
+});
 
 it('shows an event with its type, body, actor and age', function (): void {
     app(FleetEvents::class)->record(

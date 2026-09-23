@@ -137,6 +137,15 @@ enum FleetEventType: string
     /**
      * Whether an event of this type is only visible to some readers.
      *
+     * **Marking an `installation.*` type restricted is now safe, and it was not before #115.**
+     * `Support\FleetFeed` serves a restricted event to the developer named in the event's
+     * `user_id`, which used to hold the acting ADMIN for an administrative event -- so restricting
+     * one would have served it to the admin and hidden it from the owner whose agent was affected.
+     * #115 proposed a tripwire here against exactly that, and the column split removed the need
+     * for one: `user_id` is the developer the event is about for every type, so the rule points at
+     * the right person whatever is restricted. The tripwire is recorded as not built, with its
+     * reason, rather than left as an unmet line on a closed ticket.
+     *
      * @return bool True for narration, which #29 restricts, and false for everything else.
      */
     public function isRestricted(): bool

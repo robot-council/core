@@ -324,7 +324,9 @@ it('names the admin who made the change, rather than leaving it unattributed', f
         ->and($event->actor_user_id)->toBe(keyValue($this->admin->getKey()))
         ->and($event->user_id)->not->toBe($event->actor_user_id);
 
-    // And the feed resolves both, which is what the dashboard renders
+    // And the feed's payload resolves both. **The PAGE is `ChangeFeedTest`'s**, not this -- an
+    // earlier version of this comment claimed otherwise, which is what let the dashboard render
+    // the owner where it had rendered the admin with every test still green.
     $shown = collect($this->service(FleetFeed::class)->latest(50))
         ->firstWhere('type', FleetEventType::InstallationAbilityGranted->value);
 

@@ -308,8 +308,12 @@ final class FleetFeed
             ],
 
             // Null for everything a process, a sweep or a console command records, which is most of
-            // the feed. Present only where a signed-in developer changed somebody else's
-            // authorization, which is the case where "by whom" is the question worth answering.
+            // the feed. Present where a signed-in developer changed an installation's
+            // authorization -- usually somebody else's, which is the case "by whom" exists for,
+            // but not always: `Installations::createFrom()` revokes the installation a
+            // re-enrollment supersedes and passes the approver, who is that installation's own
+            // owner. So this can equal `actor`, and a reader should not take a value here as
+            // meaning two different people were involved.
             'performed_by' => $event->actor_user_id === null
                 ? null
                 : ['github_login' => $logins[$event->actor_user_id] ?? null],
