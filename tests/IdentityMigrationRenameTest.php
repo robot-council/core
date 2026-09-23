@@ -22,6 +22,7 @@ declare(strict_types=1);
  * @command  vendor/bin/pest --compact tests/IdentityMigrationRenameTest.php
  */
 
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -103,4 +104,57 @@ it('creates the table when it is genuinely absent, so the guard is not a no-op',
         ->and(Schema::hasTable('robot_council_github_identities'))->toBeTrue()
         ->and(Schema::hasColumn('robot_council_github_identities', 'user_id'))->toBeTrue()
         ->and(Schema::hasColumn('robot_council_github_identities', 'github_id'))->toBeTrue();
+});
+
+it('keeps one identity per host user after the collation migration redefines the column', function (): void {
+    // **The risk the fold-back creates, and the reason it is asserted behaviorally.**
+    // `2026_09_22_000002`'s `collate()` is generic code that rebuilds a column with
+    // `$table->string(...)->change()`, restating only the length, the collation and the
+    // nullability. `robot_council_github_identities.user_id` is the first `unique()` column it has
+    // ever touched -- the other six are not -- and `change()` redefines rather than amends. If the
+    // unique index did not survive, two host users could claim one GitHub identity, which is an
+    // access-control failure rather than a storage one.
+    //
+    // Asked of the database rather than of the schema: an index NAME ending `_unique` is not
+    // evidence that it is unique, and reading `Non_unique` compared the wrong type on the first
+    // attempt and reported the primary key as non-unique. A refused insert cannot be misread.
+    $this->migrateUsersTableWithPackageColumns();
+
+    DB::table('robot_council_github_identities')->insert([
+        'user_id' => '4242',
+        'github_id' => 4242,
+        'github_login' => 'octodev',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    expect(fn () => DB::table('robot_council_github_identities')->insert([
+        'user_id' => '4242',
+        'github_id' => 9999,
+        'github_login' => 'impostor',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]))->toThrow(QueryException::class);
+
+    // And the other direction, because the table carries two unique columns and the migration
+    // redefines only one of them.
+    expect(fn () => DB::table('robot_council_github_identities')->insert([
+        'user_id' => '77',
+        'github_id' => 4242,
+        'github_login' => 'impostor',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]))->toThrow(QueryException::class);
+
+    // The control: a genuinely distinct identity is accepted, so the two refusals above are the
+    // unique indexes rather than the insert being broken.
+    DB::table('robot_council_github_identities')->insert([
+        'user_id' => '77',
+        'github_id' => 77,
+        'github_login' => 'octoadmin',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    expect(DB::table('robot_council_github_identities')->count())->toBe(2);
 });
