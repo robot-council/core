@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -34,12 +35,17 @@ return new class extends Migration
      * `Schema::create` on an existing table is an error that stops the whole `migrate`. The guard
      * makes the second run a no-op and lets the rest of the batch through.
      *
-     * The cost is one row: that host ends with two `migrations` entries naming one table, the old
-     * one pointing at a file that no longer exists. Nothing reads it -- Laravel compares names only
-     * to decide what to run -- and `robot-council:doctor` compares shipped names against run ones,
-     * so an extra run name is not reported as pending. A `migrate:rollback` reaching that old row
-     * would fail to resolve its class, which is true of any removed migration and is why this is
-     * named here rather than left to be discovered.
+     * That host ends with **three** `migrations` rows about this table's history: the old create,
+     * this one, and `fix_robot_council_github_identity_collation`, whose file #132 also removed.
+     * The two fileless rows are inert -- `Migrator::rollbackMigrations()` prints
+     * `Migration not found` and `continue`s past a recorded name whose file is absent, so they are
+     * never resolved, never rolled back, and never deleted -- and `robot-council:doctor` compares
+     * shipped names against run ones, so an extra run name is not reported as pending.
+     *
+     * **`migrate --pretend` misreports on that host.** `Schema::hasTable()` issues a select, which
+     * returns nothing under `--pretend`, so the guard reads false and the plan prints the
+     * `create table` the guard exists to prevent. Cosmetic, and worth knowing before somebody
+     * reads it as the deploy's intent.
      */
     public function up(): void
     {
@@ -72,6 +78,46 @@ return new class extends Migration
      */
     public function down(): void
     {
+        // **A host that already had this table under the old name must not lose it here.** Its
+        // re-run logged a row at the next batch number -- possibly alone in that batch -- so the
+        // most ordinary action after a bad deploy, `php artisan migrate:rollback`, reaches this
+        // `down()`. `Migrator::runDown()` resolves by file and takes no `shouldRun()` hook, so a
+        // guard on `up()` alone does nothing here: an unguarded drop would take the identity
+        // rows every developer's sign-in resolves through, and `GitHubCallbackController` would
+        // then send each of them down the enrollment path and refuse on a held email.
+        //
+        // The old row is the only record that says the table predates this file, which is why it
+        // is what this reads. `2026_09_22_000003_index_robot_council_installation_identity.php`
+        // guards both directions for the same reason.
+        //
+        // The trade, stated rather than discovered: once that batch has been rolled back this
+        // row is gone, so a later `migrate:reset` on that host leaves the table standing -- the
+        // old row's file is absent and is skipped. Leaving a table behind on a reset is the safe
+        // direction, and `migrate:fresh` still drops it.
+        if (DB::table($this->migrationsTable())
+            ->where('migration', 'create_robot_council_github_identities_table')
+            ->exists()) {
+            return;
+        }
+
         Schema::dropIfExists('robot_council_github_identities');
+    }
+
+    /**
+     * The table Laravel records migrations in, which a host may rename.
+     *
+     * @return string The configured table name.
+     */
+    private function migrationsTable(): string
+    {
+        $configured = config('database.migrations');
+
+        if (\is_array($configured)) {
+            $table = $configured['table'] ?? null;
+
+            return \is_string($table) ? $table : 'migrations';
+        }
+
+        return \is_string($configured) ? $configured : 'migrations';
     }
 };

@@ -45,6 +45,12 @@ use Illuminate\Support\Facades\Schema;
  * named to sort after it; #132 dated the create instead, so the column is in the list below like
  * the rest and the workaround is gone.
  *
+ * **It is also the first `unique()` column this generic `change()` touches.** The other six are
+ * `index()` or bare, and `change()` redefines rather than amends -- so if the unique index did not
+ * survive, two host users could claim one GitHub identity. `MODIFY COLUMN` does not drop secondary
+ * indexes, which the deleted workaround asserted and nothing checked;
+ * `tests/IdentityMigrationRenameTest.php` checks it now, on MySQL, where the rebuild happens.
+ *
  * **A host that already ran both keeps its collation and re-runs nothing.** This migration's row
  * is already in `migrations`, so adding a column to the list does not re-apply it -- the workaround
  * had already collated that column on exactly those hosts. A fresh install reaches this after the
