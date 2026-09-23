@@ -8,6 +8,7 @@ use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Access\Allowlist;
 use RobotCouncil\Models\Installation;
@@ -71,24 +72,71 @@ final class Doctor
     ) {}
 
     /**
-     * Run every check.
+     * Run every check, or only the ones named.
      *
+     * @param  list<string>  $only  Run only these checks, by the name each reports under. Empty runs all.
      * @return list<Diagnosis> One entry per check, in the order they are reported.
      */
-    public function examine(): array
+    public function examine(array $only = []): array
+    {
+        $checks = $this->checks();
+
+        if ($only === []) {
+            return array_values(array_map(static fn (callable $check): Diagnosis => $check(), $checks));
+        }
+
+        $names = array_values(array_unique($only));
+
+        $unknown = array_values(array_diff($names, array_keys($checks)));
+
+        if ($unknown !== []) {
+            // **Refused rather than ignored.** A misspelled name that quietly examined nothing and
+            // exited zero would be a gate that had stopped gating, and it would read exactly like a
+            // healthy deployment -- which is the failure this option exists to avoid creating.
+            throw new InvalidArgumentException(sprintf(
+                'Unknown check(s): %s. Valid checks are: %s.',
+                implode(', ', $unknown),
+                implode(', ', array_keys($checks))
+            ));
+        }
+
+        // Only the named closures are invoked, so an excluded check does not run at all. Several of
+        // them query the database, and a deploy gate should not pay for answers it did not ask for.
+        $diagnoses = [];
+
+        foreach ($names as $name) {
+            $diagnoses[] = $checks[$name]();
+        }
+
+        return $diagnoses;
+    }
+
+    /**
+     * Every check this can run, keyed by the name it reports itself under.
+     *
+     * **The keys are the names the `Diagnosis` objects carry**, so `--only` takes what the command
+     * already prints rather than a second vocabulary nobody has seen. `DoctorCommandTest` asserts
+     * each key matches what its check emits, because two spellings of one name is exactly the drift
+     * this arrangement invites.
+     *
+     * Closures rather than results, so nothing runs until it is asked for.
+     *
+     * @return array<string, callable(): Diagnosis> The checks, by name.
+     */
+    public function checks(): array
     {
         return [
-            $this->sanctumProvider(),
-            $this->sanctumExpiration(),
-            $this->migrations(),
-            $this->retiredMigrations(),
-            $this->queue(),
-            $this->developers(),
-            $this->coordination(),
-            $this->storedAbilities(),
-            $this->slackConnection(),
-            $this->timezone(),
-            $this->slackWebhook(),
+            'sanctum guard provider' => $this->sanctumProvider(...),
+            'sanctum expiration' => $this->sanctumExpiration(...),
+            'package migrations' => $this->migrations(...),
+            'retired migrations' => $this->retiredMigrations(...),
+            'queue worker' => $this->queue(...),
+            'developer allowlist' => $this->developers(...),
+            'fleet coordination' => $this->coordination(...),
+            'stored abilities' => $this->storedAbilities(...),
+            'slack queue connection' => $this->slackConnection(...),
+            'application timezone' => $this->timezone(...),
+            'slack webhook' => $this->slackWebhook(...),
         ];
     }
 

@@ -7,6 +7,7 @@ namespace RobotCouncil\Console;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
+use InvalidArgumentException;
 use RobotCouncil\Support\Diagnosis;
 use RobotCouncil\Support\DiagnosisStatus;
 use RobotCouncil\Support\Doctor;
@@ -23,18 +24,34 @@ use RobotCouncil\Support\Doctor;
  * to the checks that actually concluded something.
  */
 #[Description("Report what is wrong with this application's robot-council configuration")]
-#[Signature('robot-council:doctor')]
+#[Signature('robot-council:doctor {--only=* : Run only these checks, by the name each is reported under. Comma-separated, or repeat the option.}')]
 final class DoctorCommand extends Command
 {
     /**
-     * Report every check.
+     * Report every check, or only the ones named.
+     *
+     * **`--only` exists so something other than a person can gate on one answer.** A deploy that
+     * wants to refuse a drifted migration set should not also fail because the queue has a backlog
+     * or a Slack webhook is unset -- `robot-council/robot-council#7` is the case, and running all
+     * eleven checks made the gate answer a much broader question than it asked.
+     *
+     * The exit code then reflects only what ran. A failure among the checks `--only` excluded is
+     * not the caller's question and must not fail the command.
      *
      * @param  Doctor  $doctor  The checks.
-     * @return int Zero when nothing failed, one when anything did.
+     * @return int Zero when nothing that ran failed, one when anything did.
      */
     public function handle(Doctor $doctor): int
     {
-        $diagnoses = $doctor->examine();
+        try {
+            $diagnoses = $doctor->examine($this->requestedChecks());
+        } catch (InvalidArgumentException $invalidArgumentException) {
+            // Exits non-zero rather than examining nothing and succeeding. A gate that silently
+            // stopped gating is indistinguishable from a healthy deployment.
+            $this->components->error($invalidArgumentException->getMessage());
+
+            return self::FAILURE;
+        }
 
         foreach ($diagnoses as $diagnosis) {
             $this->report($diagnosis);
@@ -69,6 +86,21 @@ final class DoctorCommand extends Command
         ));
 
         return self::FAILURE;
+    }
+
+    /**
+     * The checks named by `--only`, flattened.
+     *
+     * Delegated to `Argument::texts()`, which takes `mixed`. Reading the option directly passed
+     * locally and failed in CI -- the analyzer narrows `option()` differently depending on whether
+     * it could boot the application and read the signature, and a `foreach` written for one answer
+     * is refused by the other.
+     *
+     * @return list<string> The names asked for, or empty for all of them.
+     */
+    private function requestedChecks(): array
+    {
+        return Argument::texts($this->option('only'));
     }
 
     /**

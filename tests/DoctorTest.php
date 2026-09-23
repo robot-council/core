@@ -14,6 +14,7 @@ declare(strict_types=1);
  */
 
 use Illuminate\Contracts\Config\Repository;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -73,6 +74,24 @@ function diagnosis(string $check): Diagnosis
  * @param  string  $directory  Where the migrations are, for this call only.
  * @return Doctor The doctor.
  */
+/**
+ * The queries mentioning a table, as strings.
+ *
+ * Extracted so the filter is typed once rather than inline twice, where the analyzer cannot see
+ * that `$queried` holds strings.
+ *
+ * @param  list<string>  $queries  Every statement the listener saw.
+ * @param  string  $table  What to look for.
+ * @return list<string> The matching statements.
+ */
+function sqlMentioning(array $queries, string $table): array
+{
+    return array_values(array_filter(
+        $queries,
+        static fn (string $sql): bool => str_contains($sql, $table)
+    ));
+}
+
 function doctorFor(string $directory): Doctor
 {
     return new Doctor(
@@ -923,4 +942,119 @@ it('leads the stored-abilities finding with the count, not with a noun', functio
         ->update(['granted_abilities' => 'null']);
 
     expect(diagnosis('stored abilities')->detail)->toStartWith('1 installation(s) hold a value');
+});
+
+it('runs only the checks named, and nothing else', function (): void {
+    $this->migrateUsersTableWithPackageColumns();
+
+    $diagnoses = app(Doctor::class)->examine(['package migrations']);
+
+    expect($diagnoses)->toHaveCount(1)
+        ->and($diagnoses[0]->check)->toBe('package migrations');
+});
+
+it('accepts several names, and reports them once each', function (): void {
+    $this->migrateUsersTableWithPackageColumns();
+
+    $checks = array_map(
+        static fn (Diagnosis $diagnosis): string => $diagnosis->check,
+        app(Doctor::class)->examine(['package migrations', 'application timezone', 'package migrations'])
+    );
+
+    // Deduplicated, so a caller repeating a name does not pay for the check twice or read it twice.
+    expect($checks)->toBe(['package migrations', 'application timezone']);
+});
+
+it('refuses an unknown check rather than examining nothing', function (): void {
+    // **The failure mode this option most needs to avoid.** A typo that quietly ran no checks and
+    // exited zero would be a deploy gate that had stopped gating, and it would look exactly like a
+    // healthy deployment.
+    expect(fn (): array => app(Doctor::class)->examine(['pakcage migrations']))
+        ->toThrow(InvalidArgumentException::class, 'pakcage migrations');
+});
+
+it('names the valid checks when it refuses one, because the reader is looking at a failed deploy', function (): void {
+    expect(fn (): array => app(Doctor::class)->examine(['nonsense']))
+        ->toThrow(InvalidArgumentException::class, 'package migrations');
+});
+
+it('runs every check when none is named, so the option cannot change the default', function (): void {
+    $this->migrateUsersTableWithPackageColumns();
+
+    expect(app(Doctor::class)->examine())->toHaveSameSize(app(Doctor::class)->checks());
+});
+
+it('reports each check under the name it is keyed by', function (): void {
+    // **The drift this arrangement invites.** `checks()` keys the closures by name and each check
+    // builds its own `Diagnosis` with a name of its own, so the two can disagree -- and `--only`
+    // would then accept a name the output never shows, or refuse one it does. Asserted for every
+    // check rather than spot-checked.
+    $this->migrateUsersTableWithPackageColumns();
+
+    foreach (array_keys(app(Doctor::class)->checks()) as $name) {
+        expect(app(Doctor::class)->examine([$name])[0]->check)
+            ->toBe($name, sprintf('`%s` is keyed under one name and reports another', $name));
+    }
+});
+
+it('exits non-zero for an unknown check, and zero for a passing one', function (): void {
+    $this->migrateUsersTableWithPackageColumns();
+
+    $unknown = $this->artisan('robot-council:doctor', ['--only' => ['nonsense']]);
+
+    expect($unknown)->toBeInstanceOf(PendingCommand::class);
+
+    if ($unknown instanceof PendingCommand) {
+        $unknown->assertExitCode(1)->run();
+    }
+
+    $known = $this->artisan('robot-council:doctor', ['--only' => ['application timezone']]);
+
+    expect($known)->toBeInstanceOf(PendingCommand::class);
+
+    if ($known instanceof PendingCommand) {
+        $known->assertExitCode(0)->run();
+    }
+});
+
+it('takes a comma-separated list as well as a repeated option', function (): void {
+    $this->migrateUsersTableWithPackageColumns();
+
+    // Both shapes an operator reaches for. Guessing wrong costs a failed deploy to discover.
+    $both = $this->artisan('robot-council:doctor', ['--only' => ['application timezone,package migrations']]);
+
+    expect($both)->toBeInstanceOf(PendingCommand::class);
+
+    if ($both instanceof PendingCommand) {
+        $both->expectsOutputToContain('application timezone')
+            ->expectsOutputToContain('package migrations')
+            ->assertExitCode(0)
+            ->run();
+    }
+});
+
+it('does not execute a check that was excluded, rather than merely hiding it', function (): void {
+    // **Asserted on the queries, not on the output.** `--only` narrowing what is PRINTED while
+    // still running everything would look identical from the outside, and would make a deploy gate
+    // pay for eleven checks to ask one question. Several of them read the database, so the queries
+    // are where the difference is visible.
+    $this->migrateUsersTableWithPackageColumns();
+
+    $queried = [];
+
+    DB::listen(function (QueryExecuted $query) use (&$queried): void {
+        $queried[] = $query->sql;
+    });
+
+    app(Doctor::class)->examine(['application timezone']);
+
+    expect(sqlMentioning($queried, 'jobs'))->toBeEmpty('the queue check ran although it was not asked for');
+
+    // The control: the same listener DOES see the queue check when it is asked for, so an empty
+    // result above is an absence rather than a listener that was never attached.
+    $queried = [];
+
+    app(Doctor::class)->examine(['queue worker']);
+
+    expect(sqlMentioning($queried, 'jobs'))->not->toBeEmpty('the listener saw nothing even when the queue check ran');
 });
