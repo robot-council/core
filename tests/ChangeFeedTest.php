@@ -59,7 +59,7 @@ it('names both the owner and the admin on an administrative event', function ():
     // every assertion in this file was about narration and session events, so nothing caught it.
     //
     // **Asserted in ORDER, on one row, rather than as two page-wide substrings.** `assertSee` is a
-    // whole-page check: `beforeEach` starts a session, whose `session.enrolled` row already names
+    // whole-page check: `beforeEach` starts a session, whose `session.started` row already names
     // `octodev`, so a bare `assertSee('octodev')` here would be satisfied by that row whatever the
     // administrative row said. `latest()` orders newest first, so the administrative row renders
     // above it and the sequence pins both names to that row.
