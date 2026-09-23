@@ -69,6 +69,24 @@ it('reports a delete that did not answer with a count', function (): void {
         ->and(Tokens::deleted('3'))->toBe(0);
 });
 
+it('returns a list of abilities after dropping one from the middle', function (): void {
+    // **Two `Unwrap*` mutants survived here**, and they surfaced only because #172 started calling
+    // into this class. `array_filter` preserves keys, so without `array_values` a token whose
+    // abilities column holds a non-string in the middle comes back keyed `{0, 2}` -- which
+    // `json_encode` writes as an OBJECT, on a value that reaches an agent as `abilities`.
+    //
+    // Driven through a real model rather than a stub, because `Tokens::abilities()` narrows on
+    // `instanceof Model` before it reads the column.
+    $token = new PersonalAccessToken;
+    $token->setRawAttributes(['abilities' => json_encode(['tasks:create', null, 'events:post'])]);
+
+    $abilities = Tokens::abilities($token);
+
+    expect($abilities)->toBe(['tasks:create', 'events:post'])
+        // The keys, which `toBe` already compares, said as bytes too: an object here is the defect.
+        ->and(json_encode($abilities))->toBe('["tasks:create","events:post"]');
+});
+
 it('refuses to serve a route whose principal middleware never ran', function (): void {
     $request = Request::create('/robot-council/api/sessions', 'POST');
 
