@@ -102,6 +102,16 @@ it('serves a stylesheet that carries the utilities the pages use, and not the on
         // the offset that keeps a jumped-to panel clear of the sticky header
         'scroll-mt-20',
 
+        // the totals row #185 added. `stats-vertical` is the modifier that stacks it on a narrow
+        // screen, so a build that dropped it would render three tiles side by side at phone width.
+        'stats-vertical', 'stat-title', 'stat-value', 'stat-desc', 'text-3xl',
+
+        // And the modifier that unstacks it again at `sm`. Escaped, because that is how the class
+        // appears in the artifact -- a literal `sm:stats-horizontal` matches nothing, so the guard
+        // would pass whether or not the rule shipped. `stats-vertical` alone guards only one
+        // direction: drop this one and the row stacks at EVERY width with nothing reporting it.
+        'sm\\:stats-horizontal',
+
         // every panel's frame
         'card', 'card-body', 'card-title', 'table', 'table-sm', 'badge', 'badge-sm',
 
@@ -157,9 +167,10 @@ it('starts no session for the stylesheet', function (): void {
 });
 
 it('refuses a poll interval a host could not have meant', function (mixed $configured, int $expected): void {
-    // The value becomes a `wire:poll` interval. A zero asks the browser to poll as fast as it can,
-    // and a non-integer renders an attribute the browser ignores, leaving a page that never
-    // refreshes and never says so.
+    // The value becomes a `wire:poll` interval. A non-integer renders an attribute the browser
+    // ignores, leaving a page that never refreshes and never says so; a zero takes Livewire's own
+    // two-second default, which is five times what this host asked for and multiplies every panel's
+    // per-render cost by the same ratio.
     $this->rebootWith('robot-council.dashboard.poll_seconds', $configured);
 
     $component = new Dashboard;
@@ -217,8 +228,9 @@ it("keeps the allowlist gate on Livewire's update endpoint", function (): void {
 
 it('will not let a client set the polling interval', function (): void {
     // `mount()` runs once; every later request goes through `hydrate()`, and `updateProperty()`
-    // accepts any public property that is not `#[Locked]`. A client setting this to zero would ask
-    // the browser to poll as fast as it can.
+    // accepts any public property that is not `#[Locked]`. A client setting this low multiplies the
+    // fleet's query load by the ratio -- one second where a host configured five is five times the
+    // cost of every panel on the page.
     Livewire::test(Dashboard::class)
         ->assertSet('pollSeconds', 5)
         ->set('pollSeconds', 0);
