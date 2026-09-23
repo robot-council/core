@@ -540,6 +540,86 @@ it('allows only a URL the server built from a literal', function (): void {
         ->and(urlAttributeInterpolations('<form action="{{ route(\'robot-council.enroll.deny\') }}">'))->toBeEmpty();
 });
 
+it('reports a value concatenated after the URL the server built', function (): void {
+    // **The gap #210 recorded.** The admit-rule was anchored only at the start, so an expression
+    // that merely BEGAN with a helper call was admitted whole -- and half of this one is not built
+    // by the server, which is exactly what the guard's failure message claims to be about.
+    //
+    // Less dangerous than a bare variable, and still worth refusing: `route()` fixes the scheme and
+    // host, and `{{ }}` escapes, so no `javascript:` payload and no attribute breakout. What an
+    // appended value can add is a path, a query or a fragment, on pages that render another
+    // developer's agent-supplied strings.
+    expect(urlAttributeInterpolations('<a href="{{ route(\'x\').$section }}">go</a>'))
+        ->toBe(['href="route(\'x\').$section"'])
+        ->and(urlAttributeInterpolations('<a href="{{ route(\'x\') . $section }}">go</a>'))
+        ->toBe(['href="route(\'x\') . $section"']);
+
+    // Concatenation that ends in another call, which an "ends with a parenthesis" rule would admit
+    expect(urlAttributeInterpolations('<a href="{{ route(\'x\').foo($y) }}">go</a>'))
+        ->toBe(['href="route(\'x\').foo($y)"']);
+
+    // And one with a literal in the middle, so the variable is not at either end
+    expect(urlAttributeInterpolations('<a href="{{ route(\'x\').\'#\'.$id }}">go</a>'))
+        ->toBe(['href="route(\'x\').\'#\'.$id"']);
+});
+
+it('keeps admitting a server-built URL with a static suffix, and one whose arguments nest', function (): void {
+    // **The half the sidebar depends on.** A fragment after the interpolation is attribute text
+    // rather than part of the expression, so the detector never sees it -- and must not start
+    // reporting it, because that is the shape a link to a section on the page it is already on
+    // takes.
+    expect(urlAttributeInterpolations('<a href="{{ route(\'x\') }}#section">go</a>'))->toBeEmpty();
+
+    // A route with parameters is one call, not a concatenation. The recursive group is what tells
+    // them apart: a non-recursive pattern demanding the expression end at a parenthesis would admit
+    // `route('x').foo($y)` above and reject this.
+    expect(urlAttributeInterpolations('<a href="{{ route(\'x\', [\'id\' => $id]) }}">go</a>'))->toBeEmpty()
+        ->and(urlAttributeInterpolations('<a href="{{ route(\'x\', [\'a\' => max(1, $b)]) }}">go</a>'))->toBeEmpty();
+
+    // The detector's own control, in the same run: a bare variable is still reported, so a rewrite
+    // that quietly stopped reporting anything cannot pass this file.
+    expect(urlAttributeInterpolations('<a href="{{ $section }}">go</a>'))->toBe(['href="$section"']);
+});
+
+it('refuses a value concatenated INSIDE a pass-through helper, which a literal first argument hides', function (): void {
+    // **The same defect as the one above, moved three characters left.** A rule that checked only
+    // the first character after the parenthesis saw a quote and admitted the whole call, so
+    // `url('' . $x)` passed while `url($x)` was reported -- and the two return the same string.
+    //
+    // The worked case is this package's own: `Support\ProjectId::PATTERN` admits `/`, and the test
+    // above asserts `//evil.example/steal` matches it. `UrlGenerator::to()` returns its argument
+    // verbatim when `isValidUrl()` accepts it, and that accepts anything opening `//`. So
+    // `url('/' . $session->project_id)` renders an off-site link built from an agent-supplied
+    // string, through a helper whose name is on the allowlist.
+    expect(urlAttributeInterpolations('<a href="{{ url(\'/\' . $project) }}">go</a>'))
+        ->toBe(['href="url(\'/\' . $project)"'])
+        ->and(urlAttributeInterpolations('<img src="{{ asset(\'\' . $agentValue) }}">'))
+        ->toBe(['src="asset(\'\' . $agentValue)"'])
+        ->and(urlAttributeInterpolations('<a href="{{ secure_url(\'\' . $agentValue) }}">go</a>'))
+        ->toBe(['href="secure_url(\'\' . $agentValue)"']);
+
+    // A single quoted literal is the only argument these three accept, and it is every use the
+    // package has
+    expect(urlAttributeInterpolations('<a href="{{ url(\'/docs\') }}">go</a>'))->toBeEmpty()
+        ->and(urlAttributeInterpolations('<img src="{{ asset(\'x.png\') }}">'))->toBeEmpty();
+
+    // `route()` and `action()` keep taking parameters, because they do not pass an argument
+    // through: route parameters are `rawurlencode`d and the scheme is the application's.
+    expect(urlAttributeInterpolations('<a href="{{ route(\'x\', [\'id\' => $id]) }}">go</a>'))->toBeEmpty();
+});
+
+it('refuses a parenthesis inside a string argument, which is a deliberate false positive', function (): void {
+    // The recursion counts parentheses **blind to string context**, so a `)` inside a literal shifts
+    // the count and this one call reads as unbalanced. Recorded rather than left for somebody to
+    // find and read as a bug: the refusal is the safe direction, nothing in the package writes it,
+    // and the alternative is a PHP tokenizer in a test helper.
+    expect(urlAttributeInterpolations('<a href="{{ route(\'x\', [\'q\' => \')\']) }}">go</a>'))
+        ->toBe(['href="route(\'x\', [\'q\' => \')\'])"']);
+
+    // Balanced pairs inside a literal are counted correctly and still admitted
+    expect(urlAttributeInterpolations('<a href="{{ url(\'/docs/Foo_(bar)\') }}">go</a>'))->toBeEmpty();
+});
+
 it('sees an interpolation that contains a quote, or spans lines, or sits in a widened attribute', function (): void {
     // A double quote inside the expression is ordinary Blade. Capturing the attribute value as
     // `[^"]*` ended it at that quote, found no complete interpolation, and then consumed past the
