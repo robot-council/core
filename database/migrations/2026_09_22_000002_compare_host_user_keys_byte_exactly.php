@@ -38,10 +38,17 @@ use Illuminate\Support\Facades\Schema;
  * already run on a deployment. Each column is guarded on what the schema reports, because the
  * three populations -- installed before this, installed after it, and rolled back -- all run it.
  *
- * **`robot_council_github_identities.user_id` is the seventh key column and is not handled here.**
- * Its create migration carries no date prefix, so it sorts after every `2026_*` file and runs
- * last -- this one would find no table and skip it, silently. `fix_robot_council_github_identity_collation.php`
- * is named to sort after it and does that column.
+ * **`robot_council_github_identities.user_id` is handled here since #132**, and was not when this
+ * shipped. Its create migration carried no date prefix, so it sorted after every `2026_*` file and
+ * ran last -- this one found no table and skipped the column **silently**, which is how an
+ * access-control change shipped covering six of seven. The workaround was a second unprefixed file
+ * named to sort after it; #132 dated the create instead, so the column is in the list below like
+ * the rest and the workaround is gone.
+ *
+ * **A host that already ran both keeps its collation and re-runs nothing.** This migration's row
+ * is already in `migrations`, so adding a column to the list does not re-apply it -- the workaround
+ * had already collated that column on exactly those hosts. A fresh install reaches this after the
+ * dated create, so the guard finds the table and does it here.
  */
 return new class extends Migration
 {
@@ -62,6 +69,7 @@ return new class extends Migration
             ['table' => 'robot_council_events', 'column' => 'user_id', 'nullable' => true],
             ['table' => 'robot_council_tasks', 'column' => 'user_id', 'nullable' => false],
             ['table' => 'robot_council_device_codes', 'column' => 'decided_by', 'nullable' => true],
+            ['table' => 'robot_council_github_identities', 'column' => 'user_id', 'nullable' => false],
         ];
     }
 
