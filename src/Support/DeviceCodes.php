@@ -206,7 +206,7 @@ final class DeviceCodes
             ->whereNotNull('approved_at')
             ->whereNull('denied_at')
             ->whereNull('consumed_at')
-            ->where('expires_at', '>', Carbon::now())
+            ->where('expires_at', '>', PresenceClock::now())
             ->update(['consumed_at' => Carbon::now()]);
 
         if ($claimed === 1) {
@@ -239,7 +239,7 @@ final class DeviceCodes
      */
     public function prune(): int
     {
-        $deleted = DeviceCode::query()->where('expires_at', '<=', Carbon::now())->delete();
+        $deleted = DeviceCode::query()->where('expires_at', '<=', PresenceClock::now())->delete();
 
         return \is_int($deleted) ? $deleted : 0;
     }
@@ -251,7 +251,7 @@ final class DeviceCodes
      */
     private function live(): Builder
     {
-        return DeviceCode::query()->where('expires_at', '>', Carbon::now());
+        return DeviceCode::query()->where('expires_at', '>', PresenceClock::now());
     }
 
     /**
