@@ -3,41 +3,73 @@
     component -- Livewire spoofs an already-rendered child into a placeholder -- so a poll on this
     element would be a round trip that changes nothing.
 
-    Each panel is wrapped in a section the sidebar's jump links target. `scroll-mt-20` keeps the
-    heading clear of the sticky header, which would otherwise cover whatever was jumped to.
+    **A section that is not selected is not rendered, rather than hidden.** A panel hidden with a
+    class still runs every query it would have run, and what this page offers is a lever on cost
+    rather than on clutter. The decision on #187 kept the console one page for the readings that
+    cross panels; this is the half of that decision that gives the cost back.
+
+    Each mounted panel keeps a `wire:key`, so Livewire morphs the right element when a sibling
+    appears or goes rather than re-using whichever happened to sit in that position.
 --}}
 <div class="grid gap-4">
     {{--
         Above the panels, and outside any of them: the totals are counting queries, so a tile cannot
-        report a page bound the way a `count()` over a panel's rows would.
+        report a page bound the way a `count()` over a panel's rows would. It is not selectable --
+        three aggregates are what this page costs to answer "is anything happening at all", and a
+        developer who wanted none of the panels still wants that.
     --}}
     <livewire:robot-council-fleet-totals :poll-seconds="$pollSeconds" />
 
-    <section id="robot-council-presence" class="scroll-mt-20">
-        <livewire:robot-council-fleet-presence :poll-seconds="$pollSeconds" />
-    </section>
+    <div class="flex flex-wrap items-center gap-2">
+        <span class="text-sm opacity-70">Showing</span>
 
-    <section id="robot-council-queue" class="scroll-mt-20">
-        <livewire:robot-council-task-board :poll-seconds="$pollSeconds" />
-    </section>
+        <button type="button" wire:click="toggle('presence')"
+            @class(['btn btn-xs', 'btn-primary' => \in_array('presence', $showing, true), 'btn-ghost' => ! \in_array('presence', $showing, true)])>Presence</button>
 
-    <section id="robot-council-change-feed" class="scroll-mt-20">
-        <livewire:robot-council-change-feed :poll-seconds="$pollSeconds" />
-    </section>
+        <button type="button" wire:click="toggle('queue')"
+            @class(['btn btn-xs', 'btn-primary' => \in_array('queue', $showing, true), 'btn-ghost' => ! \in_array('queue', $showing, true)])>Queue</button>
+
+        <button type="button" wire:click="toggle('feed')"
+            @class(['btn btn-xs', 'btn-primary' => \in_array('feed', $showing, true), 'btn-ghost' => ! \in_array('feed', $showing, true)])>Change feed</button>
+
+        {{--
+            Offered only to an admin, decided in `Support\DashboardSections::offered()` rather than
+            here, so the control and the mount below cannot disagree about who may have it. The
+            component authorizes its own mount, render and every action regardless.
+        --}}
+        @if (\in_array('administration', $offered, true))
+            <button type="button" wire:click="toggle('administration')"
+                @class(['btn btn-xs', 'btn-primary' => \in_array('administration', $showing, true), 'btn-ghost' => ! \in_array('administration', $showing, true)])>Administration</button>
+        @endif
+    </div>
+
+    @if (\in_array('presence', $showing, true))
+        <section id="robot-council-presence" class="scroll-mt-20">
+            <livewire:robot-council-fleet-presence :poll-seconds="$pollSeconds" wire:key="section-presence" />
+        </section>
+    @endif
+
+    @if (\in_array('queue', $showing, true))
+        <section id="robot-council-queue" class="scroll-mt-20">
+            <livewire:robot-council-task-board :poll-seconds="$pollSeconds" wire:key="section-queue" />
+        </section>
+    @endif
+
+    @if (\in_array('feed', $showing, true))
+        <section id="robot-council-change-feed" class="scroll-mt-20">
+            <livewire:robot-council-change-feed :poll-seconds="$pollSeconds" wire:key="section-feed" />
+        </section>
+    @endif
 
     {{--
-        Mounted only for an admin, so a developer who may see the dashboard never renders a panel
-        that would refuse them. This decides what is *shown*; the component authorizes every action
-        and its own render regardless, because a control that is not drawn is not an authorization
-        boundary.
-
-        `$isAdmin` is resolved in `Livewire\Dashboard` rather than asked for with `@can`, which
-        would resolve the host's default guard instead of `robot-council.auth.guard` and hide the
-        panel from a real admin on a host where those differ.
+        `$showing` already excludes this for anyone who is not an admin, because
+        `DashboardSections::from()` filters against the offered list rather than the full one. The
+        `@if` is on the selection alone for that reason: two conditions here would be two places to
+        get the same rule right.
     --}}
-    @if ($isAdmin)
+    @if (\in_array('administration', $showing, true))
         <section id="robot-council-administration" class="scroll-mt-20">
-            <livewire:robot-council-administration :poll-seconds="$pollSeconds" />
+            <livewire:robot-council-administration :poll-seconds="$pollSeconds" wire:key="section-administration" />
         </section>
     @endif
 </div>
