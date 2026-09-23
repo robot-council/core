@@ -35,7 +35,7 @@
                             <tr>
                                 <th>Developer</th>
                                 <th>Machine</th>
-                                <th>Project</th>
+                                <th>Working in</th>
                                 <th>Role</th>
                                 <th>Status</th>
                                 <th>Last seen</th>
@@ -51,13 +51,26 @@
                                         <div class="text-xs opacity-60">{{ $session['harness'] ?? '' }}</div>
                                     </td>
 
-                                    {{-- What the session called its checkout, which is the only
-                                         thing telling two worktrees on one machine and harness
-                                         apart. Absent is shown as absent: a session that started
-                                         without one is still listed, and no name is invented for
-                                         it. Escaped like every agent-supplied string here. --}}
+                                    {{-- Where the session is working: the repository, and beneath it
+                                         the checkout within it. Two lines rather than one label,
+                                         the same shape the machine column uses for its harness, and
+                                         the reason #220 split the field -- the location is what
+                                         tells two worktrees on one machine and harness apart, and
+                                         the repository is what a reader groups by.
+
+                                         The legacy `project_id` is the fallback rather than a third
+                                         line: a session that predates the split, or one whose label
+                                         did not fit the shape, still says where it is. Absent is
+                                         shown as absent, and every one of the three is
+                                         agent-supplied and escaped. --}}
                                     <td class="text-xs">
-                                        @if (($session['project_id'] ?? null) === null)
+                                        @if (($session['repository'] ?? null) !== null)
+                                            <div>{{ $session['repository'] }}</div>
+
+                                            @if (($session['work_location'] ?? null) !== null)
+                                                <div class="opacity-60">{{ $session['work_location'] }}</div>
+                                            @endif
+                                        @elseif (($session['project_id'] ?? null) === null)
                                             {{-- Dimmer than this measured 3.38:1 on `base-100` in
                                                  the light theme, under the 4.5:1 this text needs at
                                                  its size; this measures 4.64:1 and is still fainter

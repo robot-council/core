@@ -41,6 +41,8 @@ use RobotCouncil\Support\PresenceTimestamp;
  * @property Role $role
  * @property Carbon $last_seen_at
  * @property string|null $project_id
+ * @property string|null $repository
+ * @property string|null $work_location
  * @property int $feed_cursor
  * @property-read Installation $installation
  *
@@ -53,6 +55,8 @@ use RobotCouncil\Support\PresenceTimestamp;
     'role',
     'last_seen_at',
     'project_id',
+    'repository',
+    'work_location',
 ])]
 #[Table(name: 'robot_council_agent_sessions')]
 final class AgentSession extends Model implements AuthenticatableContract

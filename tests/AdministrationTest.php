@@ -96,6 +96,29 @@ it("shows a session's role beside the installation's abilities, because they ans
         ->assertSeeHtml('<span class="badge badge-sm badge-outline">'.Role::Build->value.'</span>');
 });
 
+it("shows where each of an installation's sessions is working", function (): void {
+    [$installation, $session] = installationWithSession($this, $this->developer);
+
+    $session->forceFill(['repository' => 'robot-council/core', 'work_location' => 'ci'])->save();
+
+    Livewire::actingAs($this->admin)
+        ->test(Administration::class)
+        ->assertSee('robot-council/core')
+        ->assertSee('ci');
+});
+
+it('escapes a hostile repository on the administration panel', function (): void {
+    [, $session] = installationWithSession($this, $this->developer);
+
+    // Past the endpoint's validation, exactly as the presence panel's guard does it
+    $session->forceFill(['repository' => '<script>alert(1)</script>'])->save();
+
+    $html = Livewire::actingAs($this->admin)->test(Administration::class)->html();
+
+    expect($html)->toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
+        ->not->toContain('<script>alert(1)</script>');
+});
+
 it('grants the coordinator ability without promoting a session already in flight', function (): void {
     [$installation, $session] = installationWithSession($this, $this->developer);
 

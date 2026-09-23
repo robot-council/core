@@ -181,6 +181,8 @@ final class InstallationList
                 // Agent-supplied, charset-limited at the edge by `ProjectId`, and escaped by the
                 // view like every other string that reached this package from a machine
                 'project_id' => $session->project_id,
+                'repository' => $session->repository,
+                'work_location' => $session->work_location,
             ])->all()),
 
             // Said rather than left to be inferred from the length of the list. A truncated list
