@@ -403,7 +403,24 @@ function urlAttributeInterpolations(string $template): array
     // an allowlist keyed on the name alone admits an off-site link or a remote script load.
     // `route()` and `action()` are safe with any argument, because route parameters are
     // `rawurlencode`d and the scheme is the application's, but requiring the literal costs nothing.
-    $serverBuilt = '/^\s*(?:route|url|asset|secure_url|action)\s*\(\s*[\'"]/';
+    $literalFirstArgument = '/^\s*(?:route|url|asset|secure_url|action)\s*\(\s*[\'"]/';
+
+    // **And the call has to be the WHOLE expression, which the rule above cannot say.** Anchored
+    // only at the start, it admitted anything that merely began with a helper call -- so
+    // `{{ route('x').$section }}` passed, and half of that expression is not built by the server.
+    // The guard's own failure message says "Interpolations in URL attributes that the server did
+    // not build", and it was saying nothing about the appended half (#210).
+    //
+    // The recursive group is what makes this usable rather than merely strict: `(?1)` walks
+    // balanced parentheses, so a legitimate argument list keeps its own calls and arrays --
+    // `route('x', ['a' => max(1, $b)])` is one call and stays admitted -- while anything after the
+    // closing parenthesis leaves text the `$` anchor refuses. That distinguishes an argument from a
+    // concatenation, which a non-recursive pattern cannot do.
+    //
+    // A static suffix outside the interpolation is unaffected and still admitted:
+    // `href="{{ route('x') }}#section"` puts the fragment in the attribute rather than the
+    // expression, so the detector never sees it.
+    $wholeExpression = '/^\s*(?:route|url|asset|secure_url|action)\s*(\((?:[^()]++|(?1))*\))\s*$/';
 
     $offenders = [];
 
@@ -420,7 +437,8 @@ function urlAttributeInterpolations(string $template): array
                 ? trim($interpolation[2])
                 : trim($interpolation[1] ?? '');
 
-            if (preg_match($serverBuilt, $expression) === 1) {
+            if (preg_match($literalFirstArgument, $expression) === 1
+                && preg_match($wholeExpression, $expression) === 1) {
                 continue;
             }
 
