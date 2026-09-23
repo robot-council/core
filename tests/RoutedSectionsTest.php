@@ -15,6 +15,9 @@ declare(strict_types=1);
 
 use Illuminate\Foundation\Auth\User;
 use RobotCouncil\Access\Ability;
+use RobotCouncil\Models\AgentSession;
+use RobotCouncil\Models\Installation;
+use RobotCouncil\Models\Task;
 use RobotCouncil\RobotCouncilServiceProvider;
 use RobotCouncil\Support\Locks;
 use RobotCouncil\Support\PollInterval;
@@ -176,3 +179,54 @@ it('mounts every section under the configured web prefix', function (): void {
         ->and(route('robot-council.feed', absolute: false))->toBe('/council/dashboard/feed')
         ->and(route('robot-council.administration', absolute: false))->toBe('/council/dashboard/administration');
 });
+
+it('takes a scope filter from the query string on the page that owns it', function (string $section, string $query, ?string $appears, ?string $vanishes): void {
+    $developer = signInWithAFleet($this);
+
+    // A second installation and a second session, each in the state every panel's default scope
+    // leaves out: revoked, gone, and a task that is finished.
+    $retired = $this->approveInstallation($developer, [Ability::TasksCreate->value], machineLabel: 'retired-box');
+
+    [$goneSession] = $this->startAgentSession($retired);
+
+    AgentSession::query()->whereKey($goneSession->getKey())->update(['status' => 'gone']);
+    Installation::query()->whereKey($retired->getKey())->update(['revoked_at' => now()]);
+
+    Task::query()->where('title', 'Ship it')->update(['title' => 'Open work']);
+
+    $this->service(Tasks::class)->create($goneSession, ['title' => 'Finished work'], withCoordinator: false);
+    Task::query()->where('title', 'Finished work')->update(['status' => 'done']);
+
+    // A lock nobody holds any more, which the locks list leaves out until asked for all of them
+    $this->service(Locks::class)->acquire($goneSession, 'migrate', 60, false);
+    $this->service(Locks::class)->release($goneSession, 'migrate', false);
+
+    $plain = $this->get(route('robot-council.'.$section))->assertOk();
+    $filtered = $this->get(route('robot-council.'.$section).'?'.$query)->assertOk();
+
+    // **The criterion.** Each filter is a `#[Url]` property Livewire reads from the query string.
+    // Mounted as a child of the dashboard a panel shared one query string with three others;
+    // mounted by a route it owns the whole of it, and these assert the read still happens. Both
+    // directions are here because a filter that widens and one that narrows fail differently: a
+    // widening filter that never ran shows too little, a narrowing one shows too much.
+    if ($appears === null && $vanishes === null) {
+        throw new RuntimeException('A row asserting neither direction would pass with the filter deleted.');
+    }
+
+    if ($appears !== null) {
+        $plain->assertDontSee($appears);
+        $filtered->assertSee($appears);
+    }
+
+    if ($vanishes !== null) {
+        $plain->assertSee($vanishes);
+        $filtered->assertDontSee($vanishes);
+    }
+})->with([
+    // All four `#[Url]` filters the routable panels carry. Presence defaults to every session and
+    // to live locks only, so its two filters are asserted in opposite directions.
+    'presence, narrowed to live sessions' => ['presence', 'sessions=live', null, 'retired-box'],
+    'presence, widened to every lock' => ['presence', 'locks=all', 'migrate', null],
+    'the queue, narrowed to what is done' => ['queue', 'status=done', null, 'Open work'],
+    'administration, widened to every installation' => ['administration', 'installations=all', 'retired-box', null],
+]);
