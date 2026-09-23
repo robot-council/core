@@ -26,6 +26,7 @@ declare(strict_types=1);
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use RobotCouncil\Models\DeviceCode;
+use RobotCouncil\Support\Credentials;
 use RobotCouncil\Support\DeviceCodeError;
 use RobotCouncil\Support\DeviceCodes;
 use RobotCouncil\Support\PresenceClock;
@@ -46,8 +47,15 @@ it('writes an expiry whose digits do not follow the host clock', function (strin
 
     // **The RAW column, never the hydrated model.** `PresenceTimestamp::get()` labels every value
     // it returns with the presence clock unconditionally, so asking the model for its timezone
-    // answers `UTC` whatever clock wrote the row -- an assertion that passes with the cast in place
-    // and the write reverted. What the defect changes is the digits stored.
+    // answers `UTC` whatever clock wrote the row. What the PRE-#160 defect changed is the digits
+    // stored, and this reads those.
+    //
+    // **It discriminates neither half of the fix on its own, which is worth naming rather than
+    // leaving for somebody to discover.** Revert the write alone and `PresenceTimestamp::set()`
+    // still converts to UTC; revert the cast alone and `setAttribute()` takes the date branch,
+    // whose `fromDateTime()` preserves the Carbon's own zone -- already UTC. Both give these same
+    // digits. The write is controlled by the label assertion at the end of this file and the cast
+    // by the read-back test above it.
     $stored = DB::table('robot_council_device_codes')->value('expires_at');
 
     expect($stored)->toBeString()
@@ -172,6 +180,33 @@ it('reads an expiry back on the same clock it was written on', function (): void
     expect($code->expires_at->getTimestamp())->toBe($writtenAt->copy()->addSeconds(600)->getTimestamp())
         ->and($code->expires_at->getTimezone()->getName())->toBe(PresenceClock::ZONE)
         ->and($code->expires_at->isPast())->toBeFalse();
+
+    date_default_timezone_set('UTC');
+});
+
+it('hands back an expiry already labelled with the clock it belongs to', function (): void {
+    // **The comment on `deviceCodeExpiry()` used to say no test could tell this from
+    // `Carbon::now()`. That was wrong, and the refuting pattern was sixty lines away in this same
+    // suite**: `PresenceClockTest` asserts exactly this on `staleCutoff()` and `goneCutoff()`, the
+    // two structurally identical siblings.
+    //
+    // The instants are the same either way -- "now plus the TTL" -- so the STORED digits cannot
+    // discriminate, which is the narrow claim that was true. The label can, and it is not a
+    // tautology: it is the guarantee the method's return type advertises, and it is what a
+    // non-Eloquent consumer would depend on. `Support\Locks` is already one, writing through the
+    // query builder where the label decides the digits.
+    config()->set('app.timezone', 'Asia/Kolkata');
+    date_default_timezone_set('Asia/Kolkata');
+
+    $this->freezeTime();
+
+    $credentials = app(Credentials::class);
+
+    expect($credentials->deviceCodeExpiry()->getTimezone()->getName())->toBe(PresenceClock::ZONE)
+        // And it is the same instant the application clock would have named, so the label is the
+        // only thing that moved -- a fix that shifted the moment would be a different defect.
+        ->and($credentials->deviceCodeExpiry()->getTimestamp())
+        ->toBe(Carbon::now()->addSeconds(600)->getTimestamp());
 
     date_default_timezone_set('UTC');
 });

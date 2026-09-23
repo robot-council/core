@@ -98,19 +98,17 @@ final class Credentials
      */
     public function deviceCodeExpiry(): Carbon
     {
-        // **No test can tell this apart from `Carbon::now()`, and the reason is worth knowing
-        // before somebody "proves" it either way with a passing suite.** `DeviceCodes::issue()`
-        // writes through Eloquent's `create()`, so `Models\DeviceCode`'s `PresenceTimestamp` cast
-        // runs, and `set()` converts whatever Carbon it is handed to UTC before formatting. Both
-        // forms name the same instant -- "now, plus the TTL" -- so both store identical digits.
-        // Measured: reverting this line alone leaves all eight of `DeviceCodeClockTest` green.
+        // **The stored digits cannot tell this apart from `Carbon::now()`; the returned object
+        // can.** `DeviceCodes::issue()` writes through Eloquent, so `Models\DeviceCode`'s
+        // `PresenceTimestamp` cast converts whatever Carbon it is handed to UTC before formatting,
+        // and both forms name the same instant -- so a test that reads the column is blind to the
+        // difference. The label is not, and it is the guarantee this return type advertises:
+        // `DeviceCodeClockTest` asserts it, exactly as `PresenceClockTest` already did for
+        // `staleCutoff()` and `goneCutoff()`.
         //
-        // It reads `PresenceClock` regardless, because the equivalence is a property of the cast
-        // rather than of this method. `Support\Locks` writes through the query builder, which
-        // applies no cast and formats the Carbon in its own zone -- so the same line there decides
-        // the digits. A future refactor to an `insert()` here would make this one decide them too,
-        // silently.
-        // @pest-mutate-ignore
+        // An earlier draft of this comment claimed no test could tell the two apart and annotated
+        // the line as an equivalent mutant. Both were wrong, and the refuting pattern was sixty
+        // lines away in the same suite.
         return PresenceClock::now()->addSeconds($this->deviceCodeTtlSeconds());
     }
 

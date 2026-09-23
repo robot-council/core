@@ -36,6 +36,24 @@ use RobotCouncil\Support\PresenceTimestamp;
  * @property Carbon|null $consumed_at
  * @property string|null $decided_by
  * @property Carbon $created_at
+ *
+ * **`expires_at` is on `Support\PresenceClock`** (#160), which means a host that is not on UTC
+ * sees its outstanding codes reinterpreted once, at the upgrade. Rows written before it carry
+ * wall-clock digits and are read as UTC afterwards.
+ *
+ * **East of UTC that is the unsafe direction, and the window is the host's offset rather than the
+ * TTL.** A code written at `+12` stored digits twelve hours ahead of the instant it meant, so after
+ * the upgrade it reads as expiring twelve hours later than it should -- and the hourly
+ * `robot-council:prune-device-codes` will not remove it either, because it makes the same
+ * comparison. An approvable enrollment code outliving its ten-minute ceiling is what
+ * `Support\Credentials`' clamp exists to prevent, so the reinterpretation reopens exactly that for
+ * one offset's worth of time. West of UTC the outstanding codes expire at once instead, which costs
+ * a developer a retry.
+ *
+ * `Models\Lock` carries the same note for the same reason. `Support\PresenceClock`'s remark that
+ * the shift is in the safe direction is about **presence**, where a row reading newer only delays a
+ * sweep; it does not hold here. A host that cannot drain its outstanding codes should delete them
+ * by hand at the upgrade, which is one statement against a table nothing else depends on.
  */
 #[Fillable([
     'device_code_hash',
@@ -65,14 +83,14 @@ final class DeviceCode extends Model
             'granted_abilities' => 'array',
             // Not `datetime`: that hydrates in the application's timezone, while
             // `Support\Credentials::deviceCodeExpiry()` writes this on `Support\PresenceClock` and
-            // `Support\DeviceCodes` compares it there. `DeviceCodes::claim()` also re-reads the row
+            // `Support\DeviceCodes` compares it there. `DeviceCodes::consume()` also re-reads the row
             // and asks `expires_at->isPast()` in PHP, so a value relabelled on hydration would be
             // wrong in the path that decides whether an enrollment code still works (#160).
             'expires_at' => PresenceTimestamp::class,
 
             // **The other three stay on the application clock, and the difference is that nothing
             // compares them.** Each is read only as null-or-not -- `hasBeenDecided()`, the
-            // `consumed_at` check in `claim()` -- so no clock can make one decide wrongly. They are
+            // `consumed_at` check in `consume()` -- so no clock can make one decide wrongly. They are
             // also `timestamp` columns rather than `dateTime`, which MySQL converts from the
             // connection's time zone on write and back on read, so their stored digits are decided
             // by the connection rather than by whichever clock handed over the value. Putting a
@@ -81,6 +99,17 @@ final class DeviceCode extends Model
             'approved_at' => 'datetime',
             'denied_at' => 'datetime',
             'consumed_at' => 'datetime',
+
+            // **`created_at` and `updated_at` are not cast either, and casting them is a trap
+            // rather than the tidy extension it looks like** -- the one #149 was bitten by.
+            // `HasAttributes::getDates()` returns both whenever a model uses timestamps, whatever
+            // its casts, and `setAttribute()` tests `isDateAttribute()` in an `elseif` chain that
+            // runs *before* the class-cast branch, so an assignment is first flattened by
+            // `fromDateTime()` into naive digits in the Carbon's own zone and then re-parsed by
+            // `PresenceTimestamp::set()` in the application's. The two cancel only where the zones
+            // agree. It matters more here than on `Models\Lock`, where nothing hydrates either
+            // column: `ageInSeconds()` below reads `created_at`, and the enrollment page renders
+            // it.
         ];
     }
 

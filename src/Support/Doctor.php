@@ -405,8 +405,8 @@ final class Doctor
         return Diagnosis::failed(
             'application timezone',
             sprintf(
-                'app.timezone is `%s`. Presence, lock leases and device codes are unaffected, but a '
-                .'token expiry is still measured on the application clock, because Sanctum compares it '
+                "app.timezone is `%s`. Presence, lock leases and a device code's expiry are unaffected, "
+                .'but a token expiry is still measured on the application clock, because Sanctum compares it '
                 .'against that clock and moving only one side would be worse. A daylight-saving '
                 .'transition can therefore expire or extend a credential by an hour. Set it to UTC.',
                 \is_string($timezone) ? $timezone : 'not a string'
