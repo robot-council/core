@@ -31,8 +31,10 @@ use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
  * installation in the fleet until they happened to reload.
  *
  * That leaves the page itself to decide whether to mount this at all, which the dashboard does
- * behind `@can`. A non-admin therefore never renders it and never meets the refusal; the refusal
- * is there for the client that asks anyway.
+ * through `Support\DashboardSections::offered()` -- **never `@can`**, which resolves the host's
+ * default guard rather than `robot-council.auth.guard` and would hide the panel from a real admin
+ * wherever the two differ. A non-admin therefore never renders it and never meets the refusal; the
+ * refusal is there for the client that asks anyway.
  *
  * **The panel shows no credential, and cannot.** `Support\InstallationList` reads no column that
  * holds one -- Sanctum stores a hash, and a `device_code` and its verifier live in a table it never

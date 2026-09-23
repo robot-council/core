@@ -79,15 +79,26 @@ it('runs no query for a section it did not mount', function (): void {
 
     // The assertion that markup cannot make. A panel hidden with a class is absent from the page
     // and present in the query log; only this tells the two apart.
-    $everything = queriesIssuedBy(fn () => $this->get(route('robot-council.dashboard'))->assertOk());
+    //
+    // **One exact delta per section, not one floor over all of them.** A floor is satisfied by the
+    // wrong panel staying mounted: the three together cost 16 here, so a floor of 10 still passes
+    // with administration -- the one whose absence is security-adjacent -- still rendering, because
+    // its own cost is 6 and 16 - 6 is 10. Each delta below can only be met by that section and
+    // nothing else, and the numbers are the ones the panels' own tests already pin.
+    $count = fn (?string $show): int => queriesIssuedBy(
+        fn () => $this->get($show === null
+            ? route('robot-council.dashboard')
+            : route('robot-council.dashboard', ['show' => $show]))->assertOk()
+    );
 
-    $justTheQueue = queriesIssuedBy(fn () => $this->get(route('robot-council.dashboard', ['show' => 'queue']))->assertOk());
+    $queueOnly = $count('queue');
 
-    expect($justTheQueue)->toBeLessThan($everything);
-
-    // And the saving is the panels' own cost rather than a rounding difference: presence is 6
-    // queries, the feed 2 and administration 6, measured on #192 and #200.
-    expect($everything - $justTheQueue)->toBeGreaterThanOrEqual(10);
+    // Presence is 8 rather than 6 because this fixture holds a lock, and resolving a lock's holder
+    // is the one hop `Support\FleetPresence` cannot read from a row already loaded -- see #192.
+    expect($count('queue,presence') - $queueOnly)->toBe(8)
+        ->and($count('queue,feed') - $queueOnly)->toBe(2)
+        ->and($count('queue,administration') - $queueOnly)->toBe(6)
+        ->and($count(null) - $queueOnly)->toBe(16);
 });
 
 it('leaves the panels that are still mounted exactly as they were', function (): void {

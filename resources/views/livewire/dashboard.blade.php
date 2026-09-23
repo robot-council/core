@@ -11,7 +11,6 @@
     Each mounted panel keeps a `wire:key`, so Livewire morphs the right element when a sibling
     appears or goes rather than re-using whichever happened to sit in that position.
 --}}
-@use('RobotCouncil\Support\WireArgument', 'Wire')
 <div class="grid gap-4">
     {{--
         Above the panels, and outside any of them: the totals are counting queries, so a tile cannot

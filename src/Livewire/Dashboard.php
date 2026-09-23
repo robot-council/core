@@ -103,15 +103,25 @@ final class Dashboard extends Component
      */
     public function toggle(string $section): void
     {
-        $offered = DashboardSections::offered($this->isAdmin());
+        // Resolved once. `CurrentDeveloper::isAdmin()` reaches the gate, which reads
+        // `robot_council_github_identities` uncached -- so asking twice is two queries a click, and
+        // two chances for what is offered and what is showing to be computed from different answers.
+        $isAdmin = $this->isAdmin();
 
-        // Matched against what this developer is offered, so a posted value naming the admin panel
-        // does nothing for an account that is not an admin
+        $offered = DashboardSections::offered($isAdmin);
+
+        // **A second layer whose redundancy is an implementation detail of the branch below.** The
+        // add branch filters over `$offered`, so a section nobody was offered can never enter the
+        // result even without this -- there is no input for which removing it mounts a panel the
+        // developer may not have, and a mutation run will report it as a survivor for that reason.
+        // It stays because the day that branch is rewritten to filter over something else, this is
+        // what still refuses. Killing it would need a test asserting behaviour it does not have.
+        // @pest-mutate-ignore
         if (! \in_array($section, $offered, true)) {
             return;
         }
 
-        $showing = DashboardSections::from($this->show, $this->isAdmin());
+        $showing = DashboardSections::from($this->show, $isAdmin);
 
         $next = \in_array($section, $showing, true)
             ? array_values(array_filter($showing, static fn (string $shown): bool => $shown !== $section))
@@ -154,14 +164,14 @@ final class Dashboard extends Component
         $isAdmin = $developer->isAdmin();
 
         return view($template, [
-            // Decided here rather than with `@can` in the view. `@can` asks the framework gate to
-            // resolve the principal, and it resolves the HOST'S DEFAULT guard -- so on a host that
-            // defaults to another one the panel would be hidden from a real admin. This is what to
-            // show; `Administration` authorizes every action and its own render regardless.
-            'isAdmin' => $isAdmin,
-
-            // Filtered by the same call the toggle uses, so what is offered and what is mounted
-            // cannot drift apart
+            // Both filtered by the same call the toggle uses, so what is offered and what is
+            // mounted cannot drift apart.
+            //
+            // The admin decision is made here rather than with `@can` in the view. `@can` asks the
+            // framework gate to resolve the principal, and it resolves the HOST'S DEFAULT guard --
+            // so on a host that defaults to another one the administration panel would be hidden
+            // from a real admin. This is what to *offer*; `Administration` authorizes its own
+            // mount, render and every action regardless.
             'offered' => DashboardSections::offered($isAdmin),
             'showing' => DashboardSections::from($this->show, $isAdmin),
         ]);

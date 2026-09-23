@@ -41,6 +41,21 @@ final class DashboardSections
     public const string ADMIN_ONLY = 'administration';
 
     /**
+     * The longest selection worth reading, in characters.
+     *
+     * Every store in this package holds its own bounds -- `HostKey` 64, `ProjectId` 128,
+     * `MachineIdentity` 32 and 64 -- because a rule a controller states is not a bound the package
+     * holds. This value arrives from a query string on a GET and from the request body on a
+     * Livewire update, where it is bounded only by `post_max_size`, and `explode()` over it
+     * allocates an array element per comma: measured, a 1.9 MB value produced a million parts and
+     * 16 MB of arrays.
+     *
+     * Comfortably longer than every section joined by commas, and measured in characters, which is
+     * the unit `max:` and a `varchar` both count in.
+     */
+    public const int MAX_SELECTION = 128;
+
+    /**
      * The sections to mount, from whatever the query string carried.
      *
      * @param  string|null  $selection  The comma-separated value, or null when none was given.
@@ -51,7 +66,10 @@ final class DashboardSections
     {
         $offered = self::offered($isAdmin);
 
-        if ($selection === null || trim($selection) === '') {
+        // An over-long value is read as no selection rather than refused, for the same reason an
+        // unrecognized one is: a link somebody shared should degrade to the default page rather
+        // than to an error.
+        if ($selection === null || trim($selection) === '' || mb_strlen($selection) > self::MAX_SELECTION) {
             return $offered;
         }
 
