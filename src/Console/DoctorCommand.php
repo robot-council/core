@@ -7,6 +7,7 @@ namespace RobotCouncil\Console;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
+use InvalidArgumentException;
 use RobotCouncil\Support\Diagnosis;
 use RobotCouncil\Support\DiagnosisStatus;
 use RobotCouncil\Support\Doctor;
@@ -23,18 +24,34 @@ use RobotCouncil\Support\Doctor;
  * to the checks that actually concluded something.
  */
 #[Description("Report what is wrong with this application's robot-council configuration")]
-#[Signature('robot-council:doctor')]
+#[Signature('robot-council:doctor {--only=* : Run only these checks, by the name each is reported under. Comma-separated, or repeat the option.}')]
 final class DoctorCommand extends Command
 {
     /**
-     * Report every check.
+     * Report every check, or only the ones named.
+     *
+     * **`--only` exists so something other than a person can gate on one answer.** A deploy that
+     * wants to refuse a drifted migration set should not also fail because the queue has a backlog
+     * or a Slack webhook is unset -- `robot-council/robot-council#7` is the case, and running all
+     * eleven checks made the gate answer a much broader question than it asked.
+     *
+     * The exit code then reflects only what ran. A failure among the checks `--only` excluded is
+     * not the caller's question and must not fail the command.
      *
      * @param  Doctor  $doctor  The checks.
-     * @return int Zero when nothing failed, one when anything did.
+     * @return int Zero when nothing that ran failed, one when anything did.
      */
     public function handle(Doctor $doctor): int
     {
-        $diagnoses = $doctor->examine();
+        try {
+            $diagnoses = $doctor->examine($this->requestedChecks());
+        } catch (InvalidArgumentException $invalidArgumentException) {
+            // Exits non-zero rather than examining nothing and succeeding. A gate that silently
+            // stopped gating is indistinguishable from a healthy deployment.
+            $this->components->error($invalidArgumentException->getMessage());
+
+            return self::FAILURE;
+        }
 
         foreach ($diagnoses as $diagnosis) {
             $this->report($diagnosis);
@@ -69,6 +86,37 @@ final class DoctorCommand extends Command
         ));
 
         return self::FAILURE;
+    }
+
+    /**
+     * The checks named by `--only`, flattened.
+     *
+     * Accepts both shapes an operator is likely to reach for -- the option repeated, and one
+     * comma-separated list -- because guessing wrong costs a failed deploy to discover.
+     *
+     * @return list<string> The names asked for, or empty for all of them.
+     */
+    private function requestedChecks(): array
+    {
+        $names = [];
+
+        // Declared `--only=*`, so Symfony always hands back an array; each entry may be null when
+        // the option was passed without a value.
+        foreach ($this->option('only') as $value) {
+            if (! \is_string($value)) {
+                continue;
+            }
+
+            foreach (explode(',', $value) as $name) {
+                $name = trim($name);
+
+                if ($name !== '') {
+                    $names[] = $name;
+                }
+            }
+        }
+
+        return $names;
     }
 
     /**
