@@ -131,14 +131,23 @@
                                              this one process is. --}}
                                         <span class="badge badge-sm badge-outline">{{ $session['role'] }}</span>
 
-                                        @if (($session['project_id'] ?? null) === null)
-                                            {{-- Dimmer than this measured 3.38:1 in the light theme
-                                                 against the 4.5:1 this size needs. Still fainter
-                                                 than the value beside it, which is what the dimming
-                                                 was for (#197). --}}
+                                        {{-- Where it is working, as the two fields #220 split the
+                                             one label into, with the legacy one as the fallback.
+                                             Every stored combination renders: a session naming only
+                                             a location is a shape the endpoint accepts, and an
+                                             earlier version printed `no project` for it. --}}
+                                        @php($where = $session['repository'] ?? $session['project_id'] ?? null)
+
+                                        @if ($where !== null)
+                                            <span class="opacity-70">{{ $where }}</span>
+                                        @endif
+
+                                        @if (($session['work_location'] ?? null) !== null)
+                                            <span class="opacity-60">{{ $session['work_location'] }}</span>
+                                        @endif
+
+                                        @if ($where === null && ($session['work_location'] ?? null) === null)
                                             <span class="opacity-60">no project</span>
-                                        @else
-                                            <span class="opacity-70">{{ $session['project_id'] }}</span>
                                         @endif
 
                                         {{-- Every listed session is live, so every one can be

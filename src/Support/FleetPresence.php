@@ -135,6 +135,11 @@ final class FleetPresence
                 // charset at the edge and why the view escapes it like every other one.
                 'project_id' => $session->project_id,
 
+                // The two the label is becoming. Both are agent-supplied and both are escaped by
+                // the view, exactly as `project_id` is.
+                'repository' => $session->repository,
+                'work_location' => $session->work_location,
+
                 // Read from the row rather than recomputed from `last_seen_at`. #24 made the row the
                 // decision, and a view that derived the status itself would disagree with the sweep
                 // for as long as the sweep had not run -- showing `stale` to a developer while every

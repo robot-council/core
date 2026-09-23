@@ -75,6 +75,67 @@ it("shows each session's own role, which its machine no longer decides", functio
     'coordinator' => Role::Coordinator->value,
 ]);
 
+it('shows where a session is working, as a repository and the checkout within it', function (): void {
+    $this->session->forceFill(['repository' => 'UAMS-Web/uams-statamic', 'work_location' => 'ci'])->save();
+
+    Livewire::test(FleetPresence::class)
+        ->assertSee('UAMS-Web/uams-statamic')
+        ->assertSeeHtml('<div class="opacity-60">ci</div>');
+});
+
+it('falls back to the old label for a session that predates the split', function (): void {
+    // A row the migration declined to split, because its value is neither a repository path nor a
+    // label. It still says where it is rather than reading as a session that named nothing.
+    $this->session->forceFill([
+        'project_id' => 'uams-statamic',
+        'repository' => null,
+        'work_location' => null,
+    ])->save();
+
+    Livewire::test(FleetPresence::class)
+        ->assertSee('uams-statamic')
+        ->assertDontSee('>none<', escape: false);
+});
+
+it('shows a session that named only a work location, rather than calling it none', function (): void {
+    // Each of the three fields is independently nullable -- an acceptance criterion -- so this is a
+    // shape the endpoint accepts. An earlier version gated the whole cell on the repository and
+    // printed `none` here, which is the page asserting the session named nothing.
+    $this->session->forceFill([
+        'project_id' => null,
+        'repository' => null,
+        'work_location' => 'primary',
+    ])->save();
+
+    Livewire::test(FleetPresence::class)
+        ->assertSeeHtml('<div class="opacity-60">primary</div>')
+        ->assertDontSeeHtml('<span class="opacity-60">none</span>');
+});
+
+it('keeps saying none for a session that named nothing at all', function (): void {
+    // The control for the test above: the placeholder still appears where it should, so that one
+    // is passing because the location renders rather than because the placeholder was removed.
+    $this->session->forceFill([
+        'project_id' => null,
+        'repository' => null,
+        'work_location' => null,
+    ])->save();
+
+    Livewire::test(FleetPresence::class)
+        ->assertSeeHtml('<span class="opacity-60">none</span>');
+});
+
+it('renders a hostile repository as text', function (): void {
+    // Written past the endpoint's validation deliberately: `repository` is charset-limited and
+    // this string cannot arrive through the API, so the page's escaping is its own guarantee.
+    $this->session->forceFill(['repository' => '<script>alert(1)</script>'])->save();
+
+    $html = Livewire::test(FleetPresence::class)->html();
+
+    expect($html)->toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
+        ->not->toContain('<script>alert(1)</script>');
+});
+
 it('shows two sessions on one machine holding different roles', function (): void {
     // The case the column exists for: one harness on one machine running several checkouts, where
     // before #221 every session had identical authority and nothing on the page said so.

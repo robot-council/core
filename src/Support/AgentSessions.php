@@ -45,16 +45,35 @@ final class AgentSessions
      * Start a session for one agent process, and issue its first token.
      *
      * @param  Installation  $installation  The installation the process is running under.
-     * @param  string|null  $projectId  The repository or workspace the process named, if any.
+     * @param  string|null  $projectId  The one opaque label a client sent before the two fields
+     *                                  below existed. Kept until the epic's final slice retires it.
+     * @param  string|null  $repository  The repository the process is working in, as `owner/name`.
+     * @param  string|null  $workLocation  Which checkout of it, as a conventional label.
      * @return IssuedCredential<AgentSession> The session and its plaintext token.
      */
-    public function start(Installation $installation, ?string $projectId): IssuedCredential
-    {
+    public function start(
+        Installation $installation,
+        ?string $projectId,
+        ?string $repository = null,
+        ?string $workLocation = null
+    ): IssuedCredential {
         // Bounded here as well as at the endpoint, because this is a public method a host may call
-        // directly and the value reaches other developers' agents through the enrollment event
+        // directly and the values reach other developers' agents through the enrollment event
         ProjectId::ensure($projectId);
+        WorkIdentity::ensure($repository, $workLocation);
 
-        return DB::transaction(function () use ($installation, $projectId): IssuedCredential {
+        // **Derived only when the client named NEITHER**, which is the epic's "a default is computed
+        // from what already exists" rule and the same split the backfill migration applies. A client
+        // that has not been upgraded sends one `project_id` and gets both fields populated, so
+        // grouping by repository works before `robot-council/cli#128` ships rather than after.
+        // Naming either one is taken as the client knowing its own mind: a repository with no label
+        // is a real answer, and inventing a label for it from a string the client has stopped
+        // maintaining would be worse than leaving it null.
+        if ($repository === null && $workLocation === null) {
+            [$repository, $workLocation] = WorkIdentity::fromProjectId($projectId);
+        }
+
+        return DB::transaction(function () use ($installation, $projectId, $repository, $workLocation): IssuedCredential {
             $current = $this->locked($installation);
 
             // **The role is the whole answer, and the installation's stored abilities are no
@@ -76,6 +95,8 @@ final class AgentSessions
                 'role' => $role,
                 'last_seen_at' => PresenceClock::now(),
                 'project_id' => $projectId,
+                'repository' => $repository,
+                'work_location' => $workLocation,
             ]);
 
             // In the same transaction as the session it describes, so a failure here leaves
@@ -84,7 +105,16 @@ final class AgentSessions
                 FleetEventType::SessionJoined,
                 $session,
                 sprintf('%s on %s started a session.', $current->harness, $current->machine_label),
-                ['installation_id' => $current->id, 'project_id' => $projectId]
+                // Both new fields ride the event beside the old one, so a reader of the feed can
+                // group by repository without parsing a label. Charset-limited by
+                // `Support\WorkIdentity` for the reason the body is: every session in the fleet
+                // reads this, and event content is untrusted input to something with shell access.
+                [
+                    'installation_id' => $current->id,
+                    'project_id' => $projectId,
+                    'repository' => $repository,
+                    'work_location' => $workLocation,
+                ]
             );
 
             // The enrollment event's own id is the cursor this session starts from, and it needs no

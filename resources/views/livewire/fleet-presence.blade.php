@@ -35,7 +35,7 @@
                             <tr>
                                 <th>Developer</th>
                                 <th>Machine</th>
-                                <th>Project</th>
+                                <th>Working in</th>
                                 <th>Role</th>
                                 <th>Status</th>
                                 <th>Last seen</th>
@@ -51,28 +51,47 @@
                                         <div class="text-xs opacity-60">{{ $session['harness'] ?? '' }}</div>
                                     </td>
 
-                                    {{-- What the session called its checkout, which is the only
-                                         thing telling two worktrees on one machine and harness
-                                         apart. Absent is shown as absent: a session that started
-                                         without one is still listed, and no name is invented for
-                                         it. Escaped like every agent-supplied string here. --}}
-                                    <td class="text-xs">
-                                        @if (($session['project_id'] ?? null) === null)
-                                            {{-- Dimmer than this measured 3.38:1 on `base-100` in
-                                                 the light theme, under the 4.5:1 this text needs at
-                                                 its size; this measures 4.64:1 and is still fainter
-                                                 than the value it stands in for (#197).
+                                    {{-- Where the session is working: the repository, and beneath it
+                                         the checkout within it. Two lines rather than one label,
+                                         the same shape the machine column uses for its harness, and
+                                         the reason #220 split the field -- the location is what
+                                         tells two worktrees on one machine and harness apart, and
+                                         the repository is what a reader groups by.
 
-                                                 The class that failed is named nowhere here, and no
-                                                 other unused class name is either. Tailwind scans
+                                         **Every stored combination renders, and that is the point
+                                         rather than tidiness.** The three fields are independently
+                                         nullable, which is an acceptance criterion, so a session
+                                         naming only a location is a shape the endpoint accepts. An
+                                         earlier version gated the whole cell on the repository and
+                                         printed `none` for exactly that row -- the page asserting a
+                                         session named nothing when it had named something, and the
+                                         one field the split exists for the least visible of the
+                                         three. Absent is still shown as absent, and all three are
+                                         agent-supplied and escaped. --}}
+                                    <td class="text-xs">
+                                        @php($where = $session['repository'] ?? $session['project_id'] ?? null)
+
+                                        @if ($where !== null)
+                                            <div>{{ $where }}</div>
+                                        @endif
+
+                                        @if (($session['work_location'] ?? null) !== null)
+                                            {{-- Dimmer than the line above it, and above the 4.5:1
+                                                 bar the dashboard theme test holds dimmed text to
+                                                 (#197).
+
+                                                 An earlier draft of this very comment used the
+                                                 ordinary English word for a stage in a sequence and
+                                                 put 1.5 KB of daisyUI rules into the shipped
+                                                 stylesheet, which is the trap `CLAUDE.md` records
+                                                 and which `npm run check` caught. Tailwind scans
                                                  this file whole and cannot tell a sentence from an
-                                                 attribute, so a class written only to discuss it
-                                                 ships its rules. An ordinary English word can do it
-                                                 too: naming the one that means "a stage in a
-                                                 sequence" added eleven daisyUI rules here. --}}
+                                                 attribute. --}}
+                                            <div class="opacity-60">{{ $session['work_location'] }}</div>
+                                        @endif
+
+                                        @if ($where === null && ($session['work_location'] ?? null) === null)
                                             <span class="opacity-60">none</span>
-                                        @else
-                                            {{ $session['project_id'] }}
                                         @endif
                                     </td>
 
