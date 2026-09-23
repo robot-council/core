@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Table;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
+use RobotCouncil\Support\PresenceTimestamp;
 
 /**
  * One enrollment request, from the moment a helper asks for a code until a developer decides it and
@@ -62,7 +63,21 @@ final class DeviceCode extends Model
         return [
             'requested_abilities' => 'array',
             'granted_abilities' => 'array',
-            'expires_at' => 'datetime',
+            // Not `datetime`: that hydrates in the application's timezone, while
+            // `Support\Credentials::deviceCodeExpiry()` writes this on `Support\PresenceClock` and
+            // `Support\DeviceCodes` compares it there. `DeviceCodes::claim()` also re-reads the row
+            // and asks `expires_at->isPast()` in PHP, so a value relabelled on hydration would be
+            // wrong in the path that decides whether an enrollment code still works (#160).
+            'expires_at' => PresenceTimestamp::class,
+
+            // **The other three stay on the application clock, and the difference is that nothing
+            // compares them.** Each is read only as null-or-not -- `hasBeenDecided()`, the
+            // `consumed_at` check in `claim()` -- so no clock can make one decide wrongly. They are
+            // also `timestamp` columns rather than `dateTime`, which MySQL converts from the
+            // connection's time zone on write and back on read, so their stored digits are decided
+            // by the connection rather than by whichever clock handed over the value. Putting a
+            // fixed-clock cast on top of that is the mixed-mechanism state #149 was bitten by, for
+            // no decision it could correct.
             'approved_at' => 'datetime',
             'denied_at' => 'datetime',
             'consumed_at' => 'datetime',

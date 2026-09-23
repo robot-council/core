@@ -380,11 +380,8 @@ final class Doctor
      * mismatch rather than remove it, in the place that decides whether a credential still works.
      * #149 put that out of scope for exactly that reason.
      *
-     * A **device code's** expiry has no such coupling -- `Support\DeviceCodes` both writes and
-     * compares it -- so it could move, and has not. Its TTL defaults to 600 seconds, far shorter
-     * than an hour, so it carries the same shape the leases did: a transition expires every
-     * outstanding code at once, or at fall-back keeps one valid an hour past its TTL, which is the
-     * direction that matters for an enrollment code.
+     * A **device code's** expiry had no such coupling and moved in #160, so what remains is the
+     * token half alone.
      *
      * **Credentials are what this reports, not everything on the application clock.** Three
      * retention cutoffs are measured on it too -- `robot-council:prune-tasks`,
@@ -408,10 +405,10 @@ final class Doctor
         return Diagnosis::failed(
             'application timezone',
             sprintf(
-                'app.timezone is `%s`. Presence and lock leases are unaffected, but a token expiry and a '
-                .'device code are still measured on the application clock, so a daylight-saving transition '
-                .'can expire or extend either by an hour -- and a device code lives ten minutes, so every '
-                .'outstanding enrollment would lapse at once. Set it to UTC.',
+                'app.timezone is `%s`. Presence, lock leases and device codes are unaffected, but a '
+                .'token expiry is still measured on the application clock, because Sanctum compares it '
+                .'against that clock and moving only one side would be worse. A daylight-saving '
+                .'transition can therefore expire or extend a credential by an hour. Set it to UTC.',
                 \is_string($timezone) ? $timezone : 'not a string'
             )
         );

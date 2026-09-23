@@ -32,10 +32,9 @@ use Illuminate\Support\Carbon;
  * `last_seen_at` and the cutoffs measured against it, and since #149 a lock's `acquired_at`,
  * `expires_at` and its two Eloquent timestamps, which nothing outside this package reads.
  *
- * **A device code's `expires_at` has the same shape and has not moved yet.**
- * `Credentials::deviceCodeExpiry()` writes it and `Support\DeviceCodes` is the only thing that
- * compares it, so there is no Sanctum coupling to stop it; the reason it is still here is that
- * nobody has done it, not that it cannot be done. Tracked separately.
+ * A device code's `expires_at` joined them in #160, for the same reason: `Support\DeviceCodes`
+ * both writes and compares it, so there was never a second side to keep in step. What is left
+ * outside this clock is a **token's** expiry, and only because Sanctum reads it.
  *
  * **Upgrading a host that is not on UTC shifts existing rows by its offset, once.** Rows written
  * before carry wall-clock time and are read as UTC afterwards, so for one sweep they read as
