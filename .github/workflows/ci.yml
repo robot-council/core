@@ -167,8 +167,8 @@ jobs:
       - name: Execute cross-connection tests
         run: vendor/bin/pest --ci --group=cross-connection
 
-  # The one check the `main` ruleset requires. It always runs, and it passes only when every
-  # job above succeeded, so a failed, cancelled, or skipped job all block the merge.
+  # The committed stylesheet against a fresh build of its sources, so a view added without a
+  # rebuild fails here rather than rendering half-styled in a consuming application.
   stylesheet:
     name: stylesheet
     runs-on: ubuntu-latest
@@ -216,6 +216,8 @@ jobs:
           fi
           echo "two builds agree: $(wc -c < /tmp/first.css) bytes"
 
+  # The one check the `main` ruleset requires. It always runs, and it passes only when every
+  # job above succeeded, so a failed, cancelled, or skipped job all block the merge.
   ci-passed:
     name: ci-passed
     if: always()
