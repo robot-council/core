@@ -57,7 +57,19 @@
                                          it. Escaped like every agent-supplied string here. --}}
                                     <td class="text-xs">
                                         @if (($session['project_id'] ?? null) === null)
-                                            <span class="opacity-50">none</span>
+                                            {{-- Dimmer than this measured 3.38:1 on `base-100` in
+                                                 the light theme, under the 4.5:1 this text needs at
+                                                 its size; this measures 4.64:1 and is still fainter
+                                                 than the value it stands in for (#197).
+
+                                                 The class that failed is named nowhere here, and no
+                                                 other unused class name is either. Tailwind scans
+                                                 this file whole and cannot tell a sentence from an
+                                                 attribute, so a class written only to discuss it
+                                                 ships its rules. An ordinary English word can do it
+                                                 too: naming the one that means "a stage in a
+                                                 sequence" added eleven daisyUI rules here. --}}
+                                            <span class="opacity-60">none</span>
                                         @else
                                             {{ $session['project_id'] }}
                                         @endif
