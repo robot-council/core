@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schedule;
+use Illuminate\Support\Facades\View;
 use Laravel\Mcp\Facades\Mcp;
 use Laravel\Mcp\Server\Middleware\ReorderJsonAccept;
 use Livewire\Livewire;
@@ -36,6 +37,7 @@ use RobotCouncil\Http\Controllers\DashboardStylesheetController;
 use RobotCouncil\Http\Middleware\DenyFraming;
 use RobotCouncil\Http\Middleware\EnsureAgentSession;
 use RobotCouncil\Http\Middleware\EnsureAllowlistedDeveloper;
+use RobotCouncil\Http\ViewComposers\DashboardLayoutComposer;
 use RobotCouncil\Livewire\Administration;
 use RobotCouncil\Livewire\ChangeFeed;
 use RobotCouncil\Livewire\FleetPresence as FleetPresenceComponent;
@@ -184,8 +186,21 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
         $this->registerReleases();
         $this->registerRateLimits();
         $this->registerRoutes();
+        $this->registerViewComposers();
         $this->registerAbilities();
         $this->registerSchedule();
+    }
+
+    /**
+     * Bind the dashboard shell's own data onto the layout, wherever it is rendered from.
+     *
+     * A composer rather than data each page passes: the shell names the signed-in developer and
+     * lists where they can go, and a page that forgot to supply either would render a shell with
+     * neither rather than failing.
+     */
+    private function registerViewComposers(): void
+    {
+        View::composer('robot-council::layouts.dashboard', DashboardLayoutComposer::class);
     }
 
     /**

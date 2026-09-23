@@ -6,13 +6,12 @@ namespace RobotCouncil\Http\Middleware;
 
 use Closure;
 use Illuminate\Contracts\Auth\Factory as AuthFactory;
-use Illuminate\Contracts\Auth\StatefulGuard;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use RobotCouncil\Access\Allowlist;
+use RobotCouncil\Access\DeveloperSignOut;
 use RobotCouncil\Access\Guard;
 use RobotCouncil\Support\HostUsers;
-use RuntimeException;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 
@@ -28,12 +27,14 @@ final class EnsureAllowlistedDeveloper
      * @param  HostUsers  $hostUsers  The developer's host user row and GitHub identity.
      * @param  AuthFactory  $auth  The host application's authentication factory.
      * @param  Guard  $guard  The configured guard's name.
+     * @param  DeveloperSignOut  $signOut  Ends the session of an account this refuses.
      */
     public function __construct(
         private readonly Allowlist $allowlist,
         private readonly HostUsers $hostUsers,
         private readonly AuthFactory $auth,
-        private readonly Guard $guard
+        private readonly Guard $guard,
+        private readonly DeveloperSignOut $signOut
     ) {}
 
     /**
@@ -53,7 +54,13 @@ final class EnsureAllowlistedDeveloper
         // Send a visitor who is not signed in to GitHub, remembering the path they wanted.
         // The path alone, never `fullUrl()`, whose host comes from the request's own headers.
         if ($user === null) {
-            $request->session()->put('url.intended', '/'.ltrim($request->path(), '/'));
+            // Only a request that can be resumed is worth remembering. Laravel resumes an intended
+            // URL with a redirect, which the browser follows as a GET, so remembering a POST sends
+            // the developer -- after a full round trip through GitHub -- to a 405 on a route that
+            // accepts POST only. Sign-out, approve and deny are all in that shape.
+            if ($request->isMethodSafe()) {
+                $request->session()->put('url.intended', '/'.ltrim($request->path(), '/'));
+            }
 
             return redirect()->to(route('robot-council.auth.redirect'));
         }
@@ -66,32 +73,11 @@ final class EnsureAllowlistedDeveloper
                 'github_id' => $githubId,
             ]);
 
-            $this->endSession($request);
+            $this->signOut->end($request);
 
             throw new AccessDeniedHttpException;
         }
 
         return $next($request);
-    }
-
-    /**
-     * Sign the user out and replace the session, so nothing of it survives the refusal.
-     *
-     * @param  Request  $request  The request whose session is ending.
-     *
-     * @throws RuntimeException When the configured guard cannot sign a user out.
-     */
-    private function endSession(Request $request): void
-    {
-        $guard = $this->auth->guard($this->guard->name());
-
-        if (! $guard instanceof StatefulGuard) {
-            throw new RuntimeException(sprintf('The `%s` guard must be stateful for robot-council to sign a developer out.', $this->guard->name()));
-        }
-
-        $guard->logout();
-
-        $request->session()->invalidate();
-        $request->session()->regenerateToken();
     }
 }

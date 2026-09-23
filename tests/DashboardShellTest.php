@@ -95,6 +95,13 @@ it('serves a stylesheet that carries the utilities the pages use, and not the on
         // the shell
         'max-w-7xl', 'opacity-70', 'shadow-sm', 'antialiased', 'bg-base-200',
 
+        // the sidebar and header #183 added. `menu-active` is what marks the page being shown, so
+        // a build that dropped it would render every entry identically with nothing reporting it.
+        'menu-title', 'menu-active', 'btn-square', 'truncate', 'sticky', 'min-w-0', 'grow',
+
+        // the offset that keeps a jumped-to panel clear of the sticky header
+        'scroll-mt-20',
+
         // every panel's frame
         'card', 'card-body', 'card-title', 'table', 'table-sm', 'badge', 'badge-sm',
 
