@@ -240,6 +240,29 @@ it('fails when a job has waited past the threshold, and passes when one has not'
     ]);
 
     expect(diagnosis('queue worker')->status)->toBe(DiagnosisStatus::Failed);
+
+    // **Exactly at the threshold, which is the only input that separates `<=` from `<`.** The
+    // clock is frozen first: without that, the second between building the timestamp and reading
+    // it moves the age off the boundary and the mutant lives.
+    Carbon::setTestNow(Carbon::now());
+
+    try {
+        DB::table('jobs')->update([
+            'created_at' => Carbon::now()->getTimestamp() - Doctor::STALE_JOB_SECONDS,
+        ]);
+
+        expect(diagnosis('queue worker')->status)->toBe(DiagnosisStatus::Passed)
+            ->and(diagnosis('queue worker')->detail)->toContain(Doctor::STALE_JOB_SECONDS.'s old');
+
+        // And one second past it fails, so the boundary is pinned from both sides.
+        DB::table('jobs')->update([
+            'created_at' => Carbon::now()->getTimestamp() - (Doctor::STALE_JOB_SECONDS + 1),
+        ]);
+
+        expect(diagnosis('queue worker')->status)->toBe(DiagnosisStatus::Failed);
+    } finally {
+        Carbon::setTestNow();
+    }
 });
 
 it('fails when the developer allowlist is empty, and passes when it is not', function (): void {
@@ -426,7 +449,16 @@ it('names an installation whose stored abilities cannot be read back, and passes
 
     expect($failed->status)->toBe(DiagnosisStatus::Failed)
         ->and($failed->detail)->toContain((string) $installation->id)
-        ->and($failed->detail)->toContain('not a list of ability names');
+        ->and($failed->detail)->toContain('not a list of ability names')
+        // **The tail sentence, which nothing asserted until #175's review asked.** It is appended
+        // to every failing verdict rather than to one branch, so it is the half of the message a
+        // reader acts on: it says the entries are dropped on every read, and it refuses to promise
+        // that repairing them restores `fleet_can_direct`, which also needs the developer to still
+        // be on the access list. A message that implied otherwise would send somebody to fix the
+        // wrong thing.
+        ->and($failed->detail)->toContain('invisible on every read')
+        ->and($failed->detail)->toContain('fewer abilities than its row claims')
+        ->and($failed->detail)->toContain('still be on the access list');
 });
 
 it('tells a retired ability name apart from a malformed value, because the repairs differ', function (): void {
@@ -825,4 +857,70 @@ it('says the retired-migration check is undetermined when it cannot read what ha
     }
 
     expect(diagnosis('retired migrations')->status)->toBe(DiagnosisStatus::Passed);
+});
+
+it('treats an empty sanctum provider as no provider at all', function (): void {
+    // `$provider !== ''` is the only thing separating a named provider from a blank one, and
+    // nothing supplied a blank one. A config with the key present and empty is the realistic
+    // shape -- an unset environment variable read through `env()`.
+    config()->set('auth.guards.sanctum', ['driver' => 'sanctum', 'provider' => '']);
+
+    expect(diagnosis('sanctum guard provider')->status)->toBe(DiagnosisStatus::Failed)
+        ->and(diagnosis('sanctum guard provider')->detail)->toContain('is not set');
+
+    // The control: a named provider still passes, so the failure above is the emptiness.
+    config()->set('auth.guards.sanctum', ['driver' => 'sanctum', 'provider' => 'users']);
+
+    expect(diagnosis('sanctum guard provider')->status)->toBe(DiagnosisStatus::Passed);
+});
+
+it('names the queue connection only when there is one to name', function (): void {
+    // Four mutants live on this one ternary -- the `&&`, the `!== \'\'`, its negation, and the
+    // branch order -- and each needs a different input. A real name, an empty string, and a
+    // non-string cover all four.
+    config()->set('robot-council.slack.connection', 'redis');
+
+    expect(diagnosis('slack queue connection')->detail)->toContain('Queued on `redis`.');
+
+    // Empty: there is a key, and it names nothing. `Queued on ``.` would be the mutant's answer.
+    config()->set('robot-council.slack.connection', '');
+
+    expect(diagnosis('slack queue connection')->detail)->toBe('Queued on the default connection.');
+
+    // Absent entirely, which is the `is_string` half rather than the emptiness half.
+    config()->set('robot-council.slack.connection');
+
+    expect(diagnosis('slack queue connection')->detail)->toBe('Queued on the default connection.');
+});
+
+it('reads an empty webhook as unset, not as set', function (): void {
+    // The same shape one check over. An empty string here is what an unset environment variable
+    // looks like once it has been through `env()`, and reporting it as "Set" would tell an
+    // operator the mirror is on when nothing will ever be delivered.
+    config()->set('robot-council.slack.webhook_url', '');
+
+    expect(diagnosis('slack webhook')->detail)->toContain('Not set');
+
+    config()->set('robot-council.slack.webhook_url', 'https://hooks.slack.test/services/T/B/x');
+
+    expect(diagnosis('slack webhook')->detail)->toContain('Set, so events are mirrored.');
+});
+
+it('leads the stored-abilities finding with the count, not with a noun', function (): void {
+    // **This test found dead code rather than covering it.** It was written to kill a surviving
+    // `UnwrapUcfirst`, and the mutant survived anyway: both clauses begin with `%d`, so the first
+    // character after `sprintf` is a digit and `ucfirst()` could never change anything. It had been
+    // dead since #171's review made these messages lead with a count. The call is gone; what this
+    // now pins is the shape that made it dead, so a message that goes back to opening with a noun
+    // fails here rather than quietly reintroducing the question.
+    $this->migrateUsersTableWithPackageColumns();
+
+    $developer = $this->enrollDeveloper(4242);
+    $installation = $this->approveInstallation($developer, [Ability::TasksCreate->value]);
+
+    DB::table('robot_council_installations')
+        ->where('id', $installation->id)
+        ->update(['granted_abilities' => 'null']);
+
+    expect(diagnosis('stored abilities')->detail)->toStartWith('1 installation(s) hold a value');
 });

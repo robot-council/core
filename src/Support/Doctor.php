@@ -120,9 +120,9 @@ final class Doctor
 
         return Diagnosis::failed(
             'sanctum guard provider',
-            'auth.guards.sanctum.provider is not set. A null provider accepts a token belonging to any '
-            ."model, so an agent session token authenticates on this application's own `auth:sanctum` "
-            .'routes. Set it to the provider your users use.'
+            <<<'TEXT'
+            auth.guards.sanctum.provider is not set. A null provider accepts a token belonging to any model, so an agent session token authenticates on this application's own `auth:sanctum` routes. Set it to the provider your users use.
+            TEXT
         );
     }
 
@@ -145,8 +145,9 @@ final class Doctor
 
         return Diagnosis::failed(
             'sanctum expiration',
-            "sanctum.expiration is set. Sanctum measures it from a token's creation, so it cuts off a "
-            .'renewed session token and the agent holding it. Leave it null; the package expires its own.'
+            <<<'TEXT'
+            sanctum.expiration is set. Sanctum measures it from a token's creation, so it cuts off a renewed session token and the agent holding it. Leave it null; the package expires its own.
+            TEXT
         );
     }
 
@@ -179,11 +180,19 @@ final class Doctor
         } catch (Throwable) {
             return Diagnosis::undetermined(
                 'package migrations',
-                'The `migrations` table could not be read. Run `php artisan migrate` first, then this check '
-                .'can compare what has run against what this version ships.'
+                <<<'TEXT'
+                The `migrations` table could not be read. Run `php artisan migrate` first, then this check can compare what has run against what this version ships.
+                TEXT
             );
         }
 
+        // **Three mutators live on this statement and none can be killed, for two different
+        // reasons.** `UnwrapArrayMap` and `UnwrapArrayFilter` are required by `composer analyse`:
+        // `pluck()` is typed `mixed`, and removing either narrowing leaves `array_diff()` without a
+        // string-keyed list -- measured, 2 errors and 1 error respectively. `UnwrapArrayValues` is a
+        // true equivalent: `$pending` is only ever counted and imploded, and PHPStan does not ask
+        // for a list, so the keys are unobservable -- measured, 0 errors without it.
+        // @pest-mutate-ignore: UnwrapArrayMap, UnwrapArrayFilter, UnwrapArrayValues
         $pending = array_values(array_diff($shipped, array_filter(
             array_map(static fn (mixed $name): ?string => \is_string($name) ? $name : null, $ran),
             static fn (?string $name): bool => $name !== null
@@ -224,8 +233,9 @@ final class Doctor
         if ($driver === 'sync') {
             return Diagnosis::failed(
                 'queue worker',
-                'The default queue connection is `sync`, so a queued job runs inside the request that '
-                ."dispatched it. The Slack mirror would then run inside an agent's request."
+                <<<'TEXT'
+                The default queue connection is `sync`, so a queued job runs inside the request that dispatched it. The Slack mirror would then run inside an agent's request.
+                TEXT
             );
         }
 
@@ -233,8 +243,9 @@ final class Doctor
             return Diagnosis::undetermined(
                 'queue worker',
                 sprintf(
-                    'The default queue driver is `%s`, which keeps no table here to read a backlog from. '
-                    ."Checking whether a worker is running needs that driver's own tooling.",
+                    <<<'TEXT'
+                    The default queue driver is `%s`, which keeps no table here to read a backlog from. Checking whether a worker is running needs that driver's own tooling.
+                    TEXT,
                     \is_string($driver) ? $driver : 'not configured'
                 )
             );
@@ -245,8 +256,9 @@ final class Doctor
         } catch (Throwable) {
             return Diagnosis::undetermined(
                 'queue worker',
-                'The `jobs` table could not be read, so a backlog cannot be measured. Run the queue '
-                .'migration, then this check can see it.'
+                <<<'TEXT'
+                The `jobs` table could not be read, so a backlog cannot be measured. Run the queue migration, then this check can see it.
+                TEXT
             );
         }
 
@@ -259,11 +271,25 @@ final class Doctor
         if (! is_numeric($oldest)) {
             return Diagnosis::undetermined(
                 'queue worker',
-                "The oldest waiting job's timestamp could not be read as a number, so its age cannot be "
-                ."measured. The `jobs` table may not be this application's own."
+                <<<'TEXT'
+                The oldest waiting job's timestamp could not be read as a number, so its age cannot be measured. The `jobs` table may not be this application's own.
+                TEXT
             );
         }
 
+        // **Not an equivalent -- unreachable, which is a different claim and the one that is true.**
+        // An earlier version of this comment called the cast equivalent; it is not. A non-integral
+        // numeric diverges: with a frozen clock at 1000 and `$oldest` of `'4.7'`, the cast gives
+        // 996 and plain subtraction gives 995.3, which `%d` renders as `995` -- a different
+        // sentence, and near the boundary a different verdict.
+        //
+        // It survives because no supported engine can put such a value here. Laravel declares
+        // `jobs.created_at` `unsignedInteger`, so `min()` returns an integer, and for an integer
+        // the two forms agree. The guard above contemplates a driver handing back something else,
+        // and the cast is what makes that case read as an age rather than a fraction -- a state
+        // this suite cannot reach through the schema, so the mutant cannot be killed from here.
+        // `composer analyse` does not ask for the cast either, measured at 0 errors without it.
+        // @pest-mutate-ignore: RemoveIntegerCast
         $waited = Carbon::now()->getTimestamp() - (int) $oldest;
 
         if ($waited <= self::STALE_JOB_SECONDS) {
@@ -273,8 +299,9 @@ final class Doctor
         return Diagnosis::failed(
             'queue worker',
             sprintf(
-                'The oldest waiting job is %ds old, past the %ds this reads as a backlog. That is what it '
-                .'looks like when nothing is consuming the queue.',
+                <<<'TEXT'
+                The oldest waiting job is %ds old, past the %ds this reads as a backlog. That is what it looks like when nothing is consuming the queue.
+                TEXT,
                 $waited,
                 self::STALE_JOB_SECONDS
             )
@@ -295,8 +322,9 @@ final class Doctor
         if ($developers === []) {
             return Diagnosis::failed(
                 'developer allowlist',
-                'robot-council.access.developers is empty, so no GitHub account may sign in -- including '
-                .'yours. Set ROBOT_COUNCIL_DEVELOPERS to the numeric GitHub user IDs allowed in.'
+                <<<'TEXT'
+                robot-council.access.developers is empty, so no GitHub account may sign in -- including yours. Set ROBOT_COUNCIL_DEVELOPERS to the numeric GitHub user IDs allowed in.
+                TEXT
             );
         }
 
@@ -392,8 +420,9 @@ final class Doctor
             // unmigrated schema.
             return Diagnosis::undetermined(
                 'stored abilities',
-                'The installations table could not be read, so whether any holds an unreadable abilities '
-                .'value is unknown. Run `php artisan migrate` first.'
+                <<<'TEXT'
+                The installations table could not be read, so whether any holds an unreadable abilities value is unknown. Run `php artisan migrate` first.
+                TEXT
             );
         }
 
@@ -408,8 +437,9 @@ final class Doctor
 
         if ($malformed !== []) {
             $parts[] = sprintf(
-                '%d installation(s) hold a value that is not a list of ability names, which nothing in this '
-                .'package writes -- find what did: %s',
+                <<<'TEXT'
+                %d installation(s) hold a value that is not a list of ability names, which nothing in this package writes -- find what did: %s
+                TEXT,
                 \count($malformed),
                 self::named($malformed)
             );
@@ -417,11 +447,9 @@ final class Doctor
 
         if ($retired !== []) {
             $parts[] = sprintf(
-                '%d installation(s) name something this version does not grant -- a retired ability, or a '
-                .'value like `*` that never was one -- so it is dropped on every read. Repair it with any '
-                .'`robot-council:grant-ability` or `robot-council:revoke-ability` that CHANGES the '
-                .'readable list; one whose answer is what is already readable writes nothing, which '
-                .'includes revoking an ability the row does not readably hold: %s',
+                <<<'TEXT'
+                %d installation(s) name something this version does not grant -- a retired ability, or a value like `*` that never was one -- so it is dropped on every read. Repair it with any `robot-council:grant-ability` or `robot-council:revoke-ability` that CHANGES the readable list; one whose answer is what is already readable writes nothing, which includes revoking an ability the row does not readably hold: %s
+                TEXT,
                 \count($retired),
                 self::named($retired)
             );
@@ -429,11 +457,14 @@ final class Doctor
 
         return Diagnosis::failed(
             'stored abilities',
-            ucfirst(implode('; ', $parts))
-            .'. Until then those entries are invisible on every read, so the installation acts with '
-            .'fewer abilities than its row claims. Whether repairing one changes `fleet_can_direct` '
-            .'depends on a gate this check does not apply: that answer also requires the '
-            ."installation's developer to still be on the access list."
+            // Not `ucfirst()`. Both clauses begin with `%d`, so after `sprintf` the first character
+            // is a digit and capitalizing it was a provable no-op -- dead since #171's review made
+            // these messages lead with a count rather than a noun. Deleted rather than annotated,
+            // which is what the criterion says to do with code no input can reach.
+            implode('; ', $parts)
+            .<<<'TEXT'
+            . Until then those entries are invisible on every read, so the installation acts with fewer abilities than its row claims. Whether repairing one changes `fleet_can_direct` depends on a gate this check does not apply: that answer also requires the installation's developer to still be on the access list.
+            TEXT
         );
     }
 
@@ -487,8 +518,9 @@ final class Doctor
         if (PackageMigrations::shipped($this->migrationDirectory) === []) {
             return Diagnosis::undetermined(
                 'retired migrations',
-                "The package's migration directory could not be read, so which recorded rows belong to "
-                .'this package cannot be answered.'
+                <<<'TEXT'
+                The package's migration directory could not be read, so which recorded rows belong to this package cannot be answered.
+                TEXT
             );
         }
 
@@ -498,9 +530,9 @@ final class Doctor
             return Diagnosis::failed(
                 'retired migrations',
                 sprintf(
-                    'This version ships %d migration(s) its own manifest does not list: %s. Add them to '
-                    .'`%s::EVER_SHIPPED`; until then, which recorded rows belong to this package cannot '
-                    .'be answered.',
+                    <<<'TEXT'
+                    This version ships %d migration(s) its own manifest does not list: %s. Add them to `%s::EVER_SHIPPED`; until then, which recorded rows belong to this package cannot be answered.
+                    TEXT,
                     \count($unlisted),
                     implode(', ', $unlisted),
                     PackageMigrations::class
@@ -520,11 +552,16 @@ final class Doctor
         } catch (Throwable) {
             return Diagnosis::undetermined(
                 'retired migrations',
-                "The `migrations` table could not be read, so which of this package's retired migrations "
-                .'this database has run is unknown. Run `php artisan migrate` first.'
+                <<<'TEXT'
+                The `migrations` table could not be read, so which of this package's retired migrations this database has run is unknown. Run `php artisan migrate` first.
+                TEXT
             );
         }
 
+        // The same three as `migrations()` above, and here all three are required by
+        // `composer analyse` rather than two: `retiredAmong()` declares `list<string>`, so dropping
+        // the re-index is an error too -- measured, 1 error for each of the three.
+        // @pest-mutate-ignore: UnwrapArrayMap, UnwrapArrayFilter, UnwrapArrayValues
         $present = PackageMigrations::retiredAmong(array_values(array_filter(
             array_map(static fn (mixed $name): ?string => \is_string($name) ? $name : null, $recorded),
             static fn (?string $name): bool => $name !== null
@@ -540,9 +577,9 @@ final class Doctor
         return Diagnosis::passed(
             'retired migrations',
             sprintf(
-                '%d recorded migration(s) belong to this package and are no longer shipped: %s. They are '
-                .'inert -- the work was done and only the file was removed -- and Laravel never deletes '
-                .'such a row, so they stay. Nothing to do.',
+                <<<'TEXT'
+                %d recorded migration(s) belong to this package and are no longer shipped: %s. They are inert -- the work was done and only the file was removed -- and Laravel never deletes such a row, so they stay. Nothing to do.
+                TEXT,
                 \count($present),
                 implode(', ', $present)
             )
@@ -576,17 +613,18 @@ final class Doctor
             // the misdiagnosis `DiagnosisStatus::Undetermined` exists to prevent rather than cause.
             return Diagnosis::undetermined(
                 'fleet coordination',
-                'The installations table could not be read, so whether anything on this fleet can post a '
-                .'directive is unknown. Run `php artisan migrate` first.'
+                <<<'TEXT'
+                The installations table could not be read, so whether anything on this fleet can post a directive is unknown. Run `php artisan migrate` first.
+                TEXT
             );
         }
 
         if (! $anyone) {
             return Diagnosis::passed(
                 'fleet coordination',
-                'No installation holds `coordinator:direct`, so no directive can be posted and nothing '
-                .'will reach an agent waiting on one. That is correct for a fleet whose agents only '
-                .'receive. Grant it with `php artisan robot-council:grant-ability` if it is not.'
+                <<<'TEXT'
+                No installation holds `coordinator:direct`, so no directive can be posted and nothing will reach an agent waiting on one. That is correct for a fleet whose agents only receive. Grant it with `php artisan robot-council:grant-ability` if it is not.
+                TEXT
             );
         }
 
@@ -611,8 +649,9 @@ final class Doctor
         if ($connection === 'sync') {
             return Diagnosis::failed(
                 'slack queue connection',
-                'robot-council.slack.connection is `sync`, so the mirror runs inside the agent request that '
-                .'wrote the event and a Slack failure surfaces on a write that already committed.'
+                <<<'TEXT'
+                robot-council.slack.connection is `sync`, so the mirror runs inside the agent request that wrote the event and a Slack failure surfaces on a write that already committed.
+                TEXT
             );
         }
 
@@ -665,10 +704,9 @@ final class Doctor
         return Diagnosis::failed(
             'application timezone',
             sprintf(
-                "app.timezone is `%s`. Presence, lock leases and a device code's expiry are unaffected, "
-                .'but a token expiry is still measured on the application clock, because Sanctum compares it '
-                .'against that clock and moving only one side would be worse. A daylight-saving '
-                .'transition can therefore expire or extend a credential by an hour. Set it to UTC.',
+                <<<'TEXT'
+                app.timezone is `%s`. Presence, lock leases and a device code's expiry are unaffected, but a token expiry is still measured on the application clock, because Sanctum compares it against that clock and moving only one side would be worse. A daylight-saving transition can therefore expire or extend a credential by an hour. Set it to UTC.
+                TEXT,
                 \is_string($timezone) ? $timezone : 'not a string'
             )
         );

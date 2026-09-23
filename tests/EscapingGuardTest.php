@@ -376,6 +376,28 @@ it('finds a class name written into a PHP literal, and ignores one written in pr
         ->toBeEmpty();
 });
 
+it('reads a class name out of a heredoc and a nowdoc, not only a quoted literal', function (): void {
+    // **The hole #175 would otherwise have opened.** It moved every message in `Support\Doctor`
+    // into nowdocs, and the first detector paired quote CHARACTERS -- a nowdoc body carries none,
+    // so the whole file left this guard's reach with nothing reporting it. Measured before the
+    // fix: the nowdoc below returned nothing while `'btn btn-primary'` returned its class.
+    expect(stylesheetClassesIn("<?php \$x = <<<'TEXT'\n    a nowdoc naming btn-lg inline\n    TEXT;\n"))
+        ->toBe(['btn-lg']);
+
+    expect(stylesheetClassesIn("<?php \$x = <<<TEXT\n    a heredoc naming card-body inline\n    TEXT;\n"))
+        ->toBe(['card-body']);
+
+    // **And the same defect ran the other way, which is why prose is asserted too.** The regex
+    // read the text BETWEEN two apostrophes as a literal, so an ordinary sentence with two
+    // possessives reported whatever sat between them. This is the shape `Support\Doctor`'s own
+    // messages have.
+    expect(stylesheetClassesIn("<?php \$x = <<<'TEXT'\n    The job's state is text-sm for the application's page.\n    TEXT;\n"))
+        ->toBe(['text-sm'], 'a class name in a nowdoc is reported wherever it sits');
+
+    expect(stylesheetClassesIn("<?php \$x = <<<'TEXT'\n    The oldest job's timestamp is unreadable, so this application's age check cannot run.\n    TEXT;\n"))
+        ->toBeEmpty('prose with apostrophes is prose, not a quoted literal');
+});
+
 it('writes no stylesheet class into a PHP literal, because `src/` is not scanned', function (): void {
     // #111 decided `src/` is not a Tailwind source, which removed 30 KB of prose-derived CSS from
     // the shipped artifact. The cost is the opposite failure: a class named in PHP reaches no
