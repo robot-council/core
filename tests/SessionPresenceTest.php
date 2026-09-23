@@ -653,7 +653,7 @@ it('writes exactly one event for each status change across a whole session', fun
     $recorded = FleetEvent::query()->orderBy('id')->pluck('type')->all();
 
     expect($recorded)->toBe([
-        FleetEventType::SessionStarted,
+        FleetEventType::SessionJoined,
         FleetEventType::SessionStale,
         FleetEventType::SessionResumed,
         FleetEventType::SessionStale,

@@ -7,7 +7,14 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Rewrites the fleet event a starting session records, from the installation's verb to its own.
+ * Rewrites the fleet event a joining session records, from the installation's verb to its own.
+ *
+ * **One hop, deliberately.** The value briefly became `session.started` on `main` before
+ * `robot-council/cli#125` settled that joining is a deliberate act and the verb should follow it.
+ * That intermediate was never released -- `git ls-tree` finds this file in none of `v0.3.0`,
+ * `v0.3.1` or `v0.3.2` -- so no host has run it and no row anywhere holds `session.started`. This
+ * file is edited rather than followed by a second migration, which is the whole value of catching
+ * it inside the window.
  *
  * **This is the load-bearing half of #217, not bookkeeping.** `robot_council_events.type` is a
  * `string(64)` holding the enum's backing value, and `Models\FleetEvent` casts it with
@@ -42,7 +49,7 @@ return new class extends Migration
 
         DB::table('robot_council_events')
             ->where('type', 'session.enrolled')
-            ->update(['type' => 'session.started']);
+            ->update(['type' => 'session.joined']);
     }
 
     /**
@@ -58,7 +65,7 @@ return new class extends Migration
         }
 
         DB::table('robot_council_events')
-            ->where('type', 'session.started')
+            ->where('type', 'session.joined')
             ->update(['type' => 'session.enrolled']);
     }
 };

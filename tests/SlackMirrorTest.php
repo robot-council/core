@@ -115,7 +115,7 @@ it('queues nothing, and records nothing, when the surrounding transaction rolls 
     try {
         DB::transaction(function (): void {
             $this->service(FleetEvents::class)->record(
-                FleetEventType::SessionStarted,
+                FleetEventType::SessionJoined,
                 null,
                 'a session that never was'
             );
