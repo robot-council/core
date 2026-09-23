@@ -18,7 +18,6 @@ declare(strict_types=1);
 
 use Illuminate\Foundation\Auth\User;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Access\Role;
@@ -30,7 +29,7 @@ use RobotCouncil\Models\FleetEventType;
 use RobotCouncil\Models\Installation;
 use RobotCouncil\Support\FleetFeed;
 use RobotCouncil\Support\InstallationList;
-use RobotCouncil\Support\Installations;
+use RobotCouncil\Support\RoleRequests;
 use RobotCouncil\Support\Scope;
 use RobotCouncil\Support\SessionPresence;
 use RobotCouncil\Tests\Fixtures\HostileContent;
@@ -80,7 +79,7 @@ it("shows a session's role beside the installation's abilities, because they ans
         Ability::CoordinatorDirect->value,
     ]);
 
-    [$coordinator] = $this->startAgentSession($installation);
+    [$coordinator] = $this->startCoordinatorSession($installation);
     [$build] = $this->startAgentSession($installation);
 
     expect($coordinator->role)->toBe(Role::Coordinator);
@@ -163,15 +162,39 @@ it('grants the coordinator ability without promoting a session already in flight
     expect($session->refresh()->role)->toBe(Role::Build);
 });
 
-it('revokes the coordinator ability, and demotes the sessions already in flight', function (): void {
+it('imposes a role on a live session, which is the demotion an ability revocation used to be', function (): void {
+    // **The capability moved rather than disappeared.** Before `robot-council/core#222`, revoking
+    // `coordinator:direct` from a machine demoted its coordinator sessions; now an administrator
+    // names the one session, which is what the epic wanted -- one machine runs several checkouts
+    // and only one of them should be directing.
+    $installation = $this->approveInstallation($this->developer, [Ability::EventsPost->value]);
+
+    [$session] = $this->startCoordinatorSession($installation);
+
+    expect($session->role)->toBe(Role::Coordinator);
+
+    Livewire::actingAs($this->admin)
+        ->test(Administration::class)
+        ->call('imposeRole', $session->getKey(), Role::Build->value);
+
+    $carried = $session->tokens()->pluck('abilities')->all();
+
+    expect($session->refresh()->role)->toBe(Role::Build)
+        ->and($carried)->not->toBeEmpty()
+        ->each->not->toContain(Ability::CoordinatorDirect->value);
+});
+
+it('reaches no session when an installation ability is revoked', function (): void {
+    // The other half, and the one that changed: `granted_abilities` decides nothing about a
+    // session, so taking the very ability the role carries off the machine leaves the session
+    // holding it. `imposeRole` above is the control that says this is inertness rather than a
+    // panel that cannot change anything.
     $installation = $this->approveInstallation($this->developer, [
         Ability::EventsPost->value,
         Ability::CoordinatorDirect->value,
     ]);
 
-    [$session] = $this->startAgentSession($installation);
-
-    expect($session->role)->toBe(Role::Coordinator);
+    [$session] = $this->startCoordinatorSession($installation);
 
     Livewire::actingAs($this->admin)
         ->test(Administration::class)
@@ -180,9 +203,9 @@ it('revokes the coordinator ability, and demotes the sessions already in flight'
     $carried = $session->tokens()->pluck('abilities')->all();
 
     expect($installation->refresh()->abilities())->not->toContain(Ability::CoordinatorDirect->value)
+        ->and($session->refresh()->role)->toBe(Role::Coordinator)
         ->and($carried)->not->toBeEmpty()
-        ->each->not->toContain(Ability::CoordinatorDirect->value)
-        ->and($session->refresh()->role)->toBe(Role::Build);
+        ->each->toContain(Ability::CoordinatorDirect->value);
 });
 
 it('leaves a live token alone when an ability no role gates is revoked', function (): void {
@@ -582,44 +605,26 @@ it('bounds the sessions it lists, and says how many it left out', function (): v
         ->not->toContain(AgentSessionStatus::Gone->value);
 });
 
-it('does not rewrite tokens for sessions that have already gone', function (): void {
-    // The loops in `Installations` run inside the transaction holding the feed's sentinel row,
-    // which every writer in the fleet takes before inserting -- so their length is the fleet's
-    // write latency. Nothing deletes a session row, so unbounded means unbounded forever.
-    // A coordinator installation, because since #221 the only change that re-mints a live token is
-    // a demotion: `coordinator:direct` coming off the machine. Granting a build ability moves no
-    // role and correctly rewrites nothing, so it could not tell a bounded loop from an unbounded
-    // one.
-    $installation = $this->approveInstallation($this->developer, [
-        Ability::EventsPost->value,
-        Ability::CoordinatorDirect->value,
-    ]);
+it('refuses to give a role to a session that has already gone', function (): void {
+    // The window between the panel rendering and the click. A session that ended in between must
+    // not be given a role: its tokens are already deleted, so nothing would carry it, and the feed
+    // would say a dead process had been promoted.
+    $installation = $this->approveInstallation($this->developer, [Ability::EventsPost->value]);
 
     [$gone] = $this->startAgentSession($installation);
     [$alive] = $this->startAgentSession($installation);
 
-    expect($gone->role)->toBe(Role::Coordinator)
-        ->and($alive->role)->toBe(Role::Coordinator);
-
     $this->service(SessionPresence::class)->revoke($gone);
 
-    $queries = 0;
+    $requests = $this->service(RoleRequests::class);
 
-    DB::listen(function () use (&$queries): void {
-        $queries++;
-    });
+    expect($requests->impose($gone, Role::Coordinator, keyValue($this->admin->getKey())))->toBeFalse()
+        ->and($gone->refresh()->role)->toBe(Role::Build);
 
-    $rewritten = $this->service(Installations::class)
-        ->setAbility($installation, Ability::CoordinatorDirect, false);
-
-    // One live session holds one token. A loop over every row ever created would report two here
-    // before it reported anything else, and the count is what tells them apart.
-    expect($rewritten)->toBe(1)
-        ->and($queries)->toBeGreaterThan(0);
-
-    // And the session that had already gone keeps the role it ended with, because nothing walked it
-    expect($gone->refresh()->role)->toBe(Role::Coordinator)
-        ->and($alive->refresh()->role)->toBe(Role::Build);
+    // The control beside it: the live one takes the role, so the refusal above is the `gone` check
+    // rather than `impose()` being broken
+    expect($requests->impose($alive, Role::Coordinator, keyValue($this->admin->getKey())))->toBeTrue()
+        ->and($alive->refresh()->role)->toBe(Role::Coordinator);
 });
 
 it('writes one event for a change, and none for a repeat of it', function (): void {

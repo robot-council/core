@@ -27,6 +27,7 @@ use RobotCouncil\Http\Controllers\ListTasksController;
 use RobotCouncil\Http\Controllers\LockController;
 use RobotCouncil\Http\Controllers\PostDirectiveController;
 use RobotCouncil\Http\Controllers\PostNarrationController;
+use RobotCouncil\Http\Controllers\RequestRoleController;
 use RobotCouncil\Http\Controllers\SessionEndController;
 use RobotCouncil\Http\Controllers\SessionRenewController;
 use RobotCouncil\Http\Controllers\SessionStartController;
@@ -79,6 +80,14 @@ Route::middleware(['throttle:'.RobotCouncilServiceProvider::AGENT_LIMITER, Ensur
         // Contact is recorded for every route in this group, so this one is for a process that has
         // nothing else to send rather than the only thing that keeps a session alive
         Route::post('agent/heartbeat', AgentHeartbeatController::class)->name('agent.heartbeat');
+
+        // **No ability, because asking is not doing**, and its own limiter on top of the group's:
+        // a denied session re-asking in a loop fills an administrator's queue, which is a flood
+        // aimed at a human. The limiter is declared here rather than on the group so it stacks
+        // with `AGENT_LIMITER` rather than replacing it.
+        Route::post('agent/role', RequestRoleController::class)
+            ->middleware('throttle:'.RobotCouncilServiceProvider::ROLE_REQUEST_LIMITER)
+            ->name('agent.role');
 
         // Reading the feed needs no ability: what a session may see is decided by whose narration
         // it is, not by what the session was granted

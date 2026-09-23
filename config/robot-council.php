@@ -306,6 +306,7 @@ return [
         'verification_per_user' => (int) env('ROBOT_COUNCIL_RATE_VERIFICATION_PER_USER', 20),
         'sessions_per_installation' => (int) env('ROBOT_COUNCIL_RATE_SESSIONS_PER_INSTALLATION', 60),
         'agent_per_session' => (int) env('ROBOT_COUNCIL_RATE_AGENT_PER_SESSION', 120),
+        'role_requests_per_session' => (int) env('ROBOT_COUNCIL_RATE_ROLE_REQUESTS_PER_SESSION', 5),
 
         // Slack's own guidance is about one message a second per webhook
         'slack_per_minute' => (int) env('ROBOT_COUNCIL_RATE_SLACK_PER_MINUTE', 60),

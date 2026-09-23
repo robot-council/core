@@ -43,6 +43,8 @@ use RobotCouncil\Support\PresenceTimestamp;
  * @property string|null $project_id
  * @property string|null $repository
  * @property string|null $work_location
+ * @property Role|null $requested_role
+ * @property Carbon|null $requested_at
  * @property int $feed_cursor
  * @property-read Installation $installation
  *
@@ -57,6 +59,8 @@ use RobotCouncil\Support\PresenceTimestamp;
     'project_id',
     'repository',
     'work_location',
+    'requested_role',
+    'requested_at',
 ])]
 #[Table(name: 'robot_council_agent_sessions')]
 final class AgentSession extends Model implements AuthenticatableContract
@@ -86,6 +90,10 @@ final class AgentSession extends Model implements AuthenticatableContract
             // package and its migration, and a renamed case takes a data migration with it, which
             // is the rule `2026_09_23_000002_rename_session_enrolled_events.php` was paid for.
             'role' => Role::class,
+            // Nullable, and cast like `role` -- so a pending request is read back as a `Role`
+            // rather than as a string every caller has to resolve. Null means nothing is pending.
+            'requested_role' => Role::class,
+            'requested_at' => 'datetime',
             // Not `datetime`: that hydrates in the application's timezone, and the presence
             // sweep re-binds the value it read into the `where` that commits a status. See
             // `Support\PresenceTimestamp` for what that costs on a host that is not on UTC (#51).

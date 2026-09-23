@@ -60,7 +60,10 @@ function lockCoordinator(TestCase $case): array
         Ability::CoordinatorDirect->value,
     ], machineLabel: 'coordinator-box');
 
-    [$case->coordinatorSession, $case->coordinatorToken] = $case->startAgentSession($installation);
+    // **A coordinator is made by an administrator, not by a grant.** Since
+    // `robot-council/core#222` a session starts as `build` whatever its installation holds, so a
+    // fixture that only granted the ability would hand back a session that cannot direct.
+    [$case->coordinatorSession, $case->coordinatorToken] = $case->startCoordinatorSession($installation);
 
     return [$case->coordinatorSession, $case->coordinatorToken];
 }

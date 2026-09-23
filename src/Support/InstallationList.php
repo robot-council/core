@@ -178,6 +178,11 @@ final class InstallationList
                 // questions: what this machine is eligible for, and what this process is.
                 'role' => $session->role->value,
 
+                // What it has ASKED to be, which is a different fact from what it is and is the
+                // one an administrator acts on. Null when nothing is pending.
+                'requested_role' => $session->requested_role?->value,
+                'requested_at' => $session->requested_at?->toIso8601String(),
+
                 // Agent-supplied, charset-limited at the edge by `ProjectId`, and escaped by the
                 // view like every other string that reached this package from a machine
                 'project_id' => $session->project_id,

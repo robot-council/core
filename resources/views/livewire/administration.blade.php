@@ -150,6 +150,50 @@
                                             <span class="opacity-60">no project</span>
                                         @endif
 
+                                        {{-- **What it ASKED to be, presented as information and
+                                             never as a nomination.** With installations keyed on
+                                             developer, harness and machine, the coordinator
+                                             checkout and the build checkouts present the same
+                                             credential -- session id, repository and work location
+                                             are all arbitrary or asserted -- so the panel shows what
+                                             each session claims and the administrator picks. A
+                                             queue with a pre-filled answer trains its reader to
+                                             accept it. --}}
+                                        @if (($session['requested_role'] ?? null) !== null)
+                                            <span class="badge badge-sm badge-warning">asked for {{ $session['requested_role'] }}</span>
+
+                                            <button type="button"
+                                                wire:click="approveRole({{ Wire::of($session['id']) }})"
+                                                @if ($session['requested_role'] === \RobotCouncil\Access\Role::Coordinator->value)
+                                                    wire:confirm="Approve coordinator? This session will be able to release, reassign or cancel any developer's task, and post directives to the whole fleet."
+                                                @endif
+                                                class="btn btn-xs btn-primary">
+                                                Approve
+                                            </button>
+
+                                            <button type="button"
+                                                wire:click="denyRole({{ Wire::of($session['id']) }})"
+                                                class="btn btn-xs btn-ghost">
+                                                Deny
+                                            </button>
+                                        @endif
+
+                                        {{-- Imposing needs no request, which is what makes an
+                                             emergency demotion possible. One control per role, from
+                                             the enum, minus the one it already holds. --}}
+                                        @foreach ($roles as $role)
+                                            @if ($role->value !== $session['role'])
+                                                <button type="button"
+                                                    wire:click="imposeRole({{ Wire::of($session['id']) }}, '{{ Wire::of($role) }}')"
+                                                    @if ($role === \RobotCouncil\Access\Role::Coordinator)
+                                                        wire:confirm="Make this session a coordinator? It will be able to release, reassign or cancel any developer's task, and post directives to the whole fleet."
+                                                    @endif
+                                                    class="btn btn-xs btn-ghost">
+                                                    Make {{ $role->value }}
+                                                </button>
+                                            @endif
+                                        @endforeach
+
                                         {{-- Every listed session is live, so every one can be
                                              revoked. The reader bounds the list rather than the
                                              view hiding rows. --}}

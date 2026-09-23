@@ -79,6 +79,24 @@ enum FleetEventType: string
     case InstallationAbilityRevoked = 'installation.ability_revoked';
 
     /**
+     * A session asked to be a different role. Nothing about what it may do has changed.
+     *
+     * Recorded rather than left in the panel alone, because the request and the decision are two
+     * acts by two parties and a feed that showed only the second could not say how long the first
+     * had been waiting.
+     */
+    case SessionRoleRequested = 'session.role_requested';
+
+    /**
+     * A session's role changed: approved from a request, or imposed by an administrator.
+     *
+     * **One type for both, with the decision in the payload.** Two types would make a reader
+     * hunting "what is this session allowed to do, and who decided" join two streams, and the
+     * difference between an approval and an imposition is a field rather than a kind of event.
+     */
+    case SessionRoleChanged = 'session.role_changed';
+
+    /**
      * A task was created and is waiting for somebody to claim it.
      */
     case TaskCreated = 'task.created';

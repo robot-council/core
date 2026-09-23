@@ -107,6 +107,16 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
     public const string AGENT_LIMITER = 'robot-council-agent';
 
     /**
+     * The limiter on asking to be a different role.
+     *
+     * Far tighter than `AGENT_LIMITER`, and separate from it, because the two bound different
+     * things. A session makes ordinary agent calls constantly and asks for a role approximately
+     * never -- and a denied session that re-asks in a loop would fill an administrator's queue,
+     * which is a denial of service against a human rather than against the service.
+     */
+    public const string ROLE_REQUEST_LIMITER = 'robot-council-role-request';
+
+    /**
      * The named rate limit the Slack mirror job runs through, shared by every worker.
      */
     public const string SLACK_LIMITER = 'robot-council-slack';
@@ -560,6 +570,21 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
 
             return Limit::perMinute($credentials->rateLimit('agent_per_session', 120))
                 ->by('agent:'.$subject);
+        });
+
+        RateLimiter::for(self::ROLE_REQUEST_LIMITER, static function (Request $request) use ($credentials): Limit {
+            // Keyed on the session, resolved through the guard for the reason the other limiters
+            // record: the route declares this ahead of the principal middleware, so nothing has
+            // been left on the request yet. An unauthenticated caller is keyed by address, which is
+            // what makes the flood the guard would refuse limited as well.
+            $session = $request->user(ApiGuards::AGENT);
+
+            $subject = $session instanceof AgentSession
+                ? (string) $session->id
+                : 'ip:'.$request->ip();
+
+            return Limit::perMinute($credentials->rateLimit('role_requests_per_session', 5))
+                ->by('role-request:'.$subject);
         });
 
         // One limit across every worker, because Slack's is per webhook rather than per process

@@ -141,22 +141,23 @@ it('answers zero and records nothing when the ability is already what was asked 
     // The "nothing changed" answer from a conditional write, which is the pattern every store here
     // decides by. A mutant returning 1 or -1 says an authorization change happened when none did.
     //
-    // Asserted alongside the event count, because `setAbility()`'s return is tokens rewritten and
-    // a fleet with no live session rewrites none -- so the number alone cannot tell "nothing
-    // changed" from "changed, and nobody was holding a token". The absent event can.
+    // Asserted alongside the event count. Since `robot-council/core#222` the return says whether
+    // the STORED list changed and no token is ever rewritten by this path, so `false` here means
+    // exactly one thing -- but the absent event is kept beside it, because a return that said
+    // `false` while an event was written would be the more interesting failure.
     $installation = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
 
     $before = FleetEvent::query()->count();
 
     expect($this->service(Installations::class)
         ->setAbility($installation, Ability::TasksCreate, true, keyValue($this->admin->getKey())))
-        ->toBe(0)
+        ->toBeFalse()
         ->and(FleetEvent::query()->count())->toBe($before);
 
     // And the same for removing one that was never held.
     expect($this->service(Installations::class)
         ->setAbility($installation, Ability::LocksAcquire, false, keyValue($this->admin->getKey())))
-        ->toBe(0)
+        ->toBeFalse()
         ->and(FleetEvent::query()->count())->toBe($before);
 });
 
@@ -183,7 +184,7 @@ it('stores the remaining abilities as a list after removing the first of three',
 
     expect($this->service(Installations::class)
         ->setAbility($installation, Ability::TasksCreate, false, keyValue($this->admin->getKey())))
-        ->toBe(0)
+        ->toBeTrue()
         ->and($session->refresh()->role)->toBe(Role::Build);
 
     // The RAW column, because the cast on the way out would hide a keyed write.
