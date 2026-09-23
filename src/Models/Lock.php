@@ -30,8 +30,6 @@ use RobotCouncil\Support\PresenceTimestamp;
  * @property int $fence
  * @property Carbon|null $acquired_at
  * @property Carbon|null $expires_at
- * @property Carbon|null $created_at
- * @property Carbon|null $updated_at
  *
  * **Every instant on this row is on `Support\PresenceClock`, not the application's clock** (#149),
  * which means a host that is not on UTC sees its existing rows reinterpreted once, at the upgrade.
@@ -74,19 +72,27 @@ final class Lock extends Model
             // `expires_in` from it, so a relabelled value is wrong in exactly the paths that
             // decide or report whether a lease is still held (#149).
             //
-            // **All four columns, and `acquired_at` is not cast for the `where` that reads it.** A
-            // binding never runs a cast -- `Eloquent\Builder` applies none, and
-            // `Connection::prepareBindings()` formats the Carbon it is handed -- so the renewal
-            // ceiling would behave identically without this line. It is cast because the column is
-            // written on the presence clock and anything that hydrates it later must not read it
-            // as the host's. `created_at` and `updated_at` are cast for that reason alone:
-            // `updated_at` is the retention column `robot-council:prune-locks` measures, nothing
-            // hydrates either today, and leaving them uncast would leave a trap for whoever first
-            // does.
+            // **`acquired_at` is not cast for the `where` that reads it.** A binding never runs a
+            // cast -- `Eloquent\Builder` applies none, and `Connection::prepareBindings()` formats
+            // the Carbon it is handed -- so the renewal ceiling would behave identically without
+            // this line. It is cast because the column is written on the presence clock and
+            // anything that hydrates it later must not read it as the host's.
+            //
+            // **`created_at` and `updated_at` are deliberately NOT cast, and casting them is a
+            // trap rather than the tidy extension it looks like.** `HasAttributes::getDates()`
+            // returns both whenever a model uses timestamps, whatever its casts, and
+            // `setAttribute()` tests `isDateAttribute()` in an `elseif` chain that runs *before*
+            // the class-cast branch -- so an assignment is first flattened by `fromDateTime()`
+            // into naive digits **in the Carbon's own zone**, and `PresenceTimestamp::set()` then
+            // re-parses those digits in the **application's**. The two cancel only where the two
+            // zones agree. `$lock->updated_at = PresenceClock::now()` would therefore store an
+            // instant wrong by the host's offset, on the one column
+            // `robot-council:prune-locks` measures retention on. Nothing hydrates either column
+            // today, every write is a query-builder `insertOrIgnore` or `update` that bypasses
+            // `setAttribute` entirely, and `Models\AgentSession` leaves its own two alone for the
+            // same reason.
             'acquired_at' => PresenceTimestamp::class,
             'expires_at' => PresenceTimestamp::class,
-            'created_at' => PresenceTimestamp::class,
-            'updated_at' => PresenceTimestamp::class,
         ];
     }
 

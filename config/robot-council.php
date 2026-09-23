@@ -200,9 +200,10 @@ return [
     | one fixed clock (`Support\PresenceClock`, which is UTC), so a
     | daylight-saving transition cannot lapse a held lock. Upgrading a host
     | that is NOT on UTC reinterprets its existing lock rows once, and west of
-    | UTC that reads every held lease as lapsed for up to the offset -- see the
-    | note on `Models\Lock`. No lease outlives `max_ttl_seconds`, so the
-    | window closes on its own.
+    | UTC that reads every held lease as already lapsed -- see the note on
+    | `Models\Lock`. The window is bounded by `max_ttl_seconds` rather than by
+    | the offset: whatever a re-read says, no lease outlives its ceiling, so
+    | every affected row is re-acquired or gone within that.
     |
     */
 

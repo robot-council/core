@@ -322,7 +322,7 @@ final class Doctor
      * or lapses a lease.
      *
      * **What remains is credential expiry, and the two halves of it are not alike.**
-     * `Support\Credentials::installationExpiry()` and `sessionExpiry()` write `expires_at` on
+     * `Support\Credentials::installationExpiry()` and `sessionTokenExpiry()` write `expires_at` on
      * tokens that **Sanctum** compares against its own `now()`, which is the application's.
      * Writing those on a fixed clock while Sanctum keeps reading the host's would introduce the
      * mismatch rather than remove it, in the place that decides whether a credential still works.
@@ -334,9 +334,14 @@ final class Doctor
      * outstanding code at once, or at fall-back keeps one valid an hour past its TTL, which is the
      * direction that matters for an enrollment code.
      *
-     * So this still fails outside UTC, and the message names both, because a check that reports
-     * more than is true is a check people learn to discount -- and one that reports less is one
-     * that leaves a reader believing the rest is handled.
+     * **Credentials are what this reports, not everything on the application clock.** Three
+     * retention cutoffs are measured on it too -- `robot-council:prune-tasks`,
+     * `robot-council:prune-events`, and `Support\InstallationList` -- and each is self-consistent,
+     * written and compared on the same clock, so nothing lapses and no row is lost. What moves is
+     * the boundary, by an hour, once. That is a different severity from a credential that stops
+     * working, which is why the message names the credentials and this docblock names the rest:
+     * a check that reports more than is true is one people learn to discount, and one that
+     * reports less leaves a reader believing the rest is handled.
      *
      * @return Diagnosis What the check concluded.
      */

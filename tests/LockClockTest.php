@@ -204,10 +204,17 @@ it('measures lock retention on the clock the column is written on', function ():
 });
 
 it('renews and releases on the fixed clock too, not only acquires', function (): void {
-    // **The three call sites the first draft of this file could not see.** `acquire()` was covered
-    // and `renew()`, `release()` and `forceRelease()` were not, so reverting those to the
-    // application clock left the suite green -- three surviving mutants on the paths the change is
-    // for. Each is exercised with the host's clock moved away from the one the row was written on.
+    // **Two of the call sites the first draft of this file could not see.** `acquire()` was
+    // covered and `renew()` and `release()` were not, so reverting those to the application clock
+    // left the suite green. Each is exercised here with the host's clock moved away from the one
+    // the row was written on.
+    //
+    // **`forceRelease()` is called below and is NOT discriminated by this test**, deliberately
+    // named rather than implied: its conditions carry no clock term -- it takes a name from
+    // whoever holds it -- so its `$now` reaches only `updated_at`, and reverting it leaves this
+    // assertion green. What covers that site is the retention test further down, which reads the
+    // consequence through the prune boundary. The call stays here because the path should still
+    // work with the clocks apart.
     config()->set('app.timezone', 'UTC');
     date_default_timezone_set('UTC');
 

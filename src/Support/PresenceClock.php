@@ -23,7 +23,7 @@ use Illuminate\Support\Carbon;
  *
  * **Scoped to presence deliberately, and the scope is the interesting part.** Reading this clock
  * everywhere would be worse, not better: `Credentials::installationExpiry()` and
- * `sessionExpiry()` write `expires_at` on a token that **Sanctum** compares against its own
+ * `sessionTokenExpiry()` write `expires_at` on a token that **Sanctum** compares against its own
  * `now()`, which is the application's. Writing those in UTC while Sanctum reads them in the host's
  * zone would introduce exactly the mismatch this class exists to remove, in a place that decides
  * whether a credential still works.
