@@ -467,6 +467,18 @@ function writeProbe(string $contents): string
  * string literal matches, including `robot-council installation` and `tasks:create`, which a
  * looser "hyphenated word" rule would have caught.
  *
+ * **It reads TOKENS, not a quote-matching regex, and that is what makes it see a heredoc.** The
+ * first version paired quote characters, so a nowdoc body -- which carries no quotes of its own --
+ * was invisible: measured, `<<<'TEXT'` holding `btn-primary` returned nothing while the same class
+ * in `'btn btn-primary'` returned it. #175 moved every message in `Support\Doctor` into nowdocs,
+ * which would have taken that whole file out of this guard's reach silently. Worse, the regex read
+ * prose BETWEEN two apostrophes as a literal, so `job's state is text-sm for the application's
+ * page` did report -- the guard was answering from the wrong text in both directions at once.
+ *
+ * PHP's own lexer settles it: `T_CONSTANT_ENCAPSED_STRING` is a quoted literal, and
+ * `T_ENCAPSED_AND_WHITESPACE` is every literal run inside a heredoc, a nowdoc, or an interpolated
+ * double-quoted string. Nothing else is read, so an apostrophe in prose is an apostrophe.
+ *
  * @param  string  $source  The PHP file's contents.
  * @return list<string> One finding per class-shaped token.
  */
@@ -477,18 +489,24 @@ function stylesheetClassesIn(string $source): array
 
     $findings = [];
 
-    preg_match_all('/\'([^\'\\\\\n]*)\'|"([^"\\\\\n]*)"/', $source, $literals, PREG_SET_ORDER);
-
-    foreach ($literals as $literal) {
-        $value = $literal[2] ?? '';
-
-        if ($value === '') {
-            $value = $literal[1] ?? '';
+    foreach (token_get_all($source) as $token) {
+        if (! \is_array($token)) {
+            continue;
         }
 
-        foreach (preg_split('/\s+/', $value, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $token) {
-            if (preg_match('/^(?:'.$prefixes.')-[a-z0-9]+(?:-[a-z0-9]+)*$/D', $token) === 1) {
-                $findings[] = $token;
+        if ($token[0] === T_CONSTANT_ENCAPSED_STRING) {
+            // The lexeme carries its own delimiters; the class shape below cannot contain one, so
+            // trimming them is enough and no unescaping is needed.
+            $value = trim($token[1], '\'"');
+        } elseif ($token[0] === T_ENCAPSED_AND_WHITESPACE) {
+            $value = $token[1];
+        } else {
+            continue;
+        }
+
+        foreach (preg_split('/\s+/', $value, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $word) {
+            if (preg_match('/^(?:'.$prefixes.')-[a-z0-9]+(?:-[a-z0-9]+)*$/D', $word) === 1) {
+                $findings[] = $word;
             }
         }
     }
