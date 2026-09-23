@@ -227,4 +227,38 @@ final class FleetPresence
             ])->all()),
         ];
     }
+
+    /**
+     * How many agent sessions are not gone.
+     *
+     * The same predicate `sessions()` counts `live` with, so the tile above the panels and the
+     * panel itself cannot report different numbers for the same fleet -- which is the whole reason
+     * this lives here rather than in a store of its own.
+     *
+     * A counting query rather than a `count()` over a paged read. Those pages are bounded by
+     * `MAX_PAGE`, so measuring one would report the bound rather than the total on any fleet large
+     * enough for the number to matter, and a capped total is indistinguishable from a real one.
+     *
+     * @return int The number of sessions still able to act.
+     */
+    public function liveSessions(): int
+    {
+        return AgentSession::query()
+            ->where('status', '<>', AgentSessionStatus::Gone->value)
+            ->count();
+    }
+
+    /**
+     * How many locks still name a holder.
+     *
+     * The same predicate `locks()` counts `held` with, and `Scope::Live` selects rows by. A lapsed
+     * lease whose row still names somebody counts, because that is precisely the state a developer
+     * is looking for.
+     *
+     * @return int The number of locks naming a holder.
+     */
+    public function heldLocks(): int
+    {
+        return Lock::query()->whereNotNull('holder_id')->count();
+    }
 }
