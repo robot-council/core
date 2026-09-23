@@ -46,6 +46,12 @@ final class AgentSessionController
             'role' => $session->role->value,
             'project_id' => $session->project_id,
 
+            // Where the work is, as two fields rather than one label a reader has to parse.
+            // `project_id` stays beside them until the epic's final slice retires it, so a client
+            // that reads only the old key keeps working.
+            'repository' => $session->repository,
+            'work_location' => $session->work_location,
+
             // Read from the row rather than from this instance, which the guard hydrated before
             // the request ran. A process that has lost its position asks here and resumes,
             // instead of replaying the feed from the beginning (#86).

@@ -29,6 +29,7 @@ use RobotCouncil\Access\Ability;
 use RobotCouncil\Models\TaskStatus;
 use RobotCouncil\Support\Locks;
 use RobotCouncil\Support\WireArgument;
+use RobotCouncil\Support\WorkIdentity;
 use RobotCouncil\Tests\Fixtures\HostileContent;
 
 beforeEach(function (): void {
@@ -446,7 +447,7 @@ it('shows the javascript payload is detectable, against a sink no package view h
     expect($survived)->not->toBeEmpty();
 });
 
-it('admits no executable payload in any charset-limited field, though it does admit an off-site URL', function (string $label, string $pattern): void {
+it('admits no executable payload in any charset-limited field, though it does admit an off-site URL', function (string $label, string $pattern, string $harmless): void {
     // An earlier version of this test claimed these allowlists "admit no colon, so none can carry
     // `javascript:`". That is false, and it passed only because its single probe was
     // `javascript:alert(1)`, whose parentheses are out of charset. A lock name's class is
@@ -460,17 +461,42 @@ it('admits no executable payload in any charset-limited field, though it does ad
     }
 
     // The control: the pattern accepts something ordinary, so one that refused everything could not
-    // pass as a guarantee
-    expect('harmless-value')->toMatch($pattern);
+    // pass as a guarantee.
+    //
+    // **Carried per row rather than fixed**, because the fields no longer share one shape: a
+    // repository needs a separator, so a single `harmless-value` would have made that row's control
+    // fail for a reason that says nothing about the property under test.
+    expect($harmless)->toMatch($pattern);
 })->with([
-    'harness' => ['harness', '/^[a-z0-9-]{1,32}$/D'],
-    'machine_label' => ['machine_label', '/^[A-Za-z0-9._-]{1,64}$/D'],
-    'project_id' => ['project_id', '/^[A-Za-z0-9._\/-]{1,128}$/D'],
+    'harness' => ['harness', '/^[a-z0-9-]{1,32}$/D', 'harmless-value'],
+    'machine_label' => ['machine_label', '/^[A-Za-z0-9._-]{1,64}$/D', 'harmless-value'],
+    'project_id' => ['project_id', '/^[A-Za-z0-9._\/-]{1,128}$/D', 'harmless-value'],
 
     // Read from the source of truth rather than retyped. The other three have one call site each
-    // and no constant yet; this one has three and does.
-    'a lock name' => ['a lock name', Locks::NAME],
+    // and no constant yet; these three have constants and use them.
+    'a lock name' => ['a lock name', Locks::NAME, 'harmless-value'],
+    'repository' => ['repository', WorkIdentity::REPOSITORY, 'robot-council/core'],
+    'work_location' => ['work_location', WorkIdentity::LOCATION, 'primary'],
 ]);
+
+it('refuses a traversal segment in the two fields whose names invite one', function (): void {
+    // **The enumeration above is about executable payloads; this is about paths.** `repository` and
+    // `work_location` are the first fields here whose NAMES tell a consumer what to do with them --
+    // join one into a checkout path, hand the other to a command -- and both are broadcast to every
+    // agent in the fleet through `session.joined`. `project_id` and a lock name are deliberately
+    // wider and carry no such invitation, which is why they are not in this one.
+    foreach (['../..', './.', 'a/..', '-x/-y'] as $traversal) {
+        expect(preg_match(WorkIdentity::REPOSITORY, $traversal))->toBe(0);
+    }
+
+    foreach (['..', '.', '-rf'] as $traversal) {
+        expect(preg_match(WorkIdentity::LOCATION, $traversal))->toBe(0);
+    }
+
+    // The control: a leading dot is still a real name, so the narrowing above took nothing with it
+    expect('.github/workflows')->toMatch(WorkIdentity::REPOSITORY)
+        ->and('.hidden')->toMatch(WorkIdentity::LOCATION);
+});
 
 it('is why the structural rule exists: an off-site URL IS expressible in two of those fields', function (): void {
     // The charset limits stop executable JavaScript and nothing else. `//evil.example/steal` is a

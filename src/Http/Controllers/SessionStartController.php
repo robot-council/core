@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use RobotCouncil\Http\Principal;
 use RobotCouncil\Support\AgentSessions;
 use RobotCouncil\Support\Credentials;
+use RobotCouncil\Support\WorkIdentity;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -36,11 +37,20 @@ final class SessionStartController
             // from a credential that holds no ability beyond starting sessions. Event content is
             // untrusted input to an agent that may have shell access.
             'project_id' => ['nullable', 'string', 'max:128', 'regex:/^[A-Za-z0-9._\/-]{1,128}$/D'],
+
+            // The two fields `project_id` is becoming, bounded at the edge by the same rules
+            // `Support\WorkIdentity` holds for the store. Both optional and independently nullable:
+            // a request naming neither still starts a session, which is what keeps a client that
+            // has not been upgraded working.
+            'repository' => ['nullable', 'string', 'max:'.WorkIdentity::MAX_REPOSITORY, 'regex:'.WorkIdentity::REPOSITORY],
+            'work_location' => ['nullable', 'string', 'max:'.WorkIdentity::MAX_LOCATION, 'regex:'.WorkIdentity::LOCATION],
         ]);
 
         $projectId = $request->filled('project_id') ? $request->string('project_id')->value() : null;
+        $repository = $request->filled('repository') ? $request->string('repository')->value() : null;
+        $workLocation = $request->filled('work_location') ? $request->string('work_location')->value() : null;
 
-        $issued = $sessions->start($installation, $projectId);
+        $issued = $sessions->start($installation, $projectId, $repository, $workLocation);
 
         return new JsonResponse([
             'session_id' => $issued->owner->getKey(),

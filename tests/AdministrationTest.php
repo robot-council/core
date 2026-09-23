@@ -96,6 +96,47 @@ it("shows a session's role beside the installation's abilities, because they ans
         ->assertSeeHtml('<span class="badge badge-sm badge-outline">'.Role::Build->value.'</span>');
 });
 
+it("shows where each of an installation's sessions is working", function (): void {
+    [$installation, $session] = installationWithSession($this, $this->developer);
+
+    $session->forceFill(['repository' => 'robot-council/core', 'work_location' => 'ci'])->save();
+
+    // **`assertSee('ci')` here would pass with the whole cell deleted.** Livewire's `assertSee` is
+    // a raw substring search over the page's HTML with no tag stripping, and this panel's own
+    // standing paragraph carries `class="text-sm opacity-70"` -- which contains `ci`. The rendered
+    // fragment is what discriminates.
+    Livewire::actingAs($this->admin)
+        ->test(Administration::class)
+        ->assertSeeHtml('<span class="opacity-70">robot-council/core</span>')
+        ->assertSeeHtml('<span class="opacity-60">ci</span>');
+});
+
+it('shows a session that named only a work location, rather than calling it no project', function (): void {
+    // The endpoint accepts each field independently, so this row is a shape a client can produce.
+    // Gating the cell on the repository printed `no project` for it -- the panel asserting the
+    // session named nothing when it had named the one field the split exists for.
+    [, $session] = installationWithSession($this, $this->developer);
+
+    $session->forceFill(['project_id' => null, 'repository' => null, 'work_location' => 'primary'])->save();
+
+    Livewire::actingAs($this->admin)
+        ->test(Administration::class)
+        ->assertSeeHtml('<span class="opacity-60">primary</span>')
+        ->assertDontSeeHtml('no project');
+});
+
+it('escapes a hostile repository on the administration panel', function (): void {
+    [, $session] = installationWithSession($this, $this->developer);
+
+    // Past the endpoint's validation, exactly as the presence panel's guard does it
+    $session->forceFill(['repository' => '<script>alert(1)</script>'])->save();
+
+    $html = Livewire::actingAs($this->admin)->test(Administration::class)->html();
+
+    expect($html)->toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
+        ->not->toContain('<script>alert(1)</script>');
+});
+
 it('grants the coordinator ability without promoting a session already in flight', function (): void {
     [$installation, $session] = installationWithSession($this, $this->developer);
 
