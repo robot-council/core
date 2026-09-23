@@ -12,8 +12,9 @@ declare(strict_types=1);
  * `ROBOT_COUNCIL_WEB_PREFIX` to an empty string, so the deployment mounts this package at the
  * application root. That behavior worked and nothing pinned it; these tests are the pin.
  *
- * Every case here reboots the application, because a prefix is read by the service provider at boot
- * and `config()->set()` in a test body is too late.
+ * A case that changes the prefix reboots the application, because the provider reads it at boot and
+ * `config()->set()` in a test body is too late. The cases that assert the default do not, and are
+ * the ones with no `rebootWith()` call.
  *
  * @command  vendor/bin/pest --compact tests/WebPrefixTest.php
  */
@@ -21,7 +22,11 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Route;
 
 /**
- * The URI every named route in this package mounts at, with its methods.
+ * The URI every NAMED route in this package mounts at.
+ *
+ * Reads `getRoutesByName()`, so a route registered without a name is invisible here. Every web route
+ * this package mounts is named, so nothing is missed today -- but the bound belongs on the helper
+ * rather than on the reader, because "every route" is wider than the instrument.
  *
  * @return array<string, string> Route name without the package prefix, mapped to its URI.
  */
@@ -78,11 +83,32 @@ it('registers no redirect when the prefix is empty, because that path belongs to
     $this->get('/')->assertNotFound();
 });
 
+it('registers no redirect for a prefix that resolves to the root, however it was written', function (string $prefix): void {
+    // **The guard asks about the resolved PATH, not about what the host typed**, and these two are
+    // where that matters: `Router::prefix()` resolves this route's URI to
+    // `trim(trim($prefix, '/').'/', '/') ?: '/'`, so `''` and `'/'` produce a URI of `/` and every
+    // other route in the package mounts identically under both. A guard comparing the raw value
+    // admitted the second, putting a package route on the host's own home page -- where
+    // `RouteCollection` keys by URI, so one of the two silently replaces the other and which one
+    // wins is decided by provider boot order.
+    $this->rebootWith('robot-council.routes.web_prefix', $prefix);
+
+    expect(packageRouteUris())->not->toHaveKey('prefix-root');
+
+    $this->get('/')->assertNotFound();
+})->with([
+    'an empty string, which the deployment runs' => [''],
+    'a bare slash, which means the same thing' => ['/'],
+    'more than one slash, which also trims to nothing' => ['//'],
+]);
+
 it('sends an unauthenticated visitor on to GitHub, exactly as the dashboard does', function (): void {
     $this->migrateUsersTableWithPackageColumns();
 
-    // Following the redirect rather than asserting its target: the criterion is about where a
-    // visitor ends up, and one hop short of that would pass while the journey was broken.
+    // Asserted hop by hop rather than with `followingRedirects()`, because the two hops are
+    // answered by different things and a single assertion on the destination would not say which
+    // one broke: the first is this package's redirect, the second is the allowlist gate refusing an
+    // unauthenticated visitor. Both are named so a failure says which.
     $this->get('/robot-council')
         ->assertRedirect(route('robot-council.dashboard'));
 
@@ -93,24 +119,41 @@ it('sends an unauthenticated visitor on to GitHub, exactly as the dashboard does
 it('mounts every web route at the application root when the prefix is empty', function (): void {
     $this->rebootWith('robot-council.routes.web_prefix', '');
 
-    $uris = packageRouteUris();
+    // The web half, which is what an empty `web_prefix` moves. The API routes are in the same name
+    // list and keep their own prefix, which the case below is about; separating them here is what
+    // lets this one be an exact comparison rather than a subset.
+    $web = array_filter(
+        packageRouteUris(),
+        static fn (string $uri): bool => ! str_starts_with($uri, 'robot-council/api')
+    );
 
-    // The seven web routes the package mounts, at the root rather than under a prefix. `dashboard`
-    // and its four sections are separate entries since #215 split them.
-    expect($uris)->toMatchArray([
-        'auth.redirect' => 'auth/github/redirect',
-        'auth.callback' => 'auth/github/callback',
-        'signed-out' => 'signed-out',
-        'enroll.show' => 'enroll',
-        'dashboard' => 'dashboard',
-        'presence' => 'dashboard/presence',
-        'queue' => 'dashboard/queue',
-        'feed' => 'dashboard/feed',
+    // Sorted, because `toBe` compares order and the order here is registration order -- the
+    // stylesheet is mounted in its own group before `routes/web.php` is loaded. That is incidental,
+    // and pinning it would fail the next time a route moved in the file without moving in the URL.
+    ksort($web);
+
+    // Every web route the package mounts, at the root rather than under a prefix. Thirteen, not the
+    // seven the issue counted: #215 split the dashboard into five pages, and sign-out and its
+    // landing page arrived with the shell.
+    //
+    // **Exact rather than `toMatchArray`**, which asserts only that the expected keys are present
+    // and would have passed with `prefix-root` mounted at `/` -- the one thing this case sits
+    // beside to rule out. It also fails when a route is ADDED without being accounted for here,
+    // which a subset assertion cannot do.
+    expect($web)->toBe([
         'administration' => 'dashboard/administration',
-        'sign-out' => 'sign-out',
+        'auth.callback' => 'auth/github/callback',
+        'auth.redirect' => 'auth/github/redirect',
+        'dashboard' => 'dashboard',
+        'dashboard.stylesheet' => 'dashboard.css',
         'enroll.approve' => 'enroll/approve',
         'enroll.deny' => 'enroll/deny',
-        'dashboard.stylesheet' => 'dashboard.css',
+        'enroll.show' => 'enroll',
+        'feed' => 'dashboard/feed',
+        'presence' => 'dashboard/presence',
+        'queue' => 'dashboard/queue',
+        'sign-out' => 'sign-out',
+        'signed-out' => 'signed-out',
     ]);
 });
 

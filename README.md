@@ -332,18 +332,11 @@ list and framing refusal as the verification page:
 
 | path | shows |
 | --- | --- |
-| `{prefix}` | nothing of its own: a 302 to the dashboard |
 | `{prefix}/dashboard` | the fleet's totals, and the way in to the rest |
 | `{prefix}/dashboard/presence` | the agents and the locks they hold |
 | `{prefix}/dashboard/queue` | the task board |
 | `{prefix}/dashboard/feed` | the change feed |
 | `{prefix}/dashboard/administration` | the installations -- **admins only** |
-
-**The redirect at the prefix root is not registered when `robot-council.routes.web_prefix` is
-empty.** An empty prefix mounts this package at the application root, where that route's path would
-be `/` -- which belongs to the host, and which a host serving the console at its root has already
-routed. Every other path above moves with the prefix; `robot-council.routes.api_prefix` is a
-separate key and does not.
 
 **Each page is its own, so each one pays only for what it shows.** The administration page
 refuses a non-admin from the component rather than from the route, so a direct visit answers 403
@@ -353,6 +346,23 @@ whether or not it was linked; a host adding its own path-based gate in
 The pages are Livewire components and refresh by polling every
 `robot-council.dashboard.poll_seconds` seconds, defaulting to 5 and bounded to 1..3600. There is no
 broadcasting: a change an agent commits is visible within one interval and no sooner.
+
+**`{prefix}` itself answers a 302 to the dashboard**, so the prefix the package is mounted under
+does not lead nowhere while the site root leads somewhere. Like the stylesheet below it, that route
+sits outside the `web` middleware group and outside the access list: it reads nothing and decides
+nothing, so a visitor being sent elsewhere has no session written for them. It is documented here
+rather than in the table above because the two sentences around that table -- the access list, the
+framing refusal, and a host's own gate in `robot-council.routes.web_middleware` -- are true of those
+five pages and not of this redirect.
+
+**It is not registered when the prefix resolves to `/`**, whether the host configured an empty
+string or a bare slash. That path belongs to the host, and a host serving the console at its root
+has already routed it. Every other path above moves with the prefix;
+`robot-council.routes.api_prefix` is a separate key and does not.
+
+**A host that has cached its routes keeps the old 404 at `{prefix}` until it re-runs
+`route:cache`,** for the same reason `mcp:inspector` will not list the server in that state: Laravel
+skips a package's route files when a cached collection exists.
 
 **The stylesheet is compiled here and served by the package**, at `{prefix}/dashboard.css`. A
 consuming application runs no asset build and needs no Node toolchain. That route is deliberately
