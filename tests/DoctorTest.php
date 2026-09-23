@@ -13,14 +13,17 @@ declare(strict_types=1);
  * @command  vendor/bin/pest --compact tests/DoctorTest.php
  */
 
+use Illuminate\Contracts\Config\Repository;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\PendingCommand;
 use RobotCouncil\Access\Ability;
+use RobotCouncil\Access\Allowlist;
 use RobotCouncil\Support\Diagnosis;
 use RobotCouncil\Support\DiagnosisStatus;
 use RobotCouncil\Support\Doctor;
+use RobotCouncil\Support\FleetAbilities;
 
 beforeEach(function (): void {
     // **The schema is migrated per test that needs one, not in this hook.**
@@ -64,6 +67,22 @@ function diagnosis(string $check): Diagnosis
     throw new RuntimeException(sprintf('No check named %s. The name changed or the check was dropped.', $check));
 }
 
+/**
+ * A `Doctor` reading its migrations from somewhere other than the package's own tree.
+ *
+ * @param  string  $directory  Where the migrations are, for this call only.
+ * @return Doctor The doctor.
+ */
+function doctorFor(string $directory): Doctor
+{
+    return new Doctor(
+        app(Repository::class),
+        app(Allowlist::class),
+        app(FleetAbilities::class),
+        $directory
+    );
+}
+
 it('passes every check on a configuration with nothing wrong with it', function (): void {
     $this->migrateUsersTableWithPackageColumns();
 
@@ -80,7 +99,7 @@ it('passes every check on a configuration with nothing wrong with it', function 
     ));
 
     expect($failed)->toBeEmpty()
-        ->and(app(Doctor::class)->examine())->toHaveCount(10);
+        ->and(app(Doctor::class)->examine())->toHaveCount(11);
 });
 
 it('fails when the sanctum guard names no provider, and passes when it does', function (): void {
@@ -163,7 +182,7 @@ it('says the migration check is undetermined when it cannot read what has run', 
 
         expect($unknown->status)->toBe(DiagnosisStatus::Undetermined)
             // It has to say what would make it reachable, not merely that it could not look
-            ->and($unknown->detail)->toContain('migrate');
+            ->and($unknown->detail)->toContain('php artisan migrate');
     } finally {
         config()->set('database.default', $default);
 
@@ -297,7 +316,7 @@ it('says fleet coordination is undetermined when it cannot read the installation
         $unknown = diagnosis('fleet coordination');
 
         expect($unknown->status)->toBe(DiagnosisStatus::Undetermined)
-            ->and($unknown->detail)->toContain('migrate');
+            ->and($unknown->detail)->toContain('php artisan migrate');
     } finally {
         config()->set('database.default', $default);
 
@@ -547,7 +566,7 @@ it('says the stored-abilities check is undetermined when it cannot read the inst
         $unknown = diagnosis('stored abilities');
 
         expect($unknown->status)->toBe(DiagnosisStatus::Undetermined)
-            ->and($unknown->detail)->toContain('migrate');
+            ->and($unknown->detail)->toContain('php artisan migrate');
     } finally {
         config()->set('database.default', $default);
     }
@@ -649,4 +668,161 @@ it('cuts the list of named installations and counts the rest', function (): void
 
     expect($atLimit)->not->toContain(' more')
         ->and(array_map(intval(...), explode(', ', trim($exact[1] ?? ''))))->toHaveCount($limit);
+});
+
+it("names this package's retired migrations when the database has run them, and passes", function (): void {
+    // **Passes rather than fails, and that is the decision.** The rows record work that was done;
+    // what was removed is the file. Every host that upgraded through #132's rename has both, so a
+    // check that failed here would fail on a state the deployment is legitimately in.
+    $this->migrateUsersTableWithPackageColumns();
+
+    expect(diagnosis('retired migrations')->status)->toBe(DiagnosisStatus::Passed)
+        // Nothing retired has run on a fresh install, and saying so is what makes the planted
+        // case below an observation rather than this check's resting state.
+        ->and(diagnosis('retired migrations')->detail)->toContain('None of this package');
+
+    // The shape a host that migrated from `dev-main` before #132 carries. Planted rather than
+    // produced, because no migration in this version writes these names any more.
+    // **Inserted in the opposite order to the manifest's**, so the documented "in manifest order"
+    // is asserted rather than coincidental: with the rows in manifest order the two orders agree
+    // and swapping `array_intersect`'s arguments changes nothing a test can see.
+    DB::table('migrations')->insert([
+        ['migration' => 'fix_robot_council_github_identity_collation', 'batch' => 1],
+        ['migration' => 'create_robot_council_github_identities_table', 'batch' => 1],
+    ]);
+
+    $found = diagnosis('retired migrations');
+
+    expect($found->status)->toBe(DiagnosisStatus::Passed)
+        ->and($found->detail)->toContain('inert')
+        // Manifest order, not row order: the create comes first in `EVER_SHIPPED` and the rows
+        // above are the other way round.
+        ->and($found->detail)->toContain(
+            'create_robot_council_github_identities_table, fix_robot_council_github_identity_collation'
+        );
+});
+
+it("says nothing about a row that is not this package's", function (): void {
+    // **The narrowing the manifest exists for.** The `migrations` table holds the host's rows and
+    // every other package's; a check that spoke for those would be reporting on tables this
+    // package does not own. The first of these is the trap a substring test would fall into --
+    // it contains `robot_council` and is not this package's.
+    $this->migrateUsersTableWithPackageColumns();
+
+    DB::table('migrations')->insert([
+        ['migration' => '2020_01_01_000000_create_robot_council_notes_table', 'batch' => 1],
+        ['migration' => '2019_08_19_000000_create_failed_jobs_table', 'batch' => 1],
+    ]);
+
+    $detail = diagnosis('retired migrations')->detail;
+
+    expect(diagnosis('retired migrations')->status)->toBe(DiagnosisStatus::Passed)
+        ->and($detail)->not->toContain('notes_table')
+        ->and($detail)->not->toContain('failed_jobs')
+        ->and($detail)->toContain('None of this package');
+});
+
+it('fails when this version ships a migration its own manifest does not list', function (): void {
+    // The one condition that makes every other answer here untrustworthy: the retired set is
+    // computed against the manifest, so an incomplete manifest hides a row rather than inventing
+    // one.
+    //
+    // **Driven through a temporary directory, not by planting in the tracked one.** An earlier
+    // version wrote the probe into `database/migrations/` and removed it in a `finally`. That is
+    // visible to anything else reading the tree in the same window -- a `--parallel` worker, or a
+    // second session in the same checkout -- and a fatal or an external kill would leave it behind
+    // for `MigrationManifestGuardTest` to fail on. `Doctor` takes the directory for this reason.
+    $this->migrateUsersTableWithPackageColumns();
+
+    $directory = sys_get_temp_dir().'/rc-manifest-'.bin2hex(random_bytes(6));
+
+    mkdir($directory);
+
+    try {
+        // A name the manifest has, so the directory is not merely empty, plus one it does not.
+        // The first name is taken from the manifest verbatim. A first draft dropped its `_table`
+        // suffix, which made it unlisted too -- the test failed on its own fixture rather than on
+        // the code, which is the right direction for that to go.
+        $listed = '2026_09_18_000001_create_robot_council_installations_table';
+
+        foreach ([$listed, '2099_01_01_000000_unlisted_probe'] as $name) {
+            file_put_contents($directory.'/'.$name.'.php', "<?php\n");
+        }
+
+        $failed = doctorFor($directory)->examine();
+        $failed = array_values(array_filter($failed, fn (Diagnosis $d): bool => $d->check === 'retired migrations'))[0];
+
+        expect($failed->status)->toBe(DiagnosisStatus::Failed)
+            ->and($failed->detail)->toContain('2099_01_01_000000_unlisted_probe')
+            ->and($failed->detail)->toContain('EVER_SHIPPED')
+            // And not the name it does list, so the message reports the gap rather than the set.
+            ->and($failed->detail)->not->toContain($listed)
+            // One name, not two: only the unlisted one is reported.
+            ->and($failed->detail)->toContain('ships 1 migration');
+    } finally {
+        array_map(unlink(...), glob($directory.'/*') ?: []);
+        rmdir($directory);
+    }
+
+    // The real tree is untouched by any of that.
+    expect(diagnosis('retired migrations')->status)->toBe(DiagnosisStatus::Passed);
+});
+
+it('cannot answer when the migration directory cannot be read, rather than calling everything retired', function (): void {
+    // **The guard `migrations()` has and this check did not.** `glob()` on an unreadable directory
+    // returns `[]`, not `false`, so `shipped()` comes back empty and `retired()` degenerates to the
+    // whole manifest -- at which point the check reported all fifteen names, the thirteen this
+    // version ships included, as retired and inert. A confident PASS computed from a directory it
+    // could not read, printed directly beneath `migrations()` saying it could not read it.
+    $this->migrateUsersTableWithPackageColumns();
+
+    $absent = sys_get_temp_dir().'/rc-absent-'.bin2hex(random_bytes(6));
+
+    $checks = doctorFor($absent)->examine();
+
+    $named = fn (string $check): Diagnosis => array_values(array_filter(
+        $checks,
+        fn (Diagnosis $d): bool => $d->check === $check
+    ))[0];
+
+    expect($named('retired migrations')->status)->toBe(DiagnosisStatus::Undetermined)
+        // The two checks agree, which is what they did not do before.
+        ->and($named('package migrations')->status)->toBe(DiagnosisStatus::Undetermined)
+        ->and($named('retired migrations')->detail)->toContain('could not be read')
+        // The thing it must not say: that a shipped migration is retired.
+        ->and($named('retired migrations')->detail)->not->toContain('2026_09_23_000001_add_actor_to_robot_council_events');
+});
+
+it('says the retired-migration check is undetermined when it cannot read what has run', function (): void {
+    // **Migrated FIRST, which an earlier version of this test did not do.** Without it the default
+    // connection has no `migrations` table either, so the check answers Undetermined whether the
+    // probe is switched in or not -- and deleting the probe entirely left the test green. On the
+    // `postgres` job the schema persists between tests, so the same omission made the result depend
+    // on which order `executionOrder="random"` happened to pick.
+    $this->migrateUsersTableWithPackageColumns();
+
+    expect(diagnosis('retired migrations')->status)->toBe(DiagnosisStatus::Passed);
+
+    config()->set('database.connections.rc_empty_probe', [
+        'driver' => 'sqlite',
+        'database' => ':memory:',
+        'prefix' => '',
+        'foreign_key_constraints' => false,
+    ]);
+
+    $default = config('database.default');
+
+    config()->set('database.default', 'rc_empty_probe');
+
+    try {
+        $unknown = diagnosis('retired migrations');
+
+        expect($unknown->status)->toBe(DiagnosisStatus::Undetermined)
+            ->and($unknown->detail)->toContain('php artisan migrate');
+    } finally {
+        config()->set('database.default', $default);
+        DB::purge('rc_empty_probe');
+    }
+
+    expect(diagnosis('retired migrations')->status)->toBe(DiagnosisStatus::Passed);
 });

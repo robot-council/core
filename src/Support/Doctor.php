@@ -56,11 +56,18 @@ final class Doctor
      * @param  Allowlist  $allowlist  Read rather than re-parsed, so this cannot disagree with the
      *                                thing it is checking.
      * @param  FleetAbilities  $fleet  What this fleet can do, for the coordination check.
+     * @param  string|null  $migrationDirectory  Where this package's migrations live. Null means
+     *                                           the real one, which is every case but a test: the
+     *                                           two migration checks are otherwise only testable
+     *                                           by writing a probe file into the tracked tree,
+     *                                           which a parallel run or a second session in the
+     *                                           same checkout would read.
      */
     public function __construct(
         private readonly Repository $config,
         private readonly Allowlist $allowlist,
-        private readonly FleetAbilities $fleet
+        private readonly FleetAbilities $fleet,
+        private readonly ?string $migrationDirectory = null
     ) {}
 
     /**
@@ -74,6 +81,7 @@ final class Doctor
             $this->sanctumProvider(),
             $this->sanctumExpiration(),
             $this->migrations(),
+            $this->retiredMigrations(),
             $this->queue(),
             $this->developers(),
             $this->coordination(),
@@ -157,10 +165,7 @@ final class Doctor
      */
     private function migrations(): Diagnosis
     {
-        $shipped = array_map(
-            static fn (string $path): string => basename($path, '.php'),
-            glob(\dirname(__DIR__, 2).'/database/migrations/*.php') ?: []
-        );
+        $shipped = PackageMigrations::shipped($this->migrationDirectory);
 
         if ($shipped === []) {
             return Diagnosis::undetermined(
@@ -444,6 +449,104 @@ final class Doctor
         $rest = \count($ids) - \count($shown);
 
         return implode(', ', $shown).($rest > 0 ? sprintf(' and %d more', $rest) : '');
+    }
+
+    /**
+     * Which of this package's retired migrations this database has run.
+     *
+     * **A recorded name whose file is gone is permanent and, until now, unexplained.**
+     * `Migrator::rollbackMigrations()` skips it with a warning and never deletes the row, so a host
+     * that upgraded through a rename carries it forever. #132 produced two such names, and an
+     * operator reading the `migrations` table had no way to tell whose they were or whether they
+     * mattered. That is the silence this answers (#169).
+     *
+     * **It passes when it finds them, because they are inert.** The rows record work that was done;
+     * what was removed is the file, not the effect. A check that failed on a state every upgrading
+     * host is in would be a check people switch off.
+     *
+     * **What it fails on is a stale manifest**, which is the one condition that makes its own answer
+     * untrustworthy: if this version ships a migration `PackageMigrations::EVER_SHIPPED` does not
+     * list, then the retired set is computed against an incomplete list and can hide a row.
+     * `tests/MigrationManifestGuardTest.php` catches that at the source; this catches an install
+     * where the two got out of step some other way.
+     *
+     * **It cannot see a database that is ahead of its code.** The manifest ships with the package,
+     * so a name from a later version is absent from it and no comparison against it can find one.
+     * #169 records that, and it is why this check does not claim to.
+     *
+     * @return Diagnosis What the check concluded.
+     */
+    private function retiredMigrations(): Diagnosis
+    {
+        // **The same guard `migrations()` takes, and leaving it out was the defect.** `glob()` on an
+        // unreadable directory returns `[]` rather than `false`, so `shipped()` comes back empty and
+        // `retired()` degenerates to the entire manifest -- at which point this check reported all
+        // fifteen names, the thirteen this version ships included, as retired and inert. A
+        // confident PASS computed from a directory it could not read, printed directly beneath
+        // `migrations()` saying it could not read that same directory.
+        if (PackageMigrations::shipped($this->migrationDirectory) === []) {
+            return Diagnosis::undetermined(
+                'retired migrations',
+                "The package's migration directory could not be read, so which recorded rows belong to "
+                .'this package cannot be answered.'
+            );
+        }
+
+        $unlisted = PackageMigrations::unlisted($this->migrationDirectory);
+
+        if ($unlisted !== []) {
+            return Diagnosis::failed(
+                'retired migrations',
+                sprintf(
+                    'This version ships %d migration(s) its own manifest does not list: %s. Add them to '
+                    .'`%s::EVER_SHIPPED`; until then, which recorded rows belong to this package cannot '
+                    .'be answered.',
+                    \count($unlisted),
+                    implode(', ', $unlisted),
+                    PackageMigrations::class
+                )
+            );
+        }
+
+        try {
+            $recorded = DB::table('migrations')->pluck('migration')->all();
+            // **`Throwable`, matching `migrations()` for the identical read**, and the distinction
+            // from the narrow catches elsewhere in this file is what the try CONTAINS. Those wrap a
+            // loop that classifies rows by hand, where a `TypeError` must not be reported as an
+            // unmigrated schema. This wraps one query and an `is_string()` map. A host whose
+            // `database.default` names no configured connection gets an `InvalidArgumentException`
+            // from `DatabaseManager::configuration()`, which is not a `QueryException` -- and
+            // `DoctorCommand` has no try, so narrowing here would print a stack trace and no checks.
+        } catch (Throwable) {
+            return Diagnosis::undetermined(
+                'retired migrations',
+                "The `migrations` table could not be read, so which of this package's retired migrations "
+                .'this database has run is unknown. Run `php artisan migrate` first.'
+            );
+        }
+
+        $present = PackageMigrations::retiredAmong(array_values(array_filter(
+            array_map(static fn (mixed $name): ?string => \is_string($name) ? $name : null, $recorded),
+            static fn (?string $name): bool => $name !== null
+        )), $this->migrationDirectory);
+
+        if ($present === []) {
+            return Diagnosis::passed(
+                'retired migrations',
+                "None of this package's retired migrations are recorded here."
+            );
+        }
+
+        return Diagnosis::passed(
+            'retired migrations',
+            sprintf(
+                '%d recorded migration(s) belong to this package and are no longer shipped: %s. They are '
+                .'inert -- the work was done and only the file was removed -- and Laravel never deletes '
+                .'such a row, so they stay. Nothing to do.',
+                \count($present),
+                implode(', ', $present)
+            )
+        );
     }
 
     /**
