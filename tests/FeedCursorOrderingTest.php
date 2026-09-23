@@ -60,7 +60,7 @@ it('cannot start a session while another connection holds the feed, so it sees n
         $first = app(AgentSessions::class)->start($this->installation, null);
 
         expect($first->feedCursor)->toBe(
-            FleetEvent::query()->where('type', FleetEventType::SessionStarted->value)->max('id')
+            FleetEvent::query()->where('type', FleetEventType::SessionJoined->value)->max('id')
         );
 
         // A SHARED lock, deliberately, and the same choice `FeedOrderingTest` makes. An exclusive
@@ -101,7 +101,7 @@ it('cannot start a session while another connection holds the feed, so it sees n
             ->toThrow(QueryException::class);
 
         // And it refused rather than half-committing: no session row and no enrollment event.
-        expect(FleetEvent::query()->where('type', FleetEventType::SessionStarted->value)->count())->toBe(1)
+        expect(FleetEvent::query()->where('type', FleetEventType::SessionJoined->value)->count())->toBe(1)
             ->and((int) (\is_numeric($inFlight) ? $inFlight : 0))->toBeGreaterThan(0);
     } finally {
         DB::statement('set lock_timeout = default');
@@ -133,7 +133,7 @@ it("hands back the enrollment event's own id, not the head before it", function 
     $issued = app(AgentSessions::class)->start($this->installation, null);
 
     $enrolled = FleetEvent::query()
-        ->where('type', FleetEventType::SessionStarted->value)
+        ->where('type', FleetEventType::SessionJoined->value)
         ->sole();
 
     expect($issued->feedCursor)->toBe($enrolled->id)

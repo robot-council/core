@@ -72,7 +72,7 @@ final class AgentSessions
             // In the same transaction as the session it describes, so a failure here leaves
             // neither the session nor a feed entry claiming one exists
             $enrolled = $this->events->record(
-                FleetEventType::SessionStarted,
+                FleetEventType::SessionJoined,
                 $session,
                 sprintf('%s on %s started a session.', $current->harness, $current->machine_label),
                 ['installation_id' => $current->id, 'project_id' => $projectId]

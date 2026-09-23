@@ -30,17 +30,21 @@ enum FleetEventType: string
     /**
      * A new agent session came into existence.
      *
-     * **`started`, not `enrolled`, because those are different lifecycles.** An installation
-     * enrolls -- a device code, a developer at a browser, an approval. A session starts, and the
-     * route, the controller, the store method and this event's own message all already said so
-     * (#217). While this case borrowed the installation's verb, a reader had to work out that the
-     * two enrollments were unrelated events with different subjects, actors and approval paths.
+     * **`joined`, not `enrolled`, and not `started`.** An installation enrolls -- a device code, a
+     * developer at a browser, an approval. Sharing that verb made a reader work out that the two
+     * enrollments were unrelated events with different subjects, actors and approval paths (#217).
+     *
+     * `started` was the first replacement and lasted one afternoon. `robot-council/cli#125` decided
+     * that joining the fleet is a deliberate act rather than something a harness does by launching
+     * its stdio servers, so what this event records is an agent choosing to join -- not a process
+     * beginning. The verb follows the act. Changed while the rename was still unreleased, which is
+     * the only reason it cost one migration rather than two.
      *
      * Rows written before the rename are rewritten by
      * `2026_09_23_000002_rename_session_enrolled_events`, because this enum is a cast and
      * `from()` raises on a value it no longer has.
      */
-    case SessionStarted = 'session.started';
+    case SessionJoined = 'session.joined';
 
     /**
      * A session stopped answering for long enough to be marked stale. It still holds whatever it
