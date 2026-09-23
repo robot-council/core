@@ -229,3 +229,151 @@ it('leaves the shell unthemed, so the dark theme can be reached at all', functio
     expect($layout)->not->toContain("data-theme=\"{{ \$theme ?? 'light' }}\"")
         ->and($layout)->toContain('@if (($theme ?? null) !== null) data-theme=');
 });
+
+/**
+ * The opacity steps the views dim text to, and what each one means as an alpha.
+ *
+ * Read by two tests: one measures every step against both surfaces in every theme, the other
+ * refuses a step in a view that is not listed here. Adding a step to a view without adding it here
+ * fails the second, which is what stops an unmeasured step shipping the way #197 did.
+ */
+const DIMMED_STEPS = [
+    'opacity-60' => 0.6,
+    'opacity-70' => 0.7,
+];
+
+/**
+ * One channel, linear sRGB to the gamma-encoded value a browser composites with.
+ *
+ * @param  float  $channel  A linear channel, 0-1.
+ * @return float The encoded channel, 0-1.
+ */
+function gammaEncode(float $channel): float
+{
+    return $channel <= 0.0031308
+        ? 12.92 * $channel
+        : 1.055 * $channel ** (1 / 2.4) - 0.055;
+}
+
+/**
+ * The inverse, for measuring luminance once the compositing is done.
+ *
+ * @param  float  $channel  A gamma-encoded channel, 0-1.
+ * @return float The linear channel, 0-1.
+ */
+function gammaDecode(float $channel): float
+{
+    return $channel <= 0.04045
+        ? $channel / 12.92
+        : (($channel + 0.055) / 1.055) ** 2.4;
+}
+
+/**
+ * What an `opacity-*` utility actually paints, in linear sRGB.
+ *
+ * **The compositing happens in gamma-encoded sRGB, and that is the whole point of this function.**
+ * CSS composites where the pixels are, not in linear light, and the difference is not small: black
+ * at 70% over white paints `#4D4D4D` and measures 8.52:1, where compositing the same pair in
+ * linear light reports 3.00:1 -- a factor of 2.8, and on the wrong side of every bar. #197's first
+ * revision failed two usages on that error and had to be corrected after it was published.
+ *
+ * @param  string  $foreground  The text colour, as an `oklch()` value.
+ * @param  string  $background  What it sits on, as an `oklch()` value.
+ * @param  float  $alpha  The opacity, 0-1.
+ * @return array{float, float, float} Linear sRGB of the painted result, each channel 0-1.
+ */
+function compositeOver(string $foreground, string $background, float $alpha): array
+{
+    $front = linearRgb($foreground);
+    $back = linearRgb($background);
+
+    $painted = [];
+
+    foreach ([0, 1, 2] as $channel) {
+        $mixed = gammaEncode($front[$channel]) * $alpha + gammaEncode($back[$channel]) * (1 - $alpha);
+
+        $painted[] = gammaDecode($mixed);
+    }
+
+    return [$painted[0], $painted[1], $painted[2]];
+}
+
+/**
+ * The contrast ratio of dimmed text against what it sits on.
+ *
+ * @param  string  $foreground  The text colour, as an `oklch()` value.
+ * @param  string  $background  What it sits on, as an `oklch()` value.
+ * @param  float  $alpha  The opacity the text is dimmed to, 0-1.
+ * @return float The ratio, from 1.0 to 21.0.
+ */
+function dimmedContrastRatio(string $foreground, string $background, float $alpha): float
+{
+    $text = relativeLuminance(compositeOver($foreground, $background, $alpha)) + 0.05;
+    $behind = relativeLuminance(linearRgb($background)) + 0.05;
+
+    return $text > $behind ? $text / $behind : $behind / $text;
+}
+
+it('composites an opacity the way a browser does, not the way linear light would', function (): void {
+    // The instrument's control, before anything reads it. Black at 70% over white paints `#4D4D4D`
+    // -- checkable against any colour picker -- which is 8.52:1. A linear composite reports 3.00:1
+    // for the same pair, so a regression to that error cannot pass this.
+    $ratio = dimmedContrastRatio('oklch(0% 0 0)', 'oklch(100% 0 0)', 0.7);
+
+    expect($ratio)->toEqualWithDelta(8.52, 0.05);
+
+    // The painted channel itself, so a reader can check the number rather than trust it: 0x4D is 77.
+    $painted = compositeOver('oklch(0% 0 0)', 'oklch(100% 0 0)', 0.7);
+
+    expect(round(gammaEncode($painted[0]) * 255))->toBe(77.0);
+
+    // And the ends, which no compositing error can satisfy by accident
+    expect(dimmedContrastRatio('oklch(0% 0 0)', 'oklch(100% 0 0)', 1.0))->toEqualWithDelta(21.0, 0.05)
+        ->and(dimmedContrastRatio('oklch(0% 0 0)', 'oklch(100% 0 0)', 0.0))->toEqualWithDelta(1.0, 0.01);
+});
+
+it('keeps every dimmed step the views use above the bar, in both themes', function (string $theme, string $selector): void {
+    $tokens = themeTokens($selector);
+
+    expect($tokens)->toHaveKeys(['color-base-content', 'color-base-100', 'color-base-200']);
+
+    // Both surfaces text sits on. `base-200` is the page behind the cards, `base-100` the cards.
+    foreach (DIMMED_STEPS as $class => $alpha) {
+        foreach (['color-base-100', 'color-base-200'] as $surface) {
+            $ratio = dimmedContrastRatio($tokens['color-base-content'], $tokens[$surface], $alpha);
+
+            // AA for normal text. None of these usages is large text: they are table cells, badges
+            // and captions, so the 3.0 bar does not apply -- which is what made #197 a defect
+            // rather than a preference, since the failing step passed 3.0 comfortably.
+            expect($ratio)->toBeGreaterThanOrEqual(
+                4.5,
+                sprintf('%s theme, %s on %s: %.2f:1 against a 4.5:1 bar', $theme, $class, $surface, $ratio)
+            );
+        }
+    }
+})->with([
+    ['light', ':where(:root)'],
+    ['dark, as an explicit data-theme', '[data-theme=dark]'],
+    ['dark, as a system preference', ':root:not([data-theme])'],
+]);
+
+it('measures every dimmed step the views actually use', function (): void {
+    // **The half that keeps the test above honest.** Measuring a fixed list proves those two steps
+    // are legible and says nothing about a third somebody adds later -- which is exactly how #197
+    // arrived, as a step nobody had measured. This reads the steps out of the views and fails when
+    // one of them is not in the measured set, so a new step has to be measured before it ships.
+    $found = [];
+
+    foreach (glob(__DIR__.'/../resources/views/{,*/}*.blade.php', GLOB_BRACE) ?: [] as $view) {
+        preg_match_all('/opacity-(\d+)/', (string) file_get_contents($view), $matches);
+
+        foreach ($matches[1] as $step) {
+            $found['opacity-'.$step] = true;
+        }
+    }
+
+    // The instrument has to have found something, or this passes by reading nothing
+    expect($found)->not->toBeEmpty();
+
+    expect(array_keys($found))->each->toBeIn(array_keys(DIMMED_STEPS));
+});

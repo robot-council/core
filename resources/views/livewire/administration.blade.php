@@ -126,7 +126,11 @@
                                         <span class="badge badge-sm">{{ $session['status'] }}</span>
 
                                         @if (($session['project_id'] ?? null) === null)
-                                            <span class="opacity-50">no project</span>
+                                            {{-- Dimmer than this measured 3.38:1 in the light theme
+                                                 against the 4.5:1 this size needs. Still fainter
+                                                 than the value beside it, which is what the dimming
+                                                 was for (#197). --}}
+                                            <span class="opacity-60">no project</span>
                                         @else
                                             <span class="opacity-70">{{ $session['project_id'] }}</span>
                                         @endif
