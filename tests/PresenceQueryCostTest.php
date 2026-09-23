@@ -167,6 +167,31 @@ it('counts held and free locks without a second scan', function (): void {
         ->and($locks['free'])->toBe(0);
 });
 
+it('tells a released lock from a held one', function (): void {
+    $developer = fleetOf($this, 2, locks: 2);
+
+    $this->actingAs($developer, 'web');
+
+    $store = $this->service(PresenceStore::class);
+
+    // **The shape the two tests either side of this one cannot produce.** Both assert `free` as
+    // zero -- one on a table where every row is held, one on an empty table -- and a `held` that
+    // has stopped discriminating answers correctly in both: `count(*)` equals the held count when
+    // nothing is free, and zero equals zero when there is nothing at all. Measured on `main`
+    // before this test existed: replacing the `held` aggregate with `count(*)` passed the whole
+    // suite, 949 tests, exit 0.
+    //
+    // It is also the shape the real table is always in. `Support\Locks` keeps a released row
+    // forever for the fence it carries, so free rows accumulate and never leave, and a fleet that
+    // has ever finished anything has both kinds at once.
+    $this->service(Locks::class)->release($this->session, 'lock-4242-0', false);
+
+    $locks = $store->locks(50);
+
+    expect($locks['held'])->toBe(1)
+        ->and($locks['free'])->toBe(1);
+});
+
 it('answers zero for both when the lock table is empty', function (): void {
     $this->actingAs(fleetOf($this, 1), 'web');
 
