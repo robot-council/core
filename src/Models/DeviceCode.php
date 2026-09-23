@@ -89,7 +89,7 @@ final class DeviceCode extends Model
             'expires_at' => PresenceTimestamp::class,
 
             // **The other three stay on the application clock, and the difference is that nothing
-            // compares them.** Each is read only as null-or-not -- `hasBeenDecided()`, the
+            // compares them.** Each is read only as null-or-not -- `isDecided()`, the
             // `consumed_at` check in `consume()` -- so no clock can make one decide wrongly. They are
             // also `timestamp` columns rather than `dateTime`, which MySQL converts from the
             // connection's time zone on write and back on read, so their stored digits are decided

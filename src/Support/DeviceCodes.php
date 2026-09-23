@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use InvalidArgumentException;
 use RobotCouncil\Access\Ability;
+use RobotCouncil\Access\Tokens;
 use RobotCouncil\Models\DeviceCode;
 use RobotCouncil\Support\Contracts\DrawsUserCodes;
 use RuntimeException;
@@ -67,6 +68,12 @@ final class DeviceCodes
      */
     public static function normalizeUserCode(string $input): string
     {
+        // The cast cannot be killed by a test and is not dead. `preg_replace()` is declared
+        // `string|null` because it returns null on a PCRE failure, and `strtoupper()` takes a
+        // string -- so removing the cast fails `composer analyse` with `Parameter #1 $string of
+        // function strtoupper expects string`, measured. No input reaches the null: this pattern is
+        // a single negated character class with no backtracking to exhaust.
+        // @pest-mutate-ignore: RemoveStringCast
         return strtoupper((string) preg_replace('/[^A-Za-z]/', '', $input));
     }
 
@@ -259,7 +266,11 @@ final class DeviceCodes
     {
         $deleted = DeviceCode::query()->where('expires_at', '<=', PresenceClock::now())->delete();
 
-        return \is_int($deleted) ? $deleted : 0;
+        // Through `Access\Tokens::deleted()` rather than repeating its body. This was the one site
+        // that re-implemented it inline, and the copy carried its own mutants and its own comment
+        // citing the original as the authority -- one expression with two treatments, which is how
+        // the two drift. `Support\Installations` and `Support\SessionPresence` already call it.
+        return Tokens::deleted($deleted);
     }
 
     /**
@@ -296,6 +307,17 @@ final class DeviceCodes
      */
     private function freshUserCode(): string
     {
+        // **A mutation run on this class reports `1 timeout`, and this loop is where it comes from.**
+        // `PostIncrementToPostDecrement` turns `$attempt++` into `$attempt--`, so the counter falls
+        // away from the bound forever and every iteration issues a query. A mutant that never
+        // returns cannot fail an assertion, so only the clock observes it -- and the plugin scores a
+        // timeout as a kill, `(tested + timedOut) / total`, which is why the count beside the score
+        // has to be read rather than the percentage.
+        //
+        // Deliberately NOT suppressed with a per-line ignore marker. It is a real behavior change
+        // rather than an equivalent, and hiding it would hide that this loop has no bound other
+        // than the counter moving the right way. (The marker is described rather than spelled,
+        // because the plugin reads the token wherever it appears, comments about it included.)
         for ($attempt = 0; $attempt < self::USER_CODE_ATTEMPTS; $attempt++) {
             $candidate = $this->userCodes->draw();
 
