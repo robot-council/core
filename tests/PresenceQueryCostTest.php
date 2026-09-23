@@ -17,7 +17,6 @@ declare(strict_types=1);
  */
 
 use Illuminate\Foundation\Auth\User;
-use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Livewire\FleetPresence as PresencePanel;
@@ -25,29 +24,6 @@ use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Support\FleetPresence as PresenceStore;
 use RobotCouncil\Support\Locks;
 use RobotCouncil\Tests\TestCase;
-
-/**
- * How many queries a callable issues on the default connection.
- *
- * Every query this panel makes goes through that connection, so one log is the whole count.
- *
- * @param  callable(): mixed  $work  What to measure.
- * @return int The number of queries logged.
- */
-function queriesIssuedBy(callable $work): int
-{
-    DB::flushQueryLog();
-    DB::enableQueryLog();
-
-    try {
-        $work();
-
-        return \count(DB::getQueryLog());
-    } finally {
-        // In a `finally`, so a throwing subject does not leave the log on for whatever runs next
-        DB::disableQueryLog();
-    }
-}
 
 /**
  * Enroll a developer, grow the fleet, and optionally have it hold some locks.

@@ -95,7 +95,22 @@ final class InstallationList
 
         $logins = $this->logins->forUsers($installations->pluck('user_id')->all());
 
-        $live = Installation::query()->whereNull('revoked_at')->where('expires_at', '>', $now)->count();
+        // Both totals in one pass. They were two `count()` queries and the second was only ever
+        // `total - live`, so the table was scanned twice to answer one question -- the same shape
+        // #192 removed from `FleetPresence`. `sum(case when)` rather than `count(*) filter (where)`,
+        // which Postgres and SQLite have and MySQL does not.
+        //
+        // `$now` is bound rather than interpolated, and `Connection::prepareBindings()` converts a
+        // `DateTimeInterface` to the grammar's own date format before it reaches the driver -- the
+        // same conversion the `where()` above relies on, so the two cannot disagree about a
+        // boundary row.
+        $totals = Installation::query()
+            ->toBase()
+            ->selectRaw('count(*) as total, sum(case when revoked_at is null and expires_at > ? then 1 else 0 end) as live', [$now])
+            ->first();
+
+        $live = AggregateCount::from($totals?->live);
+        $total = AggregateCount::from($totals?->total);
 
         return [
             'cursor' => $installations->last()?->id,
@@ -104,7 +119,7 @@ final class InstallationList
             // Counted rather than inferred from the page. A truncated list and a complete one look
             // identical, and this panel is the only interface for revoking a credential.
             'live' => $live,
-            'retired' => Installation::query()->count() - $live,
+            'retired' => $total - $live,
             'installations' => array_values($installations->map(fn (Installation $installation): array => [
                 'id' => $installation->id,
                 'github_login' => $logins[$installation->user_id] ?? null,
