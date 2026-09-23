@@ -814,3 +814,28 @@ function stringValue(mixed $value): string
 
     return $value;
 }
+
+/**
+ * How many queries a callable issues on the default connection.
+ *
+ * Every query the dashboard's panels make goes through that connection, so one log is the whole
+ * count. Lives here rather than in a test file because two files pin query counts, and a second
+ * global function of this name would be a fatal redeclaration rather than a warning.
+ *
+ * @param  callable(): mixed  $work  What to measure.
+ * @return int The number of queries logged.
+ */
+function queriesIssuedBy(callable $work): int
+{
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+
+    try {
+        $work();
+
+        return \count(DB::getQueryLog());
+    } finally {
+        // In a `finally`, so a throwing subject does not leave the log on for whatever runs next
+        DB::disableQueryLog();
+    }
+}
