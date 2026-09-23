@@ -99,10 +99,18 @@
 
                 <dt>Asked for</dt>
                 <dd>
+                    {{-- `@forelse` rather than `@foreach`: the list can legitimately be empty, and an
+                         empty `<ul>` under "Asked for" reads as a rendering fault rather than as
+                         the claim it is. `Models\DeviceCode::requestedAbilities()` drops anything
+                         that is not text (#167) and `Support\DeviceCodes::issue()` drops anything
+                         outside the requestable list (#170), so a row whose every entry was
+                         dropped arrives here as nothing to show. Approving one grants nothing. --}}
                     <ul>
-                        @foreach ($code->requestedAbilities() as $ability)
+                        @forelse ($code->requestedAbilities() as $ability)
                             <li><code>{{ $ability }}</code></li>
-                        @endforeach
+                        @empty
+                            <li>Nothing this server recognizes. Approving grants no abilities.</li>
+                        @endforelse
                     </ul>
                 </dd>
             </dl>
