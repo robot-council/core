@@ -79,6 +79,13 @@ return [
     | `created_at`, so it would cut off a renewed session token regardless of the
     | token's own expiry; `robot-council:install` reports a non-null value.
     |
+    | These are what is still measured on `app.timezone`. A token's expiry has
+    | to be: Sanctum compares `expires_at` against the application's clock, and
+    | writing it on another would put the two sides an offset apart. A device
+    | code's has no such coupling and simply has not moved yet. So a
+    | daylight-saving transition can expire or extend either by an hour, and
+    | `robot-council:doctor` reports a non-UTC `app.timezone` for this.
+    |
     */
 
     'credentials' => [
@@ -146,7 +153,9 @@ return [
     | Both measure ELAPSED time, and `app.timezone` does not reach them. Contact
     | times and cutoffs are written, compared, and read back on one fixed clock
     | (`Support\PresenceClock`, which is UTC), so a daylight-saving transition
-    | moves neither. Set `app.timezone` to whatever suits the application.
+    | moves neither. A lock's lease is on the same clock -- see the Locks
+    | block. What still rides `app.timezone` is a token's expiry and a device
+    | code's -- see the Credentials block.
     |
     */
 
@@ -185,6 +194,16 @@ return [
     | advertises is one a renewal can actually be granted. Re-acquiring a name
     | after letting it lapse starts a new hold, with a new fence.
     | `max_per_session` bounds how many one session can hold at once.
+    |
+    | A lease measures ELAPSED time, and `app.timezone` does not reach it.
+    | `acquired_at` and `expires_at` are written, compared, and read back on
+    | one fixed clock (`Support\PresenceClock`, which is UTC), so a
+    | daylight-saving transition cannot lapse a held lock. Upgrading a host
+    | that is NOT on UTC reinterprets its existing lock rows once, and west of
+    | UTC that reads every held lease as already lapsed -- see the note on
+    | `Models\Lock`. The window is bounded by `max_ttl_seconds` rather than by
+    | the offset: whatever a re-read says, no lease outlives its ceiling, so
+    | every affected row is re-acquired or gone within that.
     |
     */
 
