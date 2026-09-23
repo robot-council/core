@@ -395,32 +395,57 @@ function urlAttributeInterpolations(string $template): array
         .'|(?<bare>(?:'.$span.'|[^\s>])+)'
         .')/is';
 
-    preg_match_all($pattern, $withoutComments, $matches, PREG_SET_ORDER);
+    // **A guard that dies reports clean, which is the one failure mode this repository's rules name
+    // by itself.** On a PCRE error `preg_match_all` returns `false` and sets `$matches` to an empty
+    // array, so the `foreach` below runs zero times and the whole template passes with no
+    // interpolation ever examined. The value alternation is ambiguous -- a `{{ … }}` is also
+    // matchable character by character by `[^"]` -- so an unclosed quote followed by about ten
+    // interpolations exhausts the backtrack limit in roughly a hundred bytes. Measured: at ten it
+    // returns `false` with `PREG_BACKTRACK_LIMIT_ERROR` and the function returns an empty list.
+    //
+    // Throwing rather than returning, because the caller's contract is "these are the offenders"
+    // and an empty list is indistinguishable from a clean template.
+    if (preg_match_all($pattern, $withoutComments, $matches, PREG_SET_ORDER) === false) {
+        throw new RuntimeException('URL attribute scan failed: '.preg_last_error_msg());
+    }
 
-    // A literal first argument, not merely the helper's name. `url($x)` and `asset($x)` return
-    // their argument **verbatim** whenever `UrlGenerator::isValidUrl()` accepts it -- measured,
-    // `url('//evil.example/steal')` and `url('https://evil.example/x')` come back unchanged -- so
-    // an allowlist keyed on the name alone admits an off-site link or a remote script load.
-    // `route()` and `action()` are safe with any argument, because route parameters are
-    // `rawurlencode`d and the scheme is the application's, but requiring the literal costs nothing.
-    $literalFirstArgument = '/^\s*(?:route|url|asset|secure_url|action)\s*\(\s*[\'"]/';
+    // **The two helper families are admitted by different rules, because they are safe for
+    // different reasons.**
+    //
+    // `url()`, `asset()` and `secure_url()` return their argument **verbatim** whenever
+    // `UrlGenerator::isValidUrl()` accepts it -- measured, `url('//evil.example/steal')` and
+    // `url('https://evil.example/x')` come back unchanged. So their argument has to be a single
+    // quoted literal and nothing else. A rule that only checked the FIRST character after the
+    // parenthesis was defeated by three characters: `url('' . $agentValue)` opens with a quote and
+    // passes it. The worked case is not hypothetical -- `Support\ProjectId::PATTERN` admits `/`,
+    // and `EscapingGuardTest` already records that `//evil.example/steal` matches it, so
+    // `url('/' . $session->project_id)` renders an off-site link from an agent-supplied string.
+    $literalArgumentOnly = '/^\s*(?:url|asset|secure_url)\s*\(\s*([\'"])[^\'"]*\1\s*\)\s*$/';
 
-    // **And the call has to be the WHOLE expression, which the rule above cannot say.** Anchored
-    // only at the start, it admitted anything that merely began with a helper call -- so
-    // `{{ route('x').$section }}` passed, and half of that expression is not built by the server.
-    // The guard's own failure message says "Interpolations in URL attributes that the server did
-    // not build", and it was saying nothing about the appended half (#210).
+    // `route()` and `action()` are safe with **any** argument, because route parameters are
+    // `rawurlencode`d and the scheme is the application's. They still have to be the whole
+    // expression: anchored only at the start, the old rule admitted anything that merely began with
+    // a helper call, so `{{ route('x').$section }}` passed whole and half of it is not built by the
+    // server -- which is what the failure message below claims to be about (#210).
     //
     // The recursive group is what makes this usable rather than merely strict: `(?1)` walks
-    // balanced parentheses, so a legitimate argument list keeps its own calls and arrays --
-    // `route('x', ['a' => max(1, $b)])` is one call and stays admitted -- while anything after the
-    // closing parenthesis leaves text the `$` anchor refuses. That distinguishes an argument from a
-    // concatenation, which a non-recursive pattern cannot do.
+    // balanced parentheses, so a real argument list keeps its own calls and arrays and
+    // `route('x', ['a' => max(1, $b)])` stays admitted, while anything after the closing
+    // parenthesis leaves text the `$` anchor refuses. Neither a rule requiring the expression to
+    // END in `)` nor one forbidding inner parentheses does both: the first admits
+    // `route('x').foo($y)`, the second rejects the `max(1, $b)` case.
+    //
+    // **What this counts is balanced parentheses, blind to string context**, so a parenthesis
+    // inside a string literal shifts the count: `route('x'.'(') . foo(')')` rebalances and is
+    // admitted, and `route('x', ['q' => ')'])` is refused although it is one call. Both are
+    // deliberate. The guard reads this package's own first-party templates, where nobody
+    // adversarial writes the text, and a refusal is the safe direction for the second.
     //
     // A static suffix outside the interpolation is unaffected and still admitted:
     // `href="{{ route('x') }}#section"` puts the fragment in the attribute rather than the
     // expression, so the detector never sees it.
-    $wholeExpression = '/^\s*(?:route|url|asset|secure_url|action)\s*(\((?:[^()]++|(?1))*\))\s*$/';
+    $routeOrAction = '/^\s*(?:route|action)\s*\(\s*[\'"]/';
+    $wholeExpression = '/^\s*(?:route|action)\s*(\((?:[^()]++|(?1))*\))\s*$/';
 
     $offenders = [];
 
@@ -428,7 +453,15 @@ function urlAttributeInterpolations(string $template): array
         $value = ($match['double'] ?? '') !== '' ? $match['double']
             : ((($match['single'] ?? '') !== '') ? $match['single'] : ($match['bare'] ?? ''));
 
-        if (preg_match_all('/\{\{(.+?)\}\}|\{!!(.+?)!!\}/s', $value, $found, PREG_SET_ORDER) === 0) {
+        $count = preg_match_all('/\{\{(.+?)\}\}|\{!!(.+?)!!\}/s', $value, $found, PREG_SET_ORDER);
+
+        // `false` here would fall through to a `foreach` over an empty array and skip the
+        // attribute silently, for the same reason the outer scan throws.
+        if ($count === false) {
+            throw new RuntimeException('Interpolation scan failed: '.preg_last_error_msg());
+        }
+
+        if ($count === 0) {
             continue;
         }
 
@@ -437,8 +470,16 @@ function urlAttributeInterpolations(string $template): array
                 ? trim($interpolation[2])
                 : trim($interpolation[1] ?? '');
 
-            if (preg_match($literalFirstArgument, $expression) === 1
-                && preg_match($wholeExpression, $expression) === 1) {
+            $serverBuilt = preg_match($literalArgumentOnly, $expression) === 1
+                || (preg_match($routeOrAction, $expression) === 1
+                    && preg_match($wholeExpression, $expression) === 1);
+
+            // `=== 1` rather than a truthy test, deliberately: `preg_match` returns `false` on a
+            // PCRE error -- a backtrack or recursion limit -- and `false === 1` is false, so an
+            // expression the engine could not decide is REPORTED rather than admitted. Measured
+            // with 50,000 nested parentheses: `PREG_RECURSION_LIMIT_ERROR`, and the expression is
+            // reported. The error direction has to be this way round for a guard.
+            if ($serverBuilt) {
                 continue;
             }
 
