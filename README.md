@@ -219,8 +219,7 @@ is wrong with this application's configuration without being asked a specific qu
 `sanctum` guard names a provider, whether `sanctum.expiration` is null, whether every migration this
 version ships has run, whether anything appears to be consuming the queue, whether anybody is on the
 developer allowlist, whether anything on the fleet can post a directive, whether the Slack mirror
-would run inside an agent's request, and whether `app.timezone` can shift under a token's expiry or
-a device code's.
+would run inside an agent's request, and whether `app.timezone` can shift under a token's expiry.
 
 Every fault it looks for is invisible until something else goes wrong. It writes nothing and prints
 no secret, so it is safe to run when worried. A check it cannot reach reports as `UNKNOWN` with what
@@ -468,9 +467,10 @@ $this->app->make(RobotCouncil\Support\SessionReleases::class)->register(function
 their cutoffs are written, compared, and read back on one fixed clock, so a daylight-saving
 transition moves neither. **A lock's lease is on that same clock** since #149, so a transition
 cannot lapse a held lease either -- though upgrading a host that is not on UTC reinterprets its
-existing lock rows once, which the note on `Models\Lock` describes. What `robot-council:doctor`
-still asks about is a token's expiry, which Sanctum compares against the application's clock rather
-than this package's, and a device code's, which has no such coupling and has simply not moved.
+existing lock rows once, which the note on `Models\Lock` describes. **A device code's lifetime is on
+it too** since #160. What `robot-council:doctor` still asks about is a token's expiry alone, which
+Sanctum compares against the application's clock rather than this package's -- so moving only this
+side would introduce the mismatch rather than remove it.
 
 ## The change feed
 

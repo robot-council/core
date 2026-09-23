@@ -79,12 +79,13 @@ return [
     | `created_at`, so it would cut off a renewed session token regardless of the
     | token's own expiry; `robot-council:install` reports a non-null value.
     |
-    | These are what is still measured on `app.timezone`. A token's expiry has
-    | to be: Sanctum compares `expires_at` against the application's clock, and
-    | writing it on another would put the two sides an offset apart. A device
-    | code's has no such coupling and simply has not moved yet. So a
-    | daylight-saving transition can expire or extend either by an hour, and
-    | `robot-council:doctor` reports a non-UTC `app.timezone` for this.
+    | A token's expiry is the one thing here still measured on `app.timezone`,
+    | and it has to be: Sanctum compares `expires_at` against the application's
+    | clock, and writing it on another would put the two sides an offset apart.
+    | So a daylight-saving transition can expire or extend a credential by an
+    | hour, and `robot-council:doctor` reports a non-UTC `app.timezone` for it.
+    | `device_code_ttl_seconds` is NOT affected: #160 moved that expiry onto
+    | `Support\PresenceClock`, because nothing outside this package reads it.
     |
     */
 

@@ -98,7 +98,18 @@ final class Credentials
      */
     public function deviceCodeExpiry(): Carbon
     {
-        return Carbon::now()->addSeconds($this->deviceCodeTtlSeconds());
+        // **The stored digits cannot tell this apart from `Carbon::now()`; the returned object
+        // can.** `DeviceCodes::issue()` writes through Eloquent, so `Models\DeviceCode`'s
+        // `PresenceTimestamp` cast converts whatever Carbon it is handed to UTC before formatting,
+        // and both forms name the same instant -- so a test that reads the column is blind to the
+        // difference. The label is not, and it is the guarantee this return type advertises:
+        // `DeviceCodeClockTest` asserts it, exactly as `PresenceClockTest` already did for
+        // `staleCutoff()` and `goneCutoff()`.
+        //
+        // An earlier draft of this comment claimed no test could tell the two apart and annotated
+        // the line as an equivalent mutant. Both were wrong, and the refuting pattern was sixty
+        // lines away in the same suite.
+        return PresenceClock::now()->addSeconds($this->deviceCodeTtlSeconds());
     }
 
     /**

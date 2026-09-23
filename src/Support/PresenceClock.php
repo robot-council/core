@@ -32,15 +32,26 @@ use Illuminate\Support\Carbon;
  * `last_seen_at` and the cutoffs measured against it, and since #149 a lock's `acquired_at`,
  * `expires_at` and its two Eloquent timestamps, which nothing outside this package reads.
  *
- * **A device code's `expires_at` has the same shape and has not moved yet.**
- * `Credentials::deviceCodeExpiry()` writes it and `Support\DeviceCodes` is the only thing that
- * compares it, so there is no Sanctum coupling to stop it; the reason it is still here is that
- * nobody has done it, not that it cannot be done. Tracked separately.
+ * A device code's `expires_at` joined them in #160, for the same reason: `Support\DeviceCodes`
+ * both writes and compares it, so there was never a second side to keep in step.
+ *
+ * **What is left outside this clock is not nothing, and this is a scope rather than a census.** Of
+ * the values whose drift `robot-council:doctor` reports, only a **token's** expiry remains, and
+ * only because Sanctum reads it. Plenty else still calls `Carbon::now()` -- three retention
+ * cutoffs, a device code's decision timestamps, a job's retry window -- and each is self-consistent,
+ * written and compared on one clock, so nothing lapses. `Support\Doctor`'s docblock names them.
  *
  * **Upgrading a host that is not on UTC shifts existing rows by its offset, once.** Rows written
  * before carry wall-clock time and are read as UTC afterwards, so for one sweep they read as
  * *newer* than they are by the offset -- a session stays active slightly too long rather than being
- * marked gone too early. That is the safe direction, and it is why this needs no migration.
+ * marked gone too early. That is the safe direction **for presence**, and it is why presence needed
+ * no migration.
+ *
+ * **It is not the safe direction everywhere, and the paragraph above must not be read as covering
+ * the rest.** A lock lease reinterpreted the same way reads as already lapsed west of UTC, and an
+ * outstanding device code survives its ceiling east of it. `Models\Lock` and `Models\DeviceCode`
+ * each carry the note for their own column, including how long the window lasts, which is not the
+ * same bound in the two cases.
  */
 final class PresenceClock
 {
