@@ -85,13 +85,28 @@ final class FleetPresence
 
         $sessions = $sessions->take($size);
 
-        $logins = $this->logins->forSessions($sessions->pluck('id')->all());
+        // `forUsers()` rather than `forSessions()`, which would ask the session table for the
+        // `user_id` of rows this method has just loaded in full -- one query for a column already
+        // in hand. It is also the more direct read of the two: the key comes off the live row
+        // rather than being looked up from an id, so the reuse hazard `forSessions()` carries for
+        // a DEAD session id cannot arise here at all. `locks()` below still needs `forSessions()`,
+        // because the ids it resolves belong to sessions it has not loaded.
+        $logins = $this->logins->forUsers($sessions->pluck('user_id')->all());
 
         // The presence clock, not the application's: this is compared against
         // `last_seen_at`, which is written on the same clock (#51).
         $now = PresenceClock::now();
 
-        $live = AgentSession::query()->where('status', '!=', AgentSessionStatus::Gone->value)->count();
+        // Both totals in one pass. They were two `count()` queries, and the second was only ever
+        // `total - live`, so the table was scanned twice to answer one question. `sum(case when)`
+        // rather than `count(*) filter (where)`, which Postgres and SQLite have and MySQL does not.
+        $totals = AgentSession::query()
+            ->toBase()
+            ->selectRaw('count(*) as total, sum(case when status <> ? then 1 else 0 end) as live', [AgentSessionStatus::Gone->value])
+            ->first();
+
+        $live = self::wholeNumber($totals?->live);
+        $total = self::wholeNumber($totals?->total);
 
         return [
             'cursor' => $sessions->last()?->id,
@@ -100,10 +115,11 @@ final class FleetPresence
             // Counted rather than inferred from the page. A truncated list and a complete one look
             // identical, and the number that would tell them apart is the one not printed.
             'live' => $live,
-            'gone' => AgentSession::query()->count() - $live,
+            'gone' => $total - $live,
             'sessions' => array_values($sessions->map(fn (AgentSession $session): array => [
                 'id' => $session->id,
-                'github_login' => $logins[$session->id] ?? null,
+                // Keyed by the row's own `user_id`, which is what `forUsers()` returns against
+                'github_login' => $logins[$session->user_id] ?? null,
                 // Not nullsafe: `installation_id` is a non-nullable foreign key and the relation is
                 // eager-loaded above, so a null here would mean a row the schema forbids
                 'harness' => $session->installation->harness,
@@ -174,13 +190,20 @@ final class FleetPresence
 
         $now = Carbon::now();
 
-        $held = Lock::query()->whereNotNull('holder_id')->count();
+        // One pass, for the reason `sessions()` above does it: `free` was only ever `total - held`.
+        $totals = Lock::query()
+            ->toBase()
+            ->selectRaw('count(*) as total, sum(case when holder_id is not null then 1 else 0 end) as held')
+            ->first();
+
+        $held = self::wholeNumber($totals?->held);
+        $total = self::wholeNumber($totals?->total);
 
         return [
             'cursor' => $locks->last()?->name,
             'more' => $more,
             'held' => $held,
-            'free' => Lock::query()->count() - $held,
+            'free' => $total - $held,
             'locks' => array_values($locks->map(fn (Lock $lock): array => [
                 // The row's own key. A `wire:key` built from `fence` and a loop index is neither stable
                 // nor unique: two locks routinely share a fence, so one row's key can be taken over by
@@ -203,5 +226,21 @@ final class FleetPresence
                 'expires_at' => $lock->expires_at?->toIso8601String(),
             ])->all()),
         ];
+    }
+
+    /**
+     * One aggregate column, as a whole number.
+     *
+     * The builder hands these back as `mixed`: `count(*)` is an int on SQLite and a string on
+     * Postgres, and `sum(...)` answers **null** over an empty table rather than zero. Narrowed
+     * rather than cast blind, because a cast would turn anything at all into a number and this is
+     * the figure a reader uses to tell a truncated list from a complete one.
+     *
+     * @param  mixed  $value  Whatever the driver returned for the column.
+     * @return int The value, or zero when the table held no rows.
+     */
+    private static function wholeNumber(mixed $value): int
+    {
+        return is_numeric($value) ? (int) $value : 0;
     }
 }
