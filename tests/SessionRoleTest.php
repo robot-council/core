@@ -15,7 +15,7 @@ declare(strict_types=1);
  * @command  vendor/bin/pest --compact tests/SessionRoleTest.php
  */
 
-use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use RobotCouncil\Access\Ability;
@@ -25,6 +25,8 @@ use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
 use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\FleetEventType;
+use RobotCouncil\Support\AgentSessions;
+use RobotCouncil\Support\Installations;
 use RobotCouncil\Support\PresenceClock;
 
 beforeEach(function (): void {
@@ -141,7 +143,8 @@ it('reports the role to the session itself', function (): void {
     $this->machine($token)
         ->getJson(route('robot-council.agent.session'))
         ->assertOk()
-        ->assertJson(['role' => Role::Ci->value, 'abilities' => Role::Ci->tokenAbilities()]);
+        ->assertJsonPath('role', Role::Ci->value)
+        ->assertJsonPath('abilities', Role::Ci->tokenAbilities());
 });
 
 it('mints a renewal from the role on the row, not from the instance the request arrived with', function (): void {
@@ -171,6 +174,134 @@ it('mints a renewal from the role on the row, not from the instance the request 
     expect($first)->not->toBe(stringValue($renewed->json('token')));
 });
 
+it('renews from the row even when the caller holds an instance that disagrees', function (): void {
+    // **Through the store, not the endpoint, and that is the whole point.** Route model binding
+    // hands the controller a session it has just loaded, so the instance and the row always agree
+    // there and no request can tell `roleOf()`'s re-read from a read of `$session->role`. A host
+    // may call this method with an instance of any age, and `Installations::demoteSessions()`
+    // writes the column under exactly such an instance.
+    $coordinatorInstallation = $this->approveInstallation($this->developer, [
+        Ability::CoordinatorDirect->value,
+    ], machineLabel: 'coordinator-machine');
+
+    [$session] = $this->startAgentSession($coordinatorInstallation);
+
+    expect($session->role)->toBe(Role::Coordinator);
+
+    DB::table('robot_council_agent_sessions')
+        ->where('id', $session->getKey())
+        ->update(['role' => Role::Build->value]);
+
+    // The instance still says coordinator, because nothing refreshed it
+    expect($session->role)->toBe(Role::Coordinator);
+
+    $issued = $this->service(AgentSessions::class)->renew($coordinatorInstallation, $session);
+
+    expect($issued->abilities)->toBe(Role::Build->tokenAbilities())
+        ->and($issued->abilities)->not->toContain(Ability::CoordinatorDirect->value);
+});
+
+it('falls back to the instance when the session row has gone, rather than failing the renewal', function (): void {
+    // The branch that exists so a renewal for a pruned session ends the way it did before roles.
+    // `value('role')` answers null for a row that is not there, and a fallback that returned that
+    // null would be a `TypeError` out of a method declared to return a `Role`.
+    //
+    // **A COORDINATOR session, so the fallback is distinguishable from the floor.** Under a
+    // `build` session the instance's role and `Role::Build` are the same value, and a fallback
+    // rewritten to return the floor outright would pass.
+    $coordinatorInstallation = $this->approveInstallation($this->developer, [
+        Ability::CoordinatorDirect->value,
+    ], machineLabel: 'coordinator-machine');
+
+    [$session] = $this->startAgentSession($coordinatorInstallation);
+
+    expect($session->role)->toBe(Role::Coordinator);
+
+    DB::table('robot_council_agent_sessions')->where('id', $session->getKey())->delete();
+
+    $issued = $this->service(AgentSessions::class)->renew($coordinatorInstallation, $session);
+
+    expect($issued->abilities)->toBe(Role::Coordinator->tokenAbilities());
+});
+
+it('leaves a role the installation may still run exactly where it is', function (): void {
+    // The half of `Role::narrowedBy()` that says it narrows only what it must. Without this,
+    // rewriting that method to `return self::Build;` -- demote every session on every ability
+    // change -- survives the whole suite, because every other fixture either is already `build` or
+    // is having `coordinator:direct` taken away, and `build` is the wanted answer in both.
+    $coordinatorInstallation = $this->approveInstallation($this->developer, [
+        Ability::EventsPost->value,
+        Ability::CoordinatorDirect->value,
+    ], machineLabel: 'coordinator-machine');
+
+    [$session] = $this->startAgentSession($coordinatorInstallation);
+
+    expect($session->role)->toBe(Role::Coordinator);
+
+    // An ability every preset already carries, so the machine stays coordinator-eligible
+    $rewritten = $this->service(Installations::class)
+        ->setAbility($coordinatorInstallation, Ability::EventsPost, false);
+
+    expect($rewritten)->toBe(0)
+        ->and($session->refresh()->role)->toBe(Role::Coordinator)
+        ->and(Tokens::abilities($session->tokens()->sole()))->toBe(Role::Coordinator->tokenAbilities());
+});
+
+it('keeps walking past a session whose role did not move', function (): void {
+    // **Two sessions under one machine, the first already at the floor.** The demotion loop skips a
+    // role it does not have to narrow, and skipping has to mean `continue` rather than `break`:
+    // turning it into a `break` leaves every session after the first unchanged, so the coordinator
+    // below keeps `coordinator:direct` after an admin took it away. With one session, or with the
+    // coordinator first, the two spellings are indistinguishable.
+    $installation = $this->approveInstallation($this->developer, [
+        Ability::CoordinatorDirect->value,
+    ], machineLabel: 'coordinator-machine');
+
+    [$first] = $this->startAgentSession($installation);
+    [$second] = $this->startAgentSession($installation);
+
+    // The earlier row is a build session, so the loop reaches its skip before it reaches the
+    // coordinator. `sessionsOf()` takes no explicit order, so this leans on insertion order --
+    // which is why the assertion below names both rows rather than counting.
+    DB::table('robot_council_agent_sessions')
+        ->where('id', $first->getKey())
+        ->update(['role' => Role::Build->value]);
+
+    $rewritten = $this->service(Installations::class)
+        ->setAbility($installation, Ability::CoordinatorDirect, false);
+
+    expect($rewritten)->toBe(1)
+        ->and($first->refresh()->role)->toBe(Role::Build)
+        ->and($second->refresh()->role)->toBe(Role::Build)
+        ->and(Tokens::abilities($second->tokens()->sole()))->not->toContain(Ability::CoordinatorDirect->value);
+});
+
+it('takes the installation row while it renews, which is the package lock order', function (): void {
+    // `renew()` no longer needs the installation's abilities, so the call that locks its row reads
+    // as removable. It is not: it is the first row in the documented lock order, and dropping it
+    // would let a renewal reach the session row and the token rows without it -- inverting the
+    // order `Installations::revoke()` and `setAbility()` take the same three in.
+    //
+    // **SQLite serializes writers, so no deadlock test in this suite could show that.** What is
+    // observable on every engine is the query itself, which is what this counts. Driven through
+    // the store rather than the endpoint, because the guard reads the same table on the way in and
+    // would make the count say nothing.
+    [$session] = $this->startAgentSession($this->installation);
+
+    $touched = [];
+
+    DB::listen(function (QueryExecuted $query) use (&$touched): void {
+        if (str_contains($query->sql, 'robot_council_installations')) {
+            $touched[] = $query->sql;
+        }
+    });
+
+    $this->service(AgentSessions::class)->renew($this->installation, $session);
+
+    expect($touched)->toHaveCount(1)
+        ->and($touched[0])->toStartWith('select');
+});
+
 it('backfills a coordinator role for the sessions of a machine that already held the ability', function (): void {
     $coordinatorInstallation = $this->approveInstallation($this->developer, [
         Ability::TasksCreate->value,
@@ -180,15 +311,16 @@ it('backfills a coordinator role for the sessions of a machine that already held
     [$coordinatorSession] = $this->startAgentSession($coordinatorInstallation);
     [$buildSession] = $this->startAgentSession($this->installation);
 
-    // Back to the pre-#221 shape. The rows survive; only the column goes, which is the state every
-    // host that has run the release before this one is in.
-    Schema::table('robot_council_agent_sessions', function (Blueprint $table): void {
-        $table->dropColumn('role');
-    });
+    // Back to the pre-#221 shape, through the migration's own `down()` rather than a hand-written
+    // `dropColumn` beside it. Those are body-equivalent today and that is exactly why the
+    // hand-written form is the wrong instrument: it would keep passing against a `down()` that
+    // dropped the wrong column or threw, which is the method CLAUDE.md records as the one that
+    // drops a populated table when it is wrong.
+    runTheRoleMigration('down');
 
     expect(Schema::hasColumn('robot_council_agent_sessions', 'role'))->toBeFalse();
 
-    runTheRoleBackfill();
+    runTheRoleMigration('up');
 
     expect(Schema::hasColumn('robot_council_agent_sessions', 'role'))->toBeTrue();
 
@@ -207,33 +339,65 @@ it('backfills a coordinator role for the sessions of a machine that already held
     expect($renewed->json('abilities'))->toContain(Ability::CoordinatorDirect->value);
 });
 
-it('runs the backfill again without changing anything, which is the re-migrated population', function (): void {
-    [$session] = $this->startAgentSession($this->installation);
+it('backfills on a re-run that finds the column already there', function (): void {
+    // **The population this covers is a run that DIED between the two statements.** Only Postgres
+    // and SQL Server wrap a migration in a transaction, so on SQLite and MySQL the ALTER and the
+    // UPDATE are independent: a crash in between leaves the column added, nothing backfilled, and
+    // no `migrations` row, and the operator re-runs `migrate`. A guard that returned early on
+    // `hasColumn` would skip the backfill and report success -- which is how #54 shipped an
+    // access-control change covering six of seven columns.
+    $coordinatorInstallation = $this->approveInstallation($this->developer, [
+        Ability::CoordinatorDirect->value,
+    ], machineLabel: 'coordinator-machine');
 
-    // The column is already there, so `up()` returns before it touches anything. A host that runs
-    // `migrate` twice, and a fresh install that has no rows to rewrite, both take this path.
-    runTheRoleBackfill();
+    [$session] = $this->startAgentSession($coordinatorInstallation);
 
-    expect(AgentSession::query()->whereKey($session->getKey())->sole()->role)->toBe(Role::Build)
+    // The half-finished state: the column exists and says `build` for everyone.
+    DB::table('robot_council_agent_sessions')->update(['role' => Role::Build->value]);
+
+    expect(AgentSession::query()->whereKey($session->getKey())->sole()->role)->toBe(Role::Build);
+
+    runTheRoleMigration('up');
+
+    expect(AgentSession::query()->whereKey($session->getKey())->sole()->role)->toBe(Role::Coordinator)
         ->and(Schema::hasColumn('robot_council_agent_sessions', 'role'))->toBeTrue();
 });
 
+it('rolls back twice and migrates twice without erroring, which is what the guards are for', function (): void {
+    // The re-run guards on both sides. A second `down()` must not try to drop a column that is
+    // gone, and a second `up()` must not try to add one that is there.
+    [$session] = $this->startAgentSession($this->installation);
+
+    runTheRoleMigration('down');
+    runTheRoleMigration('down');
+
+    expect(Schema::hasColumn('robot_council_agent_sessions', 'role'))->toBeFalse();
+
+    runTheRoleMigration('up');
+    runTheRoleMigration('up');
+
+    expect(Schema::hasColumn('robot_council_agent_sessions', 'role'))->toBeTrue()
+        ->and(AgentSession::query()->whereKey($session->getKey())->sole()->role)->toBe(Role::Build);
+});
+
 /**
- * Run the role migration against whatever the table currently looks like.
+ * Run the role migration in one direction against whatever the table currently looks like.
  *
  * Called as a narrowed callable rather than as `$migration->up()`, for the reason
  * `tests/EventIndexDropTest.php` records: a migration file returns `mixed` to the analyzer, and
  * `Migration` itself declares no `up()` -- the anonymous class the file returns does.
+ *
+ * @param  string  $direction  `up` or `down`.
  */
-function runTheRoleBackfill(): void
+function runTheRoleMigration(string $direction): void
 {
     $migration = require __DIR__.'/../database/migrations/2026_09_23_000003_add_role_to_robot_council_agent_sessions.php';
 
-    $up = [$migration, 'up'];
+    $run = [$migration, $direction];
 
-    if (! \is_callable($up)) {
-        throw new RuntimeException('The migration file did not return something with an up().');
+    if (! \is_callable($run)) {
+        throw new RuntimeException('The migration file did not return something with a '.$direction.'().');
     }
 
-    $up();
+    $run();
 }

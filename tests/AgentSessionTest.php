@@ -111,8 +111,11 @@ it('authenticates an agent route as the session, not as the developer', function
             'installation_id' => $this->installation->getKey(),
             'status' => 'active',
             'role' => Role::Build->value,
-            'abilities' => Role::Build->tokenAbilities(),
-        ]);
+        ])
+        // `assertJson()` matches a SUBSET, so `['abilities' => <the four build abilities>]` inside
+        // the block above would pass against a token that also carried `coordinator:direct`.
+        // `assertJsonPath()` compares with `assertSame`, which is what this claim needs.
+        ->assertJsonPath('abilities', Role::Build->tokenAbilities());
 });
 
 it("replaces a session's token on renewal, and refuses the one it replaced", function (): void {

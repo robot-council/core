@@ -49,7 +49,8 @@ it('grants the coordinator ability to the next session, and leaves the running o
     $this->machine($token)
         ->getJson(route('robot-council.agent.session'))
         ->assertOk()
-        ->assertJson(['role' => Role::Build->value, 'abilities' => Role::Build->tokenAbilities()]);
+        ->assertJsonPath('role', Role::Build->value)
+        ->assertJsonPath('abilities', Role::Build->tokenAbilities());
 
     // The next one is the coordinator, which is what the grant bought
     [, $next] = $this->startAgentSession($this->installation->refresh());
@@ -57,7 +58,8 @@ it('grants the coordinator ability to the next session, and leaves the running o
     $this->machine($next)
         ->getJson(route('robot-council.agent.session'))
         ->assertOk()
-        ->assertJson(['role' => Role::Coordinator->value, 'abilities' => Role::Coordinator->tokenAbilities()]);
+        ->assertJsonPath('role', Role::Coordinator->value)
+        ->assertJsonPath('abilities', Role::Coordinator->tokenAbilities());
 });
 
 it('demotes the sessions already in flight when the coordinator ability is revoked', function (): void {
@@ -79,7 +81,8 @@ it('demotes the sessions already in flight when the coordinator ability is revok
     $this->machine($token)
         ->getJson(route('robot-council.agent.session'))
         ->assertOk()
-        ->assertJson(['role' => Role::Build->value, 'abilities' => Role::Build->tokenAbilities()]);
+        ->assertJsonPath('role', Role::Build->value)
+        ->assertJsonPath('abilities', Role::Build->tokenAbilities());
 
     expect($session->refresh()->role)->toBe(Role::Build)
         ->and($this->installation->refresh()->granted_abilities)->toBe([Ability::TasksCreate->value]);
@@ -101,7 +104,8 @@ it('leaves a running session alone when an ability outside the role gate moves',
     $this->machine($token)
         ->getJson(route('robot-council.agent.session'))
         ->assertOk()
-        ->assertJson(['role' => Role::Build->value, 'abilities' => Role::Build->tokenAbilities()]);
+        ->assertJsonPath('role', Role::Build->value)
+        ->assertJsonPath('abilities', Role::Build->tokenAbilities());
 
     expect($session->refresh()->role)->toBe(Role::Build);
 });
@@ -279,5 +283,6 @@ it('cannot be outrun by a session starting at the same moment', function (): voi
     $this->machine($token)
         ->getJson(route('robot-council.agent.session'))
         ->assertOk()
-        ->assertJson(['role' => Role::Build->value, 'abilities' => Role::Build->tokenAbilities()]);
+        ->assertJsonPath('role', Role::Build->value)
+        ->assertJsonPath('abilities', Role::Build->tokenAbilities());
 });

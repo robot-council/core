@@ -18,14 +18,22 @@ use RobotCouncil\Models\Installation;
  * read. What decides whether anything can ever arrive is whether *somebody* on the fleet can post
  * one (#159).
  *
- * **Roles did not make this the wrong question, and the reason is worth stating rather than
- * rediscovering.** Since `robot-council/core#221` a session's abilities come from its role, so the
- * obvious reading is that this should count coordinator SESSIONS instead. It should not, yet: a
- * machine holding `coordinator:direct` is exactly a machine whose sessions start as coordinators
- * (`Access\Role::defaultFor()`), so the installation-level answer is the same answer, and it is the
- * stabler one -- a fleet whose only coordinator is between sessions still can direct. What changes
- * it is a session asking for a role its installation is not already eligible for, which is
- * `robot-council/core#222`, and the rewrite is that slice's.
+ * **Since `robot-council/core#221` this can answer `true` while no LIVE session can post a
+ * directive, and that gap is recorded rather than glossed.** A session's abilities now come from
+ * its role, and a role is chosen when the session starts: `Support\Installations` narrows a
+ * running session's role but never widens one. So an admin granting `coordinator:direct` to a
+ * machine whose agent is already running flips this to `true` while that session stays `build`
+ * for its whole life, however often it renews. If it is the fleet's only coordinator machine,
+ * every agent is told a directive can arrive when none can until that process restarts.
+ *
+ * The reverse does not happen: a live session holding `coordinator:direct` whose installation is
+ * unusable or whose developer is off the list is refused by `Http\Middleware\EnsureAgentSession`
+ * before it could post, so a `false` here is never hiding a session that could.
+ *
+ * Rewriting this to count sessions is `robot-council/core#222`'s, which is where a session gains
+ * a way to ask for a role. Until then the installation-level answer is the stabler of the two --
+ * a fleet whose only coordinator is between sessions still can direct -- and it errs toward
+ * `true`, which tells a bridge to keep waiting rather than to give up.
  *
  * **It reads only.** It is deliberately not a method on `Support\Installations`, which holds the
  * credential lifetimes and the change feed: `Support\Doctor` consumes this, and its own docblock

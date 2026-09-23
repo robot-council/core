@@ -39,7 +39,13 @@ beforeEach(function (): void {
  * Start a session for a developer, with the abilities its token should carry.
  *
  * @param  User  $developer  Whose session it is.
- * @param  list<string>  $abilities  What its token carries.
+ * @param  list<string>  $abilities  What the INSTALLATION is granted, which since
+ *                                   `robot-council/core#221` is not what the token carries: the
+ *                                   token gets its `Access\Role` preset, so every non-coordinator
+ *                                   call here yields all four build abilities. Only
+ *                                   `coordinator:direct` still changes what the session holds.
+ *                                   For a genuinely narrow token use
+ *                                   `TestCase::startAgentSessionWithAbilities()`.
  * @return array{AgentSession, string} The session and its token.
  */
 function sessionFor(TestCase $case, User $developer, array $abilities): array

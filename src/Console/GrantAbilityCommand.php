@@ -11,7 +11,11 @@ use RobotCouncil\Console\Concerns\ManagesAbilities;
 use RobotCouncil\Support\Installations;
 
 /**
- * Adds one ability to an installation, and to the session tokens already in flight under it.
+ * Adds one ability to an installation.
+ *
+ * Since `robot-council/core#221` it reaches no session that is already running: a session's
+ * abilities come from its `Access\Role` preset, and this list decides only which roles the
+ * machine may run. Granting `coordinator:direct` makes the machine's NEXT session a coordinator.
  *
  * This is the only way `coordinator:direct` is ever granted. It cannot be asked for at enrollment,
  * so promoting a machine to coordinate other developers' agents is always a deliberate act by an

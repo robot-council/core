@@ -425,8 +425,11 @@ class TestCase extends Orchestra
     {
         [$session] = $this->startAgentSession($installation);
 
-        // The session's own token, replaced rather than added to: two live tokens would let the
-        // wider one answer for the narrow one and the refusal would never be reached.
+        // The session's own token, replaced rather than added to. **Not because a second token
+        // could answer for this one** -- Sanctum resolves by the id and hash of the token that was
+        // PRESENTED, so it could not -- but so the session is left in the state the name claims,
+        // holding one token and that token narrow. A leftover wide token would be a session whose
+        // abilities depend on which string the caller happened to keep.
         $session->tokens()->delete();
 
         return [$session, $session->createToken(

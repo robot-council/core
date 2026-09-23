@@ -39,8 +39,8 @@ enum Role: string
      * **Identical to `build` today, deliberately.** The distinction is introduced before anything
      * depends on it, so that the change which gives continuous integration a different ability is
      * a change to one arm of `abilities()` rather than a change that also has to introduce the
-     * concept. `RolePresetTest` asserts the two are equal, which is what makes a divergence a
-     * deliberate edit rather than a silent one.
+     * concept. `tests/SessionRoleTest.php` asserts the two are equal, which is what makes a
+     * divergence a deliberate edit rather than a silent one.
      */
     case Ci = 'ci';
 
@@ -59,7 +59,7 @@ enum Role: string
      * no edit could ever fail, which is a description of nothing. Written out, `RolePresetTest`
      * goes red the moment one arm moves. `Coordinator` has the opposite requirement: it is defined
      * as the build preset plus one ability, so composing it is what stops it falling behind when
-     * the build preset gains something.
+     * the build preset gains something. `tests/SessionRoleTest.php` holds both assertions.
      *
      * @return list<Ability> The preset, in a fixed order.
      */

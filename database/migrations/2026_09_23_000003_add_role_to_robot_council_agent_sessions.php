@@ -56,10 +56,47 @@ return new class extends Migration
      */
     public function up(): void
     {
-        if (! Schema::hasTable(self::TABLE) || Schema::hasColumn(self::TABLE, self::COLUMN)) {
+        if (! Schema::hasTable(self::TABLE)) {
             return;
         }
 
+        // **Read before the ALTER, and the backfill is not gated on the column being new.** Two
+        // reasons, both about a run that does not finish. Only Postgres and SQL Server wrap a
+        // migration in a transaction -- `Schema\Grammars\Grammar::$transactions` is false and only
+        // `PostgresGrammar` overrides it -- so on SQLite and MySQL the ALTER and the UPDATE are
+        // independent statements. A crash between them leaves the column added, nothing backfilled
+        // and no `migrations` row; a guard reading `hasColumn` would then skip the backfill on the
+        // re-run and report success, which is exactly how #54 shipped an access-control change
+        // covering six of seven columns. Reading first also keeps the scan of
+        // `robot_council_installations` outside the window where Postgres holds ACCESS EXCLUSIVE
+        // on this table, which every session-token lookup in the fleet blocks behind.
+        //
+        // Re-running the backfill is safe because it is idempotent: it sets the same rows to the
+        // same value from the same input.
+        $coordinators = $this->coordinatorInstallations();
+
+        if (! Schema::hasColumn(self::TABLE, self::COLUMN)) {
+            $this->addColumn();
+        }
+
+        if ($coordinators === []) {
+            return;
+        }
+
+        // `whereIn` over ids read in PHP, not `whereJsonContains`, which compiles differently on
+        // each of the three engines this package supports. The set is small -- an admin grants
+        // `coordinator:direct` by hand -- and the bind ceiling it would have to pass is 32,766 on
+        // SQLite and 65,535 on Postgres and MySQL.
+        DB::table(self::TABLE)
+            ->whereIn('installation_id', $coordinators)
+            ->update([self::COLUMN => 'coordinator']);
+    }
+
+    /**
+     * Add the column itself.
+     */
+    private function addColumn(): void
+    {
         Schema::table(self::TABLE, function (Blueprint $table): void {
             // **Not nullable, and defaulted rather than backfilled from nothing.** A null role
             // would mean a session with no preset and therefore no abilities, which is a state
@@ -69,25 +106,19 @@ return new class extends Migration
             // which is a public static a host may lower.
             $table->string(self::COLUMN, 16)->default('build');
         });
-
-        $coordinators = $this->coordinatorInstallations();
-
-        if ($coordinators === []) {
-            return;
-        }
-
-        // `whereIn` over ids read in PHP, not `whereJsonContains`, which compiles differently on
-        // each of the three engines this package supports. The set is small -- an admin grants
-        // `coordinator:direct` by hand -- and this runs once.
-        DB::table(self::TABLE)
-            ->whereIn('installation_id', $coordinators)
-            ->update([self::COLUMN => 'coordinator']);
     }
 
     /**
      * Drop it.
      *
-     * The backfill is not undone, because the column it wrote is going with it.
+     * **A rollback discards every role the running system has written, and a later `up()` derives
+     * them again from `granted_abilities`.** That is the most this can do -- the column is where
+     * the roles live, so dropping it destroys them -- but the consequence is worth stating rather
+     * than leaving to be discovered: a session an admin demoted while its machine kept
+     * `coordinator:direct` comes back a coordinator on the next `migrate`. Today that is the only
+     * value a rollback cycle can invent, because `start()` derives the same way. It stops being
+     * the only one when a session can ask for a role (`robot-council/core#222`), and whichever
+     * migration introduces that needs to decide what a rollback means for a requested role.
      */
     public function down(): void
     {
@@ -106,6 +137,23 @@ return new class extends Migration
      * Decoded in PHP rather than matched in SQL, and every value narrowed on the way: the column is
      * `json` and the row decides what is in it, so anything that is not a list of strings
      * contributes nothing rather than raising from inside a migration a host is running.
+     *
+     * **`granted_abilities` arrives as a PHP string on all three engines**, which is what makes the
+     * `is_string()` arm the live one rather than a silent no-op. Measured 2026-09-23 through
+     * prepared statements with the options `Connectors\Connector` sets: PostgreSQL 17.0 `json`,
+     * MySQL 9.4.0 `json` and SQLite 3.45.2 `text` all return `string`, while a `bigint` returns
+     * `int` and a Postgres `boolean` returns `bool` -- so the probe could have reported a non-string
+     * and did not.
+     *
+     * **It calls `json_decode()` directly rather than Laravel's `Json::decode()`**, so a host that
+     * installed its own decoder with `Json::decodeUsing()` and stores something the standard
+     * decoder cannot read would get no backfill. A migration reads the row rather than the
+     * package's accessors by design, and that is the price of it.
+     *
+     * The read is deliberately unfiltered: a revoked or expired installation still gets its
+     * sessions' roles derived, and so do sessions that have already gone. Neither can act --
+     * `Http\Middleware\EnsureAgentSession` refuses both -- and recording what a session WAS is
+     * more honest than defaulting it to `build`, which would say it was never a coordinator.
      *
      * @return list<int> The installation ids whose sessions become coordinators.
      */

@@ -148,7 +148,7 @@ it('narrows a stored ability the fixed list no longer holds', function (): void 
     $this->machine($token)
         ->getJson(route('robot-council.agent.session'))
         ->assertOk()
-        ->assertJson(['abilities' => Role::Build->tokenAbilities()]);
+        ->assertJsonPath('abilities', Role::Build->tokenAbilities());
 
     // The narrowing the accessor does is still the installation-level property, and this is where
     // it is now observable: the stored row keeps `*` and `tasks:delete`, and neither is read back.

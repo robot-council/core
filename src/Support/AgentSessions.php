@@ -203,9 +203,17 @@ final class AgentSessions
     /**
      * Issue one session token.
      *
-     * The abilities are read from the session's role on every issue rather than copied at
+     * The abilities are read from the session's ROLE on every issue rather than copied at
      * enrollment, so a demotion an admin made is gone from the next token even though the row was
      * written weeks ago.
+     *
+     * **That is narrower than it used to be, and the narrowing is worth stating.** Before
+     * `robot-council/core#221` this read the installation's `granted_abilities` on every renewal,
+     * so ANY writer of that column -- the console, the panel, host code, a seeder, a restore --
+     * reached every live session within one token lifetime. Now only a write to the session's own
+     * `role` does, and `Support\Installations::setAbility()` is its only writer outside `start()`.
+     * A host stripping `granted_abilities` with a raw query no longer reaches a running session at
+     * all. `Support\Installations::revoke()` is what still ends one unconditionally.
      *
      * @param  AgentSession  $session  The session the token authenticates as.
      * @param  list<string>  $abilities  The abilities to mint it with.
