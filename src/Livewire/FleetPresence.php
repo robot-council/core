@@ -6,12 +6,15 @@ namespace RobotCouncil\Livewire;
 
 use Carbon\CarbonInterface;
 use Carbon\CarbonInterval;
+use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Carbon;
+use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 use RobotCouncil\Support\FleetPresence as Presence;
+use RobotCouncil\Support\PollInterval;
 use RobotCouncil\Support\Scope;
 
 /**
@@ -24,6 +27,7 @@ use RobotCouncil\Support\Scope;
  * `<` -- but that is a second line rather than a first, for the reason #70 records about URLs. What
  * makes this page safe is that nothing here is rendered unescaped.
  */
+#[Layout('robot-council::layouts.dashboard')]
 final class FleetPresence extends Component
 {
     /**
@@ -40,7 +44,7 @@ final class FleetPresence extends Component
      * The interval this panel refreshes on, in seconds.
      */
     #[Locked]
-    public int $pollSeconds = Dashboard::DEFAULT_POLL_SECONDS;
+    public int $pollSeconds = PollInterval::DEFAULT;
 
     /**
      * Which sessions are shown: `live`, or every row including the ones that have gone.
@@ -79,9 +83,11 @@ final class FleetPresence extends Component
      *
      * @param  int  $pollSeconds  The interval the dashboard resolved.
      */
-    public function mount(int $pollSeconds = Dashboard::DEFAULT_POLL_SECONDS): void
+    public function mount(Repository $config, ?int $pollSeconds = null): void
     {
-        $this->pollSeconds = $pollSeconds;
+        // Null when a route mounted this directly rather than the overview passing it down,
+        // which is every visit now that each panel has a page of its own.
+        $this->pollSeconds = $pollSeconds ?? PollInterval::fromConfig($config);
     }
 
     /**

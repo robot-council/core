@@ -265,12 +265,12 @@ it('shows the queue through the gate, not only through the component harness', f
     // `beforeEach` deleted. This one goes through the route, and a stranger is refused by it.
     app(Tasks::class)->create($this->session, ['title' => 'Visible to a developer'], withCoordinator: false);
 
-    $this->get(route('robot-council.dashboard'))->assertOk()->assertSee('Visible to a developer');
+    $this->get(route('robot-council.queue'))->assertOk()->assertSee('Visible to a developer');
 
     $stranger = $this->enrollDeveloper(9999, login: 'stranger');
 
     $this->actingAs($stranger, 'web')
-        ->get(route('robot-council.dashboard'))
+        ->get(route('robot-council.queue'))
         ->assertForbidden()
         ->assertDontSee('Visible to a developer');
 });

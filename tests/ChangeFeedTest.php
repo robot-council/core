@@ -228,12 +228,12 @@ it('will not let a client change the polling interval', function (): void {
 it('shows the feed through the gate, and refuses a stranger', function (): void {
     app(FleetEvents::class)->record(FleetEventType::Narration, $this->session, 'Visible to a developer.');
 
-    $this->get(route('robot-council.dashboard'))->assertOk()->assertSee('Visible to a developer.');
+    $this->get(route('robot-council.feed'))->assertOk()->assertSee('Visible to a developer.');
 
     $stranger = $this->enrollDeveloper(9999, login: 'stranger');
 
     $this->actingAs($stranger, 'web')
-        ->get(route('robot-council.dashboard'))
+        ->get(route('robot-council.feed'))
         ->assertForbidden()
         ->assertDontSee('Visible to a developer.');
 });

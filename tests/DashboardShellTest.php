@@ -18,6 +18,7 @@ use RobotCouncil\Http\Controllers\DashboardStylesheetController;
 use RobotCouncil\Http\Middleware\DenyFraming;
 use RobotCouncil\Http\Middleware\EnsureAllowlistedDeveloper;
 use RobotCouncil\Livewire\Dashboard;
+use RobotCouncil\Support\PollInterval;
 
 beforeEach(function (): void {
     $this->migrateUsersTableWithPackageColumns();
@@ -97,10 +98,14 @@ it('serves a stylesheet that carries the utilities the pages use, and not the on
 
         // the sidebar and header #183 added. `menu-active` is what marks the page being shown, so
         // a build that dropped it would render every entry identically with nothing reporting it.
-        'menu-title', 'menu-active', 'btn-square', 'truncate', 'sticky', 'min-w-0', 'grow',
+        'menu-active', 'btn-square', 'truncate', 'sticky', 'min-w-0', 'grow',
 
-        // the offset that keeps a jumped-to panel clear of the sticky header
-        'scroll-mt-20',
+        // **Two entries came out when #215 split the panels onto their own routes**, and for
+        // different reasons worth keeping apart. `scroll-mt-20` offset a jumped-to panel from the
+        // sticky header; there are no jump targets now, so it is genuinely gone from the artifact
+        // and asserting it would fail. `menu-title` is still IN the artifact with no view using it,
+        // which is the other failure mode this list guards against: daisyUI emits that part
+        // wholesale, so the assertion would have passed whether or not scanning worked.
 
         // the totals row #185 added. `stats-vertical` is the modifier that stacks it on a narrow
         // screen, so a build that dropped it would render three tiles side by side at phone width.
@@ -168,10 +173,16 @@ it('starts no session for the stylesheet', function (): void {
 
 it('refuses a poll interval a host could not have meant', function (mixed $configured, int $expected): void {
     // The value becomes a `wire:poll` interval. A non-integer renders an attribute the browser
-    // ignores, leaving a page that never refreshes and never says so; a zero takes Livewire's own
-    // two-second default, which is five times what this host asked for and multiplies every panel's
-    // per-render cost by the same ratio.
+    // ignores, leaving a page that never refreshes and never says so; a small one multiplies every
+    // page's per-render cost by the ratio.
+    //
+    // Asserted through both the helper and the page that uses it. The rule moved to
+    // `Support\PollInterval` when each panel got a route of its own -- every one of them now needs
+    // the validated value, and a second copy of the bounds is how two pages come to poll at
+    // different rates on one host.
     $this->rebootWith('robot-council.dashboard.poll_seconds', $configured);
+
+    expect(PollInterval::fromConfig(app(Repository::class)))->toBe($expected);
 
     $component = new Dashboard;
 
@@ -180,11 +191,11 @@ it('refuses a poll interval a host could not have meant', function (mixed $confi
     expect($component->pollSeconds)->toBe($expected);
 })->with([
     'the configured value' => [30, 30],
-    'zero' => [0, Dashboard::DEFAULT_POLL_SECONDS],
-    'negative' => [-5, Dashboard::DEFAULT_POLL_SECONDS],
-    'absurd' => [99999, Dashboard::DEFAULT_POLL_SECONDS],
-    'a string' => ['fast', Dashboard::DEFAULT_POLL_SECONDS],
-    'null' => [null, Dashboard::DEFAULT_POLL_SECONDS],
+    'zero' => [0, PollInterval::DEFAULT],
+    'negative' => [-5, PollInterval::DEFAULT],
+    'absurd' => [99999, PollInterval::DEFAULT],
+    'a string' => ['fast', PollInterval::DEFAULT],
+    'null' => [null, PollInterval::DEFAULT],
 ]);
 
 it('tells a browser it may keep the stylesheet, and answers a revalidation cheaply', function (): void {

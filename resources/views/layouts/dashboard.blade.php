@@ -92,10 +92,12 @@
         <div class="drawer-side z-40">
             <label for="robot-council-navigation" class="drawer-overlay" aria-label="Hide navigation"></label>
 
-            <nav class="min-h-full w-64 bg-base-100 lg:border-r lg:border-base-300" aria-label="Dashboard">
-                <ul class="menu w-full gap-1 p-4">
-                    <li class="menu-title">Fleet</li>
+            <nav class="min-h-full w-64 bg-base-100 lg:border-r lg:border-base-300"
+                aria-labelledby="robot-council-menu-heading">
+                <h2 id="robot-council-menu-heading"
+                    class="px-4 pt-4 text-xs font-semibold uppercase tracking-wide opacity-60">Menu</h2>
 
+                <ul class="menu w-full gap-1 p-4">
                     <li>
                         <a href="{{ route('robot-council.dashboard') }}"
                             @class(['menu-active' => $currentRoute === 'robot-council.dashboard'])
@@ -103,44 +105,43 @@
                     </li>
 
                     <li>
+                        <a href="{{ route('robot-council.presence') }}"
+                            @class(['menu-active' => $currentRoute === 'robot-council.presence'])
+                            @if ($currentRoute === 'robot-council.presence') aria-current="page" @endif>Presence</a>
+                    </li>
+
+                    <li>
+                        <a href="{{ route('robot-council.queue') }}"
+                            @class(['menu-active' => $currentRoute === 'robot-council.queue'])
+                            @if ($currentRoute === 'robot-council.queue') aria-current="page" @endif>Queue</a>
+                    </li>
+
+                    <li>
+                        <a href="{{ route('robot-council.feed') }}"
+                            @class(['menu-active' => $currentRoute === 'robot-council.feed'])
+                            @if ($currentRoute === 'robot-council.feed') aria-current="page" @endif>Change feed</a>
+                    </li>
+
+                    {{--
+                        Offered only to an admin, decided in `Http\ViewComposers\DashboardLayoutComposer`
+                        on the package's own guard rather than with `@can`, which resolves the host's
+                        default and would hide a real admin's own page from them. The component
+                        refuses in `mount()` regardless, so the route is safe whether or not this is
+                        drawn -- a control that is not drawn is not an authorization boundary.
+                    --}}
+                    @if ($isAdmin)
+                        <li>
+                            <a href="{{ route('robot-council.administration') }}"
+                                @class(['menu-active' => $currentRoute === 'robot-council.administration'])
+                                @if ($currentRoute === 'robot-council.administration') aria-current="page" @endif>Administration</a>
+                        </li>
+                    @endif
+
+                    <li>
                         <a href="{{ route('robot-council.enroll.show') }}"
                             @class(['menu-active' => $currentRoute === 'robot-council.enroll.show'])
                             @if ($currentRoute === 'robot-council.enroll.show') aria-current="page" @endif>Enroll a machine</a>
                     </li>
-
-                    {{--
-                        Jump links into the page being rendered, so they are offered only there. The
-                        panels are stacked on one page by the decision on #187; #191 turns these
-                        into a choice of which are mounted at all.
-                    --}}
-                    @if ($currentRoute === 'robot-council.dashboard')
-                        <li class="menu-title">On this page</li>
-
-                        @if (\in_array('presence', $showingSections, true))
-                            <li><a href="#robot-council-presence">Presence</a></li>
-                        @endif
-
-                        @if (\in_array('queue', $showingSections, true))
-                            <li><a href="#robot-council-queue">Queue</a></li>
-                        @endif
-
-                        @if (\in_array('feed', $showingSections, true))
-                            <li><a href="#robot-council-change-feed">Change feed</a></li>
-                        @endif
-
-                        {{--
-                            Each link is offered only when the section is actually on the page, so
-                            none of them jumps to nothing. The administration entry is filtered by
-                            `Support\DashboardSections`, which drops it for an account that is not
-                            an admin whatever the query string says -- decided there rather than
-                            with `@can`, which resolves the host's default guard and would hide it
-                            from a real admin on a host where the two differ. The component
-                            authorizes its own render regardless.
-                        --}}
-                        @if (\in_array('administration', $showingSections, true))
-                            <li><a href="#robot-council-administration">Administration</a></li>
-                        @endif
-                    @endif
                 </ul>
             </nav>
         </div>

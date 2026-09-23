@@ -4,13 +4,16 @@ declare(strict_types=1);
 
 namespace RobotCouncil\Livewire;
 
+use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Carbon;
+use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 use RobotCouncil\Models\Task;
 use RobotCouncil\Models\TaskStatus;
+use RobotCouncil\Support\PollInterval;
 use RobotCouncil\Support\TaskList;
 
 /**
@@ -26,6 +29,7 @@ use RobotCouncil\Support\TaskList;
  * written by a machine on somebody else's laptop and rendered on this developer's screen, which is
  * why the guards in #67 and #70 exist and why nothing here renders anything unescaped.
  */
+#[Layout('robot-council::layouts.dashboard')]
 final class TaskBoard extends Component
 {
     /**
@@ -77,16 +81,18 @@ final class TaskBoard extends Component
      * The interval this page refreshes on, in seconds.
      */
     #[Locked]
-    public int $pollSeconds = Dashboard::DEFAULT_POLL_SECONDS;
+    public int $pollSeconds = PollInterval::DEFAULT;
 
     /**
      * Take the polling interval from the page that mounts this component.
      *
      * @param  int  $pollSeconds  The interval the dashboard resolved.
      */
-    public function mount(int $pollSeconds = Dashboard::DEFAULT_POLL_SECONDS): void
+    public function mount(Repository $config, ?int $pollSeconds = null): void
     {
-        $this->pollSeconds = $pollSeconds;
+        // Null when a route mounted this directly rather than the overview passing it down,
+        // which is every visit now that each panel has a page of its own.
+        $this->pollSeconds = $pollSeconds ?? PollInterval::fromConfig($config);
     }
 
     /**
