@@ -99,10 +99,27 @@
 
                 {{--
                     The console's sections are children of the page they belong to rather than peers
-                    of it. daisyUI draws the indent and the rule through `.menu :where(li ul)`, so
-                    there is no CSS here -- but that selector reaches the artifact only because a
-                    view nests a menu, which none did before this, so `DashboardShellTest` asserts it
-                    rather than trusting the build.
+                    of it. daisyUI draws the indent and the vertical rule through
+                    `.menu :where(li ul,li menu)`, so there is no CSS here.
+
+                    That selector was already in the committed artifact before any view nested a
+                    menu, because daisyUI emits a component's rules together rather than per class
+                    found. So asserting it guards a daisyUI version that stopped shipping the rule
+                    rather than a scan that stopped finding a class, and `DashboardShellTest`
+                    asserts it on exactly that narrower ground.
+
+                    **Name no class in this comment that the markup does not use.** Tailwind scans
+                    this file whole and cannot tell a sentence from an attribute, so a class named
+                    here only to discuss it is emitted into the shipped stylesheet. An earlier draft
+                    of this comment named two, and added 1,385 bytes of rules for components nothing
+                    renders; a later one used an ordinary English word that is also a plugin's class
+                    name, and added three more. Check the artifact after editing this, not before.
+
+                    The nested list needs `flex flex-col gap-1` of its own. `gap` is not inherited
+                    and applies only to a flex or grid box; `.menu` makes the OUTER list flex, and
+                    the rule above gives the nested one margin and padding but no display, so it is
+                    a block box on which the parent's `gap-1` does nothing. Without these three the
+                    four sections sit flush while the two entries above them are spaced.
 
                     `Enroll a machine` stays outside the group deliberately: it is a destination of
                     its own rather than a section of the console, and the nesting is what says so.
@@ -113,7 +130,7 @@
                             @class(['menu-active' => $currentRoute === 'robot-council.dashboard'])
                             @if ($currentRoute === 'robot-council.dashboard') aria-current="page" @endif>Dashboard</a>
 
-                        <ul>
+                        <ul class="flex flex-col gap-1">
                             <li>
                                 <a href="{{ route('robot-council.presence') }}"
                                     @class(['menu-active' => $currentRoute === 'robot-council.presence'])

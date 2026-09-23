@@ -106,9 +106,18 @@ function elementMatching(DOMXPath $xpath, string $expression, ?DOMElement $conte
  */
 function topLevelEntries(DOMXPath $xpath): array
 {
+    // **The parentheses are load-bearing.** `//ul[...][1]` filters per PARENT -- each parent's
+    // first matching `ul` -- rather than taking the first such `ul` in the document, and
+    // `contains(@class, "menu")` also matches `menu-sm`, `menu-xs` and `submenu`. Measured on PHP
+    // 8.4.23: give the nested list a size modifier and the unparenthesized form returns FOUR
+    // entries, folding two sections up into the top level and reading as "the nesting broke" when
+    // it did not.
+    //
+    // A purely structural `//nav[...]/ul/li` was the other candidate and is worse: it returns
+    // three when a second list exists later in the nav, because it has no way to prefer the first.
     return elementsMatching(
         $xpath,
-        '//nav[@aria-labelledby="robot-council-menu-heading"]//ul[contains(@class, "menu")][1]/li'
+        '(//nav[@aria-labelledby="robot-council-menu-heading"]//ul[contains(@class, "menu")])[1]/li'
     );
 }
 
@@ -175,12 +184,23 @@ it('puts the sections inside the dashboard entry and leaves enrollment beside it
 it('names the console after what it is rather than after its position in a list', function (): void {
     signInForSidebar($this);
 
-    $html = (string) $this->get(route('robot-council.dashboard'))->assertOk()->getContent();
+    $xpath = sidebarXPath($this->get(route('robot-council.dashboard'))->assertOk()->getContent());
+
+    [$console] = topLevelEntries($xpath);
 
     // `Overview` described where the entry sat when the sections were its siblings. They are its
     // children now, so the entry names the page.
-    expect($html)->toContain('>Dashboard</a>')
-        ->and($html)->not->toContain('>Overview</a>');
+    //
+    // Read through the tree like everything else here, rather than with a document-wide string
+    // match. The overview renders a second `ul.menu` of the same four links inside `<main>` for
+    // narrow viewports, so `toContain('>Dashboard</a>')` would be answerable by markup that is not
+    // the sidebar at all.
+    expect(trim(elementMatching($xpath, './a', $console)->textContent))->toBe('Dashboard');
+
+    // And the old label is gone from the whole document, which is the one claim that is genuinely
+    // about the page rather than about one entry.
+    expect((string) $this->get(route('robot-council.dashboard'))->getContent())
+        ->not->toContain('>Overview</a>');
 });
 
 it('keeps the administration section out of the list for a developer who is not an admin', function (): void {
