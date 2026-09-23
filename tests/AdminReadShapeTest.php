@@ -1,0 +1,190 @@
+<?php
+
+declare(strict_types=1);
+
+/**
+ * The shape `Support\InstallationList` and `GET api/agent/session` return, pinned key by key.
+ *
+ * The administration panel is the only interface for revoking a credential, and the session
+ * endpoint is what every enrolled agent reads about itself. Until #232 nothing asserted either
+ * body's keys, so a build that dropped one reported green.
+ *
+ * Asserted whole rather than field by field, so a key ADDED without being accounted for fails too.
+ * #234 is why: it put `repository` and `work_location` beside `project_id` rather than replacing
+ * it, and both of these bodies grew by two fields while nothing here noticed.
+ *
+ * @command  vendor/bin/pest --compact tests/AdminReadShapeTest.php
+ */
+
+use RobotCouncil\Access\Ability;
+use RobotCouncil\Models\AgentSession;
+use RobotCouncil\Models\Installation;
+use RobotCouncil\Support\InstallationList;
+use RobotCouncil\Support\Scope;
+
+beforeEach(function (): void {
+    $this->migrateUsersTableWithPackageColumns();
+
+    $this->setAccessLists(developers: [4242], admins: [4242]);
+});
+
+it('returns every key an installation row carries, and no others', function (): void {
+    $developer = $this->enrollDeveloper(4242);
+    $installation = $this->approveInstallation($developer, [Ability::TasksCreate->value]);
+
+    $this->startAgentSession($installation);
+
+    $page = $this->service(InstallationList::class)->everything(10, Scope::All);
+
+    expect($page)->toHaveKeys(['cursor', 'more', 'live', 'retired', 'installations'])
+        ->and($page['installations'])->toHaveCount(1)
+        ->and(array_keys($page['installations'][0]))->toBe([
+            'id',
+            'github_login',
+            'harness',
+            'machine_label',
+            'abilities',
+            'revoked',
+            'expired',
+            'sessions',
+        ]);
+
+    // `revoked` and `expired` are both halves of `isUsable()`, kept apart because they are the same
+    // to a guard and different to an admin. A live installation is neither.
+    expect($page['installations'][0]['revoked'])->toBeFalse()
+        ->and($page['installations'][0]['expired'])->toBeFalse();
+});
+
+it('returns every key a nested session row carries, including all three identifiers', function (): void {
+    $developer = $this->enrollDeveloper(4242);
+    $installation = $this->approveInstallation($developer, [Ability::TasksCreate->value]);
+
+    $this->startAgentSession($installation);
+
+    $sessions = arrayValue(arrayValue(arrayValue(
+        $this->service(InstallationList::class)->everything(10, Scope::All)['installations']
+    )[0])['sessions']);
+
+    expect($sessions)->toHaveKeys(['shown', 'hidden'])
+        ->and($sessions['shown'])->toHaveCount(1);
+
+    // **Three identifiers where there was one.** `project_id` stays beside `repository` and
+    // `work_location` until the epic's final slice retires it, so all three reach an admin's panel
+    // and all three were unasserted. Dropping any one of them reported green before this.
+    expect(array_keys(arrayValue(arrayValue($sessions['shown'])[0])))->toBe([
+        'id',
+        'status',
+        'role',
+        'project_id',
+        'repository',
+        'work_location',
+    ]);
+
+    expect($sessions['hidden'])->toBe(0);
+});
+
+it('counts an empty installation table as zero rather than null', function (): void {
+    // `sum(case when ...)` over no rows returns NULL, which is what `Support\AggregateCount` is for.
+    $page = $this->service(InstallationList::class)->everything(10, Scope::All);
+
+    expect($page['live'])->toBe(0)
+        ->and($page['retired'])->toBe(0)
+        ->and($page['installations'])->toBeEmpty();
+});
+
+it('returns both lists as JSON arrays rather than objects', function (): void {
+    $developer = $this->enrollDeveloper(4242);
+    $installation = $this->approveInstallation($developer, [Ability::TasksCreate->value]);
+
+    $this->startAgentSession($installation);
+
+    $page = $this->service(InstallationList::class)->everything(10, Scope::All);
+
+    // A collection whose keys are not sequential encodes as a JSON object, and a client reading
+    // `[0]` gets nothing -- the defect `Support\Installations` records for `granted_abilities`.
+    expect(json_encode($page['installations']))->toStartWith('[')
+        ->and(json_encode(arrayValue(arrayValue(arrayValue($page['installations'])[0])['sessions'])['shown']))->toStartWith('[');
+});
+
+it('keeps the shown sessions a JSON array when a gone session sits ahead of a live one', function (): void {
+    $developer = $this->enrollDeveloper(4242);
+    $installation = $this->approveInstallation($developer, [Ability::TasksCreate->value]);
+
+    // **The NEWER session is the gone one, and getting that backwards makes this test prove
+    // nothing.** `sessionsOf()` filters with `Collection::filter()`, which preserves keys, so a gap
+    // appears only when the removed row sat at key 0 -- and the relation is eager-loaded
+    // `orderByDesc('id')`, which puts the newest first. Marking the OLDER session gone leaves it at
+    // key 1, filtering it away leaves `[0]`, and `array_values()` is a no-op: the assertions below
+    // pass either way. Measured before this was corrected.
+    $this->startAgentSession($installation);
+    [$gone] = $this->startAgentSession($installation);
+
+    AgentSession::query()->whereKey($gone->getKey())->update(['status' => 'gone']);
+
+    $shown = arrayValue(arrayValue(arrayValue(arrayValue(
+        $this->service(InstallationList::class)->everything(10, Scope::All)['installations']
+    )[0])['sessions'])['shown']);
+
+    expect($shown)->toHaveCount(1)
+        ->and(json_encode($shown))->toStartWith('[');
+
+    // **Unlike the list beside it**, this `array_values()` is not defensive: the outer one narrows
+    // a query result whose keys are already 0..n-1, while this one narrows a filtered relation and
+    // the gap is reachable with two sessions.
+    expect(array_keys($shown))->toBe([0]);
+});
+
+it('pins the key set of the session every agent reads about itself', function (): void {
+    $developer = $this->enrollDeveloper(4242);
+    $installation = $this->approveInstallation($developer, [Ability::TasksCreate->value]);
+
+    [, $token] = $this->startAgentSession($installation);
+
+    $body = $this->machine($token)->getJson(route('robot-council.agent.session'))
+        ->assertOk()
+        ->json();
+
+    // **Mutation testing cannot reach this criterion, which is why it is here.** `--mutate` removes
+    // an array item and asks whether a test notices; it never ADDS one. So a key appearing in this
+    // body -- the one every enrolled agent reads about itself -- would be caught by nothing at all.
+    // Asserted whole, so both directions are a deliberate edit.
+    expect(array_keys((array) $body))->toBe([
+        'session_id',
+        'installation_id',
+        'status',
+        'role',
+        'project_id',
+        'repository',
+        'work_location',
+        'feed_cursor',
+        'abilities',
+        'fleet_can_direct',
+    ]);
+});
+
+it('separates a revoked installation from an expired one', function (): void {
+    $developer = $this->enrollDeveloper(4242);
+
+    $revoked = $this->approveInstallation($developer, [Ability::TasksCreate->value], machineLabel: 'revoked-box');
+    $expired = $this->approveInstallation($developer, [Ability::TasksCreate->value], machineLabel: 'expired-box');
+
+    Installation::query()->whereKey($revoked->getKey())->update(['revoked_at' => now()]);
+    Installation::query()->whereKey($expired->getKey())->update(['expires_at' => now()->subDay()]);
+
+    $rows = [];
+
+    foreach (arrayValue($this->service(InstallationList::class)->everything(10, Scope::All)['installations']) as $row) {
+        $row = arrayValue($row);
+
+        $rows[stringValue($row['machine_label'] ?? null)] = $row;
+    }
+
+    // Both are unusable to a guard and different to an admin, which is the distinction the two
+    // booleans exist to carry. A single flag would report the same thing for both rows.
+    expect($rows)->toHaveKeys(['revoked-box', 'expired-box']);
+
+    expect($rows['revoked-box']['revoked'])->toBeTrue()
+        ->and($rows['revoked-box']['expired'])->toBeFalse()
+        ->and($rows['expired-box']['revoked'])->toBeFalse()
+        ->and($rows['expired-box']['expired'])->toBeTrue();
+});

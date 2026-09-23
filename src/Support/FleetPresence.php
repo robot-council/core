@@ -29,6 +29,12 @@ final class FleetPresence
     /**
      * The most sessions or locks one read returns.
      */
+    // Reported `uncovered` rather than `untested`, and the difference is the point: no test reaches
+    // this LINE, because a constant declaration is not executed anywhere coverage can see it. The
+    // same structural blind spot the ticket records for `#[Fillable]` attributes. The value is
+    // exercised -- `PresenceReadShapeTest` asserts it and pages through it -- and the mutants stayed
+    // uncovered anyway, which is what says this is the shape of the instrument rather than a gap.
+    // @pest-mutate-ignore
     public const int MAX_PAGE = 200;
 
     /**
@@ -105,7 +111,14 @@ final class FleetPresence
             ->selectRaw('count(*) as total, sum(case when status <> ? then 1 else 0 end) as live', [AgentSessionStatus::Gone->value])
             ->first();
 
+        // **The `?->` cannot be killed and is kept anyway.** An aggregate with no `GROUP BY` returns
+        // exactly one row whatever the table holds, so `$totals` is never null and removing the
+        // null-safe operator changes no input's outcome. Measured against an empty table: `first()`
+        // came back as a `stdClass` with `total` 0 and `live` NULL, not as null. It stays as the
+        // guard against a future `groupBy`, which is the one edit that would make it matter.
+        // @pest-mutate-ignore: RemoveNullSafeOperator
         $live = AggregateCount::from($totals?->live);
+        // @pest-mutate-ignore: RemoveNullSafeOperator
         $total = AggregateCount::from($totals?->total);
 
         return [
@@ -116,6 +129,14 @@ final class FleetPresence
             // identical, and the number that would tell them apart is the one not printed.
             'live' => $live,
             'gone' => $total - $live,
+            // **`array_values()` is defensive and cannot be killed here.** The page comes from
+            // `->get()` and is narrowed with `->take($size)`, which slices from zero, so the keys
+            // are 0..n-1 either way and unwrapping it changes no output. The mutant surviving a
+            // test that asserts this list encodes as a JSON array is itself the demonstration. It
+            // stays because a later `filter()` or `reject()` would make the keys sparse and turn
+            // this into a JSON object, which is the defect `Support\Installations` records for
+            // `granted_abilities` -- a client reading `[0]` would get nothing.
+            // @pest-mutate-ignore: UnwrapArrayValues
             'sessions' => array_values($sessions->map(fn (AgentSession $session): array => [
                 'id' => $session->id,
                 // Keyed by the row's own `user_id`, which is what `forUsers()` returns against
@@ -148,6 +169,11 @@ final class FleetPresence
                 // Cast, because Carbon 3's `diffInSeconds()` returns a float and `last_seen_at` is a
                 // `dateTime` column with no microseconds while `now()` has them -- so the difference is
                 // fractional on every read and rendered straight it reads `30.482913s ago`
+                // `MultiplicationToDivision` is an equivalent mutant: `x * -1` and `x / -1`
+                // are the same number for every finite `x`, so no contact time can tell them
+                // apart. The `0` and the `-1` are both killable and both have tests -- a future
+                // contact time reaches the floor, and a past one pins the sign.
+                // @pest-mutate-ignore: MultiplicationToDivision
                 'seconds_since_contact' => (int) max(0, $now->diffInSeconds($session->last_seen_at, false) * -1),
             ])->all()),
         ];
@@ -206,7 +232,11 @@ final class FleetPresence
             ->selectRaw('count(*) as total, sum(case when holder_id is not null then 1 else 0 end) as held')
             ->first();
 
+        // Unkillable for the reason recorded on the same pair in `sessions()`: an aggregate with no
+        // `GROUP BY` always returns a row, so `$totals` is never null.
+        // @pest-mutate-ignore: RemoveNullSafeOperator
         $held = AggregateCount::from($totals?->held);
+        // @pest-mutate-ignore: RemoveNullSafeOperator
         $total = AggregateCount::from($totals?->total);
 
         return [
@@ -214,6 +244,9 @@ final class FleetPresence
             'more' => $more,
             'held' => $held,
             'free' => $total - $held,
+            // Defensive and unkillable for the reason recorded on `sessions()` above: the keys
+            // are already sequential, and this guards a filter nobody has added yet.
+            // @pest-mutate-ignore: UnwrapArrayValues
             'locks' => array_values($locks->map(fn (Lock $lock): array => [
                 // The row's own key. A `wire:key` built from `fence` and a loop index is neither stable
                 // nor unique: two locks routinely share a fence, so one row's key can be taken over by
