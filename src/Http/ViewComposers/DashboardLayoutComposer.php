@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace RobotCouncil\Http\ViewComposers;
 
 use Illuminate\Contracts\View\View;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Router;
 use RobotCouncil\Access\CurrentDeveloper;
 use RobotCouncil\Support\AgentLogins;
+use RobotCouncil\Support\DashboardSections;
 
 /**
  * Supplies the dashboard's shell with what every page inside it needs.
@@ -36,11 +38,13 @@ final class DashboardLayoutComposer
      * @param  CurrentDeveloper  $developer  Who is signed in on the package's guard.
      * @param  AgentLogins  $logins  Resolves a host user key to a GitHub login.
      * @param  Router  $router  Names the route being served, for the current marker.
+     * @param  Request  $request  Carries the section selection, for the jump links.
      */
     public function __construct(
         private readonly CurrentDeveloper $developer,
         private readonly AgentLogins $logins,
-        private readonly Router $router
+        private readonly Router $router,
+        private readonly Request $request
     ) {}
 
     /**
@@ -50,14 +54,43 @@ final class DashboardLayoutComposer
      */
     public function compose(View $view): void
     {
+        $isAdmin = $this->developer->isAdmin();
+
         $view->with([
             'developerLogin' => $this->login(),
-            'isAdmin' => $this->developer->isAdmin(),
+            'isAdmin' => $isAdmin,
 
             // The route NAME rather than the path: a host mounts this package under a prefix of its
             // choosing, so the path is not knowable here
             'currentRoute' => $this->router->currentRouteName(),
+
+            // Which panels the page has, so a jump link never points at a section that is not
+            // there. Read through the same call the index mounts by, so the two cannot disagree
+            // about what a selection means -- and filtered by the same admin rule, so the
+            // administration link cannot be reached by editing the query string.
+            //
+            // **It reflects the URL, which is where Livewire keeps the selection.** A developer who
+            // toggles a section without reloading changes the URL through `pushState` but not this
+            // sidebar, which re-renders on a full request. The stale entry is the one they just put
+            // away, and clicking it does what clicking it did before this existed: nothing.
+            'showingSections' => DashboardSections::from($this->selection(), $isAdmin),
         ]);
+    }
+
+    /**
+     * The section selection the request carried, if any.
+     *
+     * Taken as `mixed` and narrowed here rather than type-hinted: a query parameter is whatever the
+     * requester sent, and `?show[]=x` makes it an array. Anything that is not a string is no
+     * selection at all, which `DashboardSections::from()` reads as every section.
+     *
+     * @return string|null The raw value, or null when none was sent or it was not a string.
+     */
+    private function selection(): ?string
+    {
+        $show = $this->request->query('show');
+
+        return \is_string($show) ? $show : null;
     }
 
     /**

@@ -8,16 +8,23 @@ use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 use RobotCouncil\Access\CurrentDeveloper;
+use RobotCouncil\Support\DashboardSections;
 
 /**
  * The dashboard's index.
  *
- * It renders the shell and nothing else yet. The task board, presence and locks, and the change
- * feed arrive as their own slices and mount inside this page; what this component exists to prove
- * is that the whole path works -- the route, the allowlist gate, Livewire, and the stylesheet this
- * package compiles and serves.
+ * The task board, presence and locks, the change feed and the administration panel all mount
+ * inside it, and which of them do is the developer's choice -- the decision on #187, where the
+ * console stayed one page rather than splitting into routed sections because the readings that
+ * matter cross panels.
+ *
+ * **A section that is not selected is not mounted, rather than hidden.** That is the whole point:
+ * a panel hidden with a class still runs every query it would have run, and the lever this page
+ * offers is cost rather than clutter. `tests/DashboardSectionsTest.php` asserts it by counting
+ * queries, because markup that is absent and markup that is invisible read the same to a test.
  *
  * The polling interval is read here rather than in the view, so a page that displays it and a
  * component that polls on it cannot disagree about what it is.
@@ -40,6 +47,21 @@ final class Dashboard extends Component
      */
     #[Locked]
     public int $pollSeconds = self::DEFAULT_POLL_SECONDS;
+
+    /**
+     * Which panels to mount, comma-separated, or null for every one.
+     *
+     * **Deliberately not `#[Locked]`.** It is the reader's own choice and they set it, exactly as
+     * the panels' own scope filters are. Everything it can express is bounded by
+     * `Support\DashboardSections`, which matches it against a fixed list and drops the rest -- so a
+     * client posting anything at all to `/livewire/update` selects from what they were already
+     * offered or selects nothing, and nothing is what the default covers.
+     *
+     * `keep: false` so the query string carries it only when it differs from the default, which
+     * keeps a shared link short and keeps the default out of the URL entirely.
+     */
+    #[Url(as: 'show', keep: false)]
+    public ?string $show = null;
 
     /**
      * The interval used when a host has configured something unusable.
@@ -70,6 +92,52 @@ final class Dashboard extends Component
     }
 
     /**
+     * Show a section, or put it away.
+     *
+     * **The last selected section cannot be put away.** A page with no panels on it is not a state
+     * worth reaching by accident, and with `keep: false` an empty selection would round-trip back
+     * to every section on the next load -- so the control would appear to do nothing rather than
+     * appear to be refused.
+     *
+     * @param  string  $section  The section to toggle.
+     */
+    public function toggle(string $section): void
+    {
+        $offered = DashboardSections::offered($this->isAdmin());
+
+        // Matched against what this developer is offered, so a posted value naming the admin panel
+        // does nothing for an account that is not an admin
+        if (! \in_array($section, $offered, true)) {
+            return;
+        }
+
+        $showing = DashboardSections::from($this->show, $this->isAdmin());
+
+        $next = \in_array($section, $showing, true)
+            ? array_values(array_filter($showing, static fn (string $shown): bool => $shown !== $section))
+            : array_values(array_filter($offered, static fn (string $each): bool => $each === $section || \in_array($each, $showing, true)));
+
+        if ($next === []) {
+            return;
+        }
+
+        $this->show = $next === $offered ? null : DashboardSections::toQuery($next);
+    }
+
+    /**
+     * Whether the signed-in developer holds the admin ability.
+     *
+     * Resolved through `CurrentDeveloper` rather than with `@can` or a bare `Gate::allows()`, both
+     * of which resolve the HOST'S DEFAULT guard rather than `robot-council.auth.guard`.
+     *
+     * @return bool True when they are an admin on the package's own guard.
+     */
+    private function isAdmin(): bool
+    {
+        return app(CurrentDeveloper::class)->isAdmin();
+    }
+
+    /**
      * Render the page.
      *
      * @param  CurrentDeveloper  $developer  Who is signed in on the package's guard.
@@ -83,12 +151,19 @@ final class Dashboard extends Component
         /** @var view-string $template */
         $template = 'robot-council::livewire.dashboard';
 
+        $isAdmin = $developer->isAdmin();
+
         return view($template, [
             // Decided here rather than with `@can` in the view. `@can` asks the framework gate to
             // resolve the principal, and it resolves the HOST'S DEFAULT guard -- so on a host that
             // defaults to another one the panel would be hidden from a real admin. This is what to
             // show; `Administration` authorizes every action and its own render regardless.
-            'isAdmin' => $developer->isAdmin(),
+            'isAdmin' => $isAdmin,
+
+            // Filtered by the same call the toggle uses, so what is offered and what is mounted
+            // cannot drift apart
+            'offered' => DashboardSections::offered($isAdmin),
+            'showing' => DashboardSections::from($this->show, $isAdmin),
         ]);
     }
 }
