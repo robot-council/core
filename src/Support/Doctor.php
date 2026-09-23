@@ -315,19 +315,22 @@ final class Doctor
     /**
      * Whether a clock the fleet depends on can shift under it.
      *
-     * **Presence is no longer part of this.** #51 moved contact times and their cutoffs onto
-     * `Support\PresenceClock`, a fixed zone, and `Support\PresenceTimestamp` makes the column read
-     * back on the same one -- so a daylight-saving transition no longer moves a session's age.
+     * **Neither presence nor a lock lease is part of this any more.** #51 moved contact times and
+     * their cutoffs onto `Support\PresenceClock`, a fixed zone; #149 moved a lock's `acquired_at`
+     * and `expires_at` onto the same one, with `Support\PresenceTimestamp` making both columns read
+     * back on the clock they were written on. A daylight-saving transition no longer ages a session
+     * or lapses a lease.
      *
-     * A lock's lease still runs on the application clock: `Support\Locks` writes `expires_at` with
-     * `Carbon::now()` and compares it the same way. `locks.max_ttl_seconds` defaults to 900, so an
-     * hour's jump is longer than any lease can be -- at spring-forward **every held lock reads as
-     * expired at once**, and another session can take a name its holder still believes it owns. The
-     * fence value is what lets that holder find out, which is a detection rather than a
-     * prevention. Credential expiry has the same shape, since Sanctum compares `expires_at` against
-     * the application clock too.
+     * **What remains is credential expiry, and it cannot be moved here alone.**
+     * `Support\Credentials::installationExpiry()` and `sessionExpiry()` write `expires_at` on tokens
+     * that **Sanctum** compares against its own `now()`, which is the application's. Writing those
+     * on a fixed clock while Sanctum keeps reading the host's would introduce the mismatch rather
+     * than remove it, in the place that decides whether a credential still works. #149 put that out
+     * of scope for exactly that reason.
      *
-     * So this still fails outside UTC, for the leases rather than for presence.
+     * So this still fails outside UTC, and now for one thing rather than three. The message names
+     * that one thing, because a check that reports more than is true is a check people learn to
+     * discount.
      *
      * @return Diagnosis What the check concluded.
      */
@@ -342,9 +345,10 @@ final class Doctor
         return Diagnosis::failed(
             'application timezone',
             sprintf(
-                'app.timezone is `%s`. Presence is unaffected, but a lock lease and a credential expiry are '
-                .'still measured on the application clock, and a lease cannot outlast an hour -- so a '
-                .'daylight-saving transition makes every held lock read as expired at once. Set it to UTC.',
+                'app.timezone is `%s`. Presence and lock leases are unaffected, but a credential expiry is '
+                .'still measured on the application clock, because Sanctum compares it against that clock '
+                .'and moving only one side would be worse. A daylight-saving transition can therefore '
+                .'expire or extend a credential by an hour. Set it to UTC.',
                 \is_string($timezone) ? $timezone : 'not a string'
             )
         );

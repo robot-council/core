@@ -79,6 +79,12 @@ return [
     | `created_at`, so it would cut off a renewed session token regardless of the
     | token's own expiry; `robot-council:install` reports a non-null value.
     |
+    | These are the one thing here still measured on `app.timezone`, because
+    | Sanctum compares a token's `expires_at` against the application's clock
+    | and writing it on another would put the two sides an offset apart. So a
+    | daylight-saving transition can expire or extend a credential by an hour,
+    | and `robot-council:doctor` reports a non-UTC `app.timezone` for this.
+    |
     */
 
     'credentials' => [
@@ -146,7 +152,9 @@ return [
     | Both measure ELAPSED time, and `app.timezone` does not reach them. Contact
     | times and cutoffs are written, compared, and read back on one fixed clock
     | (`Support\PresenceClock`, which is UTC), so a daylight-saving transition
-    | moves neither. Set `app.timezone` to whatever suits the application.
+    | moves neither. A lock's lease is on the same clock, so it does not shift
+    | either. What still rides `app.timezone` is a credential's expiry, which
+    | Sanctum compares against the application's clock -- see the note there.
     |
     */
 

@@ -7,6 +7,7 @@ namespace RobotCouncil\Models;
 use Illuminate\Database\Eloquent\Attributes\Table;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
+use RobotCouncil\Support\PresenceTimestamp;
 
 /**
  * An advisory lease over a name.
@@ -52,8 +53,13 @@ final class Lock extends Model
             'holder_id' => 'integer',
             'previous_holder_id' => 'integer',
             'fence' => 'integer',
-            'acquired_at' => 'datetime',
-            'expires_at' => 'datetime',
+            // Not `datetime`: that hydrates in the application's timezone, and `Support\Locks`
+            // re-reads both of these and compares them in PHP as well as in SQL. A value
+            // relabelled on hydration is wrong in exactly the paths that decide whether a lease is
+            // still held. `acquired_at` is cast for the same reason as `expires_at` rather than
+            // for tidiness: the renewal ceiling is expressed as a `where` against it (#149).
+            'acquired_at' => PresenceTimestamp::class,
+            'expires_at' => PresenceTimestamp::class,
         ];
     }
 

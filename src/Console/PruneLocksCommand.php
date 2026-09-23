@@ -7,9 +7,9 @@ namespace RobotCouncil\Console;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
-use Illuminate\Support\Carbon;
 use RobotCouncil\Support\Credentials;
 use RobotCouncil\Support\Locks;
+use RobotCouncil\Support\PresenceClock;
 
 /**
  * Deletes lock rows nobody holds, past the configured retention.
@@ -42,12 +42,17 @@ final class PruneLocksCommand extends Command
             return self::SUCCESS;
         }
 
-        $before = Carbon::now()->subDays($days);
+        // **On the same clock the column is written on.** Every path in `Support\Locks` stamps
+        // `updated_at` with `Support\PresenceClock::now()` since #149, and this is that column's
+        // only reader -- so a cutoff built from `Carbon::now()` would compare UTC digits against
+        // the host's wall clock and move the retention boundary by the offset. The printed
+        // instant is that same clock, which is why the message names it.
+        $before = PresenceClock::now()->subDays($days);
 
         $deleted = $locks->prune($before);
 
         $this->components->info(sprintf(
-            'Deleted %d free lock(s) untouched for more than %d day(s), before %s.',
+            'Deleted %d free lock(s) untouched for more than %d day(s), before %s UTC.',
             $deleted,
             $days,
             $before->toDateTimeString()
