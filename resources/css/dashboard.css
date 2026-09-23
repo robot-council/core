@@ -30,6 +30,58 @@
  * in a literal.
  */
 @import "tailwindcss" source(none);
-@plugin "daisyui";
+
+/*
+ * No stock theme is emitted. The two below are declared instead, so exactly what this package
+ * ships is what is written here rather than whatever daisyUI's defaults happen to be.
+ */
+@plugin "daisyui" {
+    themes: false;
+}
+
+/*
+ * The light theme, and the default.
+ *
+ * `daisyui/theme` MERGES with the built-in theme of the same name, so only what differs is written
+ * out and the neutrals stay daisyUI's. Both overrides below exist because a contrast check refused
+ * the stock value, and every ratio is measured rather than judged by eye:
+ *
+ *   - `primary` is the brand hue. daisyUI's stock light `primary` is its own violet at
+ *     `oklch(45% 0.24 277)`; this is the same family a step lighter and seven degrees round.
+ *     Against it, daisyUI's stock `primary-content` measures **3.90:1** and fails AA for normal
+ *     text, so the content colour is white, which measures **4.81:1**.
+ *   - `error` at its stock `oklch(71% 0.194 13.428)` measures **2.87:1** as text on `base-100`,
+ *     which every `text-error` validation message on the enrollment page renders. At `55%` it
+ *     measures **5.46:1**, and white on it as an alert background measures the same.
+ */
+@plugin "daisyui/theme" {
+    name: "light";
+    default: true;
+    color-scheme: light;
+
+    --color-primary: oklch(57% 0.237 270);
+    --color-primary-content: oklch(100% 0 0);
+    --color-error: oklch(55% 0.22 13.4);
+    --color-error-content: oklch(100% 0 0);
+}
+
+/*
+ * The dark theme, served to a visitor whose system asks for one. `prefersdark` emits
+ * `@media (prefers-color-scheme: dark) { :root:not([data-theme]) { ... } }`, so an explicit
+ * `data-theme` on `<html>` still wins.
+ *
+ * The brand primary is lighter here, which inverts what has to sit on it: daisyUI's stock dark
+ * `primary-content` is a near-white that measures **2.54:1** against it and fails AA outright. A
+ * dark content colour measures **6.24:1**. The stock `error` needs no change in this theme --
+ * measured **5.52:1** as text on the dark `base-100`, because the relationship is inverted there.
+ */
+@plugin "daisyui/theme" {
+    name: "dark";
+    prefersdark: true;
+    color-scheme: dark;
+
+    --color-primary: oklch(69% 0.163 270);
+    --color-primary-content: oklch(21% 0.05 270);
+}
 
 @source "../views";

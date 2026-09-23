@@ -156,12 +156,18 @@
                                     {{-- A lapsed lease is shown rather than hidden: a row that
                                          still names a holder whose lease has run out is exactly
                                          what a developer is looking for --}}
-                                    {{-- A lapsed lease is marked with a badge rather than coloured
-                                         text: `text-warning` measures 1.76:1 on this card and fails
-                                         AA at both sizes, and the layout pins `data-theme="light"`
-                                         so the dark token never applies. The badge pairs the same
-                                         colour with `--color-warning-content` at 5.24:1. A released
-                                         lock is the ordinary case and is not marked at all. --}}
+                                    {{-- A lapsed lease is marked with a badge rather than with
+                                         warning-coloured text. That colour as TEXT measures 1.76:1
+                                         on this card in the light theme and fails AA at both sizes;
+                                         it measures 8.98:1 in the dark one, so the two themes
+                                         disagree and only the badge works in both -- it pairs the
+                                         same colour with `--color-warning-content` at 5.24:1
+                                         whichever theme is in force. An earlier version of this
+                                         note justified the badge by saying the layout pinned a
+                                         light theme so the dark token never applied. It did, and
+                                         that was a defect rather than a reason: nothing could
+                                         reach the dark theme at all. A released lock is the
+                                         ordinary case and is not marked. --}}
                                     <td class="whitespace-nowrap text-xs">
                                         @if ($lock['lapsed'])
                                             <span class="badge badge-sm badge-warning">{{ $lock['lease'] }}</span>
