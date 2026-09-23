@@ -105,8 +105,8 @@ final class FleetPresence
             ->selectRaw('count(*) as total, sum(case when status <> ? then 1 else 0 end) as live', [AgentSessionStatus::Gone->value])
             ->first();
 
-        $live = self::wholeNumber($totals?->live);
-        $total = self::wholeNumber($totals?->total);
+        $live = AggregateCount::from($totals?->live);
+        $total = AggregateCount::from($totals?->total);
 
         return [
             'cursor' => $sessions->last()?->id,
@@ -196,8 +196,8 @@ final class FleetPresence
             ->selectRaw('count(*) as total, sum(case when holder_id is not null then 1 else 0 end) as held')
             ->first();
 
-        $held = self::wholeNumber($totals?->held);
-        $total = self::wholeNumber($totals?->total);
+        $held = AggregateCount::from($totals?->held);
+        $total = AggregateCount::from($totals?->total);
 
         return [
             'cursor' => $locks->last()?->name,
@@ -226,21 +226,5 @@ final class FleetPresence
                 'expires_at' => $lock->expires_at?->toIso8601String(),
             ])->all()),
         ];
-    }
-
-    /**
-     * One aggregate column, as a whole number.
-     *
-     * The builder hands these back as `mixed`: `count(*)` is an int on SQLite and a string on
-     * Postgres, and `sum(...)` answers **null** over an empty table rather than zero. Narrowed
-     * rather than cast blind, because a cast would turn anything at all into a number and this is
-     * the figure a reader uses to tell a truncated list from a complete one.
-     *
-     * @param  mixed  $value  Whatever the driver returned for the column.
-     * @return int The value, or zero when the table held no rows.
-     */
-    private static function wholeNumber(mixed $value): int
-    {
-        return is_numeric($value) ? (int) $value : 0;
     }
 }
