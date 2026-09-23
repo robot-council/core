@@ -234,10 +234,12 @@ it('carries the installation id on an event whose caller passed no meta of its o
 it('stores a list when granting against a row that already carries a duplicate', function (): void {
     // **The granting branch needs `array_values` too, and an earlier note here said it did not.**
     // `array_unique` preserves keys, so it leaves `0..n-1` only when nothing was deduped. A
-    // duplicated row is reachable: `DeviceCodes::approve()` writes the abilities it is handed
-    // straight into the column, and `Ability::granted()`, which dedupes, runs at the controller
-    // rather than in the store -- the "a bound a validation rule states is not a bound the package
-    // holds" case `CLAUDE.md` records.
+    // duplicated row is reachable, though **not by the path this note first cited**: it named
+    // `DeviceCodes::approve()` writing straight through, and #170 made that method dedupe. What
+    // keeps it reachable is the raw writers the package does not own -- `granted_abilities` is
+    // mass-assignable through `Installation::query()->create()` and `forceFill()`, and a seeder or
+    // a restore writes what it likes. Which is why the row below is planted with the query builder
+    // rather than routed through a store.
     //
     // Measured: with `['tasks:create', 'tasks:create']` held, granting `tasks:claim` gives keys
     // `{0, 2}`, which `json_encode` writes as an OBJECT. So the mutant that unwrapped that call

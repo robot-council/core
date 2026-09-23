@@ -7,6 +7,7 @@ namespace RobotCouncil\Support;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use InvalidArgumentException;
+use RobotCouncil\Access\Ability;
 use RobotCouncil\Models\DeviceCode;
 use RobotCouncil\Support\Contracts\DrawsUserCodes;
 use RuntimeException;
@@ -72,7 +73,9 @@ final class DeviceCodes
     /**
      * Record an enrollment request and return the code the helper polls with.
      *
-     * @param  list<string>  $requestedAbilities  The abilities asked for, already validated.
+     * @param  array<array-key, mixed>  $requestedAbilities  The abilities asked for. Narrowed
+     *                                                       here to the requestable ones, so a
+     *                                                       caller need not have validated it.
      * @param  string  $harness  The harness the requester claims to be.
      * @param  string  $machineLabel  The machine label the requester claims.
      * @param  string  $codeChallenge  The SHA-256 of the verifier the helper holds.
@@ -96,6 +99,15 @@ final class DeviceCodes
         // measurement that makes the length half real -- a 34-character write into this table's
         // `varchar(32)` harness passed every local SQLite run and failed only CI's `postgres` job.
         MachineIdentity::ensure($harness, $machineLabel);
+
+        // **Bounded here for the same reason the three below are, and it was the one left out.**
+        // `DeviceCodeController` validates `requested_abilities.*` against the requestable list,
+        // and a rule in a controller protects the endpoint and nothing else -- this is a public
+        // method on an injectable service, so a host, a seeder, or a test reaches it directly.
+        // Dropping rather than throwing, because that is what `Access\Ability::granted()` already
+        // does with the same value at approval time, and a store that refused what the approval
+        // would silently drop would disagree with it (#170).
+        $requestedAbilities = Ability::requestableFrom($requestedAbilities);
 
         // The column is `varchar(45)`, which is what an IPv6 address with an embedded IPv4 needs.
         // The endpoint passes `$request->ip()` and a host may pass anything.
@@ -154,7 +166,9 @@ final class DeviceCodes
      *
      * @param  DeviceCode  $code  The request to approve.
      * @param  string  $decidedBy  The approving developer's key in the host's users table.
-     * @param  list<string>  $granted  The abilities to grant.
+     * @param  array<array-key, mixed>  $granted  The abilities to grant. Narrowed here to the
+     *                                            requestable ones, so what is recorded is what
+     *                                            the device-code flow could have produced.
      * @return bool True when this call was the one that decided it.
      */
     public function approve(DeviceCode $code, string $decidedBy, array $granted): bool
@@ -164,8 +178,12 @@ final class DeviceCodes
             'decided_by' => $decidedBy,
 
             // Encoded here because a query-builder update writes its values straight through,
-            // without the model's casts
-            'granted_abilities' => json_encode($granted, JSON_THROW_ON_ERROR),
+            // without the model's casts. Narrowed for the reason `issue()` records: the only
+            // in-package caller already passes `Ability::granted()`'s answer, so this changes
+            // nothing for the enrollment flow and stops a direct caller writing an ability the
+            // device-code flow can never produce -- `coordinator:direct` above all, which
+            // `Models\Installation::abilities()` would then honor (#170)
+            'granted_abilities' => json_encode(Ability::requestableFrom($granted), JSON_THROW_ON_ERROR),
         ]) === 1;
     }
 

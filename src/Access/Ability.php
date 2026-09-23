@@ -90,6 +90,46 @@ enum Ability: string
     }
 
     /**
+     * The requestable abilities among some values, in order, without duplicates.
+     *
+     * **One narrowing, called from three places, so the rule cannot drift between them.**
+     * `Support\DeviceCodes::issue()` bounds what it stores, `Support\DeviceCodes::approve()` bounds
+     * what it records as granted, and `granted()` below bounds what an approval turns into a
+     * token's abilities. Written as a check per call site, three copies would have to be kept
+     * agreeing, and the one that fell behind would be the one nobody reads (#170).
+     *
+     * **The argument is `mixed`, not `array`, and the container guard is the reason.** Callers hand
+     * over what a `json` column decoded to, and that is whatever the row holds: an `array` parameter
+     * would raise a `TypeError` for the JSON literal `null` or a bare scalar, which is the defect
+     * #167 fixed in this class and in two models, arriving through a different door.
+     *
+     * The elements are `mixed` for the same reason. The strict `in_array()` refuses every
+     * non-string on its own -- and it has to be strict: PHP compares a bool against a string by
+     * casting the string to bool, so a loose comparison finds `true` equal to any non-empty
+     * ability name and would admit a boolean as an ability. PHPStan narrows the element from the
+     * strict flag too, so no type guard belongs beside it; one added there is dead code, measured.
+     *
+     * (Spelled out rather than written as an expression because Pest's `strict()` arch preset
+     * scans the raw source, comments included, and refuses a loose comparison operator in it.)
+     *
+     * @param  mixed  $values  Whatever the caller offered, including what a `json` column decoded to.
+     * @return list<string> Those that may be asked for, in the order given, without duplicates.
+     */
+    public static function requestableFrom(mixed $values): array
+    {
+        if (! \is_array($values)) {
+            return [];
+        }
+
+        $requestable = self::values(self::requestable());
+
+        return array_values(array_unique(array_filter(
+            $values,
+            static fn (mixed $value): bool => \in_array($value, $requestable, true)
+        )));
+    }
+
+    /**
      * Narrow what an enrollment asked for to what the server is willing to grant.
      *
      * The requested list is read from the stored row, never from the request that approves it, so
@@ -97,27 +137,22 @@ enum Ability: string
      * -- `*`, an unknown name, or the coordinator's -- is dropped rather than refused, because the
      * request that carried it was already validated when the code was issued.
      *
-     * **The elements are `mixed`, because the caller's source is a `json` column.** The in-package
-     * caller hands over `Models\DeviceCode::requestedAbilities()`, which is already narrowed, but
-     * this is a public static on a `final` class a host can call with anything -- and a declared
-     * `string` parameter here raised a `TypeError` for a `null` or a nested value rather than
-     * dropping it, which is the same defect #167 fixed one column over. The parameter type is the
-     * whole fix: the strict `in_array()` below already refuses every non-string, and PHPStan
-     * narrows the element from the same fact, so no type guard is needed beside it and one added
-     * there would be dead. Checked rather than assumed -- removing `array_values()` makes this
-     * file fail with `should return list<string>`, so a clean analysis of it is a result.
+     * **What a DEVICE-CODE approval may grant and what an enrollment may ask for are one list,
+     * deliberately.** An admin grant is a different question and a wider list: `grantable()` adds
+     * `coordinator:direct`, which `Support\Installations::setAbility()` is the only path to.
+     * An ability that could be requested and never granted would be a trap: the verification page
+     * would show it as asked for and the token would silently not carry it. So this is
+     * `requestableFrom()` under the name its call site reads by, and the two cannot drift apart.
+     *
+     * Its elements are `mixed` for the reason recorded there -- the caller's source is a `json`
+     * column, and a declared `string` raised a `TypeError` rather than dropping the value (#167).
      *
      * @param  array<array-key, mixed>  $requested  The abilities the enrollment asked for.
      * @return list<string> The abilities to grant, without duplicates.
      */
     public static function granted(array $requested): array
     {
-        $requestable = self::values(self::requestable());
-
-        return array_values(array_unique(array_filter(
-            $requested,
-            static fn (mixed $ability): bool => \in_array($ability, $requestable, true)
-        )));
+        return self::requestableFrom($requested);
     }
 
     /**

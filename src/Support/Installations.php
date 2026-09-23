@@ -76,10 +76,18 @@ final class Installations
         // Re-checked rather than trusted, although `DeviceCodes::issue()` has already bounded these.
         // `createFrom()` takes a model, and a caller can hand it one it built itself rather than one
         // this package wrote -- so the copy forward is its own entry point into every column the
-        // create below writes. **All five of them, not the two that are obviously text**: the
-        // decider's key lands in `user_id` AND `approved_by`, both `varchar(64)`, and the IP in a
-        // `varchar(45)`. Checking a subset would leave exactly the "one call, three outcomes" this
+        // create below writes. **All SIX caller-derived ones**: the decider's key lands in `user_id`
+        // AND `approved_by`, both `varchar(64)`, the IP in a `varchar(45)`, and the abilities in a
+        // `json` column. Checking a subset would leave exactly the "one call, three outcomes" this
         // guard exists to close.
+        //
+        // **The abilities were the subset, and the count in this comment said five.** #170 bounded
+        // `DeviceCodes::approve()`, which writes that column on the device code -- and this reads
+        // the model's in-memory attribute rather than re-reading the row, so setting it after a
+        // narrowed approval simply overwrote the narrowed value. `coordinator:direct` is what makes
+        // it matter: the device-code flow can never request it, and `Models\Installation::abilities()`
+        // filters against the GRANTABLE list, which holds it, so it survived every later check and
+        // the installation carried an ability no developer approved on the verification page.
         MachineIdentity::ensure($code->harness, $code->machine_label);
 
         // Through `HostKey`, which is where the 64-character bound on a host user key lives, rather
@@ -123,7 +131,7 @@ final class Installations
                 'user_id' => $code->decided_by,
                 'harness' => $code->harness,
                 'machine_label' => $code->machine_label,
-                'granted_abilities' => $code->granted_abilities ?? [],
+                'granted_abilities' => Ability::requestableFrom($code->getAttribute('granted_abilities')),
                 'approved_by' => $code->decided_by,
                 'requested_ip' => $code->requested_ip,
                 'expires_at' => $this->credentials->installationExpiry(),
@@ -221,11 +229,18 @@ final class Installations
             //
             // **Both branches need it, and an earlier note here claimed the granting branch did
             // not.** That was wrong. `array_unique` preserves keys, so it only leaves `0..n-1` if
-            // `$held` carries no duplicates -- and nothing guarantees that:
-            // `DeviceCodes::approve()` writes the abilities it is handed straight into the column,
-            // and `Ability::granted()`, which dedupes, is applied at the controller rather than in
-            // the store. Measured: with `$held` as `['tasks:create', 'tasks:create']`, granting
-            // `tasks:claim` gives keys `{0, 2}`, which `json_encode` writes as an OBJECT.
+            // `$held` carries no duplicates -- and nothing guarantees that. Measured: with `$held`
+            // as `['tasks:create', 'tasks:create']`, granting `tasks:claim` gives keys `{0, 2}`,
+            // which `json_encode` writes as an OBJECT.
+            //
+            // **The path that note cited is closed, and the hoist still has to stay.** It named
+            // `DeviceCodes::approve()` writing straight through; #170 made that method dedupe, so
+            // re-deriving the argument from it today finds nothing and would read as licence to
+            // unwrap this. What keeps a duplicate reachable is every raw writer the package does
+            // not own: `Installation::query()->create()` and `forceFill()` are mass-assignable on
+            // this column, a seeder or a restore writes what it likes, and
+            // `InstallationStoreTest` plants the duplicate with the query builder for exactly
+            // that reason rather than by routing through a store.
             //
             // So the mutant that unwrapped it was a true survivor with no covering input, not an
             // equivalent one -- a distinction `adversarial-review` draws deliberately, because the
