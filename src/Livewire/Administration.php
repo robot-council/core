@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace RobotCouncil\Livewire;
 
+use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Log;
+use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -15,6 +17,7 @@ use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\Installation;
 use RobotCouncil\Support\InstallationList;
 use RobotCouncil\Support\Installations;
+use RobotCouncil\Support\PollInterval;
 use RobotCouncil\Support\Scope;
 use RobotCouncil\Support\SessionPresence;
 use RuntimeException;
@@ -30,16 +33,18 @@ use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
  * still holding a valid snapshot, and without this their open page would keep listing every
  * installation in the fleet until they happened to reload.
  *
- * That leaves the page itself to decide whether to mount this at all, which the dashboard does
- * through `Support\DashboardSections::offered()` -- **never `@can`**, which resolves the host's
- * default guard rather than `robot-council.auth.guard` and would hide the panel from a real admin
- * wherever the two differ. A non-admin therefore never renders it and never meets the refusal; the
- * refusal is there for the client that asks anyway.
+ * **With a route of its own, nothing else decides whether this mounts.** `mount()` refuses first,
+ * so a direct visit answers 403 from the component and the route needs to know nothing about
+ * admins -- a route-level gate would be a second place to get the same rule right. The sidebar
+ * does not offer the link, decided on `Access\CurrentDeveloper` rather than with `@can`, which
+ * resolves the host's default guard and would hide it from a real admin wherever the two differ.
+ * A non-admin therefore rarely meets the refusal; it is there for the client that asks anyway.
  *
  * **The panel shows no credential, and cannot.** `Support\InstallationList` reads no column that
  * holds one -- Sanctum stores a hash, and a `device_code` and its verifier live in a table it never
  * touches -- so this is a property of the reader rather than a rule the view remembers.
  */
+#[Layout('robot-council::layouts.dashboard')]
 final class Administration extends Component
 {
     /**
@@ -55,7 +60,7 @@ final class Administration extends Component
      * The interval this panel refreshes on, in seconds.
      */
     #[Locked]
-    public int $pollSeconds = Dashboard::DEFAULT_POLL_SECONDS;
+    public int $pollSeconds = PollInterval::DEFAULT;
 
     /**
      * Which installations are listed: those that can still act, or every row.
@@ -70,15 +75,22 @@ final class Administration extends Component
     public ?int $after = null;
 
     /**
-     * Take the polling interval from the page that mounts this component.
+     * Refuse anyone who is not an admin, and take the polling interval.
      *
-     * @param  int  $pollSeconds  The interval the dashboard resolved.
+     * **The refusal is here as well as in `render()` and every action**, and with a route of its
+     * own that is the one that matters: a direct visit to this page answers 403 from the component
+     * without the route knowing anything about admins. A route-level gate would be a second place
+     * to get the same rule right.
+     *
+     * @param  Repository  $config  The application's configuration repository.
+     * @param  int|null  $pollSeconds  The interval a parent passed, or null to read the host's.
      */
-    public function mount(int $pollSeconds = Dashboard::DEFAULT_POLL_SECONDS): void
+    public function mount(Repository $config, ?int $pollSeconds = null): void
     {
         $this->authorizeAdmin();
 
-        $this->pollSeconds = $pollSeconds;
+        // Null when a route mounted this directly rather than a parent passing it down.
+        $this->pollSeconds = PollInterval::orConfig($pollSeconds, $config);
     }
 
     /**

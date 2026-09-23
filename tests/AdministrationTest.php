@@ -88,7 +88,7 @@ it('grants an ability, and rewrites the session tokens already in flight', funct
     // And the token already issued, which is the half that matters: a session token lives for an
     // hour, so a grant that only changed the installation would not reach a running process until
     // it happened to renew.
-    $abilities = $session->tokens()->get()->pluck('abilities')->all();
+    $abilities = $session->tokens()->pluck('abilities')->all();
 
     // `not->toBeEmpty()` first, and it is load-bearing: `each` over an empty array asserts
     // nothing and passes, so without it this test would stay green against a session holding no
@@ -104,7 +104,7 @@ it('revokes an ability, and takes it off the tokens already in flight', function
         ->test(Administration::class)
         ->call('revokeAbility', $installation->id, Ability::EventsPost->value);
 
-    $carried = $session->tokens()->get()->pluck('abilities')->all();
+    $carried = $session->tokens()->pluck('abilities')->all();
 
     expect($installation->refresh()->abilities())->not->toContain(Ability::EventsPost->value)
         ->and($carried)->not->toBeEmpty()
@@ -393,7 +393,7 @@ it('shows no credential, device code, or verifier on the page', function (): voi
     }
 
     // Nothing hashed either, which is what a naive `$installation->tokens` render would print
-    $hashes = $installation->tokens()->get()->pluck('token')->all();
+    $hashes = $installation->tokens()->pluck('token')->all();
 
     expect($hashes)->not->toBeEmpty();
 

@@ -112,26 +112,47 @@ it('marks the page being shown, and only that page, as current', function (): vo
         ->and($enrollTag)->not->toContain('menu-active');
 });
 
-it('offers the administration jump link only to an admin', function (): void {
+it('offers the administration section only to an admin', function (): void {
+    // The sections are routes now, so this pins the same property against a link rather than a
+    // fragment: a developer who is not an admin is not offered the page, in the sidebar or on the
+    // overview. `Livewire\Administration` refuses in `mount()` regardless, which is the boundary --
+    // this is what is *offered*, and a control that is not drawn was never the boundary.
     $this->actingAs($this->developer, 'web')
-        ->get(route('robot-council.dashboard'))->assertOk()->assertDontSeeHtml('#robot-council-administration');
+        ->get(route('robot-council.dashboard'))->assertOk()
+        ->assertDontSeeHtml('href="'.route('robot-council.administration').'"');
 
     $this->setAccessLists(developers: [4242], admins: [4242]);
 
     forgetResolvedGuards();
 
     $this->actingAs($this->developer, 'web')
-        ->get(route('robot-council.dashboard'))->assertOk()->assertSeeHtml('#robot-council-administration');
+        ->get(route('robot-council.dashboard'))->assertOk()
+        ->assertSeeHtml('href="'.route('robot-council.administration').'"');
 });
 
-it('jumps to a panel that is actually on the page', function (): void {
+it('refuses the administration route to a developer who is not an admin', function (): void {
+    // The half the link cannot cover: not being offered a page is not the same as not being able
+    // to reach it, and only this says which one protects the fleet.
+    $this->actingAs($this->developer, 'web')
+        ->get(route('robot-council.administration'))
+        ->assertForbidden();
+});
+
+it('offers a link to every section, and each one answers', function (): void {
+    // **This pinned jump links into one page; it now pins routes.** The property is the same one:
+    // every destination the navigation offers exists, so none of them leads nowhere.
     $page = $this->actingAs($this->developer, 'web')
         ->get(route('robot-council.dashboard'))
         ->assertOk();
 
-    // Each jump link has a target, which is what stops the sidebar offering a link to nowhere
-    foreach (['presence', 'queue', 'change-feed'] as $section) {
-        $page->assertSeeHtml('href="#robot-council-'.$section.'"')->assertSeeHtml('id="robot-council-'.$section.'"');
+    foreach (['presence', 'queue', 'feed'] as $section) {
+        $page->assertSeeHtml('href="'.route('robot-council.'.$section).'"');
+
+        forgetResolvedGuards();
+
+        $this->actingAs($this->developer, 'web')
+            ->get(route('robot-council.'.$section))
+            ->assertOk();
     }
 });
 
@@ -207,16 +228,20 @@ it('refuses to frame the signed-out page', function (): void {
         ->assertHeader('X-Frame-Options', 'DENY');
 });
 
-it('keeps every panel inside the new shell', function (): void {
+it('renders every panel inside the shell, each on its own page', function (): void {
     $this->setAccessLists(developers: [4242], admins: [4242]);
 
-    $page = $this->actingAs($this->developer, 'web')
-        ->get(route('robot-council.dashboard'))
-        ->assertOk();
+    // The panels moved off the index; what this pins is unchanged -- every one of them renders
+    // inside the shell rather than as a bare page, which is what the sidebar and sign-out depend on.
+    foreach (['presence', 'queue', 'feed', 'administration'] as $section) {
+        forgetResolvedGuards();
 
-    // The four panels still render, and each sits in the section its jump link targets
-    foreach (['presence', 'queue', 'change-feed', 'administration'] as $section) {
-        $page->assertSeeHtml('id="robot-council-'.$section.'"');
+        $this->actingAs($this->developer, 'web')
+            ->get(route('robot-council.'.$section))
+            ->assertOk()
+            ->assertSeeHtml('drawer-toggle')
+            ->assertSeeHtml(route('robot-council.dashboard.stylesheet'))
+            ->assertSee('Sign out');
     }
 });
 
@@ -308,15 +333,6 @@ it('marks the enrollment page as current when that is the page being shown', fun
         ->and($enrollTag)->toContain('menu-active')
         ->and($overviewTag)->not->toContain('aria-current')
         ->and($overviewTag)->not->toContain('menu-active');
-});
-
-it('offers the on-page jump links only on the page they jump within', function (): void {
-    // They are anchors into the overview's stacked panels, so anywhere else they lead nowhere
-    $this->actingAs($this->developer, 'web')
-        ->get(route('robot-council.enroll.show'))
-        ->assertOk()
-        ->assertDontSeeHtml('href="#robot-council-presence"')
-        ->assertDontSeeHtml('href="#robot-council-queue"');
 });
 
 it('loads no script on the page whose whole job is a human decision', function (): void {
