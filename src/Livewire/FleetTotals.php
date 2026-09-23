@@ -1,0 +1,79 @@
+<?php
+
+declare(strict_types=1);
+
+namespace RobotCouncil\Livewire;
+
+use Illuminate\Contracts\View\View;
+use Livewire\Attributes\Locked;
+use Livewire\Component;
+use RobotCouncil\Support\FleetPresence;
+use RobotCouncil\Support\TaskList;
+
+/**
+ * The fleet's three totals, above the panels.
+ *
+ * **Each is a counting query, never a `count()` over a page.** The panels below are bounded by
+ * their stores' `MAX_PAGE`, so a total measured from one would report the bound rather than the
+ * truth on any fleet large enough for the number to matter -- and a capped total is
+ * indistinguishable from a real one, which is the failure this row exists to prevent rather than
+ * introduce.
+ *
+ * **It polls itself rather than riding the index.** A parent refresh does not re-execute a child
+ * component -- Livewire spoofs an already-rendered child into a placeholder -- so a `wire:poll` on
+ * the dashboard would leave this row stale while the panels beneath it updated.
+ *
+ * It reads through the same stores the panels do, so a tile and the panel under it cannot report
+ * different numbers for the same fleet. That is asserted rather than assumed.
+ *
+ * Its only gate is the route, exactly as the other panels': `EnsureAllowlistedDeveloper` on the
+ * dashboard, and the same middleware registered as persistent so it survives onto
+ * `/livewire/update`. These are totals rather than rows, so nothing here is developer-specific --
+ * but the counts still describe the whole fleet, which is what the allowlist gate protects.
+ */
+final class FleetTotals extends Component
+{
+    /**
+     * The interval this row refreshes on, in seconds.
+     *
+     * Locked, for the reason `Livewire\Dashboard` records: a public property without it is writable
+     * by whatever posts to `/livewire/update`, and a zero would ask the browser to poll as fast as
+     * it can.
+     */
+    #[Locked]
+    public int $pollSeconds = Dashboard::DEFAULT_POLL_SECONDS;
+
+    /**
+     * Take the interval the index was given.
+     *
+     * @param  int  $pollSeconds  How often to refresh, already validated by `Livewire\Dashboard`.
+     */
+    public function mount(int $pollSeconds = Dashboard::DEFAULT_POLL_SECONDS): void
+    {
+        $this->pollSeconds = $pollSeconds;
+    }
+
+    /**
+     * Render the row.
+     *
+     * @param  FleetPresence  $presence  The store the presence panel reads.
+     * @param  TaskList  $tasks  The store the task board reads.
+     * @return View The three tiles.
+     */
+    public function render(FleetPresence $presence, TaskList $tasks): View
+    {
+        // Pinned, because whether the analyzer can resolve a package view depends on whether it
+        // could boot the application, which differs between a developer's machine and CI
+        /** @var view-string $template */
+        $template = 'robot-council::livewire.fleet-totals';
+
+        return view($template, [
+            'liveSessions' => $presence->liveSessions(),
+
+            // Everything not terminal, which is what `TaskList::openTasks()` derives from
+            // `TaskStatus::terminal()` rather than listing
+            'openTasks' => $tasks->openTasks(),
+            'heldLocks' => $presence->heldLocks(),
+        ]);
+    }
+}

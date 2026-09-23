@@ -254,4 +254,25 @@ final class TaskList
     {
         return $session instanceof AgentSession && ! $session->hasGone();
     }
+
+    /**
+     * How many tasks the fleet still has to deal with.
+     *
+     * **Everything that is not terminal**, which is `pending`, `claimed`, `in_progress` and
+     * `blocked`. Derived from `TaskStatus::terminal()` rather than listed here, for the reason that
+     * method's own docblock gives: adding a status forces the decision rather than silently
+     * landing on one side.
+     *
+     * A counting query rather than a `count()` over a paged read, which is bounded by `MAX_PAGE` --
+     * so measuring a page would report the bound rather than the total on any queue deep enough for
+     * the number to matter.
+     *
+     * @return int The number of tasks in a non-terminal status.
+     */
+    public function openTasks(): int
+    {
+        return Task::query()
+            ->whereNotIn('status', TaskStatus::values(TaskStatus::terminal()))
+            ->count();
+    }
 }

@@ -7,6 +7,12 @@
     heading clear of the sticky header, which would otherwise cover whatever was jumped to.
 --}}
 <div class="grid gap-4">
+    {{--
+        Above the panels, and outside any of them: the totals are counting queries, so a tile cannot
+        report a page bound the way a `count()` over a panel's rows would.
+    --}}
+    <livewire:robot-council-fleet-totals :poll-seconds="$pollSeconds" />
+
     <section id="robot-council-presence" class="scroll-mt-20">
         <livewire:robot-council-fleet-presence :poll-seconds="$pollSeconds" />
     </section>

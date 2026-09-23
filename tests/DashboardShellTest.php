@@ -102,6 +102,10 @@ it('serves a stylesheet that carries the utilities the pages use, and not the on
         // the offset that keeps a jumped-to panel clear of the sticky header
         'scroll-mt-20',
 
+        // the totals row #185 added. `stats-vertical` is the modifier that stacks it on a narrow
+        // screen, so a build that dropped it would render three tiles side by side at phone width.
+        'stats-vertical', 'stat-title', 'stat-value', 'stat-desc', 'text-3xl',
+
         // every panel's frame
         'card', 'card-body', 'card-title', 'table', 'table-sm', 'badge', 'badge-sm',
 
