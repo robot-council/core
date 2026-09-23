@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RobotCouncil\Livewire;
 
 use Carbon\CarbonInterface;
+use Carbon\CarbonInterval;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Carbon;
 use Livewire\Attributes\Locked;
@@ -163,6 +164,9 @@ final class FleetPresence extends Component
         // a file nobody had touched. This form says the same thing and has no key to duplicate.
         $locks['locks'] = array_map($this->withLapse(...), $locks['locks']);
 
+        // Rewritten in place for the same reason as the line above.
+        $sessions['sessions'] = array_map($this->withLastSeen(...), $sessions['sessions']);
+
         // Pinned, because whether the analyzer can resolve a package view depends on whether it
         // could boot the application, which differs between a developer's machine and CI
         /** @var view-string $template */
@@ -175,6 +179,38 @@ final class FleetPresence extends Component
             'lockScope' => Scope::orDefault($this->lockScope, Scope::Live),
             'scopes' => Scope::cases(),
         ]);
+    }
+
+    /**
+     * One session, with how long ago it was last heard from in words.
+     *
+     * **Built from the SECONDS the store measured, never from a timestamp re-parsed here.**
+     * `Support\FleetPresence` takes that difference on `Support\PresenceClock`, which is the clock
+     * `last_seen_at` is written on (#51) -- so re-deriving it from `Carbon::now()` would put the
+     * displayed age on the application's clock and disagree with every cutoff the sweep applies.
+     * `CarbonInterval` takes the integer and involves no "now" at all, which is what makes that
+     * impossible rather than merely avoided.
+     *
+     * The store keeps returning `seconds_since_contact` unchanged: it is the machine-readable value
+     * and the API and MCP tools read it. This adds the words the panel shows beside it.
+     *
+     * `parts: 1` so the column reads like the queue's `Age` -- one unit that grows from seconds to
+     * minutes to hours rather than a second count that runs to five figures after a weekend.
+     *
+     * @param  array<string, mixed>  $session  The session as the store described it.
+     * @return array<string, mixed> The session, with a `last_seen` in words.
+     */
+    private function withLastSeen(array $session): array
+    {
+        $seconds = $session['seconds_since_contact'] ?? null;
+
+        // The store types this as an int and nothing else writes it, so a non-int means the array
+        // did not come from there. Saying so beats rendering "0 seconds ago" for an unknown age.
+        $session['last_seen'] = \is_int($seconds)
+            ? CarbonInterval::seconds($seconds)->cascade()->forHumans(parts: 1).' ago'
+            : 'at an unrecorded time';
+
+        return $session;
     }
 
     /**

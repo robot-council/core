@@ -70,7 +70,7 @@
                                     </td>
 
                                     <td class="whitespace-nowrap text-xs opacity-70">
-                                        {{ $session['seconds_since_contact'] }}s ago
+                                        {{ $session['last_seen'] }}
                                     </td>
                                 </tr>
                             @endforeach
