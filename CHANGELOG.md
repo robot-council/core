@@ -2,6 +2,20 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.3.1 — Console Shell (2026-09-23)
+
+The dashboard becomes a console: a sidebar shell, a branded light and dark theme, sign-out, and the enrollment page rendered inside it.
+
+### What's new
+- Ship a branded light and dark theme [#198](https://github.com/robot-council/core/pull/198)
+- Render the enrollment page inside the dashboard shell [#196](https://github.com/robot-council/core/pull/196)
+- Give the dashboard a sidebar and header shell [#195](https://github.com/robot-council/core/pull/195)
+- Name which recorded migrations belong to this package [#179](https://github.com/robot-council/core/pull/179)
+
+### Maintenance and tooling
+- Remove the mutation surface from `Doctor`'s diagnosis messages [#188](https://github.com/robot-council/core/pull/188)
+- Build the presence view's lock data without a duplicated key [#182](https://github.com/robot-council/core/pull/182)
+
 ## v0.3.0 — A Clock That Does Not Shift (2026-09-23)
 
 Presence, lock leases, and enrollment codes move onto a clock that cannot shift under them; an event now says both who it is about and who acted; and a session can ask whether anything on the fleet can reach it.
