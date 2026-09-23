@@ -38,15 +38,25 @@ final class WorkIdentity
     /**
      * What a repository path may contain.
      *
-     * `owner/name`, with exactly one separator. Both halves take the character set GitHub admits in
-     * an owner and in a repository name, **including upper case**: `UAMS-Web` is a real owner, and
-     * lower-casing it here would write a path that resolves to nothing.
+     * `owner/name`, with exactly one separator. **A superset of what GitHub admits, not a copy of
+     * it** -- GitHub refuses `.` and `_` in an owner and refuses a name of `.` or `..`, and
+     * reproducing all of that here would be a second copy of somebody else's rules, going stale
+     * silently. What this pins is the shape and the character set.
+     *
+     * **Upper case is kept**: `UAMS-Web` is a real owner, and lower-casing it would write a path
+     * that resolves to nothing.
+     *
+     * **Neither segment may be entirely dots, and neither may begin with a hyphen.** Those two are
+     * not style. `../..` and `./.` satisfy every other rule here, and this value is broadcast to
+     * every agent in the fleet through the `session.joined` event -- a consumer joining it into a
+     * path gets traversal, and one passing a leading-hyphen value to a command gets a flag. A
+     * leading dot is still admitted, because `.github` is a real repository name.
      *
      * The per-segment lengths are deliberately not baked in. They are GitHub's and can move, and a
      * bound written twice is a bound that goes stale in one of the two places -- `MachineIdentity`
      * records the same reasoning. `MAX_REPOSITORY` is the length, and this is the shape.
      */
-    public const string REPOSITORY = '/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/D';
+    public const string REPOSITORY = '/^(?!\.+\/)[A-Za-z0-9_.][A-Za-z0-9._-]*\/(?!\.+$)[A-Za-z0-9_.][A-Za-z0-9._-]*$/D';
 
     /**
      * The longest work location the package stores.
@@ -64,8 +74,12 @@ final class WorkIdentity
      * that comparison is the whole point of storing a label rather than a directory name. `a` and
      * `A` arriving as two locations for one thing would defeat it exactly as two spellings of one
      * harness would.
+     *
+     * **Not entirely dots, and not beginning with a hyphen**, for the reason `REPOSITORY` records:
+     * `..` and `-rf` pass every other rule and reach every agent in the fleet, where one is a
+     * traversal segment and the other reads as a flag.
      */
-    public const string LOCATION = '/^[a-z0-9._-]+$/D';
+    public const string LOCATION = '/^(?!\.+$)[a-z0-9_.][a-z0-9._-]*$/D';
 
     /**
      * Refuse a repository or a work location the package will not store.

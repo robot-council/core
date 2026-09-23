@@ -97,6 +97,34 @@ it('falls back to the old label for a session that predates the split', function
         ->assertDontSee('>none<', escape: false);
 });
 
+it('shows a session that named only a work location, rather than calling it none', function (): void {
+    // Each of the three fields is independently nullable -- an acceptance criterion -- so this is a
+    // shape the endpoint accepts. An earlier version gated the whole cell on the repository and
+    // printed `none` here, which is the page asserting the session named nothing.
+    $this->session->forceFill([
+        'project_id' => null,
+        'repository' => null,
+        'work_location' => 'primary',
+    ])->save();
+
+    Livewire::test(FleetPresence::class)
+        ->assertSeeHtml('<div class="opacity-60">primary</div>')
+        ->assertDontSeeHtml('<span class="opacity-60">none</span>');
+});
+
+it('keeps saying none for a session that named nothing at all', function (): void {
+    // The control for the test above: the placeholder still appears where it should, so that one
+    // is passing because the location renders rather than because the placeholder was removed.
+    $this->session->forceFill([
+        'project_id' => null,
+        'repository' => null,
+        'work_location' => null,
+    ])->save();
+
+    Livewire::test(FleetPresence::class)
+        ->assertSeeHtml('<span class="opacity-60">none</span>');
+});
+
 it('renders a hostile repository as text', function (): void {
     // Written past the endpoint's validation deliberately: `repository` is charset-limited and
     // this string cannot arrive through the API, so the page's escaping is its own guarantee.

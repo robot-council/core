@@ -65,31 +65,49 @@ return new class extends Migration
         // skip the backfill on the re-run and report success. Reading first also keeps the scan
         // outside the window where Postgres holds ACCESS EXCLUSIVE on this table, which every
         // session-token lookup in the fleet blocks behind.
-        $split = $this->splitExistingRows();
+        $splits = $this->splitsByProjectId();
 
-        foreach ([self::REPOSITORY => 140, self::WORK_LOCATION => 32] as $column => $length) {
-            if (Schema::hasColumn(self::TABLE, $column)) {
-                continue;
-            }
+        $missing = array_values(array_filter(
+            [self::REPOSITORY, self::WORK_LOCATION],
+            static fn (string $column): bool => ! Schema::hasColumn(self::TABLE, $column)
+        ));
 
-            Schema::table(self::TABLE, function (Blueprint $table) use ($column, $length): void {
-                // **Nullable, independently.** A session may name neither, or a repository with no
-                // label for the checkout. The widths are written out rather than read from
-                // `Support\WorkIdentity`, so that raising a constant later cannot leave a fresh
-                // install and an upgraded host with different columns and nothing to say so --
-                // which is what #94 cost. 140 is GitHub's own bound: an owner is at most 39
-                // characters and a repository name at most 100.
-                $table->string($column, $length)->nullable();
+        if ($missing !== []) {
+            // **One `Schema::table()` for both columns, not one each.** On MySQL each is a separate
+            // DDL statement with an implicit commit, so two calls make the unprotected window this
+            // file is built around a three-state one instead of two -- and a `down()` that failed
+            // between them would leave one column standing with the `migrations` row already gone.
+            Schema::table(self::TABLE, function (Blueprint $table) use ($missing): void {
+                foreach ($missing as $column) {
+                    // **Nullable, independently.** A session may name neither, or a repository with
+                    // no label for the checkout. The widths are written out rather than read from
+                    // `Support\WorkIdentity`, so that raising a constant later cannot leave a fresh
+                    // install and an upgraded host with different columns and nothing to say so --
+                    // which is what #94 cost. 140 is GitHub's own bound: an owner is at most 39
+                    // characters and a repository name at most 100.
+                    $table->string($column, $column === self::REPOSITORY ? 140 : 32)->nullable();
+                }
             });
         }
 
-        // Grouped by the pair each row resolves to, so a fleet of any size costs one statement per
-        // distinct repository and label rather than one per session. Idempotent: re-running writes
-        // the same rows the same values from the same input.
-        foreach ($split as $pair) {
+        // **One statement per distinct `project_id`, and no list of row ids.** The split is a pure
+        // function of that value, so every row sharing one resolves to the same pair. An earlier
+        // shape collected the ids per pair and passed them to `whereIn`, which is one bind per
+        // SESSION: past 32,766 on SQLite and 65,535 on Postgres and MySQL the statement is refused,
+        // and on Postgres the whole migration is in one transaction, so the ALTER rolls back with
+        // it and every `POST api/sessions` 500s against a table the new code expects columns on.
+        //
+        // **Guarded on both columns being null, which is what makes a re-run safe.** A host that
+        // crashed between the ALTER and these updates is already serving the new code, so a session
+        // can have started in between and written a repository the client supplied directly.
+        // Rewriting that from a `project_id` the client has stopped maintaining is exactly what
+        // `Support\AgentSessions::start()` refuses to do, and a migration must not do it either.
+        foreach ($splits as $projectId => $pair) {
             DB::table(self::TABLE)
-                ->whereIn('id', $pair['ids'])
-                ->update([self::REPOSITORY => $pair['repository'], self::WORK_LOCATION => $pair['location']]);
+                ->where('project_id', $projectId)
+                ->whereNull(self::REPOSITORY)
+                ->whereNull(self::WORK_LOCATION)
+                ->update([self::REPOSITORY => $pair[0], self::WORK_LOCATION => $pair[1]]);
         }
     }
 
@@ -103,6 +121,9 @@ return new class extends Migration
      * back only when the session next starts. Sessions are short-lived by design, so that is
      * minutes rather than a lasting loss -- but it is a loss, and it is the reason this paragraph
      * is here rather than a claim that the rollback is clean.
+     *
+     * Both columns go in one statement, so there is no state where one is dropped and the other is
+     * not while the `migrations` row has already been deleted.
      */
     public function down(): void
     {
@@ -110,41 +131,44 @@ return new class extends Migration
             return;
         }
 
-        foreach ([self::REPOSITORY, self::WORK_LOCATION] as $column) {
-            if (! Schema::hasColumn(self::TABLE, $column)) {
-                continue;
-            }
+        $present = array_values(array_filter(
+            [self::REPOSITORY, self::WORK_LOCATION],
+            static fn (string $column): bool => Schema::hasColumn(self::TABLE, $column)
+        ));
 
-            Schema::table(self::TABLE, function (Blueprint $table) use ($column): void {
-                $table->dropColumn($column);
-            });
+        if ($present === []) {
+            return;
         }
+
+        Schema::table(self::TABLE, function (Blueprint $table) use ($present): void {
+            $table->dropColumn($present);
+        });
     }
 
     /**
-     * The rows to rewrite, grouped by the pair each one resolves to.
+     * What each distinct `project_id` on the table splits into.
+     *
+     * **Distinct values rather than rows**, so the work and the number of statements are bounded by
+     * how many different labels the fleet has used rather than by how many sessions it has ever
+     * started.
      *
      * Read and decided in PHP rather than matched in SQL, because the rule is a shape rather than a
      * pattern any one engine expresses the same way. Every value is narrowed on the way: the column
      * is `varchar` and the row decides what is in it, so anything that is not this shape contributes
      * nothing rather than raising from inside a migration a host is running.
      *
-     * @return list<array{repository: string, location: string|null, ids: list<int>}> The groups.
+     * @return array<string, array{string, string|null}> The repository and location, by project id.
      */
-    private function splitExistingRows(): array
+    private function splitsByProjectId(): array
     {
-        $groups = [];
+        $splits = [];
 
-        foreach (DB::table(self::TABLE)->select('id', 'project_id')->whereNotNull('project_id')->cursor() as $row) {
-            if (! is_object($row) || ! property_exists($row, 'id') || ! property_exists($row, 'project_id')) {
+        foreach (DB::table(self::TABLE)->distinct()->whereNotNull('project_id')->pluck('project_id') as $projectId) {
+            if (! is_string($projectId)) {
                 continue;
             }
 
-            if (! is_string($row->project_id) || ! is_numeric($row->id)) {
-                continue;
-            }
-
-            $parts = explode('/', $row->project_id);
+            $parts = explode('/', $projectId);
 
             // Two segments is a repository with no label; three is a repository and its label.
             if (count($parts) !== 2 && count($parts) !== 3) {
@@ -156,20 +180,17 @@ return new class extends Migration
 
             // The same bounds the columns carry, spelled out for the reason the class docblock
             // gives. A value outside them is left for `project_id` to keep holding.
-            if (mb_strlen($repository) > 140 || preg_match('/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/D', $repository) !== 1) {
+            if (mb_strlen($repository) > 140 || preg_match('/^(?!\.+\/)[A-Za-z0-9_.][A-Za-z0-9._-]*\/(?!\.+$)[A-Za-z0-9_.][A-Za-z0-9._-]*$/D', $repository) !== 1) {
                 continue;
             }
 
-            if ($location !== null && (mb_strlen($location) > 32 || preg_match('/^[a-z0-9._-]+$/D', $location) !== 1)) {
+            if ($location !== null && (mb_strlen($location) > 32 || preg_match('/^(?!\.+$)[a-z0-9_.][a-z0-9._-]*$/D', $location) !== 1)) {
                 $location = null;
             }
 
-            $key = $repository.'\0'.($location ?? '');
-
-            $groups[$key] ??= ['repository' => $repository, 'location' => $location, 'ids' => []];
-            $groups[$key]['ids'][] = (int) $row->id;
+            $splits[$projectId] = [$repository, $location];
         }
 
-        return array_values($groups);
+        return $splits;
     }
 };

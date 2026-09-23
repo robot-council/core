@@ -72,9 +72,23 @@ it('never returns a split its own bounds would refuse', function (string $projec
     // The property the store leans on: `AgentSessions::start()` writes what this returns without
     // checking it again, so a derivation that produced an unstorable value would be found by
     // Postgres rather than here.
+    //
+    // **Not written as `->not->toThrow(...)`.** Pest's `OppositeExpectation::__call()` catches the
+    // assertion failure that `toThrow()` raises for a MISMATCHED throwable and reads the catch as a
+    // pass -- so `not->toThrow(InvalidArgumentException::class)` is satisfied by a `TypeError` as
+    // readily as by nothing being thrown, and this test's whole subject is that nothing goes wrong
+    // in `ensure()`. Calling it directly and asserting afterwards distinguishes the two: an
+    // unexpected throwable leaves the test erroring rather than passing.
     [$repository, $location] = WorkIdentity::fromProjectId($projectId);
 
-    expect(fn () => WorkIdentity::ensure($repository, $location))->not->toThrow(InvalidArgumentException::class);
+    // `ensure()` throws on anything outside the charset, so reaching the line below is half the
+    // property. The other half is the length bound, asserted rather than assumed -- and asserted as
+    // a measurement rather than a type check, which PHPStan can already prove and therefore calls
+    // redundant. `(string) null` is the empty string, so a null side passes trivially and honestly.
+    WorkIdentity::ensure($repository, $location);
+
+    expect(mb_strlen((string) $repository))->toBeLessThanOrEqual(WorkIdentity::MAX_REPOSITORY)
+        ->and(mb_strlen((string) $location))->toBeLessThanOrEqual(WorkIdentity::MAX_LOCATION);
 })->with(array_map(static fn (array $row): array => [$row[0]], projectIdSplits()));
 
 it('refuses a repository past its length even though no column can hold one', function (): void {
@@ -141,6 +155,61 @@ it('bounds each field independently, and admits a null for either', function ():
     expect(fn () => WorkIdentity::ensure('robot-council/cli/a', null))->toThrow(InvalidArgumentException::class);
     expect(fn () => WorkIdentity::ensure(null, 'a/b'))->toThrow(InvalidArgumentException::class)
         ->and(fn () => WorkIdentity::ensure('no-slash-at-all', null))->toThrow(InvalidArgumentException::class);
+});
+
+it('refuses a trailing newline in either field, which is what the /D modifier is for', function (): void {
+    // Without `/D`, `$` matches before a final newline and both fields would admit one -- straight
+    // into the `session.joined` event every agent in the fleet reads. `ProjectId`'s docblock calls
+    // that "the whole point of a charset limit at an edge", and nothing exercised it for these two.
+    foreach (["robot-council/core\n", "robot-council/core\r\n"] as $value) {
+        expect(fn () => WorkIdentity::ensure($value, null))->toThrow(InvalidArgumentException::class)
+            ->and(WorkIdentity::fromProjectId($value))->toBe([null, null]);
+    }
+
+    foreach (["ci\n", "ci\r\n"] as $value) {
+        expect(fn () => WorkIdentity::ensure(null, $value))->toThrow(InvalidArgumentException::class);
+    }
+
+    // The control: the same values without the newline are accepted, so the refusals above are the
+    // modifier doing its job rather than the charset refusing `robot-council/core` outright.
+    expect(fn () => WorkIdentity::ensure('robot-council/core', 'ci'))->not->toThrow(InvalidArgumentException::class);
+
+    // **Through the endpoint it is accepted, and that is not a hole -- it is a second edge.**
+    // Laravel's `TrimStrings` is GLOBAL rather than part of a route group, and this package's
+    // `api_middleware` is empty, so the newline is gone before validation sees it and the stored
+    // value is clean. Asserted on the COLUMN rather than on the status, because a 201 alone would
+    // not say whether the newline landed.
+    $this->machine($this->credential)
+        ->postJson(route('robot-council.sessions.start'), ['repository' => "robot-council/core\n"])
+        ->assertCreated();
+
+    expect(AgentSession::query()->sole()->repository)->toBe('robot-council/core');
+
+    // Which makes `/D` in the pattern the guarantee for every caller that is NOT a request: a host
+    // resolving the store and passing an untrimmed value, which the assertions above cover.
+});
+
+it('refuses a traversal-shaped or flag-shaped value in either field', function (string $repository, ?string $location): void {
+    // Both values are broadcast to every agent in the fleet through `session.joined`, where
+    // `CLAUDE.md` records that event content is untrusted input to something that may have shell
+    // access. A consumer joining `../..` into a path gets traversal; one passing `-rf` to a command
+    // gets a flag. Neither is a repository or a checkout label, so neither is admitted.
+    expect(fn () => WorkIdentity::ensure($repository === '' ? null : $repository, $location))
+        ->toThrow(InvalidArgumentException::class);
+})->with([
+    'a repository of dots' => ['../..', null],
+    'a single-dot repository' => ['./.', null],
+    'a repository segment of dots' => ['a/..', null],
+    'a leading hyphen in a repository' => ['-x/-y', null],
+    'a work location of dots' => ['', '..'],
+    'a single-dot work location' => ['', '.'],
+    'a flag-shaped work location' => ['', '-rf'],
+]);
+
+it('still admits a leading dot, because .github is a real name', function (): void {
+    // The narrowing above must not take a real value with it, which is what a bare "no dots" rule
+    // would have done.
+    expect(fn () => WorkIdentity::ensure('.github/workflows', '.hidden'))->not->toThrow(InvalidArgumentException::class);
 });
 
 it('records a repository and a work location separately', function (): void {
@@ -219,6 +288,30 @@ it('refuses a repository or a work location outside its bound, and stores nothin
     'a work location past its length' => [['work_location' => str_repeat('a', 33)], 'work_location'],
 ]);
 
+it('bounds both fields on the session store too, which writes the same columns', function (): void {
+    // **Through the store, never the endpoint.** `CLAUDE.md` states the rule and the suite already
+    // has the sibling for `project_id` in `TaskLifecycleTest`: every bound here is a public method
+    // on a `final` class a host can resolve and call, so a rule in the controller protects the
+    // endpoint and nothing else. Deleting `WorkIdentity::ensure()` from `start()` leaves all seven
+    // of the 422 rows above green, because none of them reaches the store.
+    $sessions = $this->service(AgentSessions::class);
+
+    expect(fn () => $sessions->start($this->installation, null, 'no-slash-at-all'))
+        ->toThrow(InvalidArgumentException::class, 'A repository is up to 140 characters')
+        ->and(fn () => $sessions->start($this->installation, null, null, 'Primary'))
+        ->toThrow(InvalidArgumentException::class, 'A work location is up to 32 characters');
+
+    // Nothing was written by either refusal, which is what makes the bound a guarantee rather than
+    // a message
+    expect(AgentSession::query()->count())->toBe(0);
+
+    // The control beside it: an in-bound pair goes through, so the two refusals above are the
+    // bound rather than the store being broken
+    $sessions->start($this->installation, null, 'robot-council/core', 'ci');
+
+    expect(AgentSession::query()->count())->toBe(1);
+});
+
 it('derives both from a project id when the client names neither', function (): void {
     // The compatibility path: a client that has not been upgraded sends one label and gets both
     // fields, so grouping by repository works before `robot-council/cli#128` ships.
@@ -231,6 +324,14 @@ it('derives both from a project id when the client names neither', function (): 
     expect($session->repository)->toBe('UAMS-Web/uams-statamic')
         ->and($session->work_location)->toBe('a')
         ->and($session->project_id)->toBe('UAMS-Web/uams-statamic/a');
+
+    // And the derived pair reaches the feed, which is the surface every other agent reads. The
+    // event test above uses client-supplied values, so without this the path "three segments in,
+    // a location out, into `meta`" is covered nowhere.
+    $event = FleetEvent::query()->where('type', FleetEventType::SessionJoined->value)->sole();
+
+    expect(arrayValue($event->meta)['repository'] ?? null)->toBe('UAMS-Web/uams-statamic')
+        ->and(arrayValue($event->meta)['work_location'] ?? null)->toBe('a');
 });
 
 it('leaves a named field alone rather than deriving over it', function (): void {
@@ -316,6 +417,12 @@ it('splits the rows a host already has, the same way the forward rule does', fun
     // **The parity the migration's docblock promises.** It writes the split out in literals rather
     // than calling `Support\WorkIdentity`, so that editing that class cannot change what a migration
     // already run meant. Nothing but this test keeps the two agreeing.
+    //
+    // **What it does NOT cover, said so it is not over-read.** It compares the values the two
+    // derive, not the writes they perform, and those differ on one axis: the forward rule returns
+    // `[null, null]` for a value that does not split, while the migration leaves the columns alone.
+    // This test cannot see that, because it drops both columns first, so every row it compares
+    // starts from null. The re-run test below is where the leaving-alone is pinned.
     $planted = [];
 
     foreach (projectIdSplits() as $name => [$projectId]) {
@@ -355,7 +462,7 @@ it('splits the rows a host already has, the same way the forward rule does', fun
 it('serves a migrated row through the API and the change feed', function (): void {
     // The acceptance criterion's own shape: seed the old form, migrate, read it back through both
     // surfaces rather than off the row.
-    [$session, $token] = $this->startAgentSession($this->installation);
+    [$session] = $this->startAgentSession($this->installation);
 
     DB::table('robot_council_agent_sessions')
         ->where('id', $session->getKey())
@@ -400,6 +507,45 @@ it('serves a migrated row through the API and the change feed', function (): voi
     expect($joined)->toHaveCount(2)
         ->and($joined->pluck('repository')->all())->toBe([null, 'robot-council/cli'])
         ->and($joined->pluck('work_location')->all())->toBe([null, null]);
+});
+
+it('leaves a client-supplied repository alone when the backfill runs again', function (): void {
+    // **The state a crash between the ALTER and the updates leaves on SQLite and MySQL.** The host
+    // is already serving the new code -- that is why the migration is running -- so a session can
+    // start in the re-run window and write a repository the client named. An unguarded backfill
+    // rewrites it from a `project_id` the client has stopped maintaining, which is exactly what
+    // `AgentSessions::start()` refuses to do.
+    [$session] = $this->startAgentSession($this->installation);
+
+    DB::table('robot_council_agent_sessions')
+        ->where('id', $session->getKey())
+        ->update([
+            'project_id' => 'UAMS-Web/uams-statamic/a',
+            'repository' => 'robot-council/core',
+            'work_location' => null,
+        ]);
+
+    runTheWorkIdentityMigration('up');
+
+    $row = AgentSession::query()->whereKey($session->getKey())->sole();
+
+    expect($row->repository)->toBe('robot-council/core')
+        ->and($row->work_location)->toBeNull();
+
+    // The control: a row whose columns really are empty IS filled by the same run, so the test
+    // above is the guard working rather than the backfill doing nothing at all.
+    $other = $this->approveInstallation($this->developer, machineLabel: 'laptop');
+
+    [$untouched] = $this->startAgentSession($other);
+
+    DB::table('robot_council_agent_sessions')
+        ->where('id', $untouched->getKey())
+        ->update(['project_id' => 'UAMS-Web/uams-statamic/a', 'repository' => null, 'work_location' => null]);
+
+    runTheWorkIdentityMigration('up');
+
+    expect(AgentSession::query()->whereKey($untouched->getKey())->sole()->repository)
+        ->toBe('UAMS-Web/uams-statamic');
 });
 
 it('rolls back and migrates twice without erroring', function (): void {
