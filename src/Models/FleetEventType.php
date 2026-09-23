@@ -29,8 +29,18 @@ enum FleetEventType: string
 
     /**
      * A new agent session came into existence.
+     *
+     * **`started`, not `enrolled`, because those are different lifecycles.** An installation
+     * enrolls -- a device code, a developer at a browser, an approval. A session starts, and the
+     * route, the controller, the store method and this event's own message all already said so
+     * (#217). While this case borrowed the installation's verb, a reader had to work out that the
+     * two enrollments were unrelated events with different subjects, actors and approval paths.
+     *
+     * Rows written before the rename are rewritten by
+     * `2026_09_23_000002_rename_session_enrolled_events`, because this enum is a cast and
+     * `from()` raises on a value it no longer has.
      */
-    case SessionEnrolled = 'session.enrolled';
+    case SessionStarted = 'session.started';
 
     /**
      * A session stopped answering for long enough to be marked stale. It still holds whatever it
