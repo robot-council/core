@@ -55,6 +55,23 @@ Route::middleware([EnsureAllowlistedDeveloper::class, DenyFraming::class])->grou
     // `administration` needs no gate of its own. `Livewire\Administration::mount()` refuses a
     // developer who is not an admin, so a direct visit answers 403 from the component; a route
     // middleware would be a second place to get the same rule right.
+    //
+    // **One panel per page is also why no `wire:poll` here carries `.visible`, and the rule if that
+    // ever changes is: add it.** Livewire pauses a poll while `theElementIsNotInTheViewport(el)`,
+    // testing the polled element's own bounding box. Each panel's `wire:poll` sits on its root
+    // element, which on these four routes IS the page's content -- so it cannot leave the viewport
+    // while its page is open, and the modifier would pause nothing. #194 proposed it when four
+    // panels shared one page and most sat below the fold; splitting them is what retired it, and it
+    // is closed as refuted rather than built.
+    //
+    // A page that mounts more than one polling component brings the case back, and the overview is
+    // the near miss: it polls the totals row with the sections card beneath, so on a short enough
+    // viewport that row can scroll out of view. Left alone at three queries every five seconds on
+    // one page at one width, which is below what a modifier inert everywhere else costs to explain.
+    //
+    // None of this touches the background-tab throttle. That is a separate `throttleWhile` on the
+    // same directive and needs no modifier; `.keep-alive` would opt OUT of it, so nothing here
+    // should carry that one.
     Route::get('dashboard/presence', FleetPresence::class)->name('presence');
     Route::get('dashboard/queue', TaskBoard::class)->name('queue');
     Route::get('dashboard/feed', ChangeFeed::class)->name('feed');

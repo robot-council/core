@@ -147,8 +147,11 @@ A **Laravel package** (`robot-council/core`), not an application. It is the core
   its exit code, because piping it through `tail` discards the `cmp` status. **`composer.lock` is
   gitignored and `package-lock.json` is not**, and that asymmetry is deliberate: the first is a
   library's dependency resolution, which CI should re-resolve, and the second is a build toolchain,
-  whose drift would change the bytes a consumer receives. A CI check that the artifact matches its
-  sources is #66.
+  whose drift would change the bytes a consumer receives. **CI checks this**: the `stylesheet` job
+  runs `npm run check` and `ci-passed` requires it, so a stale artifact fails the build rather than
+  shipping (#66). What it does **not** catch is an artifact that matches its sources and should not
+  -- a class name written in a Blade comment is part of those sources, so the rebuild agrees with it
+  and the check passes. That is #230.
 - **SQLite enforces no foreign key in this suite, so no test can observe one unless it says so.**
   Testbench's `Bootstrap\LoadConfiguration` sets `foreign_key_constraints` to `Env::get('DB_FOREIGN_KEYS', false)`,
   where Laravel's own skeleton config defaults the same key to `true`. Measured: `pragma foreign_keys`
