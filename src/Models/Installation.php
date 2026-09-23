@@ -128,7 +128,14 @@ final class Installation extends Model implements AuthenticatableContract
     }
 
     /**
-     * The abilities this installation's session tokens carry.
+     * The abilities this installation has been granted.
+     *
+     * **It no longer decides what a session token carries.** Since `robot-council/core#221` that
+     * comes from the session's own `Access\Role` preset, and this list decides only which roles the
+     * machine is eligible to run -- `Access\Role::permittedBy()` is its one authorization reader.
+     * Every ability in it that an enrollment could have requested is therefore inert, and the
+     * column goes when the epic's final slice retires the per-ability controls. Treat a change
+     * here as a statement about the machine, not about any session already running.
      *
      * **It reads the attribute as `mixed`, because the column is `json` and the row decides.**
      * `@property list<string>` states what this package writes, not what the accessor can be

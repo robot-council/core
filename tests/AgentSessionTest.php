@@ -18,6 +18,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Route;
 use Laravel\Sanctum\PersonalAccessToken;
 use RobotCouncil\Access\Ability;
+use RobotCouncil\Access\Role;
 use RobotCouncil\Access\Tokens;
 use RobotCouncil\Http\Middleware\EnsureAllowlistedDeveloper;
 use RobotCouncil\Models\AgentSession;
@@ -38,7 +39,7 @@ beforeEach(function (): void {
         ->get('/robot-council-test/developer-area', fn (): string => 'developer area');
 });
 
-it("starts a session carrying the installation's abilities", function (): void {
+it("starts a session carrying its role's preset, not the installation's abilities", function (): void {
     // Pinned for the reason #98 records: the token expiry below is asserted to the second, and
     // unpinned the expected value is a second read of the clock taken when the assertion runs.
     $this->freezeTime();
@@ -50,7 +51,11 @@ it("starts a session carrying the installation's abilities", function (): void {
 
     $response->assertCreated()->assertJsonStructure(['session_id', 'token', 'abilities', 'expires_in']);
 
-    expect($response->json('abilities'))->toBe([Ability::TasksCreate->value, Ability::EventsPost->value])
+    // **The full `build` preset, although this installation was granted two of the four.** That
+    // difference is the whole of #221: the preset is the source, so the installation's stored
+    // abilities neither widen nor narrow what the session holds. Asserted as the list rather than
+    // as a count, so a preset that gained or lost a member fails here by name.
+    expect($response->json('abilities'))->toBe(Role::Build->tokenAbilities())
         ->and($response->json('expires_in'))->toBe(3600);
 
     $session = AgentSession::query()->sole();
@@ -58,12 +63,13 @@ it("starts a session carrying the installation's abilities", function (): void {
     expect($session->installation_id)->toBe($this->installation->getKey())
         ->and($session->user_id)->toBe(keyValue($this->developer->getKey()))
         ->and($session->project_id)->toBe('uams-statamic')
+        ->and($session->role)->toBe(Role::Build)
         ->and($session->hasGone())->toBeFalse();
 
     // The session's token expires on the session's schedule, not the installation's
     $token = PersonalAccessToken::query()->where('tokenable_type', (new AgentSession)->getMorphClass())->sole();
 
-    expect(Tokens::abilities($token))->toBe([Ability::TasksCreate->value, Ability::EventsPost->value])
+    expect(Tokens::abilities($token))->toBe(Role::Build->tokenAbilities())
         ->and(dateValue($token->getAttribute('expires_at'))->timestamp)
         ->toBe($startedAt->copy()->addMinutes(60)->timestamp);
 });
@@ -104,7 +110,8 @@ it('authenticates an agent route as the session, not as the developer', function
             'session_id' => $session->getKey(),
             'installation_id' => $this->installation->getKey(),
             'status' => 'active',
-            'abilities' => [Ability::TasksCreate->value, Ability::EventsPost->value],
+            'role' => Role::Build->value,
+            'abilities' => Role::Build->tokenAbilities(),
         ]);
 });
 

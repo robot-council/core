@@ -403,6 +403,40 @@ class TestCase extends Orchestra
     }
 
     /**
+     * Start a session and re-mint its token to carry exactly the abilities named.
+     *
+     * **No role produces most of these lists, and that is the reason this exists.** Before
+     * `Access\Role`, a test reached a refusal by narrowing the installation's `granted_abilities`
+     * and starting a session under it. Roles ended that: every preset carries all four build
+     * abilities, so the same setup now produces a token that is refused nothing and a test that
+     * passes for having asserted nothing.
+     *
+     * The gates under test -- `Http\Middleware\RequireAbility` and the MCP tools' own checks --
+     * read the TOKEN. So the token state is built here directly and the role is left out of it. A
+     * refusal proved this way is a statement about the gate, and **not** a claim that any role a
+     * fleet can run reaches it: today only `coordinator:direct` is genuinely withheld from a
+     * session, and `Access\Role::Ci` is the case designed to diverge later.
+     *
+     * @param  Installation  $installation  The installation to start it under.
+     * @param  list<string>  $abilities  Exactly what the token should carry.
+     * @return array{AgentSession, string} The session and its plaintext token.
+     */
+    public function startAgentSessionWithAbilities(Installation $installation, array $abilities): array
+    {
+        [$session] = $this->startAgentSession($installation);
+
+        // The session's own token, replaced rather than added to: two live tokens would let the
+        // wider one answer for the narrow one and the refusal would never be reached.
+        $session->tokens()->delete();
+
+        return [$session, $session->createToken(
+            AgentSessions::TOKEN_NAME,
+            $abilities,
+            $this->credentials()->sessionTokenExpiry()
+        )->plainTextToken];
+    }
+
+    /**
      * The headers a machine sends: a bearer token, and a request for JSON.
      *
      * @param  string  $token  The plaintext bearer token.

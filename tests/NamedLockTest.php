@@ -347,9 +347,11 @@ it('lets a coordinator take a lock away, and nobody else', function (): void {
 });
 
 it('refuses an acquisition from a session without the ability', function (): void {
+    // Built directly, because narrowing the installation no longer narrows the token: since
+    // `Access\Role` every preset carries `locks:acquire`.
     $narrow = $this->approveInstallation($this->developer, [Ability::EventsPost->value], machineLabel: 'narrow');
 
-    [, $narrowToken] = $this->startAgentSession($narrow);
+    [, $narrowToken] = $this->startAgentSessionWithAbilities($narrow, [Ability::EventsPost->value]);
 
     lockAction($this, $narrowToken, 'acquire', ['name' => 'deploy', 'ttl' => 60])->assertForbidden();
 

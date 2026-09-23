@@ -18,6 +18,15 @@ use RobotCouncil\Models\Installation;
  * read. What decides whether anything can ever arrive is whether *somebody* on the fleet can post
  * one (#159).
  *
+ * **Roles did not make this the wrong question, and the reason is worth stating rather than
+ * rediscovering.** Since `robot-council/core#221` a session's abilities come from its role, so the
+ * obvious reading is that this should count coordinator SESSIONS instead. It should not, yet: a
+ * machine holding `coordinator:direct` is exactly a machine whose sessions start as coordinators
+ * (`Access\Role::defaultFor()`), so the installation-level answer is the same answer, and it is the
+ * stabler one -- a fleet whose only coordinator is between sessions still can direct. What changes
+ * it is a session asking for a role its installation is not already eligible for, which is
+ * `robot-council/core#222`, and the rewrite is that slice's.
+ *
  * **It reads only.** It is deliberately not a method on `Support\Installations`, which holds the
  * credential lifetimes and the change feed: `Support\Doctor` consumes this, and its own docblock
  * says nothing there writes. A read-only question should not put the feed's writer in scope for

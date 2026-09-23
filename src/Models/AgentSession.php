@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 use Laravel\Sanctum\HasApiTokens;
 use Laravel\Sanctum\PersonalAccessToken;
+use RobotCouncil\Access\Role;
 use RobotCouncil\Support\PresenceTimestamp;
 
 /**
@@ -37,6 +38,7 @@ use RobotCouncil\Support\PresenceTimestamp;
  * @property int $installation_id
  * @property string $user_id
  * @property AgentSessionStatus $status
+ * @property Role $role
  * @property Carbon $last_seen_at
  * @property string|null $project_id
  * @property int $feed_cursor
@@ -48,6 +50,7 @@ use RobotCouncil\Support\PresenceTimestamp;
     'installation_id',
     'user_id',
     'status',
+    'role',
     'last_seen_at',
     'project_id',
 ])]
@@ -73,6 +76,12 @@ final class AgentSession extends Model implements AuthenticatableContract
             'installation_id' => 'integer',
             'feed_cursor' => 'integer',
             'status' => AgentSessionStatus::class,
+            // Cast like `status`, and carrying the same exposure: Laravel resolves an enum cast
+            // through `from()`, so a row holding a name the enum no longer has raises a
+            // `ValueError` rather than reading as unknown. The column is written only by this
+            // package and its migration, and a renamed case takes a data migration with it, which
+            // is the rule `2026_09_23_000002_rename_session_enrolled_events.php` was paid for.
+            'role' => Role::class,
             // Not `datetime`: that hydrates in the application's timezone, and the presence
             // sweep re-binds the value it read into the `where` that commits a status. See
             // `Support\PresenceTimestamp` for what that costs on a host that is not on UTC (#51).

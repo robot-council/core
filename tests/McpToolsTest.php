@@ -211,10 +211,13 @@ it('returns the same task a claim would over REST', function (): void {
 });
 
 it('refuses a tool the session has no ability for, as an error rather than a result', function (string $tool, array $arguments, string $ability): void {
-    // A session with nothing but `events:post`
+    // A token carrying nothing but `events:post`, built directly. Narrowing the installation used
+    // to produce one and no longer does: since `Access\Role`, every preset carries all four build
+    // abilities, so that setup would hand this test a token nothing refuses and every row below
+    // would pass for the wrong reason.
     $narrow = $this->approveInstallation($this->developer, [Ability::EventsPost->value], machineLabel: 'narrow');
 
-    [, $narrowToken] = $this->startAgentSession($narrow);
+    [, $narrowToken] = $this->startAgentSessionWithAbilities($narrow, [Ability::EventsPost->value]);
 
     $error = toolError(callTool($this, $narrowToken, $tool, $arguments));
 
@@ -493,9 +496,12 @@ it('tells a lock holder how long it has, not only when the lease ends', function
 it('refuses narration from a session holding no ability at all', function (): void {
     // Not a row in the dataset above, because the session there holds `events:post` -- which is
     // exactly the ability this tool needs, so that session could never demonstrate its refusal
+    // A token holding literally nothing. `[]` on the installation no longer produces one -- since
+    // `Access\Role` an installation's abilities decide which ROLES it may run, not what its
+    // sessions carry, and the floor role still carries four.
     $silent = $this->approveInstallation($this->developer, [], machineLabel: 'silent');
 
-    [, $silentToken] = $this->startAgentSession($silent);
+    [, $silentToken] = $this->startAgentSessionWithAbilities($silent, []);
 
     $error = toolError(callTool($this, $silentToken, 'events_narrate', ['body' => 'working on it']));
 

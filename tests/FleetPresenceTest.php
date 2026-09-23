@@ -14,6 +14,7 @@ use Laravel\Sanctum\PersonalAccessToken;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 use RobotCouncil\Access\Ability;
+use RobotCouncil\Access\Role;
 use RobotCouncil\Livewire\FleetPresence;
 use RobotCouncil\Models\AgentSessionStatus;
 use RobotCouncil\Models\Lock;
@@ -59,6 +60,33 @@ it('tells a stale session from a live one, and a gone one from both', function (
     'stale' => AgentSessionStatus::Stale->value,
     'gone' => AgentSessionStatus::Gone->value,
 ]);
+
+it("shows each session's own role, which its machine no longer decides", function (string $role): void {
+    // Asserted as the rendered element rather than with `assertSee`, because `build` and
+    // `coordinator` both appear elsewhere on the page -- in prose and in the scope controls -- so a
+    // bare string match would pass with the column removed entirely.
+    $this->session->forceFill(['role' => $role])->save();
+
+    Livewire::test(FleetPresence::class)
+        ->assertSeeHtml('<span class="badge badge-sm badge-outline">'.$role.'</span>');
+})->with([
+    'build' => Role::Build->value,
+    'ci' => Role::Ci->value,
+    'coordinator' => Role::Coordinator->value,
+]);
+
+it('shows two sessions on one machine holding different roles', function (): void {
+    // The case the column exists for: one harness on one machine running several checkouts, where
+    // before #221 every session had identical authority and nothing on the page said so.
+    [$second] = $this->startAgentSession($this->installation);
+
+    $this->session->forceFill(['role' => Role::Coordinator])->save();
+    $second->forceFill(['role' => Role::Build])->save();
+
+    Livewire::test(FleetPresence::class)
+        ->assertSeeHtml('<span class="badge badge-sm badge-outline">'.Role::Coordinator->value.'</span>')
+        ->assertSeeHtml('<span class="badge badge-sm badge-outline">'.Role::Build->value.'</span>');
+});
 
 it('keeps a gone session on the page rather than hiding it', function (): void {
     // A session that has ended is exactly what a developer is looking for when a task sits held and

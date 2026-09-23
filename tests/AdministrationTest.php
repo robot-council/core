@@ -21,6 +21,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use RobotCouncil\Access\Ability;
+use RobotCouncil\Access\Role;
 use RobotCouncil\Livewire\Administration;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
@@ -73,31 +74,80 @@ function installationWithSession(TestCase $case, User $developer): array
     return [$installation, $session, $token];
 }
 
-it('grants an ability, and rewrites the session tokens already in flight', function (): void {
+it("shows a session's role beside the installation's abilities, because they answer different questions", function (): void {
+    $installation = $this->approveInstallation($this->developer, [
+        Ability::EventsPost->value,
+        Ability::CoordinatorDirect->value,
+    ]);
+
+    [$coordinator] = $this->startAgentSession($installation);
+    [$build] = $this->startAgentSession($installation);
+
+    expect($coordinator->role)->toBe(Role::Coordinator);
+
+    // Demoted on the row only, so the two sessions differ while their installation does not. That
+    // is the state no page could show before #221, and the one a bare `assertSee` on the
+    // installation's ability list still cannot.
+    $build->forceFill(['role' => Role::Build])->save();
+
+    Livewire::actingAs($this->admin)
+        ->test(Administration::class)
+        ->assertSeeHtml('<span class="badge badge-sm badge-outline">'.Role::Coordinator->value.'</span>')
+        ->assertSeeHtml('<span class="badge badge-sm badge-outline">'.Role::Build->value.'</span>');
+});
+
+it('grants the coordinator ability without promoting a session already in flight', function (): void {
     [$installation, $session] = installationWithSession($this, $this->developer);
 
     Livewire::actingAs($this->admin)
         ->test(Administration::class)
-        ->call('grant', $installation->id, Ability::TasksCreate->value);
+        ->call('grant', $installation->id, Ability::CoordinatorDirect->value);
 
     // The stored row, read fresh rather than from the instance the call was handed
     expect($installation->refresh()->abilities())
-        ->toContain(Ability::TasksCreate->value)
+        ->toContain(Ability::CoordinatorDirect->value)
         ->toContain(Ability::EventsPost->value);
 
-    // And the token already issued, which is the half that matters: a session token lives for an
-    // hour, so a grant that only changed the installation would not reach a running process until
-    // it happened to renew.
+    // **And the running session is unchanged, which is the direction #221 chose.** A role is
+    // decided when a session starts; promoting one mid-run would hand a process authority its
+    // developer never started it with.
     $abilities = $session->tokens()->pluck('abilities')->all();
 
     // `not->toBeEmpty()` first, and it is load-bearing: `each` over an empty array asserts
     // nothing and passes, so without it this test would stay green against a session holding no
-    // tokens at all -- which is exactly what a broken grant would leave behind.
+    // tokens at all.
     expect($abilities)->not->toBeEmpty()
-        ->each->toContain(Ability::TasksCreate->value);
+        ->each->not->toContain(Ability::CoordinatorDirect->value);
+
+    expect($session->refresh()->role)->toBe(Role::Build);
 });
 
-it('revokes an ability, and takes it off the tokens already in flight', function (): void {
+it('revokes the coordinator ability, and demotes the sessions already in flight', function (): void {
+    $installation = $this->approveInstallation($this->developer, [
+        Ability::EventsPost->value,
+        Ability::CoordinatorDirect->value,
+    ]);
+
+    [$session] = $this->startAgentSession($installation);
+
+    expect($session->role)->toBe(Role::Coordinator);
+
+    Livewire::actingAs($this->admin)
+        ->test(Administration::class)
+        ->call('revokeAbility', $installation->id, Ability::CoordinatorDirect->value);
+
+    $carried = $session->tokens()->pluck('abilities')->all();
+
+    expect($installation->refresh()->abilities())->not->toContain(Ability::CoordinatorDirect->value)
+        ->and($carried)->not->toBeEmpty()
+        ->each->not->toContain(Ability::CoordinatorDirect->value)
+        ->and($session->refresh()->role)->toBe(Role::Build);
+});
+
+it('leaves a live token alone when an ability no role gates is revoked', function (): void {
+    // The property that says the preset is the source. `events:post` is in every preset, so
+    // taking it off the installation is a statement about the machine and about nothing that is
+    // currently running -- a session holding it keeps it, and its role does not move.
     [$installation, $session] = installationWithSession($this, $this->developer);
 
     Livewire::actingAs($this->admin)
@@ -108,7 +158,8 @@ it('revokes an ability, and takes it off the tokens already in flight', function
 
     expect($installation->refresh()->abilities())->not->toContain(Ability::EventsPost->value)
         ->and($carried)->not->toBeEmpty()
-        ->each->not->toContain(Ability::EventsPost->value);
+        ->each->toContain(Ability::EventsPost->value)
+        ->and($session->refresh()->role)->toBe(Role::Build);
 });
 
 it('refuses a signed-in developer who is not an admin', function (string $action, array $arguments): void {
@@ -494,10 +545,20 @@ it('does not rewrite tokens for sessions that have already gone', function (): v
     // The loops in `Installations` run inside the transaction holding the feed's sentinel row,
     // which every writer in the fleet takes before inserting -- so their length is the fleet's
     // write latency. Nothing deletes a session row, so unbounded means unbounded forever.
-    $installation = $this->approveInstallation($this->developer, [Ability::EventsPost->value]);
+    // A coordinator installation, because since #221 the only change that re-mints a live token is
+    // a demotion: `coordinator:direct` coming off the machine. Granting a build ability moves no
+    // role and correctly rewrites nothing, so it could not tell a bounded loop from an unbounded
+    // one.
+    $installation = $this->approveInstallation($this->developer, [
+        Ability::EventsPost->value,
+        Ability::CoordinatorDirect->value,
+    ]);
 
     [$gone] = $this->startAgentSession($installation);
     [$alive] = $this->startAgentSession($installation);
+
+    expect($gone->role)->toBe(Role::Coordinator)
+        ->and($alive->role)->toBe(Role::Coordinator);
 
     $this->service(SessionPresence::class)->revoke($gone);
 
@@ -508,12 +569,16 @@ it('does not rewrite tokens for sessions that have already gone', function (): v
     });
 
     $rewritten = $this->service(Installations::class)
-        ->setAbility($installation, Ability::TasksCreate, true);
+        ->setAbility($installation, Ability::CoordinatorDirect, false);
 
     // One live session holds one token. A loop over every row ever created would report two here
     // before it reported anything else, and the count is what tells them apart.
     expect($rewritten)->toBe(1)
         ->and($queries)->toBeGreaterThan(0);
+
+    // And the session that had already gone keeps the role it ended with, because nothing walked it
+    expect($gone->refresh()->role)->toBe(Role::Coordinator)
+        ->and($alive->refresh()->role)->toBe(Role::Build);
 });
 
 it('writes one event for a change, and none for a repeat of it', function (): void {

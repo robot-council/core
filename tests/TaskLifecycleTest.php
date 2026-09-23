@@ -438,8 +438,14 @@ it('refuses every claimant transition to a session that does not hold the task',
 
     // Another agent under the SAME installation, so it holds `tasks:claim` too. That is what makes
     // this test about the claim and not about the ability: a session without `tasks:claim` would be
-    // refused at the ability gate before the claim guard was ever consulted, which is how the
-    // coordinator's complete-and-fail refusals below pass without exercising it.
+    // refused at the ability gate before the claim guard was ever consulted.
+    //
+    // **Since #221 every role carries `tasks:claim`, so that distinction has stopped being
+    // arranged and started being automatic.** The note this replaces said the coordinator's
+    // complete-and-fail refusals below passed at the ability gate without reaching the claim
+    // guard; they now reach it, which is what their own test claims they are about. Kept as a
+    // `beforeEach`-free, same-installation fixture anyway, because the property is the claim and
+    // a future role that drops `tasks:claim` must not silently turn this back into an ability test.
     [, $otherToken] = anotherAgent($this);
 
     $this->machine($otherToken)
@@ -467,9 +473,12 @@ it("refuses a coordinator's transition to a session without the ability", functi
 it('refuses a claim from a session without tasks:claim', function (): void {
     $task = fileTask($this, $this->token);
 
+    // The token is built directly rather than by narrowing the installation, which since
+    // `Access\Role` narrows nothing: every preset carries all four build abilities, so a session
+    // started under that installation would be refused neither transition below.
     $narrow = $this->approveInstallation($this->developer, [Ability::EventsPost->value], machineLabel: 'narrow');
 
-    [, $narrowToken] = $this->startAgentSession($narrow);
+    [, $narrowToken] = $this->startAgentSessionWithAbilities($narrow, [Ability::EventsPost->value]);
 
     $this->machine($narrowToken)
         ->postJson(route('robot-council.tasks.transition', ['task' => $task, 'transition' => 'claim']))

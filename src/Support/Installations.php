@@ -199,16 +199,20 @@ final class Installations
     }
 
     /**
-     * Add or remove one ability on an installation, and on the session tokens already in flight.
+     * Add or remove one ability on an installation, and demote any live session it no longer
+     * qualifies to run.
      *
-     * Rewriting the live tokens is the point: a session token lives for an hour, so leaving them
-     * alone would let a revoked ability keep working until every process happened to renew.
+     * Acting on the sessions already in flight is the point: a session token lives for an hour, so
+     * leaving them alone would let a revoked ability keep working until every process happened to
+     * renew. What changed with roles is *how* -- the role is narrowed and the token re-minted from
+     * its preset, rather than the installation's ability list being written over the token. See
+     * `demoteSessions()` for why, and for why the reverse direction does nothing.
      *
      * @param  Installation  $installation  The installation to re-scope.
      * @param  Ability  $ability  The ability to add or remove.
      * @param  bool  $granted  True to add it, false to remove it.
      * @param  string|null  $actor  The developer making the change, when a signed-in one is.
-     * @return int How many live session tokens were rewritten.
+     * @return int How many live session tokens were re-minted.
      */
     public function setAbility(Installation $installation, Ability $ability, bool $granted, ?string $actor = null): int
     {
@@ -271,18 +275,53 @@ final class Installations
                 $actor
             );
 
-            $rewritten = 0;
+            return $this->demoteSessions($installation, $abilities);
+        });
+    }
 
-            foreach ($this->sessionsOf($installation) as $session) {
-                foreach ($session->tokens()->get() as $token) {
-                    $token->forceFill(['abilities' => $abilities])->save();
+    /**
+     * Narrow every live session whose role this installation may no longer run, and re-mint it.
+     *
+     * **This is what an ability revocation now does, and it is deliberately the only thing.**
+     * A session's abilities come from its role's preset (`robot-council/core#221`), so writing the
+     * installation's ability list onto a live token would put the two sources back into
+     * disagreement -- the token would carry one thing and the next renewal would mint another. What
+     * an admin still administers is eligibility: taking `coordinator:direct` off a machine means
+     * that machine may not run a coordinator, and its live coordinator sessions become `build`.
+     *
+     * **It never promotes.** Granting `coordinator:direct` makes the machine's NEXT session a
+     * coordinator and leaves the running ones alone, because a role is chosen when a session
+     * starts. That is the safe direction of the two, and the direction a running agent can do
+     * nothing surprising with.
+     *
+     * A role that did not change writes no token, so granting an ability every preset already
+     * carries rewrites nothing and the returned count says so.
+     *
+     * @param  Installation  $installation  The installation whose abilities have just changed.
+     * @param  list<string>  $abilities  What it holds now.
+     * @return int How many live session tokens were re-minted.
+     */
+    private function demoteSessions(Installation $installation, array $abilities): int
+    {
+        $rewritten = 0;
 
-                    $rewritten++;
-                }
+        foreach ($this->sessionsOf($installation) as $session) {
+            $narrowed = $session->role->narrowedBy($abilities);
+
+            if ($narrowed === $session->role) {
+                continue;
             }
 
-            return $rewritten;
-        });
+            $session->forceFill(['role' => $narrowed])->save();
+
+            foreach ($session->tokens()->get() as $token) {
+                $token->forceFill(['abilities' => $narrowed->tokenAbilities()])->save();
+
+                $rewritten++;
+            }
+        }
+
+        return $rewritten;
     }
 
     /**

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RobotCouncil\Support;
 
 use Illuminate\Support\Facades\DB;
+use RobotCouncil\Access\Role;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
 use RobotCouncil\Models\FleetEventType;
@@ -56,7 +57,14 @@ final class AgentSessions
         return DB::transaction(function () use ($installation, $projectId): IssuedCredential {
             $current = $this->locked($installation);
 
-            $abilities = $current->abilities();
+            // **The role is the whole answer, and the installation's stored abilities are no
+            // longer part of it.** They decide only which roles this machine is eligible for,
+            // which is what `Role::defaultFor()` reads them for. Nothing has asked for a role yet
+            // -- that is `robot-council/core#222` -- so the derivation stands in, and it is the
+            // same rule the backfill migration applied to the rows written before the column.
+            $role = Role::defaultFor($current->abilities());
+
+            $abilities = $role->tokenAbilities();
 
             $session = AgentSession::query()->create([
                 'installation_id' => $installation->getKey(),
@@ -65,6 +73,7 @@ final class AgentSessions
                 // cannot start a session belonging to another developer
                 'user_id' => $current->user_id,
                 'status' => AgentSessionStatus::Active,
+                'role' => $role,
                 'last_seen_at' => PresenceClock::now(),
                 'project_id' => $projectId,
             ]);
@@ -110,9 +119,20 @@ final class AgentSessions
     public function renew(Installation $installation, AgentSession $session): IssuedCredential
     {
         return DB::transaction(function () use ($installation, $session): IssuedCredential {
-            $current = $this->locked($installation);
+            // **Taken for the lock, not for the abilities, and it is still required.** It is the
+            // first row in the package's lock order, so a renewal that reached the session row and
+            // the token rows without holding it would invert the order `Installations::revoke()`
+            // and `setAbility()` take the same three in. It is also what serializes a renewal
+            // against an admin demoting this session a moment earlier.
+            $this->locked($installation);
 
-            $abilities = $current->abilities();
+            // Read from the ROW, inside the transaction, for the reason `locked()` records about
+            // the installation: the instance this request arrived with was hydrated by the guard
+            // before any of this ran. An admin taking `coordinator:direct` off the machine demotes
+            // its coordinator sessions, and that write serializes against the installation lock
+            // above -- so a renewal that minted from the instance in hand would hand back the
+            // ability the admin has just removed, for another hour.
+            $abilities = $this->roleOf($session)->tokenAbilities();
 
             // Contact before tokens, and through the presence store rather than beside it. Two
             // reasons, and both were bugs. The order is the package's lock order -- the session row
@@ -161,10 +181,31 @@ final class AgentSessions
     }
 
     /**
+     * Re-read a session's role inside the transaction, holding nothing further.
+     *
+     * The same shape as `locked()` and for the same reason -- the instance a request arrives with
+     * is as stale as the guard that hydrated it -- without the row lock, which the installation
+     * above already serializes every writer of this column against.
+     *
+     * Falls back to the instance rather than throwing when the row has gone, because a renewal for
+     * a pruned session is an existing edge this method must not change the outcome of.
+     *
+     * @param  AgentSession  $session  The session being renewed.
+     * @return Role The role as the row stands now.
+     */
+    private function roleOf(AgentSession $session): Role
+    {
+        $role = AgentSession::query()->whereKey($session->getKey())->value('role');
+
+        return $role instanceof Role ? $role : $session->role;
+    }
+
+    /**
      * Issue one session token.
      *
-     * The abilities are read from the installation on every issue rather than copied at enrollment,
-     * so one an admin revoked is gone from the next token even though the row was written weeks ago.
+     * The abilities are read from the session's role on every issue rather than copied at
+     * enrollment, so a demotion an admin made is gone from the next token even though the row was
+     * written weeks ago.
      *
      * @param  AgentSession  $session  The session the token authenticates as.
      * @param  list<string>  $abilities  The abilities to mint it with.

@@ -50,7 +50,12 @@ function sessionFor(TestCase $case, User $developer, array $abilities): array
 }
 
 it('refuses narration from a session whose token lacks the ability', function (): void {
-    [, $token] = sessionFor($this, $this->mine, [Ability::TasksCreate->value]);
+    // The token is built to lack it, rather than the installation being narrowed: since
+    // `Access\Role`, `events:post` is in every preset, so a session started under a narrowed
+    // installation carries it and this test would assert nothing.
+    $installation = $this->approveInstallation($this->mine, [Ability::TasksCreate->value], machineLabel: 'm-narrow');
+
+    [, $token] = $this->startAgentSessionWithAbilities($installation, [Ability::TasksCreate->value]);
 
     $this->machine($token)
         ->postJson(route('robot-council.events.store'), ['body' => 'working on it'])
