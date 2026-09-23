@@ -10,6 +10,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Access\Allowlist;
+use RobotCouncil\Models\Installation;
 use Throwable;
 
 /**
@@ -41,6 +42,16 @@ final class Doctor
     public const int STALE_JOB_SECONDS = 300;
 
     /**
+     * How many installation ids one diagnosis will name before it stops listing them.
+     *
+     * `lazyById()` bounds what is hydrated and not what is collected, so a fleet where many rows
+     * went bad at once would otherwise put every id on one console line. The count is still exact;
+     * only the list is cut, because the operator needs to know the size of the problem even when
+     * they cannot read every id from the output.
+     */
+    public const int MAX_NAMED_INSTALLATIONS = 20;
+
+    /**
      * @param  Repository  $config  The host's configuration.
      * @param  Allowlist  $allowlist  Read rather than re-parsed, so this cannot disagree with the
      *                                thing it is checking.
@@ -66,6 +77,7 @@ final class Doctor
             $this->queue(),
             $this->developers(),
             $this->coordination(),
+            $this->storedAbilities(),
             $this->slackConnection(),
             $this->timezone(),
             $this->slackWebhook(),
@@ -287,6 +299,151 @@ final class Doctor
             'developer allowlist',
             sprintf('%d GitHub account(s) may sign in.', \count($developers))
         );
+    }
+
+    /**
+     * How many usable installations hold an abilities value the package cannot read back.
+     *
+     * **A value `Models\Installation::abilities()` drops is invisible everywhere else, and what it
+     * changes is fleet-wide.** `Support\FleetAbilities::anyInstallationHolds()` reads every usable
+     * installation to answer `fleet_can_direct`, so one unreadable row can tell every agent on the
+     * fleet that no directive will ever arrive. That answer is correct and its cause is not
+     * recorded anywhere: before #167 the same row raised, which was at least loud. This is the
+     * check that names it (#171).
+     *
+     * **It separates two causes, because they have different fixes.** A stored element that is a
+     * well-formed string the fixed list no longer holds is a RETIRED name -- the row was written
+     * when that ability existed, and the repair is to rewrite the row. A stored element that is not
+     * a string, or a stored value that is not a list at all, is MALFORMED -- nothing in this package
+     * writes one, so the repair is to find what did. Reporting them together would leave the reader
+     * to guess which they have.
+     *
+     * **Nothing here prints what a row contains.** `DoctorTest` proves no check prints a secret by
+     * planting a credential and searching the output, and an abilities column is not a secret -- but
+     * the rule this follows is that output is read by whoever is worried, and an installation id is
+     * what they need to act.
+     *
+     * Read in chunks for the reason `FleetAbilities::CHUNK` records: a fleet's installations are
+     * few, and hydrating all of them to answer one question is a habit worth not forming.
+     *
+     * @return Diagnosis What the check concluded.
+     */
+    private function storedAbilities(): Diagnosis
+    {
+        $known = Ability::values(Ability::grantable());
+
+        /** @var list<int> $retired */
+        $retired = [];
+
+        /** @var list<int> $malformed */
+        $malformed = [];
+
+        try {
+            $installations = Installation::usable()
+                ->select(['id', 'granted_abilities'])
+                ->orderBy('id')
+                ->lazyById(FleetAbilities::CHUNK);
+
+            foreach ($installations as $installation) {
+                $stored = $installation->getAttribute('granted_abilities');
+
+                if (! \is_array($stored)) {
+                    $malformed[] = $installation->id;
+
+                    continue;
+                }
+
+                foreach ($stored as $value) {
+                    if (! \is_string($value)) {
+                        $malformed[] = $installation->id;
+
+                        break;
+                    }
+
+                    // The strict flag cannot be killed from here, and it is not dead. `is_string()`
+                    // above guarantees a string reaches this, and no string can make strict and
+                    // loose membership disagree against this list, because none of the ability
+                    // names is numeric -- measured over ten probe strings including `'0'`, `'1e2'`
+                    // and `'100'`, zero disagreements. The control for that probe: allow a bool
+                    // through and the two answers do differ, so it can discriminate. Move or
+                    // weaken the `is_string()` guard and this becomes killable again.
+                    // @pest-mutate-ignore: TrueToFalse
+                    if (! \in_array($value, $known, true)) {
+                        $retired[] = $installation->id;
+
+                        break;
+                    }
+                }
+            }
+        } catch (QueryException) {
+            // **`QueryException`, not `Throwable`, and this one had it wrong first.** `coordination()`
+            // below records the reason: the only cause this message can honestly name is a table it
+            // could not read, and a blanket catch reports anything else as "run `php artisan migrate`"
+            // on a schema that is already migrated. It matters more here than there, because that
+            // check wraps one call into an already-total accessor and this wraps a loop that
+            // classifies rows by hand -- so the wider surface had the wider net, which is backwards.
+            // A `JsonException` from a host's own `Json::decodeUsing()` decoder is the concrete case:
+            // it belongs to the row this check exists to name, and would have been reported as an
+            // unmigrated schema.
+            return Diagnosis::undetermined(
+                'stored abilities',
+                'The installations table could not be read, so whether any holds an unreadable abilities '
+                .'value is unknown. Run `php artisan migrate` first.'
+            );
+        }
+
+        if ($retired === [] && $malformed === []) {
+            return Diagnosis::passed(
+                'stored abilities',
+                "Every usable installation's granted abilities read back as stored."
+            );
+        }
+
+        $parts = [];
+
+        if ($malformed !== []) {
+            $parts[] = sprintf(
+                '%d installation(s) hold a value that is not a list of ability names, which nothing in this '
+                .'package writes -- find what did: %s',
+                \count($malformed),
+                self::named($malformed)
+            );
+        }
+
+        if ($retired !== []) {
+            $parts[] = sprintf(
+                '%d installation(s) name something this version does not grant -- a retired ability, or a '
+                .'value like `*` that never was one -- so it is dropped on every read. Repair it with any '
+                .'`robot-council:grant-ability` or `robot-council:revoke-ability` that CHANGES the '
+                .'readable list; one whose answer is what is already readable writes nothing, which '
+                .'includes revoking an ability the row does not readably hold: %s',
+                \count($retired),
+                self::named($retired)
+            );
+        }
+
+        return Diagnosis::failed(
+            'stored abilities',
+            ucfirst(implode('; ', $parts))
+            .'. Until then those entries are invisible on every read, so the installation acts with '
+            .'fewer abilities than its row claims. Whether repairing one changes `fleet_can_direct` '
+            .'depends on a gate this check does not apply: that answer also requires the '
+            ."installation's developer to still be on the access list."
+        );
+    }
+
+    /**
+     * A bounded, readable list of installation ids for a diagnosis message.
+     *
+     * @param  list<int>  $ids  The installations to name, in the order they were found.
+     * @return string The ids, cut to `MAX_NAMED_INSTALLATIONS` with the remainder counted.
+     */
+    private static function named(array $ids): string
+    {
+        $shown = \array_slice($ids, 0, self::MAX_NAMED_INSTALLATIONS);
+        $rest = \count($ids) - \count($shown);
+
+        return implode(', ', $shown).($rest > 0 ? sprintf(' and %d more', $rest) : '');
     }
 
     /**
