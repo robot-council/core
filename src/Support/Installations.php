@@ -214,28 +214,33 @@ final class Installations
 
             $held = $installation->abilities();
 
-            // **One `array_values` over both branches, and the shape is deliberate.** Written as
-            // one per branch, the granting side's was an equivalent mutant: `$held` is a list, so
-            // the spread is a list, and `array_unique` can only drop the element just appended --
-            // the highest key -- leaving `0..n-1` either way. Measured: unwrapping it left the
-            // whole suite green AND `composer analyse` clean, so neither gate could tell.
+            // **One `array_values` over both branches, because the hoist is unconditionally the
+            // same thing.** `array_values` is pure and the ternary is evaluated once either way,
+            // so `array_values(c ? a : b)` and `c ? array_values(a) : array_values(b)` cannot
+            // differ for any input. What the hoist buys is that there is one call to get right.
             //
-            // The plugin's per-line ignore marker did not suppress it either: the marker stops
-            // traversal of a node's CHILDREN, and `UnwrapArrayValues` targets the annotated node
-            // itself, so `leaveNode()` still ran -- measured, the survivor count did not move.
-            // `adversarial-review` says to prefer killing or restructuring over a trailing marker,
-            // whose line map depends on the checkout's line endings under Windows PHP, and CI runs
-            // Windows. Hoisting the call leaves one, which the removing branch makes killable:
-            // `array_filter` preserves keys, so dropping it writes a JSON object instead of an
-            // array.
+            // **Both branches need it, and an earlier note here claimed the granting branch did
+            // not.** That was wrong. `array_unique` preserves keys, so it only leaves `0..n-1` if
+            // `$held` carries no duplicates -- and nothing guarantees that:
+            // `DeviceCodes::approve()` writes the abilities it is handed straight into the column,
+            // and `Ability::granted()`, which dedupes, is applied at the controller rather than in
+            // the store. Measured: with `$held` as `['tasks:create', 'tasks:create']`, granting
+            // `tasks:claim` gives keys `{0, 2}`, which `json_encode` writes as an OBJECT.
+            //
+            // So the mutant that unwrapped it was a true survivor with no covering input, not an
+            // equivalent one -- a distinction `adversarial-review` draws deliberately, because the
+            // second licenses deleting the call and the first does not. Both cases are covered
+            // now, on the branch each reaches.
             $abilities = array_values($granted
                 ? array_unique([...$held, $ability->value])
                 : array_filter($held, static fn (string $current): bool => $current !== $ability->value));
 
             // Nothing changed means nothing happened, and an event saying otherwise is noise in
-            // the one feed an authorization change has to be legible in. `array_values` on both
-            // sides, because the comparison is about membership and order is an artifact of when
-            // each was granted.
+            // the one feed an authorization change has to be legible in. Both sides are lists --
+            // `abilities()` re-indexes and the line above does -- so `===` compares members in
+            // position. It is **not** order-insensitive: two lists with the same members in a
+            // different order are not identical and would record a change, which is why nothing
+            // here reorders.
             if ($abilities === $held) {
                 return 0;
             }

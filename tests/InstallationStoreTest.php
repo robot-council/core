@@ -5,13 +5,16 @@ declare(strict_types=1);
 /**
  * The parts of `Support\Installations` that `--mutate` could change without a test noticing.
  *
- * Surfaced by #146 and filed as #132's sibling, #148: seventeen of sixty-one mutants survived, all
+ * Surfaced by #146 and filed as #148: seventeen of sixty-one mutants survived, all
  * in `revoke()` and `setAbility()`. A surviving mutant is a test that stays green with the behavior
  * changed, and the criterion in this repository is **no unexplained survivors** rather than a
  * score -- a percentage merges an unexamined survivor with a provably equivalent one.
  *
- * Every assertion here reads the ROW or the recorded event rather than the instance a store method
- * returned, for the reason `CLAUDE.md` records: an instance reports whatever PHP put in it.
+ * **Where a store's guarantee is about what was written, the assertion reads the ROW or the
+ * recorded event** rather than the instance a method returned, for the reason `CLAUDE.md` records:
+ * an instance reports whatever PHP put in it. Two tests here deliberately read the instance
+ * instead, because what they pin is what the caller is left holding -- `revoke()` refreshing the
+ * object the dashboard re-renders from, and the token count it returns.
  *
  * @command  vendor/bin/pest --compact tests/InstallationStoreTest.php
  * @command  vendor/bin/pest --mutate --path=src --class="RobotCouncil\Support\Installations"
@@ -82,11 +85,20 @@ it('accepts a requested IP at the column width and refuses one past it', functio
 
     $reloaded->forceFill(['requested_ip' => str_repeat('a', DeviceCodes::MAX_REQUESTED_IP + 1)]);
 
+    // **The message, not just the class.** `createFrom()` reaches `MachineIdentity::ensure()`
+    // before this bound, and both of its branches throw the same class -- so a change to
+    // `approveInstallation()`'s default label would make a bare class assertion pass for the
+    // wrong reason.
     expect(fn () => $this->service(Installations::class)->createFrom($reloaded))
-        ->toThrow(InvalidArgumentException::class)
-        // And nothing was written on the way: the refusal is the store's, not the column's.
-        ->and(DB::table('robot_council_device_codes')->where('id', $long->record->id)->value('requested_ip'))
-        ->toBeNull();
+        ->toThrow(InvalidArgumentException::class, sprintf(
+            'A requested IP is limited to %d characters, and this one is %d.',
+            DeviceCodes::MAX_REQUESTED_IP,
+            DeviceCodes::MAX_REQUESTED_IP + 1
+        ));
+
+    // And it refused before writing anything: no installation landed. Asserting the device code's
+    // column is still null would prove nothing -- it was issued null and only filled in memory.
+    expect(Installation::query()->where('machine_label', 'other-machine')->exists())->toBeFalse();
 });
 
 it('leaves the caller holding a revoked installation, not the one it passed in', function (): void {
@@ -147,7 +159,7 @@ it('answers zero and records nothing when the ability is already what was asked 
         ->and(FleetEvent::query()->count())->toBe($before);
 });
 
-it('stores the remaining abilities as a list after removing one from the middle', function (): void {
+it('stores the remaining abilities as a list after removing the first of three', function (): void {
     // **`array_values` around the filter is load-bearing, not tidiness.** `array_filter` preserves
     // keys, so removing the first of three leaves `[1 => ..., 2 => ...]` -- which the `array` cast
     // writes to the JSON column as an OBJECT rather than an array. Every reader of
@@ -160,9 +172,10 @@ it('stores the remaining abilities as a list after removing one from the middle'
     ]);
 
     // A live session, so the return value is the count of tokens rewritten rather than zero.
-    // **`setAbility()` returns tokens rewritten, not whether anything changed**, so `0` means
-    // both "nothing to do" and "done, and no session held a token" -- worth knowing before a
-    // caller reads it as a success flag.
+    // `setAbility()`'s own docblock says that is what it returns; what is worth saying here is the
+    // consequence -- `0` means both "nothing to do" and "done, and no session held a token", so a
+    // caller cannot read it as a success flag. `Console\Concerns\ManagesAbilities` prints it
+    // verbatim and `Livewire\Administration` discards it, so neither is misled today.
     $this->startAgentSession($installation);
 
     expect($this->service(Installations::class)
@@ -216,4 +229,33 @@ it('carries the installation id on an event whose caller passed no meta of its o
 
     expect($event->body)->toBe('claude-code on workbench was revoked.')
         ->and($event->meta['installation_id'] ?? null)->toBe($installation->id);
+});
+
+it('stores a list when granting against a row that already carries a duplicate', function (): void {
+    // **The granting branch needs `array_values` too, and an earlier note here said it did not.**
+    // `array_unique` preserves keys, so it leaves `0..n-1` only when nothing was deduped. A
+    // duplicated row is reachable: `DeviceCodes::approve()` writes the abilities it is handed
+    // straight into the column, and `Ability::granted()`, which dedupes, runs at the controller
+    // rather than in the store -- the "a bound a validation rule states is not a bound the package
+    // holds" case `CLAUDE.md` records.
+    //
+    // Measured: with `['tasks:create', 'tasks:create']` held, granting `tasks:claim` gives keys
+    // `{0, 2}`, which `json_encode` writes as an OBJECT. So the mutant that unwrapped that call
+    // was a true survivor with no covering input rather than an equivalent one. This is the input.
+    $installation = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
+
+    // Written straight to the row, because the store will not produce a duplicate -- which is
+    // exactly why the store is not the only writer that matters.
+    Installation::query()->whereKey($installation->getKey())->update([
+        'granted_abilities' => json_encode([Ability::TasksCreate->value, Ability::TasksCreate->value]),
+    ]);
+
+    $this->service(Installations::class)
+        ->setAbility($installation->refresh(), Ability::TasksClaim, true, keyValue($this->admin->getKey()));
+
+    $stored = DB::table('robot_council_installations')->where('id', $installation->id)->value('granted_abilities');
+
+    expect($stored)->toBeString()
+        ->and(json_decode(\is_string($stored) ? $stored : '', true))
+        ->toBe([Ability::TasksCreate->value, Ability::TasksClaim->value]);
 });

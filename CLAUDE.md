@@ -72,7 +72,8 @@ A **Laravel package** (`robot-council/core`), not an application. It is the core
 - **Every migration in `database/migrations/` carries a date prefix, and
   `tests/MigrationPrefixGuardTest.php` refuses one that does not.** Laravel runs migrations in
   filename order and digits sort before letters, so an unprefixed file runs **after every dated
-  one** -- which means nothing dated can ever alter the table it creates. That is not style: `create_robot_council_github_identities_table.php` had no
+  one** -- which means nothing dated can ever alter the table it creates. That is not style:
+  `create_robot_council_github_identities_table.php` had no
   prefix, #54's dated collation migration therefore ran before that table existed, and its
   `Schema::hasTable()` guard **skipped the column silently**. An access-control change shipped
   covering six of seven key columns and reported success, caught only because it asserts the
