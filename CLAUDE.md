@@ -147,8 +147,11 @@ A **Laravel package** (`robot-council/core`), not an application. It is the core
   its exit code, because piping it through `tail` discards the `cmp` status. **`composer.lock` is
   gitignored and `package-lock.json` is not**, and that asymmetry is deliberate: the first is a
   library's dependency resolution, which CI should re-resolve, and the second is a build toolchain,
-  whose drift would change the bytes a consumer receives. A CI check that the artifact matches its
-  sources is #66.
+  whose drift would change the bytes a consumer receives. **CI checks this**: the `stylesheet` job
+  runs `npm run check` and `ci-passed` requires it, so a stale artifact fails the build rather than
+  shipping (#66). What it does **not** catch is an artifact that matches its sources and should not
+  -- a class name written in a Blade comment is part of those sources, so the rebuild agrees with it
+  and the check passes. That is #230.
 - **SQLite enforces no foreign key in this suite, so no test can observe one unless it says so.**
   Testbench's `Bootstrap\LoadConfiguration` sets `foreign_key_constraints` to `Env::get('DB_FOREIGN_KEYS', false)`,
   where Laravel's own skeleton config defaults the same key to `true`. Measured: `pragma foreign_keys`
@@ -250,6 +253,7 @@ A **Laravel package** (`robot-council/core`), not an application. It is the core
   - `tests` runs `vendor/bin/pest --ci` on ubuntu and windows × PHP 8.5 and 8.4 × Laravel 13 × `prefer-lowest` and `prefer-stable`, with `fail-fast: false`, on Pest 5 and PHPUnit 13.
   - `phpstan` runs PHPStan on PHP 8.5, and `pint` runs `vendor/bin/pint --test`, which **fails on a style problem instead of fixing it**. Run `vendor/bin/pint --dirty` before pushing.
   - `rector` runs `vendor/bin/rector --dry-run`, which fails when Rector would change a file. Run `composer refactor` before pushing, and review what it changed.
+  - `stylesheet` runs `npm ci` and then `npm run check`, which rebuilds the dashboard stylesheet and `cmp`s it against the committed one, so a view added without a rebuild fails the build instead of shipping half-styled (#66). It reads the exit status rather than piping it. What it cannot catch is an artifact that matches its sources and should not, which is #230.
   - `postgres` runs on ubuntu with PHP 8.5 against a `postgres:17` service container. It runs `vendor/bin/pest --ci` with `DB_CONNECTION=pgsql`, then `vendor/bin/pest --ci --group=cross-connection`.
 
     **Both engines run locally, and the claim that they do not has cost time twice.** Laravel Herd serves `mysql` and `postgresql` as services; on this machine they were already listening on 3306 and 5432, needing nothing started. Measured 2026-09-22: PostgreSQL 17.0 and MySQL 9.4.0, both reachable as `postgres` and `root` with an empty password, and the suite passes against each with a throwaway database. So a defect that only one engine can see is **not** CI-only, and reaching for CI to find one is a choice rather than a necessity -- #39's twenty failures were reproduced locally test-for-test and fixed without a single push.
