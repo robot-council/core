@@ -225,3 +225,21 @@ it('mounts the sign-out route under the configured prefix', function (): void {
     expect(route('robot-council.sign-out', absolute: false))->toBe('/council/sign-out')
         ->and(route('robot-council.signed-out', absolute: false))->toBe('/council/signed-out');
 });
+
+it('remembers where an unauthenticated visitor was going, but only when it can resume', function (): void {
+    // A GET is resumable, so it is worth remembering
+    $this->get(route('robot-council.dashboard'))
+        ->assertRedirect(route('robot-council.auth.redirect'));
+
+    expect(session('url.intended'))->toBe('/robot-council/dashboard');
+
+    session()->forget('url.intended');
+
+    // A POST is not. Laravel resumes an intended URL with a redirect, which the browser follows as
+    // a GET -- so remembering this one sends the developer, after a round trip through GitHub, to a
+    // 405 on a route that accepts POST only.
+    $this->post(route('robot-council.sign-out'))
+        ->assertRedirect(route('robot-council.auth.redirect'));
+
+    expect(session('url.intended'))->toBeNull();
+});

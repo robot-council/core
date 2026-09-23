@@ -54,7 +54,13 @@ final class EnsureAllowlistedDeveloper
         // Send a visitor who is not signed in to GitHub, remembering the path they wanted.
         // The path alone, never `fullUrl()`, whose host comes from the request's own headers.
         if ($user === null) {
-            $request->session()->put('url.intended', '/'.ltrim($request->path(), '/'));
+            // Only a request that can be resumed is worth remembering. Laravel resumes an intended
+            // URL with a redirect, which the browser follows as a GET, so remembering a POST sends
+            // the developer -- after a full round trip through GitHub -- to a 405 on a route that
+            // accepts POST only. Sign-out, approve and deny are all in that shape.
+            if ($request->isMethodSafe()) {
+                $request->session()->put('url.intended', '/'.ltrim($request->path(), '/'));
+            }
 
             return redirect()->to(route('robot-council.auth.redirect'));
         }
