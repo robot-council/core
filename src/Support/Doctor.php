@@ -315,19 +315,33 @@ final class Doctor
     /**
      * Whether a clock the fleet depends on can shift under it.
      *
-     * **Presence is no longer part of this.** #51 moved contact times and their cutoffs onto
-     * `Support\PresenceClock`, a fixed zone, and `Support\PresenceTimestamp` makes the column read
-     * back on the same one -- so a daylight-saving transition no longer moves a session's age.
+     * **Neither presence nor a lock lease is part of this any more.** #51 moved contact times and
+     * their cutoffs onto `Support\PresenceClock`, a fixed zone; #149 moved a lock's `acquired_at`
+     * and `expires_at` onto the same one, with `Support\PresenceTimestamp` making both columns read
+     * back on the clock they were written on. A daylight-saving transition no longer ages a session
+     * or lapses a lease.
      *
-     * A lock's lease still runs on the application clock: `Support\Locks` writes `expires_at` with
-     * `Carbon::now()` and compares it the same way. `locks.max_ttl_seconds` defaults to 900, so an
-     * hour's jump is longer than any lease can be -- at spring-forward **every held lock reads as
-     * expired at once**, and another session can take a name its holder still believes it owns. The
-     * fence value is what lets that holder find out, which is a detection rather than a
-     * prevention. Credential expiry has the same shape, since Sanctum compares `expires_at` against
-     * the application clock too.
+     * **What remains is credential expiry, and the two halves of it are not alike.**
+     * `Support\Credentials::installationExpiry()` and `sessionTokenExpiry()` write `expires_at` on
+     * tokens that **Sanctum** compares against its own `now()`, which is the application's.
+     * Writing those on a fixed clock while Sanctum keeps reading the host's would introduce the
+     * mismatch rather than remove it, in the place that decides whether a credential still works.
+     * #149 put that out of scope for exactly that reason.
      *
-     * So this still fails outside UTC, for the leases rather than for presence.
+     * A **device code's** expiry has no such coupling -- `Support\DeviceCodes` both writes and
+     * compares it -- so it could move, and has not. Its TTL defaults to 600 seconds, far shorter
+     * than an hour, so it carries the same shape the leases did: a transition expires every
+     * outstanding code at once, or at fall-back keeps one valid an hour past its TTL, which is the
+     * direction that matters for an enrollment code.
+     *
+     * **Credentials are what this reports, not everything on the application clock.** Three
+     * retention cutoffs are measured on it too -- `robot-council:prune-tasks`,
+     * `robot-council:prune-events`, and `Support\InstallationList` -- and each is self-consistent,
+     * written and compared on the same clock, so nothing lapses and no row is lost. What moves is
+     * the boundary, by an hour, once. That is a different severity from a credential that stops
+     * working, which is why the message names the credentials and this docblock names the rest:
+     * a check that reports more than is true is one people learn to discount, and one that
+     * reports less leaves a reader believing the rest is handled.
      *
      * @return Diagnosis What the check concluded.
      */
@@ -342,9 +356,10 @@ final class Doctor
         return Diagnosis::failed(
             'application timezone',
             sprintf(
-                'app.timezone is `%s`. Presence is unaffected, but a lock lease and a credential expiry are '
-                .'still measured on the application clock, and a lease cannot outlast an hour -- so a '
-                .'daylight-saving transition makes every held lock read as expired at once. Set it to UTC.',
+                'app.timezone is `%s`. Presence and lock leases are unaffected, but a token expiry and a '
+                .'device code are still measured on the application clock, so a daylight-saving transition '
+                .'can expire or extend either by an hour -- and a device code lives ten minutes, so every '
+                .'outstanding enrollment would lapse at once. Set it to UTC.',
                 \is_string($timezone) ? $timezone : 'not a string'
             )
         );

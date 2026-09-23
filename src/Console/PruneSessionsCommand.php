@@ -47,7 +47,7 @@ final class PruneSessionsCommand extends Command
         $deleted = $presence->prune($before);
 
         $this->components->info(sprintf(
-            'Deleted %d ended session(s) last heard from more than %d day(s) ago, before %s.',
+            'Deleted %d ended session(s) last heard from more than %d day(s) ago, before %s UTC.',
             $deleted,
             $days,
             $before->toDateTimeString()

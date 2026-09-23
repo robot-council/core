@@ -97,7 +97,7 @@ final class Locks
         // Retried, because the contended case is what this method is for. A deadlock or a lock-wait
         // timeout rolls the whole transaction back, so a retry starts from a clean slate.
         return DB::transaction(function () use ($session, $name, $ttl, $asCoordinator): array {
-            $now = Carbon::now();
+            $now = PresenceClock::now();
 
             // The session row first, which is the package's lock order and is also what makes the
             // cap below hold. Counting without it is a plain read against rows keyed by `name`,
@@ -228,7 +228,7 @@ final class Locks
     public function renew(AgentSession $session, string $name, int $ttl, bool $asCoordinator): array
     {
         return DB::transaction(function () use ($session, $name, $ttl, $asCoordinator): array {
-            $now = Carbon::now();
+            $now = PresenceClock::now();
             $until = $now->copy()->addSeconds($ttl);
 
             // A hold cannot be pushed past the ceiling measured from when it was first acquired,
@@ -291,7 +291,7 @@ final class Locks
     public function release(AgentSession $session, string $name, bool $asCoordinator): Outcome
     {
         return DB::transaction(function () use ($session, $name, $asCoordinator): Outcome {
-            $now = Carbon::now();
+            $now = PresenceClock::now();
 
             $released = Lock::query()
                 ->where('name', $name)
@@ -325,7 +325,7 @@ final class Locks
     public function forceRelease(AgentSession $session, string $name): Outcome
     {
         return DB::transaction(function () use ($session, $name): Outcome {
-            $now = Carbon::now();
+            $now = PresenceClock::now();
 
             // Locked, so `taken_from` names the session the write is about to displace rather
             // than one that released voluntarily a moment earlier
@@ -420,7 +420,7 @@ final class Locks
             $released = Lock::query()
                 ->whereKey($lock->getKey())
                 ->where('holder_id', $holder->getKey())
-                ->update(['holder_id' => null, 'expires_at' => null, 'updated_at' => Carbon::now()]);
+                ->update(['holder_id' => null, 'expires_at' => null, 'updated_at' => PresenceClock::now()]);
 
             if ($released !== 1) {
                 return false;
@@ -571,7 +571,7 @@ final class Locks
      */
     public function prune(Carbon $before, int $batch = self::PRUNE_BATCH, int $maxBatches = self::PRUNE_BATCHES): int
     {
-        $at = Carbon::now();
+        $at = PresenceClock::now();
 
         $deleted = 0;
 

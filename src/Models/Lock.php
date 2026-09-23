@@ -7,6 +7,7 @@ namespace RobotCouncil\Models;
 use Illuminate\Database\Eloquent\Attributes\Table;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
+use RobotCouncil\Support\PresenceTimestamp;
 
 /**
  * An advisory lease over a name.
@@ -29,6 +30,18 @@ use Illuminate\Support\Carbon;
  * @property int $fence
  * @property Carbon|null $acquired_at
  * @property Carbon|null $expires_at
+ *
+ * **Every instant on this row is on `Support\PresenceClock`, not the application's clock** (#149),
+ * which means a host that is not on UTC sees its existing rows reinterpreted once, at the upgrade.
+ * Rows written before carry wall-clock digits and are read as UTC afterwards, so **west of UTC
+ * every held lease reads as already lapsed** and its name is takeable while its holder still
+ * believes it owns it -- the very thing #149 removes, delivered once. `#51` made the same note for
+ * presence and could call the direction safe; here it is not, so it is named rather than glossed.
+ *
+ * It needs no migration, for two reasons. `robot-council:doctor` already fails a host that is not
+ * on UTC, so the population this can reach is one it is already telling to change; and a lease
+ * cannot outlast `locks.max_ttl_seconds`, so the window closes on its own within minutes. A host
+ * off UTC that cannot drain its fleet should expect one takeover window at the deploy.
  */
 #[Table(name: 'robot_council_locks')]
 final class Lock extends Model
@@ -52,8 +65,34 @@ final class Lock extends Model
             'holder_id' => 'integer',
             'previous_holder_id' => 'integer',
             'fence' => 'integer',
-            'acquired_at' => 'datetime',
-            'expires_at' => 'datetime',
+            // Not `datetime`: that hydrates in the application's timezone, while every write here
+            // is on `Support\PresenceClock`, so a host off UTC would read back an instant wrong by
+            // its offset. `Support\Locks` re-reads `expires_at` and compares it in PHP as well as
+            // in SQL, and `Mcp\Tools\LockTool` and `Http\Controllers\LockController` derive
+            // `expires_in` from it, so a relabelled value is wrong in exactly the paths that
+            // decide or report whether a lease is still held (#149).
+            //
+            // **`acquired_at` is not cast for the `where` that reads it.** A binding never runs a
+            // cast -- `Eloquent\Builder` applies none, and `Connection::prepareBindings()` formats
+            // the Carbon it is handed -- so the renewal ceiling would behave identically without
+            // this line. It is cast because the column is written on the presence clock and
+            // anything that hydrates it later must not read it as the host's.
+            //
+            // **`created_at` and `updated_at` are deliberately NOT cast, and casting them is a
+            // trap rather than the tidy extension it looks like.** `HasAttributes::getDates()`
+            // returns both whenever a model uses timestamps, whatever its casts, and
+            // `setAttribute()` tests `isDateAttribute()` in an `elseif` chain that runs *before*
+            // the class-cast branch -- so an assignment is first flattened by `fromDateTime()`
+            // into naive digits **in the Carbon's own zone**, and `PresenceTimestamp::set()` then
+            // re-parses those digits in the **application's**. The two cancel only where the two
+            // zones agree. `$lock->updated_at = PresenceClock::now()` would therefore store an
+            // instant wrong by the host's offset, on the one column
+            // `robot-council:prune-locks` measures retention on. Nothing hydrates either column
+            // today, every write is a query-builder `insertOrIgnore` or `update` that bypasses
+            // `setAttribute` entirely, and `Models\AgentSession` leaves its own two alone for the
+            // same reason.
+            'acquired_at' => PresenceTimestamp::class,
+            'expires_at' => PresenceTimestamp::class,
         ];
     }
 
