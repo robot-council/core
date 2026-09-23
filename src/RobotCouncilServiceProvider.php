@@ -34,6 +34,7 @@ use RobotCouncil\Console\RevokeInstallationCommand;
 use RobotCouncil\Console\RevokeSessionCommand;
 use RobotCouncil\Console\SweepSessionsCommand;
 use RobotCouncil\Http\Controllers\DashboardStylesheetController;
+use RobotCouncil\Http\Controllers\PrefixRootController;
 use RobotCouncil\Http\Middleware\DenyFraming;
 use RobotCouncil\Http\Middleware\EnsureAgentSession;
 use RobotCouncil\Http\Middleware\EnsureAllowlistedDeveloper;
@@ -350,6 +351,34 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
                 Route::get('dashboard.css', DashboardStylesheetController::class)
                     ->name('dashboard.stylesheet');
             });
+
+        // The prefix's own root, sent to the dashboard so it behaves the way the site root already
+        // does on a host that redirects there.
+        //
+        // **Registered only when the prefix resolves to a path of its own, and the guard asks about
+        // the PATH rather than about what the host typed.** A `web_prefix` that resolves to `/`
+        // puts this route at the application root -- which belongs to the host, and which a host
+        // serving the console there has already routed. Two routes would then share one path, and
+        // `RouteCollection::addToCollections()` keys on the URI, so the later registration silently
+        // replaces the earlier one with the winner decided by provider boot order.
+        //
+        // `trim($webPrefix, '/')` is the framework's own arithmetic rather than an approximation of
+        // it: `Router::prefix()` resolves this route's URI to
+        // `trim(trim($prefix, '/').'/', '/') ?: '/'`, which is `/` exactly when the trimmed prefix
+        // is empty. Comparing the raw value instead admitted `'/'`, which produces a URI
+        // byte-identical to the empty prefix's in every route the package mounts while taking the
+        // opposite branch here.
+        //
+        // The deployment runs an empty prefix, so this is the live configuration rather than a
+        // defensive branch. A prefix that is neither empty nor `/` but still strange -- whitespace,
+        // or a route parameter -- lands somewhere other than `/` and is the host's business.
+        if (trim($webPrefix, '/') !== '') {
+            Route::prefix($webPrefix)
+                ->name('robot-council.')
+                ->group(function (): void {
+                    Route::get('/', PrefixRootController::class)->name('prefix-root');
+                });
+        }
 
         Route::middleware($webMiddleware)
             ->prefix($webPrefix)
