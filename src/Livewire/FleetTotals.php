@@ -23,8 +23,11 @@ use RobotCouncil\Support\TaskList;
  * component -- Livewire spoofs an already-rendered child into a placeholder -- so a `wire:poll` on
  * the dashboard would leave this row stale while the panels beneath it updated.
  *
- * It reads through the same stores the panels do, so a tile and the panel under it cannot report
- * different numbers for the same fleet. That is asserted rather than assumed.
+ * It reads through the same stores the panels do, with the **same predicates** -- asserted rather
+ * than assumed. That is a claim about the definitions rather than about a moment: the tile and the
+ * panel issue separate, untransacted reads, and this row renders first, so on a fleet under write
+ * load the two can transiently differ by a row. What they cannot do is disagree about what `live`
+ * or `held` MEANS.
  *
  * Its only gate is the route, exactly as the other panels': `EnsureAllowlistedDeveloper` on the
  * dashboard, and the same middleware registered as persistent so it survives onto
@@ -36,9 +39,16 @@ final class FleetTotals extends Component
     /**
      * The interval this row refreshes on, in seconds.
      *
-     * Locked, for the reason `Livewire\Dashboard` records: a public property without it is writable
-     * by whatever posts to `/livewire/update`, and a zero would ask the browser to poll as fast as
-     * it can.
+     * Locked for the reason `Livewire\Dashboard` records: a public property without it is writable
+     * by whatever posts to `/livewire/update`, because the snapshot's checksum covers the snapshot
+     * rather than the `updates` map.
+     *
+     * **What that buys is not protection from a zero.** Livewire's `extractDurationFrom()` ends
+     * `return durationInMilliSeconds || defaultDuration`, so `wire:poll.0s` falls back to its own
+     * two-second default rather than looping as fast as the browser can. What it buys is protection
+     * from a SMALL one: this row costs three aggregates a render and the panels beside it cost more,
+     * so a client setting one second where a host configured five multiplies the whole fleet's
+     * query load by five.
      */
     #[Locked]
     public int $pollSeconds = Dashboard::DEFAULT_POLL_SECONDS;

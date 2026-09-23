@@ -30,9 +30,13 @@ final class Dashboard extends Component
      *
      * Locked, because `mount()` runs once and every later request goes through `hydrate()`. A
      * public property without this is writable by whatever posts to `/livewire/update`: the
-     * snapshot's checksum covers the snapshot rather than the `updates` map, so a client can set
-     * this to zero and ask the browser to poll as fast as it can. The validation below guards the
-     * host's configuration; this guards the client.
+     * snapshot's checksum covers the snapshot rather than the `updates` map, so a client sets it
+     * to whatever they like. **Not to protect against a zero** -- Livewire's `extractDurationFrom()`
+     * ends `return durationInMilliSeconds || defaultDuration`, so `wire:poll.0s` takes its own
+     * two-second default rather than looping as fast as the browser can. To protect against a small
+     * one: every panel on this page costs queries per render, so one second where a host configured
+     * five multiplies the fleet's query load by five. The validation below guards the host's
+     * configuration; this guards the client.
      */
     #[Locked]
     public int $pollSeconds = self::DEFAULT_POLL_SECONDS;

@@ -57,12 +57,17 @@ it('shows a zero rather than an empty tile', function (): void {
 
     // An empty fleet is the state a host sees on the day they install this, so it is the one the
     // row has to render honestly rather than blankly.
-    Livewire::test(FleetTotals::class)
-        ->assertOk()
-        ->assertSee('Live agents')
-        ->assertSee('Open tasks')
-        ->assertSee('Held locks')
-        ->assertSeeHtml('>0<');
+    $row = Livewire::test(FleetTotals::class);
+
+    $row->assertOk();
+
+    $html = (string) $row->html();
+
+    // Each tile, not merely a zero somewhere on the row: all three render zero here, so a
+    // document-wide match is satisfied by one of them while the other two render blank.
+    foreach (['Live agents', 'Open tasks', 'Held locks'] as $label) {
+        expect(tileTotal($html, $label))->toBe(0);
+    }
 });
 
 it('counts the fleet rather than the page', function (): void {
@@ -211,9 +216,18 @@ it('renders on three queries, one per total', function (): void {
 
 it('does not grow with the fleet', function (int $sessions): void {
     for ($i = 0; $i < $sessions; $i++) {
-        $installation = $this->approveInstallation($this->developer, [Ability::LocksAcquire->value], 'box-'.$i);
+        $installation = $this->approveInstallation($this->developer, [
+            Ability::LocksAcquire->value,
+            Ability::TasksCreate->value,
+        ], 'box-'.$i);
+
         [$this->session, $this->token] = $this->startAgentSession($installation);
+
         $this->service(Locks::class)->acquire($this->session, 'lock-'.$i, 60, false);
+
+        // Tasks vary too. Without them all three dataset rows hold zero, and an N+1 introduced into
+        // the task half of the row would not be seen by a fixture that only grows sessions.
+        $this->service(Tasks::class)->create($this->session, ['title' => 'Task '.$i], withCoordinator: false);
     }
 
     $this->actingAs($this->developer, 'web');
@@ -228,5 +242,20 @@ it('appears on the dashboard above the panels', function (): void {
 
     $html = (string) $page->getContent();
 
-    expect(strpos($html, 'Live agents'))->toBeLessThan((int) strpos($html, 'id="robot-council-presence"'));
+    $totals = strpos($html, 'Live agents');
+    $panels = strpos($html, 'id="robot-council-presence"');
+
+    // **Both positions are established before they are compared.** `strpos()` answers `false` when
+    // the needle is absent, and PHP compares bool against int by casting the int to bool -- so
+    // `false < 14` is `false < true`, which is TRUE. The first draft compared them directly and
+    // passed with the row deleted from the index, which nothing else in the suite would have caught.
+    //
+    // An `if`/`throw` rather than an expectation, because it has to narrow the type for the
+    // analyzer as well as fail the test: `toBeLessThan()` takes no `false`, and an expectation
+    // that passes does not tell PHPStan what the variable now is.
+    if (! \is_int($totals) || ! \is_int($panels)) {
+        throw new RuntimeException('The totals row and the presence panel must both be on the page before their order means anything.');
+    }
+
+    expect($totals)->toBeLessThan($panels);
 });
