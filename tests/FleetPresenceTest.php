@@ -125,12 +125,12 @@ it('will not let a client change the polling interval', function (): void {
 it('shows presence through the gate, and refuses a stranger', function (): void {
     // `Livewire::test()` runs no HTTP middleware, so every case above would pass with the
     // `actingAs` in `beforeEach` deleted. This one goes through the route.
-    $this->get(route('robot-council.dashboard'))->assertOk()->assertSee('workbench-01');
+    $this->get(route('robot-council.presence'))->assertOk()->assertSee('workbench-01');
 
     $stranger = $this->enrollDeveloper(9999, login: 'stranger');
 
     $this->actingAs($stranger, 'web')
-        ->get(route('robot-council.dashboard'))
+        ->get(route('robot-council.presence'))
         ->assertForbidden()
         ->assertDontSee('workbench-01');
 });

@@ -32,6 +32,15 @@ beforeEach(function (): void {
 });
 
 it('grows through the units rather than counting seconds forever', function (int $secondsAgo, string $expected): void {
+    // **Frozen, because this test reads a difference between two clocks it takes at two moments.**
+    // Nothing here is about elapsed time: the write below subtracts a fixed number of seconds, and
+    // the render compares it against `PresenceClock::now()` again. On a machine slow enough for a
+    // second to pass between them, `5` renders as `6 seconds ago` and every boundary row -- 5, 59,
+    // 3600 -- crosses into the next unit. Observed on the `prefer-lowest` ubuntu cell of #216,
+    // where this row failed alone while the suite was otherwise green; the test dates from #213
+    // and the defect is its own, not that branch's.
+    $this->freezeTime();
+
     // Written on the presence clock, which is the clock `last_seen_at` is compared against (#51).
     AgentSession::query()->whereKey($this->session->id)->update([
         'last_seen_at' => PresenceClock::now()->subSeconds($secondsAgo),

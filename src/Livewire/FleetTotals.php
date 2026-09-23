@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace RobotCouncil\Livewire;
 
+use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
 use RobotCouncil\Support\FleetPresence;
+use RobotCouncil\Support\PollInterval;
 use RobotCouncil\Support\TaskList;
 
 /**
@@ -51,16 +53,19 @@ final class FleetTotals extends Component
      * query load by five.
      */
     #[Locked]
-    public int $pollSeconds = Dashboard::DEFAULT_POLL_SECONDS;
+    public int $pollSeconds = PollInterval::DEFAULT;
 
     /**
      * Take the interval the index was given.
      *
-     * @param  int  $pollSeconds  How often to refresh, already validated by `Livewire\Dashboard`.
+     * @param  Repository  $config  The application's configuration repository.
+     * @param  int|null  $pollSeconds  The interval a parent passed, or null to read the host's.
      */
-    public function mount(int $pollSeconds = Dashboard::DEFAULT_POLL_SECONDS): void
+    public function mount(Repository $config, ?int $pollSeconds = null): void
     {
-        $this->pollSeconds = $pollSeconds;
+        // Null when a route mounted this directly rather than the overview passing it down,
+        // which is every visit now that each panel has a page of its own.
+        $this->pollSeconds = PollInterval::orConfig($pollSeconds, $config);
     }
 
     /**

@@ -21,7 +21,11 @@ use RobotCouncil\Http\Controllers\SignedOutController;
 use RobotCouncil\Http\Controllers\SignOutController;
 use RobotCouncil\Http\Middleware\DenyFraming;
 use RobotCouncil\Http\Middleware\EnsureAllowlistedDeveloper;
+use RobotCouncil\Livewire\Administration;
+use RobotCouncil\Livewire\ChangeFeed;
 use RobotCouncil\Livewire\Dashboard;
+use RobotCouncil\Livewire\FleetPresence;
+use RobotCouncil\Livewire\TaskBoard;
 use RobotCouncil\RobotCouncilServiceProvider;
 
 Route::get('auth/github/redirect', GitHubRedirectController::class)->name('auth.redirect');
@@ -39,6 +43,22 @@ Route::middleware([EnsureAllowlistedDeveloper::class, DenyFraming::class])->grou
     // The dashboard. Behind the same allowlist gate and framing refusal as the verification page,
     // because it displays the whole fleet's state to whoever reaches it.
     Route::get('dashboard', Dashboard::class)->name('dashboard');
+
+    // One page per panel, the decision on #187 as reversed there. Each is a routable Livewire
+    // component carrying its own layout, so nothing decides which panels a page mounts -- the
+    // route does, and there is no selection to keep in step.
+    //
+    // Under `dashboard/` rather than at the prefix root: a host may mount this package with an
+    // EMPTY `robot-council.routes.web_prefix`, as this package's own deployment does, and a
+    // top-level `queue` or `feed` would then sit directly in that host's own namespace.
+    //
+    // `administration` needs no gate of its own. `Livewire\Administration::mount()` refuses a
+    // developer who is not an admin, so a direct visit answers 403 from the component; a route
+    // middleware would be a second place to get the same rule right.
+    Route::get('dashboard/presence', FleetPresence::class)->name('presence');
+    Route::get('dashboard/queue', TaskBoard::class)->name('queue');
+    Route::get('dashboard/feed', ChangeFeed::class)->name('feed');
+    Route::get('dashboard/administration', Administration::class)->name('administration');
 
     // Inside the gate, because signing out is something a signed-in developer does. A developer
     // whose account has left the access lists never reaches it -- the gate ends their session on

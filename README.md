@@ -327,9 +327,24 @@ package's route files then, and the server is registered inside that same guard.
 
 ## The dashboard
 
-A signed-in developer sees the fleet's state at `{prefix}/dashboard`, behind the same access list
-and framing refusal as the verification page. The pages are Livewire components and refresh by
-polling every `robot-council.dashboard.poll_seconds` seconds, defaulting to 5. There is no
+A signed-in developer reaches the fleet's state through five pages, each behind the same access
+list and framing refusal as the verification page:
+
+| path | shows |
+| --- | --- |
+| `{prefix}/dashboard` | the fleet's totals, and the way in to the rest |
+| `{prefix}/dashboard/presence` | the agents and the locks they hold |
+| `{prefix}/dashboard/queue` | the task board |
+| `{prefix}/dashboard/feed` | the change feed |
+| `{prefix}/dashboard/administration` | the installations -- **admins only** |
+
+**Each is a page of its own, so each one pays only for what it shows.** The administration page
+refuses a non-admin from the component rather than from the route, so a direct visit answers 403
+whether or not it was linked; a host adding its own path-based gate in
+`robot-council.routes.web_middleware` still sees every one of these paths.
+
+The pages are Livewire components and refresh by polling every
+`robot-council.dashboard.poll_seconds` seconds, defaulting to 5 and bounded to 1..3600. There is no
 broadcasting: a change an agent commits is visible within one interval and no sooner.
 
 **The stylesheet is compiled here and served by the package**, at `{prefix}/dashboard.css`. A

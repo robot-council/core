@@ -12,13 +12,13 @@ declare(strict_types=1);
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 use RobotCouncil\Access\Ability;
-use RobotCouncil\Livewire\Dashboard;
 use RobotCouncil\Livewire\FleetPresence as PresencePanel;
 use RobotCouncil\Livewire\FleetTotals;
 use RobotCouncil\Livewire\TaskBoard;
 use RobotCouncil\Models\TaskStatus;
 use RobotCouncil\Support\FleetPresence;
 use RobotCouncil\Support\Locks;
+use RobotCouncil\Support\PollInterval;
 use RobotCouncil\Support\TaskList;
 use RobotCouncil\Support\Tasks;
 
@@ -174,7 +174,7 @@ it('polls itself rather than riding the index', function (): void {
     // row stale while the panels below it updated.
     Livewire::test(FleetTotals::class)
         ->assertOk()
-        ->assertSeeHtml('wire:poll.'.Dashboard::DEFAULT_POLL_SECONDS.'s');
+        ->assertSeeHtml('wire:poll.'.PollInterval::DEFAULT.'s');
 
     // And the index still carries none of its own. Comments are stripped first: the index carries
     // a `{{-- --}}` block explaining why it has no `wire:poll`, and a check that read it would fail
@@ -235,7 +235,7 @@ it('does not grow with the fleet', function (int $sessions): void {
     expect(queriesIssuedBy(fn () => Livewire::test(FleetTotals::class)))->toBe(3);
 })->with([1, 5, 20]);
 
-it('appears on the dashboard above the panels', function (): void {
+it('appears on the overview, above the way into each section', function (): void {
     $this->actingAs($this->developer, 'web');
 
     $page = $this->get(route('robot-council.dashboard'))->assertOk();
@@ -243,7 +243,7 @@ it('appears on the dashboard above the panels', function (): void {
     $html = (string) $page->getContent();
 
     $totals = strpos($html, 'Live agents');
-    $panels = strpos($html, 'id="robot-council-presence"');
+    $panels = strpos($html, route('robot-council.presence'));
 
     // **Both positions are established before they are compared.** `strpos()` answers `false` when
     // the needle is absent, and PHP compares bool against int by casting the int to bool -- so
@@ -254,7 +254,7 @@ it('appears on the dashboard above the panels', function (): void {
     // analyzer as well as fail the test: `toBeLessThan()` takes no `false`, and an expectation
     // that passes does not tell PHPStan what the variable now is.
     if (! \is_int($totals) || ! \is_int($panels)) {
-        throw new RuntimeException('The totals row and the presence panel must both be on the page before their order means anything.');
+        throw new RuntimeException('The totals row and the section links must both be on the page before their order means anything.');
     }
 
     expect($totals)->toBeLessThan($panels);
