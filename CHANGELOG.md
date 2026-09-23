@@ -2,6 +2,21 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.3.2 — Fleet Totals (2026-09-23)
+
+Fleet totals above the dashboard panels, fewer queries behind them, and a doctor that can answer one question so a deploy can gate on it.
+
+### What's new
+- Show the fleet's totals above the dashboard panels [#204](https://github.com/robot-council/core/pull/204)
+- Let `robot-council:doctor` run a subset of its checks [#208](https://github.com/robot-council/core/pull/208)
+
+### What's fixed
+- Count the installation table once, not twice [#203](https://github.com/robot-council/core/pull/203)
+- Cut the fleet presence panel from nine queries to six [#201](https://github.com/robot-council/core/pull/201)
+
+### Maintenance and tooling
+- Tell a released lock from a held one [`650273a`](https://github.com/robot-council/core/commit/650273a288ea3a6134741e7db1d9bbf887b70a4b)
+
 ## v0.3.1 — Console Shell (2026-09-23)
 
 The dashboard becomes a console: a sidebar shell, a branded light and dark theme, sign-out, and the enrollment page rendered inside it.
