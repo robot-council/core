@@ -332,13 +332,20 @@ list and framing refusal as the verification page:
 
 | path | shows |
 | --- | --- |
+| `{prefix}` | nothing of its own: a 302 to the dashboard |
 | `{prefix}/dashboard` | the fleet's totals, and the way in to the rest |
 | `{prefix}/dashboard/presence` | the agents and the locks they hold |
 | `{prefix}/dashboard/queue` | the task board |
 | `{prefix}/dashboard/feed` | the change feed |
 | `{prefix}/dashboard/administration` | the installations -- **admins only** |
 
-**Each is a page of its own, so each one pays only for what it shows.** The administration page
+**The redirect at the prefix root is not registered when `robot-council.routes.web_prefix` is
+empty.** An empty prefix mounts this package at the application root, where that route's path would
+be `/` -- which belongs to the host, and which a host serving the console at its root has already
+routed. Every other path above moves with the prefix; `robot-council.routes.api_prefix` is a
+separate key and does not.
+
+**Each page is its own, so each one pays only for what it shows.** The administration page
 refuses a non-admin from the component rather than from the route, so a direct visit answers 403
 whether or not it was linked; a host adding its own path-based gate in
 `robot-council.routes.web_middleware` still sees every one of these paths.

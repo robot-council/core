@@ -34,6 +34,7 @@ use RobotCouncil\Console\RevokeInstallationCommand;
 use RobotCouncil\Console\RevokeSessionCommand;
 use RobotCouncil\Console\SweepSessionsCommand;
 use RobotCouncil\Http\Controllers\DashboardStylesheetController;
+use RobotCouncil\Http\Controllers\PrefixRootController;
 use RobotCouncil\Http\Middleware\DenyFraming;
 use RobotCouncil\Http\Middleware\EnsureAgentSession;
 use RobotCouncil\Http\Middleware\EnsureAllowlistedDeveloper;
@@ -350,6 +351,23 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
                 Route::get('dashboard.css', DashboardStylesheetController::class)
                     ->name('dashboard.stylesheet');
             });
+
+        // The prefix's own root, sent to the dashboard so it behaves the way the site root already
+        // does on a host that redirects there.
+        //
+        // **Registered only when the prefix is non-empty, and the guard is the point of it.** An
+        // empty `web_prefix` mounts this package at the application root, where this route's path
+        // would be `/` -- which belongs to the host and which a host that wanted the console there
+        // has already routed. Registering it anyway would put two routes on one path, and the
+        // winner would be decided by which provider booted first. The deployment runs an empty
+        // prefix, so this is the live configuration rather than a defensive branch.
+        if ($webPrefix !== '') {
+            Route::prefix($webPrefix)
+                ->name('robot-council.')
+                ->group(function (): void {
+                    Route::get('/', PrefixRootController::class)->name('prefix-root');
+                });
+        }
 
         Route::middleware($webMiddleware)
             ->prefix($webPrefix)
