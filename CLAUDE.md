@@ -19,7 +19,7 @@ A **Laravel package** (`robot-council/core`), not an application. It is the core
   can fail on this** -- SQLite serializes writers, so `$enrolled->id`, a locked `MAX(id)`, and an
   unlocked one are the same number on one connection. Telling them apart needs the
   `cross-connection` group. A related consequence worth knowing before it reads as a bug: paging is
-  `id > cursor`, so a session never sees its own `session.enrolled` event while every other session
+  `id > cursor`, so a session never sees its own `session.started` event while every other session
   does.
 - **A queued job dispatched from inside a transaction must not be allowed to throw.** `DatabaseTransactionRecord::executeCallbacks()` has no try/catch and Laravel runs it *after* the commit, so anything thrown there escapes `DB::transaction()` with the row already durably written. `SlackMirror` therefore queues from its own `DB::afterCommit()` callback with the try/catch inside it: an unreachable queue must not turn a committed enrollment into a 500.
 - **Presence is written by `Support\SessionPresence`, and every write is conditional on the ROW.** A

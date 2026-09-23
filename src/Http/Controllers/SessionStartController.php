@@ -32,7 +32,7 @@ final class SessionStartController
         $request->validate([
             // The same restricted character set `harness` and `machine_label` carry, and for a
             // stronger reason: those two are shown to one developer on the verification page,
-            // while this reaches every agent in the fleet through the `session.enrolled` event,
+            // while this reaches every agent in the fleet through the `session.started` event,
             // from a credential that holds no ability beyond starting sessions. Event content is
             // untrusted input to an agent that may have shell access.
             'project_id' => ['nullable', 'string', 'max:128', 'regex:/^[A-Za-z0-9._\/-]{1,128}$/D'],
