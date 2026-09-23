@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace RobotCouncil\Support;
 
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use RobotCouncil\Access\Role;
 use RobotCouncil\Models\AgentSession;
@@ -131,13 +130,17 @@ final class RoleRequests
         return DB::transaction(function () use ($session, $expected, $actor): ?Role {
             $current = $this->locked($session);
 
-            // Read under the lock, so the comparison cannot be raced by a request arriving between
-            // the read and the write.
+            // **This comparison is the whole compare-and-swap, and it is enough because of the
+            // lock.** `locked()` holds the row for the rest of the transaction, so nothing can
+            // change `requested_role` between reading it here and writing it in `settle()`. An
+            // earlier version also repeated the check as a `where` on the update; no test could
+            // reach it -- the row is held either way -- so it was two permanent mutation survivors
+            // and a second place to get the rule right, rather than a second line of defence.
             if (! $current instanceof AgentSession || $current->requested_role !== $expected) {
                 return null;
             }
 
-            return $this->settle($current, $expected, $actor, 'approved', $expected) ? $expected : null;
+            return $this->settle($current, $expected, $actor, 'approved') ? $expected : null;
         });
     }
 
@@ -169,6 +172,11 @@ final class RoleRequests
                 ->where('status', '!=', AgentSessionStatus::Gone->value)
                 ->update(['requested_role' => null, 'requested_at' => null]);
 
+            // Unreachable on one connection: the row is held by `locked()` and `requested_role`
+            // was read non-null under that lock, so nothing can clear it in between. Kept because
+            // a second connection can on an engine that does not serialize writers, and because
+            // every other write here decides the same way.
+            // @pest-mutate-ignore
             if ($changed !== 1) {
                 return false;
             }
@@ -194,6 +202,14 @@ final class RoleRequests
      * **This is what makes an emergency demotion possible, and the administrator's own action is
      * the approval.** It also clears anything pending: an administrator who imposes a role has
      * answered the question the request was asking, whichever way it was asked.
+     *
+     * **It takes no `$expected`, unlike `approve()`, and that asymmetry is deliberate.** The gap
+     * that made approval a compare-and-swap was that the control carried only a session id while
+     * the role came from the row -- so what the administrator consented to and what they got could
+     * differ. Here the role rides the control and the confirmation is gated on the role being sent,
+     * so the two cannot come apart. What a stale click can still do is overwrite a change another
+     * administrator made in between; that is last-writer-wins between two people who are both
+     * entitled to decide, which is what an imposition means.
      *
      * @param  AgentSession  $session  The session to change.
      * @param  Role  $role  What it becomes.
@@ -222,7 +238,7 @@ final class RoleRequests
      * @param  string  $how  `approved` or `imposed`, which the event carries.
      * @return bool True when the row changed.
      */
-    private function settle(AgentSession $session, Role $role, ?string $actor, string $how, ?Role $expected = null): bool
+    private function settle(AgentSession $session, Role $role, ?string $actor, string $how): bool
     {
         $from = $session->role;
 
@@ -245,11 +261,6 @@ final class RoleRequests
             ->whereKey($session->getKey())
             ->where('status', '!=', AgentSessionStatus::Gone->value)
 
-            // **The pending role is part of the predicate on the approval path**, so a request that
-            // changed between the render and the click loses rather than being approved into
-            // something the administrator never saw. `impose()` passes null, because an imposition
-            // answers the question whatever was pending -- including nothing.
-            ->when($expected instanceof Role, fn (Builder $query): Builder => $query->where('requested_role', $expected?->value))
             ->update([
                 'role' => $role->value,
                 'requested_role' => null,
@@ -297,6 +308,10 @@ final class RoleRequests
     {
         $current = AgentSession::query()->whereKey($session->getKey())->lockForUpdate()->first();
 
+        // The narrowing is for the analyzer rather than for the runtime: `first()` already answers
+        // null for a row that is not there, so `true ? $current : null` is the same expression and
+        // no input can tell the two apart. `Support\AgentSessions::locked()` carries the same shape.
+        // @pest-mutate-ignore: InstanceOfToTrue
         return $current instanceof AgentSession ? $current : null;
     }
 

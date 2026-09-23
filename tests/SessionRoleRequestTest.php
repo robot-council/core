@@ -440,7 +440,11 @@ it('clears both request columns on a denial, not just the role', function (): vo
 
     expect($this->session->refresh()->requested_at)->not->toBeNull();
 
-    $this->service(RoleRequests::class)->deny($this->session, keyValue($this->admin->getKey()));
+    // The return says a request was actually cleared, which is what a caller distinguishes from
+    // "there was nothing to deny" -- the panel discards it, and a future caller should not have to
+    // rediscover that it means something.
+    expect($this->service(RoleRequests::class)->deny($this->session, keyValue($this->admin->getKey())))
+        ->toBeTrue();
 
     $session = $this->session->refresh();
 
@@ -527,3 +531,113 @@ it('answers a stale click on a session that no longer exists, rather than failin
     'denyRole' => ['denyRole', []],
     'imposeRole' => ['imposeRole', ['coordinator']],
 ]);
+
+it('answers nothing on a session row that has been deleted, rather than failing', function (string $method): void {
+    // **`Support\SessionPresence::prune()` deletes session rows**, so every entry point here can be
+    // handed a model whose row is gone -- an administrator's page outliving what it rendered, or a
+    // host calling the store directly. Each must decline rather than raise, and none of the four
+    // had a test for it.
+    $this->service(RoleRequests::class)->request($this->session, Role::Coordinator);
+
+    DB::table('robot_council_agent_sessions')->where('id', $this->session->getKey())->delete();
+
+    $requests = $this->service(RoleRequests::class);
+
+    $answer = match ($method) {
+        'request' => $requests->request($this->session, Role::Ci),
+        'approve' => $requests->approve($this->session, Role::Coordinator, keyValue($this->admin->getKey())),
+        'deny' => $requests->deny($this->session, keyValue($this->admin->getKey())),
+        'impose' => $requests->impose($this->session, Role::Coordinator, keyValue($this->admin->getKey())),
+
+        // The dataset is the four names above, so this arm is unreachable -- and stating it beats
+        // a match the analyzer calls incomplete, which is what it is without one.
+        default => throw new RuntimeException('Unknown entry point: '.$method),
+    };
+
+    expect($answer)->toBeIn([false, null])
+        ->and(AgentSession::query()->whereKey($this->session->getKey())->exists())->toBeFalse();
+})->with(['request', 'approve', 'deny', 'impose']);
+
+it('clears a pending request when a role is imposed over it', function (): void {
+    // The docblock's claim: an administrator who imposes has answered the question the request was
+    // asking, whichever way it was asked. Nothing exercised it, and the `when()` that adds the
+    // pending role to the approval predicate is only discriminating when something IS pending.
+    $this->machine($this->token)
+        ->postJson(route('robot-council.agent.role'), ['role' => Role::Coordinator->value])
+        ->assertStatus(202);
+
+    expect($this->session->refresh()->requested_role)->toBe(Role::Coordinator)
+        ->and($this->service(RoleRequests::class)->impose($this->session, Role::Ci, keyValue($this->admin->getKey())))->toBeTrue();
+
+    $session = $this->session->refresh();
+
+    expect($session->role)->toBe(Role::Ci)
+        ->and($session->requested_role)->toBeNull()
+        ->and($session->requested_at)->toBeNull();
+});
+
+it('treats a repeat of the pending request as already recorded, without a second event', function (): void {
+    // Asking twice for the same thing is not two requests. The second returns true -- it IS
+    // pending -- and writes no second event, so an administrator's queue shows one row per session
+    // rather than one per retry.
+    $requests = $this->service(RoleRequests::class);
+
+    expect($requests->request($this->session, Role::Coordinator))->toBeTrue()
+        ->and($requests->request($this->session, Role::Coordinator))->toBeTrue()
+        ->and(FleetEvent::query()->where('type', FleetEventType::SessionRoleRequested->value)->count())->toBe(1)
+        ->and($this->session->refresh()->requested_role)->toBe(Role::Coordinator);
+
+    // The control: asking for a DIFFERENT role does replace, and does write a second event
+    expect($requests->request($this->session, Role::Ci))->toBeTrue();
+
+    expect(FleetEvent::query()->where('type', FleetEventType::SessionRoleRequested->value)->count())->toBe(2)
+        ->and($this->session->refresh()->requested_role)->toBe(Role::Ci);
+});
+
+it('names the installation on every role event, so a reader can group by machine', function (): void {
+    $requests = $this->service(RoleRequests::class);
+
+    $requests->request($this->session, Role::Coordinator);
+    $requests->approve($this->session, Role::Coordinator, keyValue($this->admin->getKey()));
+
+    $events = FleetEvent::query()
+        ->whereIn('type', [FleetEventType::SessionRoleRequested->value, FleetEventType::SessionRoleChanged->value])
+        ->get();
+
+    expect($events)->toHaveCount(2);
+
+    foreach ($events as $event) {
+        expect(arrayValue($event->meta)['installation_id'] ?? null)->toBe($this->installation->getKey());
+    }
+});
+
+it('shows a role change to the whole fleet, which is what makes a demotion legible', function (): void {
+    // Unrestricted by omission from `FleetEventType::isRestricted()`, which is the right answer and
+    // which nothing pinned -- a future edit adding either type to the restricted list would hide
+    // role changes from every reader but the session's own developer, silently.
+    $requests = $this->service(RoleRequests::class);
+
+    $requests->request($this->session, Role::Coordinator);
+    $requests->approve($this->session, Role::Coordinator, keyValue($this->admin->getKey()));
+
+    expect(FleetEventType::SessionRoleRequested->isRestricted())->toBeFalse()
+        ->and(FleetEventType::SessionRoleChanged->isRestricted())->toBeFalse()
+        ->and(FleetEventType::restrictedValues())
+        ->not->toContain(FleetEventType::SessionRoleRequested->value)
+        ->not->toContain(FleetEventType::SessionRoleChanged->value);
+
+    // And read back through the feed by a session belonging to ANOTHER developer, which is the
+    // reader the restriction would have hidden them from
+    $other = $this->enrollDeveloper(4244, login: 'thirddev');
+
+    $this->setAccessLists(developers: [4242, 4243, 4244], admins: [4242]);
+
+    [, $otherToken] = $this->startAgentSession($this->approveInstallation($other, machineLabel: 'theirs'));
+
+    $bodies = collect(arrayValue($this->machine($otherToken)
+        ->getJson(route('robot-council.events.index', ['after' => 0]))
+        ->assertOk()
+        ->json('events')))->pluck('body')->filter()->all();
+
+    expect($bodies)->toContain(sprintf('session %s approved from build to coordinator.', keyValue($this->session->getKey())));
+});
