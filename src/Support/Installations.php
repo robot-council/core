@@ -10,6 +10,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use RobotCouncil\Access\Ability;
+use RobotCouncil\Access\Role;
 use RobotCouncil\Access\Tokens;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
@@ -199,16 +200,20 @@ final class Installations
     }
 
     /**
-     * Add or remove one ability on an installation, and on the session tokens already in flight.
+     * Add or remove one ability on an installation, and demote any live session it no longer
+     * qualifies to run.
      *
-     * Rewriting the live tokens is the point: a session token lives for an hour, so leaving them
-     * alone would let a revoked ability keep working until every process happened to renew.
+     * Acting on the sessions already in flight is the point: a session token lives for an hour, so
+     * leaving them alone would let a revoked ability keep working until every process happened to
+     * renew. What changed with roles is *how* -- the role is narrowed and the token re-minted from
+     * its preset, rather than the installation's ability list being written over the token. See
+     * `demoteSessions()` for why, and for why the reverse direction does nothing.
      *
      * @param  Installation  $installation  The installation to re-scope.
      * @param  Ability  $ability  The ability to add or remove.
      * @param  bool  $granted  True to add it, false to remove it.
      * @param  string|null  $actor  The developer making the change, when a signed-in one is.
-     * @return int How many live session tokens were rewritten.
+     * @return int How many live session tokens were re-minted.
      */
     public function setAbility(Installation $installation, Ability $ability, bool $granted, ?string $actor = null): int
     {
@@ -262,6 +267,19 @@ final class Installations
 
             $installation->forceFill(['granted_abilities' => $abilities])->save();
 
+            // **The roles BEFORE the event, and the tokens after it, because the sentinel sits
+            // between them in the lock order.** `record()` takes `robot_council_feed_lock` and
+            // holds it to the end of this transaction -- a nested `DB::transaction` is a SAVEPOINT
+            // and releasing one frees no row locks -- so a write to `robot_council_agent_sessions`
+            // after this line would take the 2nd row in the order while holding the 5th.
+            // `Support\Locks::acquire()` takes exactly those two the documented way round, session
+            // row first, so the pair deadlocks on Postgres and InnoDB: an agent acquiring a lock
+            // waits on the sentinel while an admin revoking `coordinator:direct` waits on that
+            // agent's session row. **No test in this suite can show it**, because SQLite
+            // serializes writers -- and `setAbility()` does not retry, so the engine choosing the
+            // revocation as the victim would roll an admin's security action back with a 500.
+            $demoted = $this->narrowRoles($installation, $abilities);
+
             // Recorded before the tokens are rewritten, for the lock order `revoke()` records
             $this->record(
                 $installation,
@@ -271,18 +289,81 @@ final class Installations
                 $actor
             );
 
-            $rewritten = 0;
+            return $this->reMintTokens($demoted);
+        });
+    }
 
-            foreach ($this->sessionsOf($installation) as $session) {
-                foreach ($session->tokens()->get() as $token) {
-                    $token->forceFill(['abilities' => $abilities])->save();
+    /**
+     * Narrow every live session whose role this installation may no longer run.
+     *
+     * **This is what an ability change now reaches, and it is deliberately the only thing.**
+     * A session's abilities come from its role's preset (`robot-council/core#221`), so writing the
+     * installation's ability list onto a live token would put the two sources back into
+     * disagreement -- the token would carry one thing and the next renewal would mint another. What
+     * an admin still administers is eligibility: taking `coordinator:direct` off a machine means
+     * that machine may not run a coordinator, and its live coordinator sessions become `build`.
+     *
+     * **The ROLE never widens.** Granting `coordinator:direct` makes the machine's NEXT session a
+     * coordinator and leaves the running ones alone, because a role is chosen when a session
+     * starts. That is the safe direction of the two, and the direction a running agent can do
+     * nothing surprising with.
+     *
+     * **`reMintTokens()` below is not bound by that, and the difference is worth knowing.** It
+     * writes the new role's whole preset, so a token minted before #221 carrying fewer abilities
+     * than its role's preset is widened by a demotion. That is the legacy shape healing one
+     * renewal earlier than it otherwise would rather than a grant, and it cannot reach
+     * `coordinator:direct`, which is the only ability a demotion removes.
+     *
+     * Splitting the write from the re-mint is the lock order, not style; `setAbility()` records
+     * why.
+     *
+     * @param  Installation  $installation  The installation whose abilities have just changed.
+     * @param  list<string>  $abilities  What it holds now.
+     * @return list<array{AgentSession, Role}> The sessions whose role moved, and their new role.
+     */
+    private function narrowRoles(Installation $installation, array $abilities): array
+    {
+        $demoted = [];
 
-                    $rewritten++;
-                }
+        foreach ($this->sessionsOf($installation) as $session) {
+            $narrowed = $session->role->narrowedBy($abilities);
+
+            if ($narrowed === $session->role) {
+                continue;
             }
 
-            return $rewritten;
-        });
+            $session->forceFill(['role' => $narrowed])->save();
+
+            $demoted[] = [$session, $narrowed];
+        }
+
+        return $demoted;
+    }
+
+    /**
+     * Re-mint the live tokens of the sessions whose role just moved.
+     *
+     * Taken after the feed sentinel, because `personal_access_tokens` is the last row in the lock
+     * order and the sentinel is the one before it. A role that did not move re-mints nothing, so
+     * granting an ability every preset already carries rewrites no token and the returned count
+     * says so.
+     *
+     * @param  list<array{AgentSession, Role}>  $demoted  The sessions whose role moved.
+     * @return int How many live session tokens were re-minted.
+     */
+    private function reMintTokens(array $demoted): int
+    {
+        $rewritten = 0;
+
+        foreach ($demoted as [$session, $role]) {
+            foreach ($session->tokens()->get() as $token) {
+                $token->forceFill(['abilities' => $role->tokenAbilities()])->save();
+
+                $rewritten++;
+            }
+        }
+
+        return $rewritten;
     }
 
     /**

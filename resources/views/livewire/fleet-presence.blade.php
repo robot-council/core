@@ -36,6 +36,7 @@
                                 <th>Developer</th>
                                 <th>Machine</th>
                                 <th>Project</th>
+                                <th>Role</th>
                                 <th>Status</th>
                                 <th>Last seen</th>
                             </tr>
@@ -73,6 +74,16 @@
                                         @else
                                             {{ $session['project_id'] }}
                                         @endif
+                                    </td>
+
+                                    {{-- What this session is for, which is the session's own and no
+                                         longer its machine's: one harness runs several checkouts,
+                                         and before roles they all held identical authority with
+                                         nothing here saying so. A fixed set of three, so it cannot
+                                         carry anything a developer supplied -- escaped anyway,
+                                         because nothing on this page is not. --}}
+                                    <td>
+                                        <span class="badge badge-sm badge-outline">{{ $session['role'] }}</span>
                                     </td>
 
                                     {{-- Read from the row, which #24 made the decision, rather than

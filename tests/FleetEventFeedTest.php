@@ -39,7 +39,13 @@ beforeEach(function (): void {
  * Start a session for a developer, with the abilities its token should carry.
  *
  * @param  User  $developer  Whose session it is.
- * @param  list<string>  $abilities  What its token carries.
+ * @param  list<string>  $abilities  What the INSTALLATION is granted, which since
+ *                                   `robot-council/core#221` is not what the token carries: the
+ *                                   token gets its `Access\Role` preset, so every non-coordinator
+ *                                   call here yields all four build abilities. Only
+ *                                   `coordinator:direct` still changes what the session holds.
+ *                                   For a genuinely narrow token use
+ *                                   `TestCase::startAgentSessionWithAbilities()`.
  * @return array{AgentSession, string} The session and its token.
  */
 function sessionFor(TestCase $case, User $developer, array $abilities): array
@@ -50,7 +56,12 @@ function sessionFor(TestCase $case, User $developer, array $abilities): array
 }
 
 it('refuses narration from a session whose token lacks the ability', function (): void {
-    [, $token] = sessionFor($this, $this->mine, [Ability::TasksCreate->value]);
+    // The token is built to lack it, rather than the installation being narrowed: since
+    // `Access\Role`, `events:post` is in every preset, so a session started under a narrowed
+    // installation carries it and this test would assert nothing.
+    $installation = $this->approveInstallation($this->mine, [Ability::TasksCreate->value], machineLabel: 'm-narrow');
+
+    [, $token] = $this->startAgentSessionWithAbilities($installation, [Ability::TasksCreate->value]);
 
     $this->machine($token)
         ->postJson(route('robot-council.events.store'), ['body' => 'working on it'])

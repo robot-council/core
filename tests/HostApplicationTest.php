@@ -18,6 +18,7 @@ use Illuminate\Foundation\Auth\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use RobotCouncil\Access\Ability;
+use RobotCouncil\Access\Role;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\Installation;
 use RobotCouncil\RobotCouncilServiceProvider;
@@ -134,15 +135,23 @@ it('narrows a stored ability the fixed list no longer holds', function (): void 
 
     $started = $this->machine($credential)->postJson(route('robot-council.sessions.start'))->assertCreated();
 
-    expect($started->json('abilities'))->toBe([Ability::TasksCreate->value]);
+    // **The token is the `build` preset, and `*` is not in it.** Since #221 the session's
+    // abilities no longer come from this column at all, which makes the property stronger rather
+    // than weaker: the malformed row cannot reach the token by any route. Asserted as the exact
+    // list and then again for `*` by name, because a subset assertion would pass while `*` sat
+    // anywhere past the first element.
+    expect($started->json('abilities'))->toBe(Role::Build->tokenAbilities())
+        ->and($started->json('abilities'))->not->toContain('*');
 
     $token = stringValue($started->json('token'));
 
     $this->machine($token)
         ->getJson(route('robot-council.agent.session'))
         ->assertOk()
-        ->assertJson(['abilities' => [Ability::TasksCreate->value]]);
+        ->assertJsonPath('abilities', Role::Build->tokenAbilities());
 
+    // The narrowing the accessor does is still the installation-level property, and this is where
+    // it is now observable: the stored row keeps `*` and `tasks:delete`, and neither is read back.
     expect(AgentSession::query()->sole()->installation_id)->toBe($installation->id)
         ->and(Installation::query()->sole()->abilities())->toBe([Ability::TasksCreate->value]);
 });

@@ -39,6 +39,11 @@ final class AgentSessionController
             'session_id' => $session->getKey(),
             'installation_id' => $session->installation_id,
             'status' => $session->status->value,
+
+            // What this session is for, and the reason `abilities` below says what it says. A
+            // bridge that reported only the ability list could tell a developer what it may do and
+            // not why, which is the difference between "ask an admin" and "this is a build agent".
+            'role' => $session->role->value,
             'project_id' => $session->project_id,
 
             // Read from the row rather than from this instance, which the guard hydrated before

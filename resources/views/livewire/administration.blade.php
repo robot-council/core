@@ -125,6 +125,12 @@
                                         class="flex flex-wrap items-center gap-2 text-xs">
                                         <span class="badge badge-sm">{{ $session['status'] }}</span>
 
+                                        {{-- Beside the installation's abilities above rather than
+                                             instead of them, because the two are now different
+                                             questions: what this machine is eligible for, and what
+                                             this one process is. --}}
+                                        <span class="badge badge-sm badge-outline">{{ $session['role'] }}</span>
+
                                         @if (($session['project_id'] ?? null) === null)
                                             {{-- Dimmer than this measured 3.38:1 in the light theme
                                                  against the 4.5:1 this size needs. Still fainter

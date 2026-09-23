@@ -173,6 +173,11 @@ final class InstallationList
                 // records: the row is the decision every conditional update in the package makes.
                 'status' => $session->status->value,
 
+                // What this session may do, which since roles is no longer answered by the
+                // installation's `abilities` above. Both are shown because they are now different
+                // questions: what this machine is eligible for, and what this process is.
+                'role' => $session->role->value,
+
                 // Agent-supplied, charset-limited at the edge by `ProjectId`, and escaped by the
                 // view like every other string that reached this package from a machine
                 'project_id' => $session->project_id,

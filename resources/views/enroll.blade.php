@@ -85,14 +85,28 @@
                                  the claim it is. `Models\DeviceCode::requestedAbilities()` drops anything
                                  that is not text (#167) and `Support\DeviceCodes::issue()` drops anything
                                  outside the requestable list (#170), so a row whose every entry was
-                                 dropped arrives here as nothing to show. Approving one grants nothing. --}}
+                                 dropped arrives here as nothing to show. --}}
                             <ul class="list-inside list-disc">
                                 @forelse ($code->requestedAbilities() as $ability)
                                     <li><code>{{ $ability }}</code></li>
                                 @empty
-                                    <li>Nothing this server recognizes. Approving grants no abilities.</li>
+                                    <li>Nothing this server recognizes.</li>
                                 @endforelse
                             </ul>
+
+                            {{-- **What approval actually grants, which is no longer the list above.** Since
+                                 #221 a session's abilities come from its role's preset, so approving this
+                                 machine lets its agents create and claim tasks, take locks, and narrate,
+                                 whichever subset was asked for. Saying so here rather than leaving the list
+                                 to imply a narrower grant: this page is the only description the approving
+                                 developer gets, and a consent surface that describes a mechanism the server
+                                 stopped using is worse than no list at all. Posting directives is not in it
+                                 and cannot be asked for. --}}
+                            <p class="mt-2 text-sm opacity-70">
+                                Approving lets this machine's agents create and claim tasks, take
+                                locks, and post narration, whatever the list above says. Directing
+                                other developers' agents is not included and cannot be requested.
+                            </p>
                         </dd>
                     </dl>
 

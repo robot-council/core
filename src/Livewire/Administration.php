@@ -130,7 +130,13 @@ final class Administration extends Component
     }
 
     /**
-     * Give an installation one ability, and rewrite the session tokens already in flight.
+     * Give an installation one ability.
+     *
+     * **It does not reach a session that is already running, and since `robot-council/core#221`
+     * it does not decide what one holds either.** A session's abilities come from its
+     * `Access\Role` preset; this list decides which roles the MACHINE may run, so granting
+     * `coordinator:direct` makes its next session a coordinator and leaves the running ones
+     * alone. Granting any other ability changes what is stored and nothing else.
      *
      * @param  int  $installationId  The installation to re-scope.
      * @param  string  $ability  The ability to grant, as the rendered control named it.
@@ -141,7 +147,13 @@ final class Administration extends Component
     }
 
     /**
-     * Take one ability away from an installation, and from the tokens already in flight.
+     * Take one ability away from an installation, and demote any live session it no longer
+     * qualifies to run.
+     *
+     * **Only `coordinator:direct` reaches a running session**, because it is the only ability a
+     * role turns on. Revoking one of the four an enrollment may request changes the stored list
+     * and nothing about any session, now or later -- `Access\Role`'s presets carry all four
+     * whatever this column says. `robot-council/core#223` retires these controls.
      *
      * @param  int  $installationId  The installation to re-scope.
      * @param  string  $ability  The ability to revoke, as the rendered control named it.

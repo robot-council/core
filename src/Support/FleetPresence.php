@@ -125,6 +125,11 @@ final class FleetPresence
                 'harness' => $session->installation->harness,
                 'machine_label' => $session->installation->machine_label,
 
+                // The session's own, not the installation's. That is the whole point of the
+                // column: one machine runs several checkouts from one harness, and before roles
+                // every one of them had identical authority with nothing on the page saying so.
+                'role' => $session->role->value,
+
                 // Null for a session started without one, and rendered as such rather than filled in.
                 // It reaches the page as an agent-supplied string, which is why `ProjectId` bounds its
                 // charset at the edge and why the view escapes it like every other one.

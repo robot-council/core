@@ -22,6 +22,7 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\DB;
 use RobotCouncil\Access\Ability;
+use RobotCouncil\Access\Role;
 use RobotCouncil\Models\DeviceCode;
 use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\FleetEventType;
@@ -171,16 +172,19 @@ it('stores the remaining abilities as a list after removing the first of three',
         Ability::EventsPost->value,
     ]);
 
-    // A live session, so the return value is the count of tokens rewritten rather than zero.
-    // `setAbility()`'s own docblock says that is what it returns; what is worth saying here is the
-    // consequence -- `0` means both "nothing to do" and "done, and no session held a token", so a
-    // caller cannot read it as a success flag. `Console\Concerns\ManagesAbilities` prints it
-    // verbatim and `Livewire\Administration` discards it, so neither is misled today.
-    $this->startAgentSession($installation);
+    // A live session, whose token this deliberately does NOT re-mint. Since #221 the return value
+    // counts tokens re-minted by a demotion, and `tasks:create` gates no role -- so `0` here is the
+    // correct answer and the column write below is the subject. That widens an ambiguity worth
+    // naming: `0` now means "nothing to do", "no session held a token", **and** "the change moved
+    // no role", so a caller cannot read it as a success flag at all.
+    // `Console\Concerns\ManagesAbilities` prints it verbatim and `Livewire\Administration`
+    // discards it, so neither is misled today.
+    [$session] = $this->startAgentSession($installation);
 
     expect($this->service(Installations::class)
         ->setAbility($installation, Ability::TasksCreate, false, keyValue($this->admin->getKey())))
-        ->toBe(1);
+        ->toBe(0)
+        ->and($session->refresh()->role)->toBe(Role::Build);
 
     // The RAW column, because the cast on the way out would hide a keyed write.
     $stored = DB::table('robot_council_installations')->where('id', $installation->id)->value('granted_abilities');

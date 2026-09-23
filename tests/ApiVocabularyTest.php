@@ -18,6 +18,7 @@ declare(strict_types=1);
 
 use Illuminate\Foundation\Auth\User;
 use RobotCouncil\Access\Ability;
+use RobotCouncil\Access\Role;
 use RobotCouncil\Tests\TestCase;
 
 beforeEach(function (): void {
@@ -114,12 +115,18 @@ it('makes `abilities` describe the token beside it, everywhere', function (): vo
     // An installation credential can do one thing, and says so about itself
     expect($responses['device/token']['abilities'])->toBe([Ability::SessionsStart->value])
 
-        // while `granted_abilities` describes the session tokens it will start, which is the list
-        // the developer approved. Two different tokens, so two different keys.
+        // while `granted_abilities` describes the INSTALLATION, which is a different subject and
+        // therefore a different key. Since #221 it no longer describes the session tokens it will
+        // start either -- it says which roles this machine may run -- so the two keys are further
+        // apart than they were, not closer.
         ->and($responses['device/token']['granted_abilities'])->toBe([Ability::TasksCreate->value]);
 
-    expect($responses['sessions']['abilities'])->toBe([Ability::TasksCreate->value])
-        ->and($responses['sessions/renew']['abilities'])->toBe([Ability::TasksCreate->value]);
+    // Both session responses describe their own token, which is the role's preset. The point of
+    // the assertion is that `abilities` is never the installation's list: it is not, and these
+    // two lists are now visibly different from the one above.
+    expect($responses['sessions']['abilities'])->toBe(Role::Build->tokenAbilities())
+        ->and($responses['sessions/renew']['abilities'])->toBe(Role::Build->tokenAbilities())
+        ->and($responses['sessions']['abilities'])->not->toBe($responses['device/token']['granted_abilities']);
 });
 
 it('answers 201 where it creates something and 200 where it replaces one', function (): void {
