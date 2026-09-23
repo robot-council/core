@@ -2,13 +2,22 @@
     No `wire:poll` here. Each panel polls itself, and a parent refresh does not re-execute a child
     component -- Livewire spoofs an already-rendered child into a placeholder -- so a poll on this
     element would be a round trip that changes nothing.
+
+    Each panel is wrapped in a section the sidebar's jump links target. `scroll-mt-20` keeps the
+    heading clear of the sticky header, which would otherwise cover whatever was jumped to.
 --}}
 <div class="grid gap-4">
-    <livewire:robot-council-fleet-presence :poll-seconds="$pollSeconds" />
+    <section id="robot-council-presence" class="scroll-mt-20">
+        <livewire:robot-council-fleet-presence :poll-seconds="$pollSeconds" />
+    </section>
 
-    <livewire:robot-council-task-board :poll-seconds="$pollSeconds" />
+    <section id="robot-council-queue" class="scroll-mt-20">
+        <livewire:robot-council-task-board :poll-seconds="$pollSeconds" />
+    </section>
 
-    <livewire:robot-council-change-feed :poll-seconds="$pollSeconds" />
+    <section id="robot-council-change-feed" class="scroll-mt-20">
+        <livewire:robot-council-change-feed :poll-seconds="$pollSeconds" />
+    </section>
 
     {{--
         Mounted only for an admin, so a developer who may see the dashboard never renders a panel
@@ -21,6 +30,8 @@
         panel from a real admin on a host where those differ.
     --}}
     @if ($isAdmin)
-        <livewire:robot-council-administration :poll-seconds="$pollSeconds" />
+        <section id="robot-council-administration" class="scroll-mt-20">
+            <livewire:robot-council-administration :poll-seconds="$pollSeconds" />
+        </section>
     @endif
 </div>
