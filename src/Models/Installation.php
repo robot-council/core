@@ -8,6 +8,7 @@ use Illuminate\Auth\Authenticatable;
 use Illuminate\Contracts\Auth\Authenticatable as AuthenticatableContract;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -94,6 +95,28 @@ final class Installation extends Model implements AuthenticatableContract
     public function isUsable(): bool
     {
         return $this->revoked_at === null && $this->expires_at->isFuture();
+    }
+
+    /**
+     * The installations that may still act, as a query.
+     *
+     * **The set-level half of `isUsable()`, and the two have to keep agreeing.** A row-level
+     * predicate cannot bound a read and a `where` cannot answer for a model already in hand, so
+     * both forms exist; they are adjacent, and `InstallationUsableTest` asserts that the query
+     * returns exactly the rows `isUsable()` answers true for, because a drift between them would
+     * be invisible -- each is correct on its own terms and only the disagreement is the defect.
+     *
+     * `Carbon::now()` rather than a fixed clock, because `expires_at` is written on the
+     * application's clock by `Support\Credentials` and compared against it by Sanctum. Moving
+     * one side alone is what #149 declined to do.
+     *
+     * @return Builder<static> The installations neither revoked nor past their expiry.
+     */
+    public static function usable(): Builder
+    {
+        return self::query()
+            ->whereNull('revoked_at')
+            ->where('expires_at', '>', Carbon::now());
     }
 
     /**

@@ -78,7 +78,7 @@ it('passes every check on a configuration with nothing wrong with it', function 
     ));
 
     expect($failed)->toBeEmpty()
-        ->and(app(Doctor::class)->examine())->toHaveCount(8);
+        ->and(app(Doctor::class)->examine())->toHaveCount(9);
 });
 
 it('fails when the sanctum guard names no provider, and passes when it does', function (): void {

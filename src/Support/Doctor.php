@@ -7,6 +7,7 @@ namespace RobotCouncil\Support;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use RobotCouncil\Access\Ability;
 use RobotCouncil\Access\Allowlist;
 use Throwable;
 
@@ -42,10 +43,12 @@ final class Doctor
      * @param  Repository  $config  The host's configuration.
      * @param  Allowlist  $allowlist  Read rather than re-parsed, so this cannot disagree with the
      *                                thing it is checking.
+     * @param  Installations  $installations  The fleet's installations, for the coordination check.
      */
     public function __construct(
         private readonly Repository $config,
-        private readonly Allowlist $allowlist
+        private readonly Allowlist $allowlist,
+        private readonly Installations $installations
     ) {}
 
     /**
@@ -61,6 +64,7 @@ final class Doctor
             $this->migrations(),
             $this->queue(),
             $this->developers(),
+            $this->coordination(),
             $this->slackConnection(),
             $this->timezone(),
             $this->slackWebhook(),
@@ -281,6 +285,49 @@ final class Doctor
         return Diagnosis::passed(
             'developer allowlist',
             sprintf('%d GitHub account(s) may sign in.', \count($developers))
+        );
+    }
+
+    /**
+     * Whether anything on this fleet can reach a waiting agent.
+     *
+     * **A fleet can be wired correctly and still deliver nothing.** The CLI's follower treats a
+     * directive as the one event that always reaches an idle agent, and posting one needs
+     * `coordinator:direct`, which enrollment can never request. Unless an admin has granted it to
+     * some installation, every stop hook on the fleet finds an empty sink forever -- and an empty
+     * sink is byte-identical to a fleet that genuinely has nothing to say, which is why nothing
+     * reports it today.
+     *
+     * **It passes when the answer is no.** A fleet whose agents only ever receive is a legitimate
+     * configuration, and a check that failed on one would be a check people switch off. What it
+     * does is say which of the two a deployment is, so the absence is not read as quiet.
+     *
+     * @return Diagnosis What the check concluded.
+     */
+    private function coordination(): Diagnosis
+    {
+        try {
+            $anyone = $this->installations->anyHolds(Ability::CoordinatorDirect);
+        } catch (Throwable) {
+            return Diagnosis::undetermined(
+                'fleet coordination',
+                'The installations table could not be read, so whether anything on this fleet can post a '
+                .'directive is unknown. Run `php artisan migrate` first.'
+            );
+        }
+
+        if (! $anyone) {
+            return Diagnosis::passed(
+                'fleet coordination',
+                'No installation holds `coordinator:direct`, so no directive can be posted and nothing '
+                .'will reach an agent waiting on one. That is correct for a fleet whose agents only '
+                .'receive. Grant it with `php artisan robot-council:grant-ability` if it is not.'
+            );
+        }
+
+        return Diagnosis::passed(
+            'fleet coordination',
+            'At least one installation holds `coordinator:direct`, so a directive can reach a waiting agent.'
         );
     }
 
