@@ -29,7 +29,15 @@
 
     <link rel="stylesheet" href="{{ route('robot-council.dashboard.stylesheet') }}">
 
-    @livewireStyles
+    {{--
+        Only where a page mounts a component. The enrollment page mounts none, and it is the page
+        that decides whether a machine joins the fleet -- the fewer scripts loaded there, the
+        smaller the surface on the one page whose whole job is a human decision. Defaults to true,
+        so a page that says nothing keeps what the dashboard has always had.
+    --}}
+    @if ($livewireAssets ?? true)
+        @livewireStyles
+    @endif
 </head>
 <body class="min-h-screen bg-base-200 font-sans antialiased">
     <div class="drawer lg:drawer-open">
@@ -120,6 +128,8 @@
         </div>
     </div>
 
-    @livewireScripts
+    @if ($livewireAssets ?? true)
+        @livewireScripts
+    @endif
 </body>
 </html>

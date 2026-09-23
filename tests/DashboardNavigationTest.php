@@ -14,6 +14,7 @@ declare(strict_types=1);
  */
 
 use Illuminate\Support\Facades\Auth;
+use Livewire\Features\SupportAutoInjectedAssets\SupportAutoInjectedAssets;
 
 beforeEach(function (): void {
     $this->migrateUsersTableWithPackageColumns();
@@ -51,6 +52,39 @@ function anchorTagFor(string|false $html, string $url): string
     $matched = preg_match('/<a\\s[^>]*href="'.preg_quote($url, '/').'"[^>]*>/', (string) $html, $found);
 
     return $matched === 1 ? $found[0] : '';
+}
+
+/**
+ * Forget that a Livewire component rendered earlier in this test process.
+ *
+ * `SupportAutoInjectedAssets::$hasRenderedAComponentThisRequest` is a **static**, set in
+ * `dehydrate()` when a component renders and cleared on Livewire's `flush-state` event. One test
+ * process keeps one application and that event does not fire between the requests a test makes, so
+ * a test that rendered the dashboard leaves the flag set and the next page -- which renders no
+ * component at all -- has assets injected into it by `shouldInjectLivewireAssets()`.
+ *
+ * Production is unaffected: the flag is per request there, and a request for the enrollment page
+ * renders no component. The reset exists so this assertion measures what production does rather
+ * than which order the suite happened to run in. It is the same leak `DashboardShellTest` resets
+ * for `SupportDisablingBackButtonCache`.
+ */
+function withoutLivewiresAutoInjectedAssets(): void
+{
+    SupportAutoInjectedAssets::$hasRenderedAComponentThisRequest = false;
+    SupportAutoInjectedAssets::$forceAssetInjection = false;
+}
+
+/**
+ * Every script and style tag a page emits.
+ *
+ * @param  string|false  $html  The rendered page.
+ * @return list<string> The opening tags, in document order.
+ */
+function tagsIn(string|false $html): array
+{
+    preg_match_all('/<script[^>]*>|<style[^>]*>/i', (string) $html, $found);
+
+    return $found[0];
 }
 
 it('links to every page a signed-in developer can reach', function (): void {
@@ -242,4 +276,71 @@ it('remembers where an unauthenticated visitor was going, but only when it can r
         ->assertRedirect(route('robot-council.auth.redirect'));
 
     expect(session('url.intended'))->toBeNull();
+});
+
+it('renders the enrollment page inside the same shell', function (): void {
+    $page = $this->actingAs($this->developer, 'web')
+        ->get(route('robot-council.enroll.show'))
+        ->assertOk();
+
+    // The shell's own furniture, not the page's: before #189 this page was a standalone document
+    // with its own inline `<style>` and no way back to anywhere
+    $page->assertSeeHtml(route('robot-council.dashboard'))
+        ->assertSeeHtml(route('robot-council.dashboard.stylesheet'))
+        ->assertSeeHtml('drawer-toggle')
+        ->assertSeeHtml('Sign out');
+
+    // And the page's own content is still there
+    $page->assertSee('Approve a machine')
+        ->assertSee('The code shown on that machine');
+});
+
+it('marks the enrollment page as current when that is the page being shown', function (): void {
+    $page = $this->actingAs($this->developer, 'web')
+        ->get(route('robot-council.enroll.show'))
+        ->assertOk();
+
+    // The mirror of the dashboard's case, and only testable now that this page uses the layout
+    $enrollTag = anchorTagFor($page->getContent(), route('robot-council.enroll.show'));
+    $overviewTag = anchorTagFor($page->getContent(), route('robot-council.dashboard'));
+
+    expect($enrollTag)->toContain('aria-current="page"')
+        ->and($enrollTag)->toContain('menu-active')
+        ->and($overviewTag)->not->toContain('aria-current')
+        ->and($overviewTag)->not->toContain('menu-active');
+});
+
+it('offers the on-page jump links only on the page they jump within', function (): void {
+    // They are anchors into the overview's stacked panels, so anywhere else they lead nowhere
+    $this->actingAs($this->developer, 'web')
+        ->get(route('robot-council.enroll.show'))
+        ->assertOk()
+        ->assertDontSeeHtml('href="#robot-council-presence"')
+        ->assertDontSeeHtml('href="#robot-council-queue"');
+});
+
+it('loads no script on the page whose whole job is a human decision', function (): void {
+    // The enrollment page mounts no Livewire component, so it declines Livewire's assets. Asserted
+    // as "no script or style tag at all" rather than against an asset's name: Livewire 4 serves its
+    // script from a per-application randomized path (`/livewire-<hex>/livewire.min.js`) and the
+    // filename itself changes with debug mode, so a name-shaped assertion is a trap -- the first
+    // draft of this test asserted `livewire.js` and failed against `livewire.min.js`.
+    //
+    // The dashboard is asserted in the same test, because "no script here" means nothing beside a
+    // page that loads none either: without the second half, a broken check reads as a pass.
+    withoutLivewiresAutoInjectedAssets();
+
+    $enroll = $this->actingAs($this->developer, 'web')
+        ->get(route('robot-council.enroll.show'))
+        ->assertOk();
+
+    expect(tagsIn($enroll->getContent()))->toBeEmpty();
+
+    forgetResolvedGuards();
+
+    $dashboard = $this->actingAs($this->developer, 'web')
+        ->get(route('robot-council.dashboard'))
+        ->assertOk();
+
+    expect(tagsIn($dashboard->getContent()))->not->toBeEmpty();
 });
