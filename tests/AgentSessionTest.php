@@ -101,14 +101,28 @@ it('measures the session token lifetime from the request, not from whenever it i
 });
 
 it('authenticates an agent route as the session, not as the developer', function (): void {
-    [$session, $token] = $this->startAgentSession($this->installation);
+    // **A second installation, so the two ids in the body DIFFER.** The shared fixture approves one
+    // installation and starts one session against a freshly migrated database, so both keys are
+    // `1` -- and an assertion comparing `1` against `1` on both sides cannot tell the two
+    // expressions apart. Measured for `robot-council/core#283`: swapping `session_id` and
+    // `installation_id` in `Http\Controllers\AgentSessionController` left the whole suite green,
+    // `Tests: 24 skipped, 1246 passed`, exit 0. This is the one assertion that names the session's
+    // own id back to it, which is what the route exists for.
+    $installation = $this->approveInstallation($this->developer, machineLabel: 'second-machine');
+
+    [$session, $token] = $this->startAgentSession($installation);
+
+    // The fixture's property, asserted rather than assumed. Without this a later change that
+    // collapses the two ids back together restores the blind spot silently, and the swap goes
+    // green again with nothing to show for it.
+    expect($session->getKey())->not->toBe($installation->getKey());
 
     $this->machine($token)
         ->getJson(route('robot-council.agent.session'))
         ->assertOk()
         ->assertJson([
             'session_id' => $session->getKey(),
-            'installation_id' => $this->installation->getKey(),
+            'installation_id' => $installation->getKey(),
             'status' => 'active',
             'role' => Role::Build->value,
         ])
