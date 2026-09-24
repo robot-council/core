@@ -24,6 +24,7 @@ use RobotCouncil\Http\Controllers\DeveloperSettingsController;
 use RobotCouncil\Http\Controllers\DeviceCodeController;
 use RobotCouncil\Http\Controllers\DeviceTokenController;
 use RobotCouncil\Http\Controllers\FleetFeedController;
+use RobotCouncil\Http\Controllers\LaneHoldController;
 use RobotCouncil\Http\Controllers\ListTasksController;
 use RobotCouncil\Http\Controllers\LockController;
 use RobotCouncil\Http\Controllers\PostDirectiveController;
@@ -109,6 +110,16 @@ Route::middleware(['throttle:'.RobotCouncilServiceProvider::AGENT_LIMITER, Ensur
         Route::get('developers/settings', DeveloperSettingsController::class)
             ->middleware(RequireAbility::class.':'.Ability::CoordinatorDirect->value)
             ->name('developers.settings');
+
+        // Why a lane is idle on purpose (#334). The coordinator's record, so its ability alone
+        Route::post('lanes/{session}/hold', [LaneHoldController::class, 'store'])
+            ->where('session', RobotCouncilServiceProvider::ROUTE_ID)
+            ->middleware(RequireAbility::class.':'.Ability::CoordinatorDirect->value)
+            ->name('lanes.hold');
+        Route::delete('lanes/{session}/hold', [LaneHoldController::class, 'destroy'])
+            ->where('session', RobotCouncilServiceProvider::ROUTE_ID)
+            ->middleware(RequireAbility::class.':'.Ability::CoordinatorDirect->value)
+            ->name('lanes.clear-hold');
 
         // Every agent sees every task: an agent cannot decide whether to claim work it cannot see,
         // and a queue half the fleet is blind to is a queue that deadlocks. What narrows a task is

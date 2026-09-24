@@ -33,8 +33,9 @@ A **Laravel package** (`robot-council/core`), not an application. It is the core
   takes no overlap lock -- one would fail worse than the problem, holding for its whole expiry after
   a killed run and marking nothing gone meanwhile.
 - **Lock order is `robot_council_installations`, then `robot_council_agent_sessions`, then
-  `robot_council_locks`, then `robot_council_lock_fence`, then the feed sentinel, then
-  `robot_council_event_addressees`, then `personal_access_tokens`.** Every path that touches more than one takes them in that
+  `robot_council_locks`, then `robot_council_lock_fence`, then `robot_council_tasks`, then
+  `robot_council_lane_holds`, then the feed sentinel, then `robot_council_event_addressees`, then
+  `personal_access_tokens`.** Every path that touches more than one takes them in that
   order. Two paths taking the same two rows in opposite orders deadlock on every engine that locks
   rows, which is all of them but SQLite -- and SQLite serializes writers, so no test in this suite can
   show it. `AgentSessions::renew()` and `Installations::revoke()` both had to be reordered for this.

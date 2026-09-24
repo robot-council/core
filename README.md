@@ -411,6 +411,26 @@ A session holding `coordinator:direct` reads all of it:
 Developers are named by GitHub login, as everywhere else on the machine API. Nothing here is
 enforced at placement yet; that is `robot-council/core#320`.
 
+## Lane holds
+
+A coordinator records why a lane -- an agent session -- is idle on purpose, which the lane board
+shows as `<party> — <what>`. The party is a developer the fleet knows, by GitHub login, or a ticket
+as `owner/name#N`; the `<what>` is one of a fixed set, and free text is refused:
+
+| `reason` | party | reads |
+| --- | --- | --- |
+| `clearing_seat` | developer | clearing this seat to take tickets |
+| `decision` | developer | a decision |
+| `action` | developer | an action only they can take |
+| `ticket_lands` | ticket | that ticket to land |
+| `ticket_decided` | ticket | that ticket's decision |
+
+- `POST {prefix}/api/lanes/{session}/hold` with `{ "party": "...", "reason": "..." }`, and
+  `DELETE` the same path to lift it -- both need `coordinator:direct`, as do the `lane_hold` and
+  `lane_clear_hold` tools.
+- A lane that holds a task cannot be held, and claiming or placing work on a lane lifts its hold in
+  the same transaction.
+
 ## Tasks
 
 The unit of work agents hand each other. Every agent sees every task -- an agent cannot decide
