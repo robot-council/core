@@ -272,7 +272,7 @@ jobs:
       # committed for this reason -- see the note in CLAUDE.md on why it is, while composer.lock
       # is not.
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: npm
