@@ -486,7 +486,10 @@ as well as the held statuses, so a coordinator can put unclaimed work in a parti
 hands. It **requires** a `directive` -- what to tell that session -- which is written to the change
 feed in the same transaction as the placement, so neither commits without the other; a request
 without one is refused with 422. `hand_back: true` marks the placement as a gate returning a pull
-request to the lane that made it. The session named in `session_id` must pass the same eligibility
+request to the lane that made it. **`expect: "pending"` makes a placement insist the task is still
+unclaimed:** if a lane claimed it meanwhile, the placement writes nothing and answers 409, so the
+coordinator re-reads rather than taking the task from that lane. Without it, a placement moves a
+task a lane already holds, and that lane learns so from `task.reassigned`. The session named in `session_id` must pass the same eligibility
 rule a claimant does, so a coordinator cannot hand one developer's own task to another developer's
 session; that answers 403. `start` accepts an optional `branch`, the branch the lane is working on.
 

@@ -6,6 +6,7 @@ namespace RobotCouncil\Mcp\Tools;
 
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Http\Request as HttpRequest;
+use Illuminate\Validation\Rule;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\ResponseFactory;
@@ -63,12 +64,15 @@ final class TaskTransitionTool extends Tool
 
         return sprintf(
             'Move a task to `%s`. Works only from %s, and answers a conflict from anywhere else -- '
-                .'including when another agent got there first. Needs `%s`.%s',
+                .'including when another agent got there first. Needs `%s`.%s%s',
             $this->transition->to()->value,
             $from,
             $this->transition->ability()->value,
             $this->transition->needsTheClaim()
                 ? ' Only the session holding the task may do this.'
+                : '',
+            $this->transition === TaskTransition::Reassign
+                ? ' Pass `expect: "pending"` when placing unclaimed work, so a lane that claimed it first keeps it.'
                 : ''
         );
     }
@@ -96,6 +100,9 @@ final class TaskTransitionTool extends Tool
                 ->max(FleetEvent::MAX_BODY)
                 ->description('What to tell the session you are handing the task to. Written to the fleet in the same step as the handover, so the session is never holding work nobody told it about.')
                 ->required();
+            $arguments['expect'] = $schema->string()
+                ->enum(TaskStatus::values($this->transition->startsFrom()))
+                ->description('The status you read the task in. Set `pending` when placing unclaimed work, so that if a lane claimed it meanwhile nothing is taken from that lane and you get a conflict to re-read instead.');
             $arguments['hand_back'] = $schema->boolean()
                 ->description("True when this returns a gate's pull request to the lane that made it, rather than placing new work.");
         }
@@ -153,6 +160,9 @@ final class TaskTransitionTool extends Tool
             'hand_back' => $this->transition->takesADirective()
                 ? ['sometimes', 'boolean']
                 : ['prohibited'],
+            'expect' => $this->transition === TaskTransition::Reassign
+                ? ['sometimes', 'nullable', 'string', Rule::in(TaskStatus::values($this->transition->startsFrom()))]
+                : ['prohibited'],
             'branch' => $this->transition->takesABranch()
                 ? ['sometimes', 'nullable', 'string', 'max:'.BranchName::MAX, 'regex:'.BranchName::PATTERN]
                 : ['prohibited'],
@@ -190,7 +200,8 @@ final class TaskTransitionTool extends Tool
             // `trim()` as the HTTP path's `filled()` does: a host that removed the framework's
             // `TrimStrings` would otherwise hand the store a blank branch, which it refuses with an
             // exception the agent reads as an internal error
-            \is_string($branch) && trim($branch) !== '' ? $branch : null
+            \is_string($branch) && trim($branch) !== '' ? $branch : null,
+            \is_string($request->get('expect')) ? TaskStatus::tryFrom($request->get('expect')) : null
         );
 
         // A refusal is an error, not a result. A client cannot tell a result that describes a

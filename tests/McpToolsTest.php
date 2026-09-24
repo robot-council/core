@@ -836,3 +836,22 @@ it('refuses task_branch from a session that does not hold the task', function ()
         ->toBe('This session does not hold that task.')
         ->and(Task::query()->findOrFail($taskId)->branch)->toBeNull();
 });
+
+it('leaves a task with the lane that claimed it when task_reassign insists on pending', function (): void {
+    $taskId = $this->createClaimedTask();
+    [$lane] = $this->startAgentSession($this->installation);
+
+    expect(toolError(callTool($this, mcpCoordinatorToken($this), 'task_reassign', [
+        'task_id' => $taskId, 'session_id' => $lane->getKey(), 'directive' => 'Take this.', 'expect' => 'pending',
+    ])))->toContain('is not in a status')
+        ->and(Task::query()->findOrFail($taskId)->claimed_by)->toBe($this->session->getKey());
+});
+
+it('refuses expect on a tool that is not task_reassign', function (): void {
+    $taskId = $this->createClaimedTask();
+
+    $body = callTool($this, $this->token, 'task_start', ['task_id' => $taskId, 'expect' => 'claimed']);
+
+    expect(Task::query()->findOrFail($taskId)->status->value)->toBe('claimed')
+        ->and(json_encode($body, JSON_THROW_ON_ERROR))->toContain('expect');
+});
