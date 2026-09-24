@@ -17,6 +17,7 @@ use RobotCouncil\Mcp\Arguments;
 use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\FleetEventType;
 use RobotCouncil\Support\FleetEvents;
+use RobotCouncil\Support\NarrationAddressees;
 
 /**
  * Says what this agent is doing.
@@ -48,7 +49,9 @@ final class PostNarrationTool extends Tool
     {
         return 'Say what you are doing, for other agents to read. Needs `events:post`. Your narration '
             ."reaches your own developer's sessions only, unless you hold `coordinator:direct`, in "
-            .'which case it reaches the whole fleet.';
+            .'which case it reaches the whole fleet. Name sessions in `to`, or tasks in `to_tasks` to '
+            .'reach whoever holds each task now, and those sessions read it too, whatever developer '
+            .'they belong to.';
     }
 
     /**
@@ -62,6 +65,16 @@ final class PostNarrationTool extends Tool
         return [
             'body' => $schema->string()->max(FleetEvent::MAX_BODY)->description('What you are doing.')->required(),
             'meta' => $schema->object()->description('Structured detail. Bounded in size.'),
+            'to' => $schema->array()
+                ->items($schema->integer()->min(1))
+                ->max(NarrationAddressees::MAX)
+                ->unique()
+                ->description('Session ids that should read this, whatever developer they belong to. Optional.'),
+            'to_tasks' => $schema->array()
+                ->items($schema->integer()->min(1))
+                ->max(NarrationAddressees::MAX)
+                ->unique()
+                ->description('Task ids whose current holders should read this. Optional.'),
         ];
     }
 
@@ -82,19 +95,29 @@ final class PostNarrationTool extends Tool
         $request->validate([
             'body' => ['required', 'string', 'max:'.FleetEvent::MAX_BODY],
             'meta' => ['sometimes', 'array', new BoundedMeta],
+            'to' => ['sometimes', 'array', 'max:'.NarrationAddressees::MAX],
+            'to.*' => ['integer', 'min:1'],
+            'to_tasks' => ['sometimes', 'array', 'max:'.NarrationAddressees::MAX],
+            'to_tasks.*' => ['integer', 'min:1'],
         ]);
 
-        $meta = Arguments::structure($request->get('meta'));
+        $session = $this->session($http);
+        $asCoordinator = $this->allows($http, Ability::CoordinatorDirect);
+
+        // Resolved before the event is recorded, so a narration naming anything unreachable writes
+        // nothing at all
+        $addressees = NarrationAddressees::resolve($request->get('to'), $request->get('to_tasks'), $session, $asCoordinator);
 
         $event = $events->record(
             FleetEventType::Narration,
-            $this->session($http),
+            $session,
             Arguments::string($request->get('body')),
 
-            // Under `client`, so nothing a caller sent can later be mistaken for something the
-            // server derived
-            $meta === null ? [] : ['client' => $meta],
-            $this->allows($http, Ability::CoordinatorDirect)
+            // What the client sent goes under `client`, so nothing a caller sent can later be
+            // mistaken for something the server derived
+            NarrationAddressees::meta(Arguments::structure($request->get('meta')), $addressees),
+            $asCoordinator,
+            addressees: $addressees['sessions']
         );
 
         return Response::structured(['event_id' => $event->id, 'type' => $event->type->value]);

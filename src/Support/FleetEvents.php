@@ -38,6 +38,11 @@ final class FleetEvents
     public const string LOCK_TABLE = 'robot_council_feed_lock';
 
     /**
+     * The table recording which sessions an event was addressed to (#315).
+     */
+    public const string ADDRESSEE_TABLE = 'robot_council_event_addressees';
+
+    /**
      * The row every writer locks. There is only ever one.
      */
     public const int LOCK_ROW = 1;
@@ -74,6 +79,8 @@ final class FleetEvents
      * @param  bool  $withCoordinator  Whether the session held `coordinator:direct` as it posted.
      * @param  string|null  $actor  The signed-in developer who made this happen, when one did.
      * @param  string|null  $subject  The developer the event is about, when no session says who.
+     * @param  list<AgentSession>  $addressees  The sessions it is addressed to, which read it whatever
+     *                                          developer they belong to.
      * @return FleetEvent The recorded event.
      *
      * @throws InvalidArgumentException When the body is longer than `FleetEvent::MAX_BODY`.
@@ -86,7 +93,8 @@ final class FleetEvents
         array $meta = [],
         bool $withCoordinator = false,
         ?string $actor = null,
-        ?string $subject = null
+        ?string $subject = null,
+        array $addressees = []
     ): FleetEvent {
         // Bounded here rather than where the branch below reads it, so an unusable key is refused
         // whether or not a session was also passed. `user_id` is `varchar(64)`, which Postgres
@@ -111,7 +119,7 @@ final class FleetEvents
         // A savepoint when a caller already has a transaction open, which is the ordinary case:
         // the event and the state change it records commit or roll back together. The advisory
         // lock below is scoped to the outermost transaction either way.
-        return DB::transaction(function () use ($type, $session, $body, $meta, $withCoordinator, $actor, $subject): FleetEvent {
+        return DB::transaction(function () use ($type, $session, $body, $meta, $withCoordinator, $actor, $subject, $addressees): FleetEvent {
             $this->holdTheFeed();
 
             $event = FleetEvent::query()->create([
@@ -150,6 +158,21 @@ final class FleetEvents
                 // ability later must not hide what was said while it was held
                 'posted_with_coordinator' => $withCoordinator,
             ]);
+
+            // In the same transaction as the event, so an addressed narration is never visible
+            // without its addressees or the other way round. Each row carries the addressee's
+            // developer beside its session id, read off the session now, because session ids are
+            // reused and the feed's filter matches both.
+            if ($addressees !== []) {
+                DB::table(self::ADDRESSEE_TABLE)->insert(array_map(
+                    static fn (AgentSession $addressee): array => [
+                        'event_id' => $event->id,
+                        'agent_session_id' => $addressee->id,
+                        'user_id' => HostKey::from($addressee->user_id),
+                    ],
+                    $addressees
+                ));
+            }
 
             $this->slack->mirror($event);
 
@@ -196,6 +219,9 @@ final class FleetEvents
             if ($ids === []) {
                 break;
             }
+
+            // The addressees first, because they hold a foreign key to the event
+            DB::table(self::ADDRESSEE_TABLE)->whereIn('event_id', $ids)->delete();
 
             FleetEvent::query()->whereIn('id', $ids)->delete();
 
