@@ -58,17 +58,17 @@
                                          the repository is what a reader groups by.
 
                                          **Every stored combination renders, and that is the point
-                                         rather than tidiness.** The three fields are independently
+                                         rather than tidiness.** Both fields are independently
                                          nullable, which is an acceptance criterion, so a session
                                          naming only a location is a shape the endpoint accepts. An
                                          earlier version gated the whole cell on the repository and
                                          printed `none` for exactly that row -- the page asserting a
                                          session named nothing when it had named something, and the
                                          one field the split exists for the least visible of the
-                                         three. Absent is still shown as absent, and all three are
+                                         two. Absent is still shown as absent, and both are
                                          agent-supplied and escaped. --}}
                                     <td class="text-xs">
-                                        @php($where = $session['repository'] ?? $session['project_id'] ?? null)
+                                        @php($where = $session['repository'] ?? null)
 
                                         @if ($where !== null)
                                             <div>{{ $where }}</div>

@@ -222,9 +222,8 @@ final class InstallationList
                 'requested_role' => $session->requested_role?->value,
                 'requested_at' => $session->requested_at?->toIso8601String(),
 
-                // Agent-supplied, charset-limited at the edge by `ProjectId`, and escaped by the
-                // view like every other string that reached this package from a machine
-                'project_id' => $session->project_id,
+                // Agent-supplied, charset-limited at the edge by `WorkIdentity`, and escaped by
+                // the view like every other string that reached this package from a machine
                 'repository' => $session->repository,
                 'work_location' => $session->work_location,
             ])->all()),

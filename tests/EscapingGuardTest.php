@@ -844,7 +844,7 @@ it('refuses a value concatenated INSIDE a pass-through helper, which a literal f
     // The worked case is this package's own: `Support\ProjectId::PATTERN` admits `/`, and the test
     // above asserts `//evil.example/steal` matches it. `UrlGenerator::to()` returns its argument
     // verbatim when `isValidUrl()` accepts it, and that accepts anything opening `//`. So
-    // `url('/' . $session->project_id)` renders an off-site link built from an agent-supplied
+    // `url('/' . $task->project_id)` renders an off-site link built from an agent-supplied
     // string, through a helper whose name is on the allowlist.
     expect(urlAttributeInterpolations('<a href="{{ url(\'/\' . $project) }}">go</a>'))
         ->toBe(['href="url(\'/\' . $project)"'])

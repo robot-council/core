@@ -114,7 +114,7 @@ it('shows a session that named only a work location, rather than calling it no p
     // session named nothing when it had named the one field the split exists for.
     [, $session] = installationWithSession($this, $this->developer);
 
-    $session->forceFill(['project_id' => null, 'repository' => null, 'work_location' => 'primary'])->save();
+    $session->forceFill(['repository' => null, 'work_location' => 'primary'])->save();
 
     Livewire::actingAs($this->admin)
         ->test(Administration::class)

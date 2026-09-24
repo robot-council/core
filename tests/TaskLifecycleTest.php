@@ -27,7 +27,6 @@ use RobotCouncil\Models\FleetEventType;
 use RobotCouncil\Models\Task;
 use RobotCouncil\Models\TaskStatus;
 use RobotCouncil\Models\TaskTransition;
-use RobotCouncil\Support\AgentSessions;
 use RobotCouncil\Support\Outcome;
 use RobotCouncil\Support\ProjectId;
 use RobotCouncil\Support\RoleRequests;
@@ -1476,17 +1475,8 @@ it('refuses text and identifiers the package will not store, through the store n
     expect(Task::query()->whereKey($accented->id)->sole()->title)->toHaveLength(Task::MAX_TITLE);
 });
 
-it('bounds a project id on the session store too, which writes the same column', function (): void {
-    // `robot_council_agent_sessions.project_id` is the second table holding this value, and
-    // `AgentSessions::start()` is as directly callable as `Tasks::create()`.
-    $installation = $this->approveInstallation($this->developer, machineLabel: 'second');
-
-    expect(fn (): object => $this->service(AgentSessions::class)
-        ->start($installation, str_repeat('z', ProjectId::MAX + 1)))
-        ->toThrow(InvalidArgumentException::class);
-
-    // The control: a project id inside the bound starts a session, so the refusal is the bound
-    $issued = $this->service(AgentSessions::class)->start($installation, 'robot-council/core');
-
-    expect($issued->owner->getKey())->toBeInt();
-});
+// **The session-store sibling of the test above is gone, and deliberately.**
+// `robot-council/core#285` dropped `robot_council_agent_sessions.project_id`, so this table is the
+// only one holding the value and `Support\Tasks::create()` the only store that calls
+// `ProjectId::ensure()`. What a session names is bounded by `Support\WorkIdentity` instead, and
+// `tests/SessionWorkIdentityTest.php` holds that store's equivalent.

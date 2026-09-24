@@ -49,11 +49,12 @@ final class AgentSessionController
             // refused" -- the two look identical from the role alone, and a client that could not
             // tell them apart would either ask forever or give up the first time.
             'requested_role' => $session->requested_role?->value,
-            'project_id' => $session->project_id,
 
-            // Where the work is, as two fields rather than one label a reader has to parse.
-            // `project_id` stays beside them until the epic's final slice retires it, so a client
-            // that reads only the old key keeps working.
+            // Where the work is, as two fields rather than one label a reader has to parse. The
+            // label itself is gone (`robot-council/core#285`): no released client ever read it back
+            // -- across `v0.1.0` through `main`, the client's only non-comment use of the key is in
+            // the request it sends -- so retiring it costs no reader. A client that still SENDS one
+            // is translated by `SessionStartController`, and reads the result here.
             'repository' => $session->repository,
             'work_location' => $session->work_location,
 

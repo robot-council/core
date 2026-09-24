@@ -56,7 +56,7 @@ it('cannot start a session while another connection holds the feed, so it sees n
         // The control. A start with nobody holding the sentinel succeeds and hands back the
         // enrollment event's own id -- so a refusal below is the held lock and not something else
         // about starting a session in this fixture.
-        $first = app(AgentSessions::class)->start($this->installation, null);
+        $first = app(AgentSessions::class)->start($this->installation);
 
         expect($first->feedCursor)->toBe(
             FleetEvent::query()->where('type', FleetEventType::SessionJoined->value)->max('id')
@@ -96,7 +96,7 @@ it('cannot start a session while another connection holds the feed, so it sees n
         // does not get as far as reading one. That is why an unlocked `max('id')` in its place is
         // equivalent rather than dangerous -- and it is exactly what stops holding if the sentinel
         // is dropped, taken after the insert, or downgraded to a shared lock.
-        expect(fn () => app(AgentSessions::class)->start($this->installation, null))
+        expect(fn () => app(AgentSessions::class)->start($this->installation))
             ->toThrow(QueryException::class);
 
         // And it refused rather than half-committing: no session row and no enrollment event.
@@ -129,7 +129,7 @@ it("hands back the enrollment event's own id, not the head before it", function 
 
     $headBefore = (int) (\is_numeric($headBefore) ? $headBefore : 0);
 
-    $issued = app(AgentSessions::class)->start($this->installation, null);
+    $issued = app(AgentSessions::class)->start($this->installation);
 
     $enrolled = FleetEvent::query()
         ->where('type', FleetEventType::SessionJoined->value)
