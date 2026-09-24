@@ -191,7 +191,7 @@ it('follows a reassigned task to its new holder, and stops reaching the old one'
         ->postJson(route('robot-council.events.store'), ['body' => 'first note', 'to_tasks' => [$task->id]])
         ->assertCreated();
 
-    expect($this->service(Tasks::class)->transition($task->id, TaskTransition::Reassign, $coordinator, true, $after))
+    expect($this->service(Tasks::class)->transition($task->id, TaskTransition::Reassign, $coordinator, true, $after, directive: 'take this over'))
         ->toBe(Outcome::Applied);
 
     $this->machine($ciToken)
