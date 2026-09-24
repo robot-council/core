@@ -414,9 +414,17 @@ def prime_pr_cache(nums, repo):
         # whole batch uncached, and an earlier draft of this guard stayed silent for all three --
         # it asked whether GraphQL had complained rather than whether anything had come back.
         if not data:
-            errs = payload.get("errors") or []
-            why = (f"{errs[0].get('type') or 'error'}: {errs[0].get('message', '')[:160]}"
-                   if errs else f"no data, gh exit {r.returncode}, {len(r.stdout)} bytes of stdout")
+            # **Every shape here is read defensively, because this branch exists to REPORT a
+            # failure and must not become one.** GraphQL's specification says `errors` is a list of
+            # objects with a string `message`, so each of these violates it -- but the response
+            # that reaches this line is by definition one that already went wrong, and five such
+            # shapes turned the warning into a `KeyError`, an `AttributeError` or a `TypeError`
+            # (#293). Before the warning existed they cached a miss quietly, so the guard made the
+            # bad case worse, which is the one thing a guard must not do.
+            errs = payload.get("errors")
+            first = errs[0] if isinstance(errs, list) and errs and isinstance(errs[0], dict) else None
+            why = (f"{first.get('type') or 'error'}: {str(first.get('message') or '')[:160]}"
+                   if first else f"no data, gh exit {r.returncode}, {len(r.stdout)} bytes of stdout")
             print(f"warning: the pull-request query returned no data for #{batch[0]}-#{batch[-1]} "
                   f"({why}). Those bullets will fall back to commit subjects and carry no links.",
                   file=sys.stderr)
@@ -427,7 +435,9 @@ def prime_pr_cache(nums, repo):
                 _pr_cache[n] = (None, (), ())
                 continue
             cir = node.get("closingIssuesReferences") or {}
-            issues = cir.get("nodes") or []
+            # A `null` entry in `nodes` is dropped rather than walked: the loop below reads
+            # `.get()` on each, and one null crashed the whole run (#293).
+            issues = [iss for iss in (cir.get("nodes") or []) if isinstance(iss, dict)]
             # The page is 20 and nothing orders it, so a pull request closing more than that would
             # have its types decided by an ordering nobody pinned -- and since #268 the type can
             # decide the bucket, where before it could only lose a label. Reported, never guessed.
