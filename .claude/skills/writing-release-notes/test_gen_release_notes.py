@@ -617,3 +617,14 @@ class RepoDerivation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DeliberateFailureProvingTheJobGates(unittest.TestCase):
+    """TEMPORARY. Removed in the next commit.
+
+    #295's third criterion asks that the job be shown to FAIL, not watched to pass. This is that
+    proof: it exists for exactly one CI run, and its removal is the commit after.
+    """
+
+    def test_this_must_turn_the_generator_job_red(self):
+        self.assertEqual(1, 2, "deliberate: proving the generator job gates ci-passed")
