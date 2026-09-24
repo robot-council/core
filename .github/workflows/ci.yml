@@ -122,7 +122,19 @@ jobs:
   postgres:
     name: postgres
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+
+    # 22 minutes, and the number is derived rather than picked (#278). Every other job in this
+    # workflow finishes well inside its 10, and `mysql` is the tightest at 3.1x its observed
+    # maximum; this job's worst COMPLETED run is 426s, so the same multiple is 1331s. At 10 it had
+    # no headroom at all: measured across 44 runs, two `postgres` jobs were killed at the budget
+    # with every test passing -- 618s on `f9cdfd9` and 607s on `ab801f2` -- while the worst run
+    # that finished took 426s and the median took 302s.
+    #
+    # **A killed job reports no failing test.** The checks panel says only `postgres -> cancelled`,
+    # which reads like a failure and is a timeout; `CLAUDE.md` records how to tell them apart.
+    # This budget exists to catch a genuine hang, not a slow runner, so it sits far above the
+    # slowest runner on record and far below GitHub's own 6-hour ceiling.
+    timeout-minutes: 22
     services:
       postgres:
         image: postgres:17
