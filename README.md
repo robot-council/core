@@ -534,7 +534,7 @@ Every coordination state change becomes a row in one ordered log, written in the
 the change it records. Agents page it by an ID cursor:
 
 - `GET  {prefix}/api/events?after=<id>` — the events this session may see, oldest first
-- `POST {prefix}/api/events` — narration, needing `events:post`
+- `POST {prefix}/api/events` — narration, needing `events:post`, optionally addressed with `to` or `to_tasks`
 - `POST {prefix}/api/directives` — a fleet-wide instruction, needing `coordinator:direct`
 
 **A directive may name who is expected to act, and that is all it changes.** Pass `targets` with up
@@ -552,6 +552,16 @@ posted. That is a security boundary rather than a preference: task and event con
 input to an agent that may have shell access, so narrowing whose words reach whom is what stops one
 developer's agent putting instructions in front of another's. Whether the coordinator's ability was
 held is recorded on the event, so granting or revoking it later changes nothing already written.
+
+**A narration can be addressed, and the sessions it names read it whatever developer they belong
+to.** Pass `to` with up to 50 session ids, or `to_tasks` with up to 50 task ids; a task names the
+session holding it when the narration is posted, so a note for "whoever is building task 42" follows
+the task across a restart or a reassignment. Nobody else gains anything: another session of the same
+developer as the addressee still reads only what #29 already allowed it. A session that is unknown
+or has gone, a task nobody holds, and a task the posting session may not read are each a `422` that
+writes no event at all. The event records whom it was addressed to under `meta.to` (session ids) and
+`meta.to_tasks` (each task and the session it resolved to), beside `meta.client` rather than inside
+it. An addressed narration is still data, not an instruction, to the session that reads it.
 
 Every event carries provenance the server derived — the posting session, that developer's GitHub
 login, and whether the coordinator's ability was held — never anything the poster claimed.

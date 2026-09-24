@@ -17,6 +17,7 @@ use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\Log;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Http\Rules\BoundedMeta;
+use RobotCouncil\Mcp\Tools\PostNarrationTool;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\FleetEventType;
@@ -342,6 +343,46 @@ it('writes a narration event that the feed records', function (): void {
         ->and(orderedMeta($event->meta))->toBe(orderedMeta(['client' => ['step' => 2]]))
         ->and($event->agent_session_id)->toBe($this->session->getKey())
         ->and($event->posted_with_coordinator)->toBeFalse();
+});
+
+it("addresses a narration to another developer's session through the tool", function (): void {
+    // #315 through the MCP surface: the tool resolves `to` exactly as the REST route does, and the
+    // named session reads the narration through `events_read` whatever developer it belongs to
+    $other = $this->enrollDeveloper(77, login: 'otherdev');
+
+    [$theirs, $theirToken] = $this->startAgentSession($this->approveInstallation($other, machineLabel: 'theirs'));
+    [, $bystanderToken] = $this->startAgentSession($this->approveInstallation($other, machineLabel: 'bystander'));
+
+    $posted = toolResult(callTool($this, $this->token, 'events_narrate', [
+        'body' => 'here is your answer',
+        'to' => [$theirs->id],
+    ]));
+
+    expect(arrayValue(FleetEvent::query()->whereKey(intValue($posted['event_id']))->sole()->meta)['to'] ?? null)
+        ->toBe([$theirs->id]);
+
+    $read = fn (string $token): array => array_column(
+        arrayValue(toolResult(callTool($this, $token, 'events_read', ['after' => 0]))['events']),
+        'body'
+    );
+
+    expect($read($theirToken))->toContain('here is your answer')
+        ->and($read($bystanderToken))->not->toContain('here is your answer');
+});
+
+it('refuses a narration addressed to a session that does not exist, and records nothing', function (): void {
+    $error = toolError(callTool($this, $this->token, 'events_narrate', ['body' => 'hello?', 'to' => [999999]]));
+
+    expect($error)->toContain('999999')
+        ->and(FleetEvent::query()->where('type', FleetEventType::Narration->value)->count())->toBe(0);
+});
+
+it('states in its description that named sessions read a narration whatever developer they belong to', function (): void {
+    $description = app(PostNarrationTool::class)->description();
+
+    expect($description)->toContain('`to`')
+        ->and($description)->toContain('`to_tasks`')
+        ->and($description)->toContain('whatever developer');
 });
 
 /**
