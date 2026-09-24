@@ -405,6 +405,41 @@ class IssueTypeGuards(unittest.TestCase):
             self.assertEqual(g.pr_issue_types(7), (), label)
             g._pr_cache.clear()
 
+    def test_a_malformed_errors_array_warns_rather_than_raising(self):
+        """The branch exists to REPORT a failure, so it must not become one (#293).
+
+        Every shape below violates GraphQL's specification, which says `errors` is a list of
+        objects carrying a string `message`. That is exactly why they reach here: the response
+        this branch reads is by definition one that already went wrong. Measured before the fix,
+        each raised instead of warning -- `KeyError: 0`, two `AttributeError`s on `'str'` and
+        `'NoneType'`, and a `TypeError` from slicing a null `message`. **Before the warning
+        existed these cached a miss quietly, so the guard made the bad case worse.**
+        """
+        shapes = {
+            "errors is an object": {"a": 1},
+            "errors is a string": "boom",
+            "an entry is a string": ["boom"],
+            "an entry is null": [None],
+            "an entry's message is null": [{"type": "X", "message": None}],
+            "an entry's message is a number": [{"type": "X", "message": 7}],
+        }
+        for label, errs in shapes.items():
+            out = self._drive(json.dumps({"data": None, "errors": errs}), returncode=1)
+            self.assertIn("warning:", out, label)
+            self.assertIn("carry no links", out, label)
+            g._pr_cache.clear()
+
+    def test_a_null_node_is_skipped_and_reported_as_truncated(self):
+        """A `null` inside `nodes` crashed the loop, which reads `.get()` on each entry (#293).
+
+        Dropping it is not enough on its own: the pull request really did close two issues and
+        only one could be read, so the run must say so rather than quietly deciding a bucket from
+        half the evidence. `totalCount` is what makes that visible.
+        """
+        out = self._drive(self._ok(2, [None, {"issueType": {"name": "Bug"}, "labels": {"nodes": []}}]))
+        self.assertIn("closes 2 issues", out)
+        self.assertEqual(g.pr_issue_types(7), ("Bug",), "the surviving node is still read")
+
     def test_a_healthy_response_warns_about_nothing(self):
         """The negative control. A guard that cries wolf is turned off within a week."""
         for label, body in {
