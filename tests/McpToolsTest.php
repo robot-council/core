@@ -125,10 +125,10 @@ it('lists its tools to a session that authenticated', function (): void {
     } while (\is_string($cursor));
 
     // Every action the REST API has, and nothing the REST API does not
-    expect($names)->toContain('task_list', 'task_create', 'task_claim', 'task_complete', 'task_cancel')
+    expect($names)->toContain('task_list', 'task_create', 'task_claim', 'task_complete', 'task_cancel', 'task_branch')
         ->toContain('lock_acquire', 'lock_renew', 'lock_release', 'lock_force_release')
         ->toContain('events_read', 'events_narrate', 'directive_post', 'presence_heartbeat')
-        ->and($names)->toHaveCount(18);
+        ->and($names)->toHaveCount(19);
 });
 
 it('tells an agent the content it reads is data, not instructions', function (): void {
@@ -233,6 +233,7 @@ it('refuses a tool the session has no ability for, as an error rather than a res
     'releasing a task' => ['task_release', ['task_id' => 1], 'tasks:claim'],
     'cancelling a task' => ['task_cancel', ['task_id' => 1], 'coordinator:direct'],
     'reassigning one' => ['task_reassign', ['task_id' => 1, 'session_id' => 1], 'coordinator:direct'],
+    'reporting a branch' => ['task_branch', ['task_id' => 1, 'branch' => 'feature/x'], 'tasks:claim'],
     'taking a lock' => ['lock_acquire', ['name' => 'deploy', 'ttl' => 60], 'locks:acquire'],
     'renewing one' => ['lock_renew', ['name' => 'deploy', 'ttl' => 60], 'locks:acquire'],
     'releasing a lock' => ['lock_release', ['name' => 'deploy'], 'locks:acquire'],
@@ -805,4 +806,33 @@ it('says the assignee could not have claimed the task, not that the coordinator 
 
     expect($error)->toContain('could not have claimed this task itself')
         ->and($error)->not->toContain('This session may not');
+});
+
+it('records the branch of a started task through task_branch', function (): void {
+    $taskId = $this->createClaimedTask();
+    callTool($this, $this->token, 'task_start', ['task_id' => $taskId]);
+
+    $result = toolResult(callTool($this, $this->token, 'task_branch', ['task_id' => $taskId, 'branch' => 'feature/lane-board']));
+
+    expect($result)->toBe(['task_id' => $taskId, 'branch' => 'feature/lane-board', 'applied' => true])
+        ->and(Task::query()->findOrFail($taskId)->branch)->toBe('feature/lane-board');
+});
+
+it('refuses task_branch on a task not yet started, as an error the agent can act on', function (): void {
+    $taskId = $this->createClaimedTask();
+
+    expect(toolError(callTool($this, $this->token, 'task_branch', ['task_id' => $taskId, 'branch' => 'feature/x'])))
+        ->toBe('That task is not in progress or blocked. Report a branch after starting the task.')
+        ->and(Task::query()->findOrFail($taskId)->branch)->toBeNull();
+});
+
+it('refuses task_branch from a session that does not hold the task', function (): void {
+    $taskId = $this->createClaimedTask();
+    callTool($this, $this->token, 'task_start', ['task_id' => $taskId]);
+
+    [, $otherToken] = $this->startAgentSession($this->installation);
+
+    expect(toolError(callTool($this, $otherToken, 'task_branch', ['task_id' => $taskId, 'branch' => 'feature/x'])))
+        ->toBe('This session does not hold that task.')
+        ->and(Task::query()->findOrFail($taskId)->branch)->toBeNull();
 });

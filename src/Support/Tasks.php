@@ -192,6 +192,58 @@ final class Tasks
     }
 
     /**
+     * Record the branch the lane holding a task is working on, after it has started.
+     *
+     * **After the start rather than at it, which is `robot-council/cli#238`'s decision.** At
+     * `start` a lane has usually not made its branch yet, so what its checkout says then is `main`
+     * or a reused worktree's previous branch -- a wrong value that looks authoritative on the lane
+     * board. The lane knows its branch once it has made one, so it reports it then, and a second
+     * report replaces the first, which is how a renamed branch is corrected.
+     *
+     * One conditional update naming the holder and the statuses it may report from, like every
+     * other task write, so a session that does not hold the task writes nothing. It records no
+     * fleet event: a branch is read off the row by whoever renders it, and every report would
+     * otherwise be a line in every session's feed.
+     *
+     * @param  int  $taskId  The task.
+     * @param  AgentSession  $holder  The session reporting, which must hold it.
+     * @param  string  $branch  The branch, within `BranchName`.
+     * @return Outcome Applied; NotFound; Conflict for a task not in progress or blocked; Forbidden
+     *                 for a session that does not hold it.
+     *
+     * @throws InvalidArgumentException When the branch is outside `BranchName`.
+     */
+    public function reportBranch(int $taskId, AgentSession $holder, string $branch): Outcome
+    {
+        BranchName::ensure($branch);
+
+        $reportable = [TaskStatus::InProgress->value, TaskStatus::Blocked->value];
+
+        $changed = Task::query()
+            ->whereKey($taskId)
+            ->where('claimed_by', $holder->getKey())
+            ->whereIn('status', $reportable)
+            ->update(['branch' => $branch]);
+
+        if ($changed === 1) {
+            return Outcome::Applied;
+        }
+
+        $task = Task::query()->find($taskId);
+
+        return match (true) {
+            ! $task instanceof Task => Outcome::NotFound,
+            ! \in_array($task->status->value, $reportable, true) => Outcome::Conflict,
+            $task->claimed_by !== $holder->getKey() => Outcome::Forbidden,
+            // Everything the write tested holds. MySQL reports rows CHANGED, so a report of the
+            // branch already recorded, in the second `updated_at` already holds, reads as 0 there
+            // and 1 elsewhere; the row says what was asked, so it is applied either way.
+            $task->branch === $branch => Outcome::Applied,
+            default => Outcome::Conflict,
+        };
+    }
+
+    /**
      * Give back the tasks every session that has gone was still holding.
      *
      * Registered on the presence sweep rather than driven by `Events\SessionGone`, so a signal that

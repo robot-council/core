@@ -447,6 +447,12 @@ request to the lane that made it. The session named in `session_id` must pass th
 rule a claimant does, so a coordinator cannot hand one developer's own task to another developer's
 session; that answers 403. `start` accepts an optional `branch`, the branch the lane is working on.
 
+**A lane usually reports its branch after starting, because at `start` it seldom exists yet.** The
+session holding a task in `in_progress` or `blocked` sends `POST {prefix}/api/tasks/{id}/branch`
+with `{ "branch": "feature/x" }` (or the `task_branch` tool) once it has made the branch, and a
+second report replaces the first. Any other session is refused with 403, and a task in another
+status with 409. It moves no status and writes no event; the lane board reads the row.
+
 A task may name the GitHub issue it is for when it is filed, as `issue: "owner/name#N"`. A bare
 `#N` is refused, because the same number exists in every tracker. Each task reports `placed_by`
 (`coordinator` or `lane`) and `hand_back`, and a release or the gone-session sweep clears both, along

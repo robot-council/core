@@ -17,6 +17,7 @@ use RobotCouncil\Mcp\Tools\LockTool;
 use RobotCouncil\Mcp\Tools\PostDirectiveTool;
 use RobotCouncil\Mcp\Tools\PostNarrationTool;
 use RobotCouncil\Mcp\Tools\ReadFeedTool;
+use RobotCouncil\Mcp\Tools\TaskBranchTool;
 use RobotCouncil\Mcp\Tools\TaskTransitionTool;
 use RobotCouncil\Models\LockAction;
 use RobotCouncil\Models\TaskTransition;
@@ -82,6 +83,7 @@ final class CouncilServer extends Server
                 static fn (LockAction $action): LockTool => new LockTool($action),
                 LockAction::cases()
             ),
+            new TaskBranchTool,
             new ReadFeedTool,
             new PostNarrationTool,
             new PostDirectiveTool,
