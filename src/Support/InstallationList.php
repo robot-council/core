@@ -30,7 +30,14 @@ final class InstallationList
      */
     // Reported `uncovered` rather than `untested`: no test reaches this LINE, because a constant
     // declaration is not executed anywhere coverage can see it. The same structural blind spot
-    // #232 records for `#[Fillable]`. The value is exercised by the read tests either way.
+    // #232 records for `#[Fillable]`.
+    //
+    // **The value is pinned to its literal in `tests/AdministrationTest.php`, and it has to be.**
+    // An earlier version of this comment claimed the read tests exercised it; they do not. Both
+    // tests that bound a session list derive the fixture size AND the expectation from this
+    // constant, so the two move together and no change to it can go red. Measured for #283: `10`
+    // to `11` left the whole suite green. The pin is what makes this marker honest, because a bare
+    // `@pest-mutate-ignore` silences the mutant permanently rather than reporting it each run.
     // @pest-mutate-ignore
     public const int MAX_PAGE = 200;
 
@@ -136,9 +143,25 @@ final class InstallationList
             'retired' => $total - $live,
             // Defensive and unkillable HERE: the page is a query result narrowed with
             // `->take($size)`, which slices from zero, so the keys are already 0..n-1. Note this is
-            // NOT true of the `shown` list in `sessionsOf()` below, which narrows a FILTERED
-            // relation -- `Collection::filter()` preserves keys, so that one is load-bearing and
-            // has a test. Two calls to the same function, one equivalent and one not.
+            // NOT true of the `shown` list in `sessionsOf()` below, which is load-bearing and has a
+            // test. Two calls to the same function, one equivalent and one not.
+            //
+            // **TWO independent causes make it load-bearing there, and naming only one is how it
+            // gets deleted** (#283). An earlier version of this comment named the filter alone, so
+            // a reader who removed the filtering would conclude the call had become equivalent.
+            // Measured, each sufficient on its own:
+            //
+            //   - `Collection::filter()` preserves keys, so removing the row at key 0 leaves `[1]`
+            //     -- which encodes as `{"1":{…`. The relation is eager-loaded `orderByDesc('id')`,
+            //     so key 0 is the NEWEST session, and this is reachable with one gone session.
+            //   - `sortBy('id')` over that same descending relation reverses `[0, 1]` into `[1, 0]`
+            //     with nothing filtered at all. Measured on a two-live-session fixture: `[0, 1]`
+            //     after `filter`, `[0, 1]` after `take`, `[1, 0]` only after `sortBy`. Negative
+            //     controls: dropping `sortBy` leaves `[0, 1]`, and `sortBy` over already-ascending
+            //     keys leaves `[0, 1]`.
+            //
+            // `tests/AdminReadShapeTest.php` covers both, one test each, and removing this call
+            // turns both red.
             // @pest-mutate-ignore: UnwrapArrayValues
             'installations' => array_values($installations->map(fn (Installation $installation): array => [
                 'id' => $installation->id,

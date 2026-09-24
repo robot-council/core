@@ -656,7 +656,15 @@ it('clamps a page size that makes no sense', function (): void {
 
     expect($reader->everything(0)['installations'])->toHaveCount(1)
         ->and($reader->everything(-5)['installations'])->toHaveCount(1)
-        ->and(InstallationList::MAX_PAGE)->toBe(200);
+        ->and(InstallationList::MAX_PAGE)->toBe(200)
+
+        // **Pinned to the LITERAL, because every other assertion reads the constant and moves with
+        // it.** The two tests that bound a session list derive both the fixture size and the
+        // expectation from `SESSIONS_PER_INSTALLATION`, so changing it changes both sides and
+        // nothing goes red. Measured for `robot-council/core#283`: `10` to `11` left the whole
+        // suite green, `Tests: 24 skipped, 1246 passed`, exit 0. `Support\WorkIdentity` states the
+        // same reason for pinning its own constants one slice earlier in this epic.
+        ->and(InstallationList::SESSIONS_PER_INSTALLATION)->toBe(10);
 });
 
 it('says how many of an installation`s sessions it left out', function (): void {

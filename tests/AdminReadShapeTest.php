@@ -63,7 +63,11 @@ it('returns every key a nested session row carries, including all three identifi
         $this->service(InstallationList::class)->everything(10, Scope::All)['installations']
     )[0])['sessions']);
 
-    expect($sessions)->toHaveKeys(['shown', 'hidden'])
+    // Asserted WHOLE, like the four other key-set checks in this file. `toHaveKeys()` is a subset
+    // check, and this array also carries `gone` -- so the docblock's "asserted whole rather than
+    // field by field" was true of every other assertion here and not of this one (#283).
+    expect(array_keys($sessions))->toBe(['shown', 'hidden', 'gone'])
+        ->and($sessions)
         ->and($sessions['shown'])->toHaveCount(1);
 
     // **Three identifiers where there was one.** `project_id` stays beside `repository` and
@@ -111,11 +115,15 @@ it('keeps the shown sessions a JSON array when a gone session sits ahead of a li
     $installation = $this->approveInstallation($developer);
 
     // **The NEWER session is the gone one, and getting that backwards makes this test prove
-    // nothing.** `sessionsOf()` filters with `Collection::filter()`, which preserves keys, so a gap
-    // appears only when the removed row sat at key 0 -- and the relation is eager-loaded
-    // `orderByDesc('id')`, which puts the newest first. Marking the OLDER session gone leaves it at
-    // key 1, filtering it away leaves `[0]`, and `array_values()` is a no-op: the assertions below
-    // pass either way. Measured before this was corrected.
+    // nothing.** `Collection::filter()` preserves keys, so filtering the OLDER session away leaves
+    // `[0]` and `array_values()` is a no-op here: the assertions below would pass either way.
+    // Measured before this was corrected.
+    //
+    // **Filtering is one of two sufficient causes, not the only one** (#283). This test covers the
+    // filtered path -- measured, it yields `{"1":{…}` with a single element at key 1. The sibling
+    // below covers the other: `sortBy('id')` over the same descending relation opens the same gap
+    // with nothing filtered at all. Removing `array_values()` turns both red, and a comment naming
+    // only one cause is how the call gets deleted after the other is refactored away.
     $this->startAgentSession($installation);
     [$gone] = $this->startAgentSession($installation);
 
@@ -132,6 +140,33 @@ it('keeps the shown sessions a JSON array when a gone session sits ahead of a li
     // a query result whose keys are already 0..n-1, while this one narrows a filtered relation and
     // the gap is reachable with two sessions.
     expect(array_keys($shown))->toBe([0]);
+});
+
+it('keeps the shown sessions a JSON array when nothing is filtered at all', function (): void {
+    // **The second sufficient cause, which the sibling above cannot reach** (#283). Two live
+    // sessions, so `filter()` removes nothing: whatever opens the gap here is not the filtering.
+    // The relation is eager-loaded `orderByDesc('id')`, so `sortBy('id')` reverses keys `[0, 1]`
+    // into `[1, 0]`, and without `array_values()` the list encodes as `{"1":{…},"0":{…}` -- a JSON
+    // object where every consumer expects an array. Measured.
+    //
+    // Both tests go red when `array_values()` is removed, and they fail on different shapes: the
+    // sibling on one element at key 1, this one on two in reversed order. That is what makes them
+    // two tests rather than one.
+    $developer = $this->enrollDeveloper(4242);
+    $installation = $this->approveInstallation($developer);
+
+    $this->startAgentSession($installation);
+    $this->startAgentSession($installation);
+
+    $shown = arrayValue(arrayValue(arrayValue(arrayValue(
+        $this->service(InstallationList::class)->everything(10, Scope::All)['installations']
+    )[0])['sessions'])['shown']);
+
+    // The fixture's own property, so a later change that filters one of these away turns this into
+    // the sibling test rather than silently weakening it.
+    expect($shown)->toHaveCount(2)
+        ->and(json_encode($shown))->toStartWith('[')
+        ->and(array_keys($shown))->toBe([0, 1]);
 });
 
 it('pins the key set of the session every agent reads about itself', function (): void {
