@@ -21,7 +21,6 @@ use Illuminate\Support\Facades\DB;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Models\DeviceCode;
 use RobotCouncil\Support\DeviceCodes;
-use RobotCouncil\Support\Installations;
 
 beforeEach(function (): void {
     $this->migrateUsersTableWithPackageColumns();
@@ -43,22 +42,6 @@ beforeEach(function (): void {
 function storedRequested(DeviceCode $code): mixed
 {
     $raw = DB::table('robot_council_device_codes')->where('id', $code->getKey())->value('requested_abilities');
-
-    return json_decode(\is_string($raw) ? $raw : '', true);
-}
-
-/**
- * The `granted_abilities` column as the database holds it, decoded but unfiltered.
- *
- * Read off the row for the same reason as `storedRequested()`: the model's `array` cast and the
- * accessors over it are what this is asking about, so going through either would hide the answer.
- *
- * @param  DeviceCode  $code  The row to read.
- * @return mixed Whatever the column decoded to, including null for a value that is not JSON.
- */
-function storedGranted(DeviceCode $code): mixed
-{
-    $raw = DB::table('robot_council_device_codes')->where('id', $code->getKey())->value('granted_abilities');
 
     return json_decode(\is_string($raw) ? $raw : '', true);
 }
@@ -108,53 +91,6 @@ it('leaves a well-formed request exactly as it was given', function (): void {
 
     expect(storedRequested($issued->record))
         ->toBe([Ability::EventsPost->value, Ability::TasksClaim->value, Ability::TasksCreate->value]);
-});
-
-it('records only requestable strings when approve is called directly', function (): void {
-    // **`coordinator:direct` is the one that matters.** The device-code flow can never request it,
-    // and `Models\Installation::abilities()` filters against the *grantable* list, which includes
-    // it -- so a value recorded here survives every later check and the installation carries an
-    // ability no developer approved through the page.
-    $issued = app(DeviceCodes::class)->issue(
-        [Ability::TasksCreate->value],
-        'claude-code',
-        'workbench',
-        hash('sha256', 'a-third-verifier'),
-        null
-    );
-
-    $decided = app(DeviceCodes::class)->approve(
-        $issued->record,
-        keyValue($this->developer->getKey()),
-        [Ability::CoordinatorDirect->value, null, Ability::TasksCreate->value, Ability::TasksCreate->value]
-    );
-
-    expect($decided)->toBeTrue()
-        ->and(storedGranted($issued->record))->toBe([Ability::TasksCreate->value]);
-});
-
-it('does not let a directly approved coordinator ability reach the installation', function (): void {
-    // One hop further, because the device-code row is not where the value does damage. This is the
-    // property the narrowing exists for, asserted end to end rather than inferred from the column.
-    $issued = app(DeviceCodes::class)->issue(
-        [Ability::TasksCreate->value],
-        'claude-code',
-        'workbench',
-        hash('sha256', 'a-fourth-verifier'),
-        null
-    );
-
-    app(DeviceCodes::class)->approve(
-        $issued->record,
-        keyValue($this->developer->getKey()),
-        [Ability::CoordinatorDirect->value, Ability::TasksCreate->value]
-    );
-
-    $credential = app(Installations::class)->createFrom($issued->record->refresh());
-
-    // One assertion, not two: `toBe()` already excludes everything absent from the list, so a
-    // `not->toContain()` beside it cannot fail when this passes.
-    expect($credential->owner->abilities())->toBe([Ability::TasksCreate->value]);
 });
 
 it('still refuses an over-length harness, so the new bound did not displace the old ones', function (): void {
@@ -207,70 +143,4 @@ it('says so on the page when nothing asked for survives narrowing', function ():
         ->assertOk()
         ->assertSee(Ability::TasksCreate->value)
         ->assertDontSee('Nothing this server recognizes');
-});
-
-it('narrows the abilities it copies forward, not just the ones it was approved with', function (): void {
-    // **`createFrom()` reads the model's in-memory attribute, not a fresh row.** So narrowing in
-    // `approve()` is not enough on its own: a caller can approve normally, set the attribute on the
-    // model it is holding, and hand that to `createFrom()`, which copies it straight into the
-    // installation. The guard at the top of that method enumerated the columns it re-checks and the
-    // abilities were not among them, although the create writes them.
-    //
-    // `coordinator:direct` is the value that matters, because `Models\Installation::abilities()`
-    // filters against the GRANTABLE list, which holds it -- so it survives every later check.
-    $issued = app(DeviceCodes::class)->issue(
-        [Ability::TasksCreate->value],
-        'claude-code',
-        'workbench',
-        hash('sha256', 'an-eighth-verifier'),
-        null
-    );
-
-    app(DeviceCodes::class)->approve($issued->record, keyValue($this->developer->getKey()), [Ability::TasksCreate->value]);
-
-    $code = $issued->record->refresh();
-
-    // Set on the model after the approval wrote the narrowed value to the row, which is what makes
-    // this reach a path `approve()`'s own bound cannot.
-    $code->granted_abilities = [Ability::CoordinatorDirect->value, Ability::TasksCreate->value];
-
-    $credential = app(Installations::class)->createFrom($code);
-
-    expect($credential->owner->abilities())->toBe([Ability::TasksCreate->value]);
-
-    // And the ROW, because the assertion above reads an accessor that filters. If `createFrom()`
-    // had written the wide value, the accessor would still have returned it -- `coordinator:direct`
-    // is grantable -- so this is the one that would have caught a stored value.
-    $stored = DB::table('robot_council_installations')
-        ->where('id', $credential->owner->getKey())
-        ->value('granted_abilities');
-
-    expect(json_decode(\is_string($stored) ? $stored : '', true))->toBe([Ability::TasksCreate->value]);
-});
-
-it('copies forward a device code whose abilities column is not a list at all', function (): void {
-    // **The container guard on `Ability::requestableFrom()`, which no mutation run can reach.**
-    // The plugin builds no mutants for an enum -- measured, `0 Mutations for 0 Files created` --
-    // so the only thing that can hold this guard in place is a test that supplies the shape.
-    //
-    // `granted_abilities` is `json` and NOT NULL, which stops SQL `NULL` and not the JSON literal
-    // `null` (#167). `createFrom()` reads the attribute, so an `array` parameter on the narrowing
-    // would raise a `TypeError` here and take enrollment down for that developer.
-    $issued = app(DeviceCodes::class)->issue(
-        [Ability::TasksCreate->value],
-        'claude-code',
-        'workbench',
-        hash('sha256', 'a-ninth-verifier'),
-        null
-    );
-
-    app(DeviceCodes::class)->approve($issued->record, keyValue($this->developer->getKey()), [Ability::TasksCreate->value]);
-
-    DB::table('robot_council_device_codes')
-        ->where('id', $issued->record->getKey())
-        ->update(['granted_abilities' => 'null']);
-
-    $credential = app(Installations::class)->createFrom($issued->record->refresh());
-
-    expect($credential->owner->abilities())->toBeEmpty();
 });

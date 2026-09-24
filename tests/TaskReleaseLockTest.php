@@ -27,7 +27,6 @@ declare(strict_types=1);
 
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
-use RobotCouncil\Access\Ability;
 use RobotCouncil\Models\Task;
 use RobotCouncil\Models\TaskStatus;
 use RobotCouncil\Models\TaskTransition;
@@ -48,10 +47,7 @@ function aTaskHeldByAGoneSession(TestCase $case): array
 
     $developer = $case->enrollDeveloper(4242);
 
-    $installation = $case->approveInstallation($developer, [
-        Ability::TasksCreate->value,
-        Ability::TasksClaim->value,
-    ]);
+    $installation = $case->approveInstallation($developer);
 
     [$session] = $case->startAgentSession($installation);
 

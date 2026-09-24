@@ -15,7 +15,6 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 use Laravel\Sanctum\HasApiTokens;
 use Laravel\Sanctum\PersonalAccessToken;
-use RobotCouncil\Access\Ability;
 
 /**
  * One harness on one machine, approved once by a developer through the device-code flow. Its
@@ -31,7 +30,6 @@ use RobotCouncil\Access\Ability;
  * @property string $user_id
  * @property string $harness
  * @property string $machine_label
- * @property list<string> $granted_abilities
  * @property string|null $approved_by
  * @property string|null $requested_ip
  * @property Carbon $expires_at
@@ -44,7 +42,6 @@ use RobotCouncil\Access\Ability;
     'user_id',
     'harness',
     'machine_label',
-    'granted_abilities',
     'approved_by',
     'requested_ip',
     'expires_at',
@@ -68,7 +65,6 @@ final class Installation extends Model implements AuthenticatableContract
     public function casts(): array
     {
         return [
-            'granted_abilities' => 'array',
             'expires_at' => 'datetime',
             'revoked_at' => 'datetime',
         ];
@@ -125,79 +121,5 @@ final class Installation extends Model implements AuthenticatableContract
         return self::query()
             ->whereNull('revoked_at')
             ->where('expires_at', '>', Carbon::now());
-    }
-
-    /**
-     * The abilities this installation has been granted.
-     *
-     * **It decides nothing about authorization, and has no authorization reader at all.** Since
-     * `robot-council/core#221` a session token carries its `Access\Role` preset; `#222` removed
-     * `Role::permittedBy()`, which had been this column's one authorization reader, so machine-level
-     * eligibility stopped existing rather than moving somewhere else. `#231` then retired the
-     * controls that wrote it. What remains reads it for display and for the enrollment response a
-     * released client still parses, which is what `robot-council/core#239` is waiting on before the
-     * column can go. Treat a value here as a record of what an enrollment asked for, not as a
-     * statement about any session.
-     *
-     * **It reads the attribute as `mixed`, because the column is `json` and the row decides.**
-     * `@property list<string>` states what this package writes, not what the accessor can be
-     * handed: a host calling the model directly, a seeder, a hand-edited row, or a restore can
-     * leave `null`, a scalar, or a nested value there. A declared `string` parameter on the
-     * filter raised a `TypeError` for any of them. Between #159 and
-     * `robot-council/core#223`, `Support\FleetAbilities` read **every** usable installation to
-     * answer one request, so one malformed row 500s `GET {prefix}/api/agent/session` for every
-     * agent in the fleet. Dropping the value answers that request instead of failing it.
-     *
-     * **#223 narrowed the blast radius back to this row, and the guard stays anyway.** That
-     * question reads live sessions and their roles now, so this accessor no longer runs fleet-wide
-     * -- but it is still what the enrollment page, the approval path and `robot-council:doctor`
-     * read, it is public on a model a host can call directly, and `MalformedAbilitiesTest` pins
-     * both directions of the narrowing rather than assuming it.
-     *
-     * **Dropping did not make one bad row that row's own problem while the read WAS fleet-wide, and
-     * the reasoning is kept because it is what the guard was built for.** `fleet_can_direct` was
-     * computed across every installation, so one whose abilities could not be read changed what
-     * every other session was told: the answer went from a 500 to a quiet `false`, which
-     * `Http\Controllers\AgentSessionController` documents as
-     * meaning nothing will ever arrive. Nothing logs the drop and `robot-council:doctor` has no
-     * check that would name it. #171 is that gap.
-     *
-     * The same reasoning covers the container: a row holding the JSON literal `null` or a bare
-     * scalar decodes to something `array_filter()` cannot take at all. The column is NOT NULL,
-     * which stops SQL `NULL` and not `'null'::json`.
-     *
-     * **A top-level JSON object is accepted rather than dropped**, because `json_decode($v, true)`
-     * turns one into a PHP array and `array_values()` discards its keys. That is deliberate rather
-     * than missed: a row holding `{"a": "tasks:create"}` grants `tasks:create`, which is no wider
-     * than the row already claimed, since every value still has to be in the fixed list. It is
-     * also not separable from a well-formed one, because `{"0": "tasks:create"}` decodes to a list.
-     *
-     * @return list<string> The granted abilities, with anything outside the fixed list dropped.
-     */
-    public function abilities(): array
-    {
-        $known = Ability::values(Ability::grantable());
-        $stored = $this->getAttribute('granted_abilities');
-
-        if (! \is_array($stored)) {
-            return [];
-        }
-
-        // Drop anything the fixed list no longer holds, so a renamed or retired ability cannot
-        // survive in a stored row and be checked against a route later.
-        //
-        // **The strict `in_array()` is the whole filter, and an `is_string()` beside it was
-        // measured dead.** `$known` is a `list<string>`, so a strict comparison already refuses
-        // every non-string a row can hold -- over null, the booleans, ints, floats, arrays, an
-        // object and a resource the two expressions disagree on nothing -- and PHPStan narrows
-        // the element from the same fact, so the declared `list<string>` verifies without it.
-        // That second half was checked rather than assumed: removing `array_values()` makes this
-        // file fail with `should return list<string>`, so a passing analysis here is a result and
-        // not a silence. **Do not add a type guard back**; what stops the `TypeError` is the
-        // parameter being `mixed` rather than `string`
-        return array_values(array_filter(
-            $stored,
-            static fn (mixed $ability): bool => \in_array($ability, $known, true)
-        ));
     }
 }

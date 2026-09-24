@@ -12,7 +12,6 @@ declare(strict_types=1);
  */
 
 use Livewire\Livewire;
-use RobotCouncil\Access\Ability;
 use RobotCouncil\Livewire\FleetPresence;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Support\PresenceClock;
@@ -24,7 +23,7 @@ beforeEach(function (): void {
 
     $this->developer = $this->enrollDeveloper(4242);
 
-    $installation = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
+    $installation = $this->approveInstallation($this->developer);
 
     [$this->session, $this->token] = $this->startAgentSession($installation);
 

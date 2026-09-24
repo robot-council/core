@@ -28,7 +28,7 @@ beforeEach(function (): void {
 
     $this->developer = $this->enrollDeveloper(4242);
 
-    $this->installation = $this->approveInstallation($this->developer, [Ability::EventsPost->value]);
+    $this->installation = $this->approveInstallation($this->developer);
 
     [$this->session, $this->token] = $this->startAgentSession($this->installation);
 
@@ -46,7 +46,7 @@ function otherSession(TestCase $case, array $abilities = [Ability::EventsPost->v
 {
     $other = $case->enrollDeveloper(77, login: 'somebody-else');
 
-    $installation = $case->approveInstallation($other, $abilities, machineLabel: 'their-box');
+    $installation = $case->approveInstallation($other, machineLabel: 'their-box');
 
     return $case->startAgentSession($installation);
 }
@@ -184,7 +184,6 @@ it('keeps the coordinator flag as it was when the event was written', function (
 
     // Revoking the ability afterwards does not rewrite history: #23 records what was true at write
     // time precisely so that a later revocation is not retroactive
-    $coordinator->installation->forceFill(['granted_abilities' => [Ability::EventsPost->value]])->save();
 
     Livewire::test(ChangeFeed::class)
         ->assertSee('Everyone pause.')

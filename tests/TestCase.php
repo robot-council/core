@@ -353,23 +353,24 @@ class TestCase extends Orchestra
     /**
      * Create an approved installation for a developer, as the device-code flow would.
      *
+     * **It no longer takes an ability list** (#239). An installation stored one until
+     * `robot_council_installations.granted_abilities` was dropped, and the parameter outlived what
+     * it set: `robot-council/core#221` gave a session token its `Access\Role` preset and `#222`
+     * removed the column's one authorization reader, so for two releases a caller narrowing this
+     * list changed nothing about what any session could do -- a test reaching a refusal through it
+     * passed for having asserted nothing. `tokenFor()` is what narrows a session's abilities, and
+     * its own docblock already says so.
+     *
      * @param  User  $user  The developer who approved it.
-     * @param  list<string>|null  $abilities  The abilities its session tokens carry; null for the usual pair.
      * @param  string  $machineLabel  The label the requester claimed.
      * @return Installation The saved installation.
      */
-    public function approveInstallation(User $user, ?array $abilities = null, string $machineLabel = 'workbench'): Installation
+    public function approveInstallation(User $user, string $machineLabel = 'workbench'): Installation
     {
-        // `null` asks for the usual pair; `[]` asks for genuinely none. They were the same value
-        // until a test meaning the second silently got the first, and then read the ability it had
-        // been granted as a missing check in the code under test.
-        $abilities ??= [Ability::TasksCreate->value, Ability::EventsPost->value];
-
         return Installation::query()->create([
             'user_id' => $user->getKey(),
             'harness' => 'claude-code',
             'machine_label' => $machineLabel,
-            'granted_abilities' => $abilities,
             'approved_by' => $user->getKey(),
             'requested_ip' => '203.0.113.10',
             'expires_at' => $this->credentials()->installationExpiry(),

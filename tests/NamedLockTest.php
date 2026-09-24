@@ -35,7 +35,7 @@ beforeEach(function (): void {
 
     $this->developer = $this->enrollDeveloper(4242);
 
-    $this->installation = $this->approveInstallation($this->developer, [Ability::LocksAcquire->value]);
+    $this->installation = $this->approveInstallation($this->developer);
 
     [$this->session, $this->token] = $this->startAgentSession($this->installation);
 
@@ -56,9 +56,7 @@ function lockCoordinator(TestCase $case): array
 
     $other = $case->enrollDeveloper(77, login: 'coordinator');
 
-    $installation = $case->approveInstallation($other, [
-        Ability::CoordinatorDirect->value,
-    ], machineLabel: 'coordinator-box');
+    $installation = $case->approveInstallation($other, machineLabel: 'coordinator-box');
 
     // **A coordinator is made by an administrator, not by a grant.** Since
     // `robot-council/core#222` a session starts as `build` whatever its installation holds, so a
@@ -224,7 +222,7 @@ it('still refuses a session that never held the name', function (string $action)
     lockAction($this, $this->token, 'acquire', ['name' => 'deploy', 'ttl' => 600])->assertOk();
 
     // A third session, which has never held this name and is not the one it was taken from
-    $other = $this->approveInstallation($this->developer, [Ability::LocksAcquire->value], machineLabel: 'third');
+    $other = $this->approveInstallation($this->developer, machineLabel: 'third');
 
     [, $otherToken] = $this->startAgentSession($other);
 
@@ -352,7 +350,7 @@ it('lets a coordinator take a lock away, and nobody else', function (): void {
 it('refuses an acquisition from a session without the ability', function (): void {
     // Built directly, because narrowing the installation no longer narrows the token: since
     // `Access\Role` every preset carries `locks:acquire`.
-    $narrow = $this->approveInstallation($this->developer, [Ability::EventsPost->value], machineLabel: 'narrow');
+    $narrow = $this->approveInstallation($this->developer, machineLabel: 'narrow');
 
     [, $narrowToken] = $this->startAgentSessionWithAbilities($narrow, [Ability::EventsPost->value]);
 

@@ -33,7 +33,6 @@ declare(strict_types=1);
 
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
-use RobotCouncil\Access\Ability;
 use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\FleetEventType;
 use RobotCouncil\Support\AgentSessions;
@@ -45,7 +44,7 @@ beforeEach(function (): void {
     $this->setAccessLists(developers: [4242]);
 
     $this->developer = $this->enrollDeveloper(4242);
-    $this->installation = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
+    $this->installation = $this->approveInstallation($this->developer);
 });
 
 it('cannot start a session while another connection holds the feed, so it sees no key in flight', function (): void {

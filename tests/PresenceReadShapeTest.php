@@ -18,7 +18,6 @@ declare(strict_types=1);
  * @command  vendor/bin/pest --compact tests/PresenceReadShapeTest.php
  */
 
-use RobotCouncil\Access\Ability;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\Lock;
 use RobotCouncil\Support\FleetPresence;
@@ -43,10 +42,7 @@ function presenceFixture($test): AgentSession
 {
     $developer = $test->enrollDeveloper(4242);
 
-    $installation = $test->approveInstallation($developer, [
-        Ability::LocksAcquire->value,
-        Ability::TasksCreate->value,
-    ]);
+    $installation = $test->approveInstallation($developer);
 
     [$session] = $test->startAgentSession($installation);
 
@@ -168,7 +164,7 @@ it('names the previous holder once a lock has changed hands', function (): void 
     $other = $this->enrollDeveloper(77, login: 'otherdev');
     $this->setAccessLists(developers: [4242, 77], admins: [4242]);
     [$second] = $this->startAgentSession(
-        $this->approveInstallation($other, [Ability::LocksAcquire->value], machineLabel: 'second-box')
+        $this->approveInstallation($other, machineLabel: 'second-box')
     );
 
     $locks = $this->service(Locks::class);

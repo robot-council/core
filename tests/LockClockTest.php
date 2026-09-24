@@ -26,7 +26,6 @@ declare(strict_types=1);
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
-use RobotCouncil\Access\Ability;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
 use RobotCouncil\Models\Lock;
@@ -41,7 +40,7 @@ beforeEach(function (): void {
     $this->setAccessLists(developers: [4242, 77]);
 
     $this->developer = $this->enrollDeveloper(4242);
-    $this->installation = $this->approveInstallation($this->developer, [Ability::LocksAcquire->value]);
+    $this->installation = $this->approveInstallation($this->developer);
 
     [$this->session] = $this->startAgentSession($this->installation);
 });

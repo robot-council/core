@@ -21,7 +21,6 @@ declare(strict_types=1);
 
 use Illuminate\Foundation\Auth\User;
 use Illuminate\Support\Facades\DB;
-use RobotCouncil\Access\Ability;
 use RobotCouncil\Models\FleetEventType;
 use RobotCouncil\Support\FleetEvents;
 use RobotCouncil\Tests\TestCase;
@@ -51,7 +50,7 @@ beforeEach(function (): void {
  */
 function startedSession(TestCase $case, User $developer, string $label = 'bridge'): array
 {
-    $installation = $case->approveInstallation($developer, [Ability::EventsPost->value], machineLabel: $label);
+    $installation = $case->approveInstallation($developer, machineLabel: $label);
 
     $started = $case->machine($case->installationCredential($installation))
         ->postJson(route('robot-council.sessions.start'))
@@ -245,7 +244,7 @@ it('refuses an empty after rather than reading it as zero', function (): void {
 });
 
 it('restates the acknowledged position when a session renews', function (): void {
-    $installation = $this->approveInstallation($this->mine, [Ability::EventsPost->value], machineLabel: 'restarts');
+    $installation = $this->approveInstallation($this->mine, machineLabel: 'restarts');
 
     $credential = $this->installationCredential($installation);
 

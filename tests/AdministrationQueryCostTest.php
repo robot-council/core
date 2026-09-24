@@ -15,7 +15,6 @@ declare(strict_types=1);
 use Illuminate\Foundation\Auth\User;
 use Illuminate\Support\Carbon;
 use Livewire\Livewire;
-use RobotCouncil\Access\Ability;
 use RobotCouncil\Livewire\Administration;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\Installation;
@@ -39,7 +38,6 @@ function approveInstallations(TestCase $test, User $first, User $second, int $in
     for ($i = 0; $i < $installations; $i++) {
         $installation = $test->approveInstallation(
             $i % 2 === 0 ? $first : $second,
-            [Ability::TasksCreate->value],
             'box-'.$i
         );
 
@@ -108,13 +106,13 @@ it('counts live and retired for every shape the table can take', function (): vo
     expect($store->everything(50)['live'])->toBe(0)
         ->and($store->everything(50)['retired'])->toBe(0);
 
-    $this->approveInstallation($admin, [Ability::TasksCreate->value], 'box-live');
+    $this->approveInstallation($admin, 'box-live');
 
     expect($store->everything(50)['live'])->toBe(1)
         ->and($store->everything(50)['retired'])->toBe(0);
 
     // Revoked: retired by a decision somebody made
-    $revoked = $this->approveInstallation($admin, [Ability::TasksCreate->value], 'box-revoked');
+    $revoked = $this->approveInstallation($admin, 'box-revoked');
     $revoked->forceFill(['revoked_at' => Carbon::now()])->save();
 
     expect($store->everything(50)['live'])->toBe(1)
@@ -122,7 +120,7 @@ it('counts live and retired for every shape the table can take', function (): vo
 
     // Expired: retired by the clock alone, which is the other half of the `where` the aggregate
     // has to reproduce. A `sum(case when)` that dropped the date term would call this one live.
-    $expired = $this->approveInstallation($admin, [Ability::TasksCreate->value], 'box-expired');
+    $expired = $this->approveInstallation($admin, 'box-expired');
     $expired->forceFill(['expires_at' => Carbon::now()->subDay()])->save();
 
     expect($store->everything(50)['live'])->toBe(1)
