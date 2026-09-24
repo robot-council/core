@@ -513,9 +513,13 @@ it('refuses to give a role to a session that has already gone', function (): voi
 
 it('writes one event for a change, and none for a repeat of it', function (): void {
     // `SessionPresence` makes every write conditional on the row and treats the changed count as
-    // the decision, so `SessionGone` fires exactly once however a session ended. These two paths
-    // did not, and a control the view declines to draw is not a boundary -- the action is
-    // reachable whatever the page renders.
+    // the decision, so `SessionGone` fires exactly once however a session ended. The two paths this
+    // covers -- imposing a role and revoking an installation -- did not, and a control the view
+    // declines to draw is not a boundary: the action is reachable whatever the page renders.
+    //
+    // It drove the ability controls until `robot-council/core#231` retired them. `imposeRole()` is
+    // the conditional write that survives: `Support\RoleRequests::settle()` short-circuits when the
+    // row already holds the role, read under the lock `impose()` takes.
     [$installation, $session] = installationWithSession($this, $this->developer);
 
     $component = Livewire::actingAs($this->admin)->test(Administration::class);

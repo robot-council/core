@@ -69,6 +69,39 @@ enum FleetEventType: string
     case InstallationRevoked = 'installation.revoked';
 
     /**
+     * An admin gave an installation an ability it did not have.
+     *
+     * **Nothing writes this any more, and it stays because rows already hold it.**
+     * `robot-council/core#231` retired the controls that recorded it -- the two console commands and
+     * the administration panel's per-ability buttons -- after `robot-council/core#222` made a
+     * session's abilities come from its role, at which point the column those controls wrote decided
+     * nothing about any session.
+     *
+     * **Removing the case is what would break a fleet, not keeping it.**
+     * `robot_council_events.type` is a `string(64)` holding this backing value and
+     * `Models\FleetEvent` casts it with `'type' => FleetEventType::class`; Laravel's enum cast
+     * resolves through `from()`, which raises `ValueError` on a value the enum no longer has. So a
+     * historical row becomes unreadable the moment the feed pages over it -- on the dashboard, and
+     * in every agent's feed read. Measured on the deployment 2026-09-24: three such rows.
+     *
+     * **A migration deleting them was written and rejected.** `retention.events_days` may be set to
+     * zero, which `config/robot-council.php` documents as keeping the table forever for "a host
+     * running its own archiving", and `Console\PruneEventsCommand` honors it. On such a host the
+     * feed is a record rather than a rolling window, and a package upgrade must not delete from it.
+     * The enum is the feed's vocabulary, and a vocabulary has to cover what was said as well as what
+     * is still being said.
+     */
+    case InstallationAbilityGranted = 'installation.ability_granted';
+
+    /**
+     * An admin took an ability away from an installation.
+     *
+     * Retired alongside `InstallationAbilityGranted` and kept for the same reason; that case records
+     * it.
+     */
+    case InstallationAbilityRevoked = 'installation.ability_revoked';
+
+    /**
      * A session asked to be a different role. Nothing about what it may do has changed.
      *
      * Recorded rather than left in the panel alone, because the request and the decision are two

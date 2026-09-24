@@ -155,16 +155,16 @@ final class AgentSessions
             // **Taken for the lock, not for the abilities, and it is still required.** It is the
             // first row in the package's lock order, so a renewal that reached the session row and
             // the token rows without holding it would invert the order `Installations::revoke()`
-            // and `setAbility()` take the same three in. It is also what serializes a renewal
-            // against an admin demoting this session a moment earlier.
+            // takes the same three in. It is also what serializes a renewal against an admin
+            // demoting this session a moment earlier through `Support\RoleRequests`.
             $this->locked($installation);
 
             // Read from the ROW, inside the transaction, for the reason `locked()` records about
             // the installation: the instance this request arrived with was hydrated by the guard
-            // before any of this ran. An admin taking `coordinator:direct` off the machine demotes
-            // its coordinator sessions, and that write serializes against the installation lock
-            // above -- so a renewal that minted from the instance in hand would hand back the
-            // ability the admin has just removed, for another hour.
+            // before any of this ran. An administrator demoting this session through
+            // `Support\RoleRequests` writes its `role` and re-mints its tokens in one transaction,
+            // so a renewal that minted from the instance in hand would hand back the role the
+            // administrator has just taken away, for another hour.
             $abilities = $this->roleOf($session)->tokenAbilities();
 
             // Contact before tokens, and through the presence store rather than beside it. Two
@@ -244,7 +244,7 @@ final class AgentSessions
      * `robot-council/core#221` this read the installation's `granted_abilities` on every renewal,
      * so ANY writer of that column -- the console, the panel, host code, a seeder, a restore --
      * reached every live session within one token lifetime. Now only a write to the session's own
-     * `role` does, and `Support\Installations::setAbility()` is its only writer outside `start()`.
+     * `role` does, and `Support\RoleRequests::settle()` is its only writer outside `start()`.
      * A host stripping `granted_abilities` with a raw query no longer reaches a running session at
      * all. `Support\Installations::revoke()` is what still ends one unconditionally.
      *

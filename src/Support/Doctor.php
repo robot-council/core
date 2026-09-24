@@ -496,7 +496,7 @@ final class Doctor
         if ($retired !== []) {
             $parts[] = sprintf(
                 <<<'TEXT'
-                %d installation(s) name something this version does not grant -- a retired ability, or a value like `*` that never was one -- so it is dropped on every read. Nothing in this package writes the column any more, so there is no command that repairs it; the column itself is being retired, and until then a row can only be corrected directly: %s
+                %d installation(s) name something this version does not grant -- a retired ability, or a value like `*` that never was one -- so it is dropped on every read. Nothing updates the column any more, so no command repairs one in place: revoke the installation with `robot-council:revoke-installation` and have its developer enroll again, which writes a clean row and drops the old one out of every read: %s
                 TEXT,
                 \count($retired),
                 self::named($retired)
@@ -511,7 +511,7 @@ final class Doctor
             // which is what the criterion says to do with code no input can reach.
             implode('; ', $parts)
             .<<<'TEXT'
-            . Until then those entries are invisible on every read, so the installation acts with fewer abilities than its row claims. Whether repairing one changes `fleet_can_direct` depends on a gate this check does not apply: that answer also requires the installation's developer to still be on the access list.
+            . Those entries are invisible on every read, so what the enrollment response reports to a client is narrower than the row claims. No session is affected either way: a session's abilities come from its role, and `fleet_can_direct` reads live sessions rather than this column.
             TEXT
         );
     }

@@ -125,8 +125,10 @@ enum Ability: string
      * request that carried it was already validated when the code was issued.
      *
      * **What a DEVICE-CODE approval may grant and what an enrollment may ask for are one list,
-     * deliberately.** An admin grant is a different question and a wider list: `grantable()` adds
-     * `coordinator:direct`, which `Support\Installations::setAbility()` is the only path to.
+     * deliberately.** `grantable()` is a wider list because it adds `coordinator:direct`, which
+     * nothing writes into this column any more: `robot-council/core#231` retired the controls that
+     * did, and the way a session comes to hold that ability is an administrator putting it in the
+     * `coordinator` role.
      * An ability that could be requested and never granted would be a trap: the verification page
      * would show it as asked for and the token would silently not carry it. So this is
      * `requestableFrom()` under the name its call site reads by, and the two cannot drift apart.

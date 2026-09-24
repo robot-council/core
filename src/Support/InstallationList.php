@@ -126,9 +126,12 @@ final class InstallationList
                 'harness' => $installation->harness,
                 'machine_label' => $installation->machine_label,
 
-                // Through the model's own accessor, which drops anything the fixed list no longer
-                // holds. A retired ability still sitting in the stored row must not be offered back as
-                // a control that revokes it, because the guards no longer check it either.
+                // **Nothing renders this any more**, and it is kept only because
+                // `robot-council/core#239` removes it with the column and every other reader in one
+                // change. `robot-council/core#231` took away the panel's per-ability controls -- one
+                // list per machine could not describe two sessions of that machine whose roles
+                // differ -- and they were its only consumer. Read through the model's own accessor,
+                // which drops anything the fixed list no longer holds.
                 'abilities' => $installation->abilities(),
 
                 // Both halves of `isUsable()`, separately. "Revoked" and "expired" are the same to a
@@ -173,9 +176,10 @@ final class InstallationList
                 // records: the row is the decision every conditional update in the package makes.
                 'status' => $session->status->value,
 
-                // What this session may do, which since roles is no longer answered by the
-                // installation's `abilities` above. Both are shown because they are now different
-                // questions: what this machine is eligible for, and what this process is.
+                // What this session may do, and since `robot-council/core#231` the only such answer
+                // the panel renders. The machine-level list above reaches no view: a session's
+                // abilities come from its role, so a per-machine list could not describe two
+                // sessions of one machine that differ.
                 'role' => $session->role->value,
 
                 // What it has ASKED to be, which is a different fact from what it is and is the

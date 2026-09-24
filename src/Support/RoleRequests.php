@@ -244,7 +244,8 @@ final class RoleRequests
 
         // **Nothing changed means nothing happened**, and an event saying otherwise is noise in the
         // one feed an authorization change has to be legible in -- the guard
-        // `Support\Installations::setAbility()` carries for the same reason.
+        // `Support\Installations::setAbility()` carried for the same reason, before
+        // `robot-council/core#231` retired it.
         //
         // It is also what makes the three engines agree. `Builder::update()` returns rows CHANGED
         // on MySQL and rows MATCHED on SQLite and Postgres, so writing a role a row already holds
@@ -273,9 +274,9 @@ final class RoleRequests
 
         // **The session row, then the feed sentinel, then the tokens.** That is the package's lock
         // order, and `Support\Installations::setAbility()` was split across `record()` for exactly
-        // this reason -- a token write before the event would be the 6th row ahead of the 5th, and
-        // a session write after it would be the 2nd behind the 5th, which deadlocks against
-        // `Support\Locks::acquire()`.
+        // this reason before `robot-council/core#231` retired it -- a token write before the event
+        // would be the 6th row ahead of the 5th, and a session write after it would be the 2nd
+        // behind the 5th, which deadlocks against `Support\Locks::acquire()`.
         $this->record(
             $session,
             FleetEventType::SessionRoleChanged,

@@ -265,6 +265,15 @@ it('reads no stored ability anywhere in the authorization path, in either direct
     // Taking away the very ability the role carries, which is the sharpest case.
     plantStoredAbilities($installation, (string) json_encode([Ability::EventsPost->value]));
 
+    // **The plant is asserted before anything is concluded from it, and an earlier version of this
+    // test did not do that.** Every assertion below reads `Coordinator`, which is also what they
+    // read if the column never changed -- so with the helper inert the whole test passed, verified
+    // by emptying its body. This is the same defect the note thirty lines down describes catching
+    // once already, arriving through the other door: there the fixture never held the ability, here
+    // it never lost it.
+    expect($installation->refresh()->abilities())->not->toContain(Ability::CoordinatorDirect->value)
+        ->and($installation->abilities())->toBe([Ability::EventsPost->value]);
+
     expect($session->refresh()->role)->toBe(Role::Coordinator)
         ->and(Tokens::abilities($session->tokens()->sole()))->toBe(Role::Coordinator->tokenAbilities());
 
@@ -277,7 +286,8 @@ it('reads no stored ability anywhere in the authorization path, in either direct
     // And putting it back promotes nothing. **Started under `$installation`, which holds
     // `coordinator:direct` again at this point** -- an earlier version started it under a fresh
     // installation that never held the ability, so the assertion was equally true with the
-    // derivation restored and could not fail.
+    // derivation restored and could not fail. The assertion below is what makes this plant
+    // observable, exactly as the one above does for the removal.
     plantStoredAbilities($installation, (string) json_encode([
         Ability::EventsPost->value,
         Ability::CoordinatorDirect->value,
