@@ -258,6 +258,13 @@ final class HostUsers
      * because every caller reads absence as "not admitted" and a null would have to be checked
      * for separately to mean the same thing.
      *
+     * **`array<string, int>` is the intent, and PHP cannot quite hold it.** A canonical numeric
+     * key arrives back as an `int` key, because that coercion is the language's and no expression
+     * prevents it -- so `'5'` goes in and `5` comes out. Reading a key back out and binding it into
+     * a query is therefore the defect the body below records, arriving through the other door;
+     * `Support\FleetAbilities`, the only caller, reads the VALUES. A caller that needs the key
+     * itself should keep the one it asked with rather than take it from this map.
+     *
      * @param  list<mixed>  $keys  The host user keys to look up.
      * @return array<string, int> The GitHub ID per key, for the keys that have one.
      */
@@ -269,7 +276,10 @@ final class HostUsers
             $userId = HostKey::tryFrom($key);
 
             if ($userId !== null) {
-                $narrowed[$userId] = true;
+                // **Held as the VALUE as well as the key, and read back as the value.** The key is
+                // only here to deduplicate. Writing `= true` and reading `array_keys()` back was an
+                // access-control defect on MySQL, for the reason the query below records.
+                $narrowed[$userId] = $userId;
             }
         }
 
@@ -279,9 +289,30 @@ final class HostUsers
 
         $found = [];
 
-        // Compared as text, for the reason `githubIdForKey()` records: the column is text, and
-        // binding an integer against it is a type error on Postgres rather than a miss.
-        foreach (GithubIdentity::query()->whereIn('user_id', array_keys($narrowed))->get() as $identity) {
+        // **Every binding leaves here as text, and on MySQL that is an access-control property
+        // rather than a tidiness one** (#247).
+        //
+        // A PHP array key coerces a canonical numeric string to an integer, so the earlier
+        // `array_keys()` handed `5` where the row said `'5'` -- and MySQL compares a text column
+        // against an integer by casting the COLUMN to a number, so every key that is numerically
+        // five matches. Measured on MySQL 9.7.2 and MariaDB 12.3.2 with rows `'5'`, `'5x'`, `'05'`,
+        // `' 5'` and `'5.0'`: `githubIdsForKeys(['5'])` returned all five developers' GitHub IDs.
+        //
+        // **That is not a display bug.** `Support\FleetAbilities` reads this map's VALUES and asks
+        // the allowlist about each, so one unrelated developer who happened to be listed made the
+        // whole fleet report able to direct. `Support\FleetAbilities` was given this same treatment
+        // by `robot-council/core#223`; this is the other half of it.
+        //
+        // **`2026_09_22_000002`'s byte-exact collation does not cover this**, which is the part
+        // worth knowing before someone concludes it does. Measured on MySQL 9.7.2: the column is
+        // `utf8mb4_bin` and the coercion happens anyway, because a numeric comparison casts the
+        // column before any collation is consulted.
+        //
+        // Postgres and SQLite are unaffected -- measured on PostgreSQL 17.6 and 18.0 and SQLite
+        // 3.51.3, an integer binding matched `'5'` alone -- and there is no `mysql` CI job, so
+        // nothing in CI can fail on the rows. `it('binds every host key as text, on every engine')`
+        // asserts the BINDINGS instead, which every engine can answer.
+        foreach (GithubIdentity::query()->whereIn('user_id', array_values($narrowed))->get() as $identity) {
             $found[$identity->user_id] = $identity->github_id;
         }
 
@@ -306,8 +337,23 @@ final class HostUsers
             return null;
         }
 
-        // Compared as text, because the column is text: binding an integer against a string column
-        // is a type error on Postgres rather than a miss
+        // Compared as text, because `HostKey::tryFrom()` has already made it text and nothing
+        // between there and here turns it back into a number.
+        //
+        // **The reason this comment used to give was wrong, and the correction is worth keeping**
+        // (#247). It said that binding an integer against a text column "is a type error on
+        // Postgres rather than a miss". Measured through this package's own connection on
+        // PostgreSQL 17.6 and 18.0: `where('user_id', 5)` against `varchar(64)` returns the `'5'`
+        // row and nothing else, with no error at all.
+        //
+        // The type error is real, but it belongs to an inlined LITERAL rather than to a binding.
+        // `where user_id = 5` written into the SQL answers `SQLSTATE[42883] operator does not
+        // exist: character varying = integer`, while `where user_id = ?` reaches Postgres with no
+        // declared type and is inferred from the column, so the comparison is text against text.
+        // Laravel never inlines, so this code could not reach the error it was warned about.
+        //
+        // The engine that really does coerce is MySQL, it coerces the other way -- the column to a
+        // number -- and `githubIdsForKeys()` above is where that mattered.
         $identity = GithubIdentity::query()->where('user_id', $userId)->first();
 
         return $identity?->github_id;
