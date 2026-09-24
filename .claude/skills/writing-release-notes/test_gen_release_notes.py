@@ -353,6 +353,97 @@ class IssueTypePlumbing(unittest.TestCase):
         self.assertEqual(g.pr_labels(8), ())
 
 
+class UnresolvedReference(unittest.TestCase):
+    """A bullet that loses its `[#N]` link says so (#294).
+
+    **Where the warning sits is the whole of the correctness.** `main()` primes every `#N` a
+    subject contains, and `resolve()` asks for exactly one of them, so a miss on any of the others
+    costs nothing. Warning at priming time reported those and was wrong to -- measured on a real
+    subject, below.
+    """
+
+    def setUp(self):
+        self._saved = dict(g._pr_cache)
+
+    def tearDown(self):
+        g._pr_cache.clear()
+        g._pr_cache.update(self._saved)
+
+    def _resolve(self, subject, cache):
+        g._pr_cache.clear()
+        g._pr_cache.update(cache)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            out = g.resolve(subject, "robot-council/core")
+        return err.getvalue(), out
+
+    def test_a_primed_but_unused_reference_is_not_reported(self):
+        """The negative control, and a real subject rather than a constructed one.
+
+        `Cover the two dashboard guarantees #30 claimed and nothing asserted (#110)` is on
+        `v0.1.0..v0.2.0`. `#30` is an ISSUE, primed because it appears in the subject and never
+        asked for; `#110` is the pull request and resolves. A warning here would fire on a healthy
+        range, and a warning that fires on healthy data gets switched off.
+        """
+        warn, (pr, _title, link) = self._resolve(
+            "Cover the two dashboard guarantees #30 claimed and nothing asserted (#110)",
+            {110: ("Cover the two dashboard guarantees", (), ()), 30: (None, (), ())})
+        self.assertEqual(pr, 110)
+        self.assertIn("/pull/110", link)
+        self.assertEqual(warn, "", "a primed-but-unused miss must not warn")
+
+    def test_priming_a_reference_nobody_asks_for_is_silent(self):
+        """**The test that would have caught this being built the wrong way** (#294).
+
+        The first attempt warned inside `prime_pr_cache()`, which sees every `#N` a subject
+        contains rather than the one `resolve()` chooses. It reported a miss on
+        `robot-council/core#30` while generating `v0.1.0..v0.2.0` -- a healthy range -- because
+        that issue number appears in a subject whose pull request is `#110`.
+
+        The two tests below call `resolve()` with a pre-seeded cache, so priming never runs and
+        neither of them can see that defect. This one drives the priming path itself.
+        """
+        class R:
+            def __init__(s_, out):
+                s_.stdout, s_.stderr, s_.returncode = out, "", 0
+
+        real = g.subprocess
+        g._pr_cache.clear()
+        try:
+            # #30 is an issue: the alias comes back null. #110 is the pull request.
+            body = json.dumps({"data": {"repository": {
+                "p30": None,
+                "p110": {"title": "Cover the two dashboard guarantees",
+                         "closingIssuesReferences": {"totalCount": 0, "nodes": []}}}}})
+            g.subprocess = types.SimpleNamespace(run=lambda *a, **k: R(body))
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                g.prime_pr_cache([30, 110], "robot-council/core")
+            self.assertEqual(err.getvalue(), "",
+                             "priming a reference nobody asks for must not warn")
+            self.assertIsNone(g.pr_title(30, "robot-council/core"))
+            self.assertEqual(g.pr_title(110, "robot-council/core"),
+                             "Cover the two dashboard guarantees")
+        finally:
+            g.subprocess = real
+
+    def test_a_reference_that_loses_its_link_is_reported(self):
+        """The case the warning exists for: the chosen reference does not resolve."""
+        warn, (pr, _title, link) = self._resolve("Some direct commit (#999999)",
+                                                 {999999: (None, (), ())})
+        self.assertIsNone(pr)
+        self.assertEqual(link, "")
+        self.assertIn("did not resolve", warn)
+        self.assertIn("#999999", warn)
+
+    def test_a_subject_with_no_reference_is_silent(self):
+        """Nothing was lost, so there is nothing to report."""
+        warn, (pr, _title, link) = self._resolve("A direct commit with no number", {})
+        self.assertIsNone(pr)
+        self.assertEqual(link, "")
+        self.assertEqual(warn, "")
+
+
 class IssueTypeGuards(unittest.TestCase):
     """The two warnings the type rule made necessary (#268).
 
