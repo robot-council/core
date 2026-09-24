@@ -12,7 +12,9 @@ use RobotCouncil\Access\Tokens;
 use RobotCouncil\Http\Principal;
 use RobotCouncil\Http\Rules\BoundedMeta;
 use RobotCouncil\Models\AgentSession;
+use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\TaskTransition;
+use RobotCouncil\Support\BranchName;
 use RobotCouncil\Support\Outcome;
 use RobotCouncil\Support\TaskList;
 use RobotCouncil\Support\Tasks;
@@ -70,7 +72,17 @@ final class TransitionTaskController
 
         $assignee = $move === TaskTransition::Reassign ? $this->assignee($request) : null;
 
-        $outcome = $tasks->transition((int) $task, $move, $session, $asCoordinator, $assignee, $this->result($request, $move));
+        $outcome = $tasks->transition(
+            (int) $task,
+            $move,
+            $session,
+            $asCoordinator,
+            $assignee,
+            $this->result($request, $move),
+            $this->directive($request, $move),
+            $move === TaskTransition::Reassign && $request->boolean('hand_back'),
+            $this->branch($request, $move)
+        );
 
         return new JsonResponse([
             'task_id' => (int) $task,
@@ -99,6 +111,50 @@ final class TransitionTaskController
         $result = $request->input('result');
 
         return \is_array($result) && $result !== [] ? $result : null;
+    }
+
+    /**
+     * What a reassignment tells the session it hands the task to.
+     *
+     * Required, and bounded like any directive: #316 makes a placement and the directive telling
+     * the lane one write, so a reassignment without one is refused at the edge rather than stored.
+     *
+     * @param  Request  $request  The incoming request.
+     * @param  TaskTransition  $move  The transition being attempted.
+     * @return string|null The directive, where this transition carries one.
+     */
+    private function directive(Request $request, TaskTransition $move): ?string
+    {
+        if (! $move->takesADirective()) {
+            return null;
+        }
+
+        $request->validate([
+            'directive' => ['required', 'string', 'max:'.FleetEvent::MAX_BODY],
+            'hand_back' => ['sometimes', 'boolean'],
+        ]);
+
+        return $request->string('directive')->value();
+    }
+
+    /**
+     * The branch a start reports.
+     *
+     * @param  Request  $request  The incoming request.
+     * @param  TaskTransition  $move  The transition being attempted.
+     * @return string|null The branch, where this transition may carry one and one was named.
+     */
+    private function branch(Request $request, TaskTransition $move): ?string
+    {
+        if (! $move->takesABranch()) {
+            return null;
+        }
+
+        $request->validate([
+            'branch' => ['sometimes', 'nullable', 'string', 'max:'.BranchName::MAX, 'regex:'.BranchName::PATTERN],
+        ]);
+
+        return $request->filled('branch') ? $request->string('branch')->value() : null;
     }
 
     /**

@@ -35,6 +35,10 @@ use Illuminate\Support\Carbon;
  * @property string $user_id
  * @property bool $created_with_coordinator
  * @property string|null $project_id
+ * @property string|null $issue
+ * @property string|null $branch
+ * @property Placement|null $placed_by
+ * @property bool $hand_back
  * @property Carbon|null $created_at
  * @property-read AgentSession|null $claimant
  * @property-read AgentSession|null $creator
@@ -53,6 +57,10 @@ use Illuminate\Support\Carbon;
     'user_id',
     'created_with_coordinator',
     'project_id',
+
+    // Named at creation. `branch`, `placed_by` and `hand_back` are deliberately absent: each is a
+    // fact about how the task came to be held, so only a transition's conditional update writes them
+    'issue',
 ])]
 #[Table(name: 'robot_council_tasks')]
 final class Task extends Model
@@ -139,6 +147,8 @@ final class Task extends Model
             'claimed_at' => 'datetime',
             'created_by' => 'integer',
             'created_with_coordinator' => 'boolean',
+            'placed_by' => Placement::class,
+            'hand_back' => 'boolean',
         ];
     }
 

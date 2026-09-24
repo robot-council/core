@@ -15,6 +15,7 @@ use RobotCouncil\Http\Rules\BoundedMeta;
 use RobotCouncil\Mcp\ActsAsAgent;
 use RobotCouncil\Mcp\Arguments;
 use RobotCouncil\Models\Task;
+use RobotCouncil\Support\IssueReference;
 use RobotCouncil\Support\Tasks;
 
 /**
@@ -67,6 +68,9 @@ final class CreateTaskTool extends Tool
                 ->description(sprintf('0 to %d, higher first. Defaults to 0.', Task::MAX_PRIORITY)),
             'project_id' => $schema->string()
                 ->description('The repository or workspace, as `[A-Za-z0-9._/-]`.'),
+            'issue' => $schema->string()
+                ->max(IssueReference::MAX)
+                ->description('The GitHub issue this task is for, as owner/name#N. A bare #N is refused: the same number exists in every repository.'),
             'payload' => $schema->object()->description('Structured detail. Bounded in size.'),
             'parent_task_id' => $schema->integer()->description('A task this one belongs under.'),
         ];
@@ -98,6 +102,7 @@ final class CreateTaskTool extends Tool
             // reopens exactly what `BoundedMeta` exists to close, on a new door.
             'payload' => ['sometimes', 'nullable', 'array', new BoundedMeta],
             'project_id' => ['sometimes', 'nullable', 'string', 'max:128', 'regex:/^[A-Za-z0-9._\/-]{1,128}$/D'],
+            'issue' => ['sometimes', 'nullable', 'string', 'max:'.IssueReference::MAX, 'regex:'.IssueReference::PATTERN],
             'parent_task_id' => ['sometimes', 'nullable', 'integer', 'exists:robot_council_tasks,id'],
         ]);
 
@@ -109,6 +114,7 @@ final class CreateTaskTool extends Tool
                 'payload' => Arguments::structure($request->get('payload')),
                 'priority' => isset($validated['priority']) ? Arguments::integer($validated['priority']) : 0,
                 'project_id' => isset($validated['project_id']) ? Arguments::string($validated['project_id']) : null,
+                'issue' => isset($validated['issue']) ? Arguments::string($validated['issue']) : null,
                 'parent_task_id' => isset($validated['parent_task_id'])
                     ? Arguments::integer($validated['parent_task_id'])
                     : null,

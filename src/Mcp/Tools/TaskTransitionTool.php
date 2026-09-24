@@ -15,8 +15,10 @@ use RobotCouncil\Http\Rules\BoundedMeta;
 use RobotCouncil\Mcp\ActsAsAgent;
 use RobotCouncil\Mcp\Arguments;
 use RobotCouncil\Models\AgentSession;
+use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\TaskStatus;
 use RobotCouncil\Models\TaskTransition;
+use RobotCouncil\Support\BranchName;
 use RobotCouncil\Support\Outcome;
 use RobotCouncil\Support\TaskList;
 use RobotCouncil\Support\Tasks;
@@ -85,8 +87,23 @@ final class TaskTransitionTool extends Tool
 
         if ($this->transition === TaskTransition::Reassign) {
             $arguments['session_id'] = $schema->integer()
-                ->description('The agent session to hand the task to. It must not have gone.')
+                ->description('The agent session to hand the task to. It must not have gone, and must be one that could claim the task itself.')
                 ->required();
+        }
+
+        if ($this->transition->takesADirective()) {
+            $arguments['directive'] = $schema->string()
+                ->max(FleetEvent::MAX_BODY)
+                ->description('What to tell the session you are handing the task to. Written to the fleet in the same step as the handover, so the session is never holding work nobody told it about.')
+                ->required();
+            $arguments['hand_back'] = $schema->boolean()
+                ->description("True when this returns a gate's pull request to the lane that made it, rather than placing new work.");
+        }
+
+        if ($this->transition->takesABranch()) {
+            $arguments['branch'] = $schema->string()
+                ->max(BranchName::MAX)
+                ->description('The git branch you are working on for this task, as [A-Za-z0-9._/-]. Omit it if you cannot tell.');
         }
 
         if ($this->transition->takesAResult()) {
@@ -130,6 +147,15 @@ final class TaskTransitionTool extends Tool
             'result' => $this->transition->takesAResult()
                 ? ['sometimes', 'nullable', 'array', new BoundedMeta]
                 : ['prohibited'],
+            'directive' => $this->transition->takesADirective()
+                ? ['required', 'string', 'max:'.FleetEvent::MAX_BODY]
+                : ['prohibited'],
+            'hand_back' => $this->transition->takesADirective()
+                ? ['sometimes', 'boolean']
+                : ['prohibited'],
+            'branch' => $this->transition->takesABranch()
+                ? ['sometimes', 'nullable', 'string', 'max:'.BranchName::MAX, 'regex:'.BranchName::PATTERN]
+                : ['prohibited'],
         ]);
 
         $assignee = null;
@@ -145,13 +171,23 @@ final class TaskTransitionTool extends Tool
         $result = $request->get('result');
         $taskId = Arguments::integer($request->get('task_id'));
 
+        $directive = $request->get('directive');
+        $branch = $request->get('branch');
+
         $outcome = $tasks->transition(
             $taskId,
             $this->transition,
             $session,
             $coordinator,
             $assignee,
-            Arguments::structure($result)
+            Arguments::structure($result),
+            $this->transition->takesADirective() ? Arguments::string($directive) : null,
+            // Every true form the `boolean` rule admits -- `true`, `1` and `'1'` -- not only a JSON
+            // `true`: an agent sending `1` passed validation, and reading that as false would
+            // quietly place new work where a hand-back was meant
+            $this->transition->takesADirective()
+                && \in_array($request->get('hand_back'), [true, 1, '1'], true),
+            \is_string($branch) && $branch !== '' ? $branch : null
         );
 
         // A refusal is an error, not a result. A client cannot tell a result that describes a
@@ -183,7 +219,11 @@ final class TaskTransitionTool extends Tool
                     .'somebody else may have moved it.',
                 $this->transition->value
             ),
-            Outcome::Forbidden => 'This session may not do that to that task.',
+            // For a reassignment the write tested the assignee, not the caller, so saying "this
+            // session may not" would send a coordinator looking at its own abilities for no reason
+            Outcome::Forbidden => $this->transition === TaskTransition::Reassign
+                ? 'That session could not have claimed this task itself, so it cannot be handed it. The task belongs to another developer and was not filed by a coordinator.'
+                : 'This session may not do that to that task.',
             Outcome::Applied => 'Applied.',
         };
     }

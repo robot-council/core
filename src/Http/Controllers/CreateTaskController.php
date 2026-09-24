@@ -12,6 +12,7 @@ use RobotCouncil\Access\Tokens;
 use RobotCouncil\Http\Principal;
 use RobotCouncil\Http\Rules\BoundedMeta;
 use RobotCouncil\Models\Task;
+use RobotCouncil\Support\IssueReference;
 use RobotCouncil\Support\Tasks;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -46,6 +47,10 @@ final class CreateTaskController
             // The same restricted character set every other agent-facing identifier carries
             'project_id' => ['sometimes', 'nullable', 'string', 'max:128', 'regex:/^[A-Za-z0-9._\/-]{1,128}$/D'],
 
+            // The GitHub issue the task is for, always repository-qualified: a bare `#N` names a
+            // number that exists in every tracker the fleet works in
+            'issue' => ['sometimes', 'nullable', 'string', 'max:'.IssueReference::MAX, 'regex:'.IssueReference::PATTERN],
+
             // Stored and nothing more, per #25 -- but it must at least name a task that exists,
             // or the column's foreign key would refuse the insert with a 500
             'parent_task_id' => ['sometimes', 'nullable', 'integer', Rule::exists('robot_council_tasks', 'id')],
@@ -66,6 +71,7 @@ final class CreateTaskController
                 'payload' => \is_array($payload) && $payload !== [] ? $payload : null,
                 'priority' => $request->integer('priority'),
                 'project_id' => $request->filled('project_id') ? $request->string('project_id')->value() : null,
+                'issue' => $request->filled('issue') ? $request->string('issue')->value() : null,
                 'parent_task_id' => $request->filled('parent_task_id') ? $request->integer('parent_task_id') : null,
             ],
 
