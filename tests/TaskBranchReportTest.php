@@ -142,9 +142,8 @@ it('refuses a branch outside the bound at the edge and in the store, and writes 
         ->assertJsonValidationErrors('branch');
 
     expect(fn () => $this->service(Tasks::class)->reportBranch($taskId, $this->session, $branch))
-        ->toThrow(InvalidArgumentException::class);
-
-    expect(recordedBranch($taskId))->toBeNull();
+        ->toThrow(InvalidArgumentException::class)
+        ->and(recordedBranch($taskId))->toBeNull();
 })->with([
     'a leading dash' => ['-rf'],
     'a double dot' => ['feature/../main'],
