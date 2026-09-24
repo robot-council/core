@@ -21,13 +21,17 @@ declare(strict_types=1);
  */
 
 use Illuminate\Support\Facades\DB;
+use RobotCouncil\Access\Ability;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\FleetEventType;
+use RobotCouncil\Models\GithubIdentity;
 use RobotCouncil\Models\Task;
 use RobotCouncil\Models\TaskTransition;
+use RobotCouncil\Support\FleetAbilities;
 use RobotCouncil\Support\FleetEvents;
 use RobotCouncil\Support\FleetFeed;
+use RobotCouncil\Support\HostUsers;
 use RobotCouncil\Support\Tasks;
 
 beforeEach(function (): void {
@@ -163,4 +167,141 @@ it('lets no agent claim a task belonging to a developer whose key differs only i
         ->transition($taskId, TaskTransition::Claim, $ownerSession, asCoordinator: false);
 
     expect(Task::query()->whereKey($task->getKey())->value('claimed_by'))->toBe($ownerSession->getKey());
+});
+
+/**
+ * Record two identities whose keys are different text and the same number.
+ *
+ * `'5'` and `'5x'` are chosen because they bracket the two engines: they are distinct to every
+ * text comparison, and `'5x'` is what MySQL turns into `5` when it casts a column to a number.
+ *
+ * @param  string  $first  The key looked up.
+ * @param  string  $second  The key that must not come back with it.
+ */
+function twoNumericallyEqualKeys(string $first = '5', string $second = '5x'): void
+{
+    GithubIdentity::query()->create(['user_id' => $first, 'github_id' => 5000, 'github_login' => 'five']);
+    GithubIdentity::query()->create(['user_id' => $second, 'github_id' => 5001, 'github_login' => 'five-ish']);
+}
+
+it('binds every host key as text, on every engine', function (): void {
+    // **The guard that can actually fail in CI, and the reason it asserts bindings rather than
+    // rows.** The defect below is visible only on MySQL, and there is no `mysql` job -- so a test
+    // written against the rows it returns is green in CI whether or not the fix is present. What
+    // every engine can answer is what PHP put in the bindings, which is where the defect is.
+    //
+    // `Support\HostKey::tryFrom()` returns a string for every key. The one thing that turns one
+    // back into an integer is a PHP array key, so this is the property that has to hold: nothing
+    // between `tryFrom()` and the query reintroduces a number.
+    twoNumericallyEqualKeys();
+
+    DB::connection()->flushQueryLog();
+    DB::connection()->enableQueryLog();
+
+    $this->service(HostUsers::class)->githubIdsForKeys(['5', '42', '5x']);
+
+    DB::connection()->disableQueryLog();
+
+    $bindings = [];
+
+    foreach (DB::connection()->getQueryLog() as $entry) {
+        foreach (arrayValue(arrayValue($entry)['bindings'] ?? []) as $binding) {
+            $bindings[] = $binding;
+        }
+    }
+
+    // The control first: a run that captured nothing would satisfy `each->toBeString()` vacuously,
+    // and that is exactly the shape this whole ticket is about.
+    expect($bindings)->toHaveCount(3)
+        ->and($bindings)->each->toBeString()
+        ->and($bindings)->toEqualCanonicalizing(['5', '42', '5x']);
+});
+
+it('reads a host key back as a value rather than as an array key', function (): void {
+    // The mechanism the test above guards, asserted directly so the REASON is pinned and not only
+    // the outcome. A reader who changes `$narrowed[$key] = $key` back to `= true` should be able to
+    // find out here why that is not a simplification.
+    //
+    // **It pins the LANGUAGE, not this package, and that is worth saying plainly**: no edit to
+    // `Support\HostUsers` can turn it red. It fails only if PHP stops coercing a canonical numeric
+    // string array key to an integer, which is the assumption the whole fix rests on -- so it is a
+    // statement of a premise rather than a regression test, and `it('binds every host key as
+    // text')` above is the one that guards the code.
+    $keyed = [];
+
+    foreach (['5', '42', '5x'] as $key) {
+        $keyed[$key] = $key;
+    }
+
+    expect(array_map(get_debug_type(...), array_keys($keyed)))->toBe(['int', 'int', 'string'])
+        ->and(array_map(get_debug_type(...), array_values($keyed)))->toBe(['string', 'string', 'string']);
+});
+
+it('resolves one developer per host key, not every key that is the same number', function (): void {
+    // **The behavioral half, and it can only fail on MySQL.** An integer binding makes MySQL cast
+    // the COLUMN to a number, so every row that is numerically five matches; SQLite 3.51.3 and
+    // PostgreSQL 17.6 and 18.0 matched `'5'` alone whether or not the fix was in.
+    //
+    // **Two rows here, not five.** The recorder that measured this seeded `'5'`, `'5x'`, `'05'`,
+    // `' 5'` and `'5.0'` and got all five back from a lookup of `'5'` alone -- the figure quoted on
+    // the ticket. This keeps the smallest pair that still discriminates, because a fixture is a
+    // thing every future reader has to hold in their head.
+    //
+    // It is written to run everywhere regardless, exactly as this file's other assertions are: a
+    // test gated on MySQL is a test nobody runs while developing, and there is no `mysql` job for
+    // it to run in.
+    //
+    // **`2026_09_22_000002`'s binary collation does not cover this.** Measured on MySQL 9.7.2: the
+    // column reads `utf8mb4_bin` and the coercion happens anyway, because a numeric comparison
+    // casts the column before any collation is consulted.
+    twoNumericallyEqualKeys();
+
+    $found = $this->service(HostUsers::class)->githubIdsForKeys(['5']);
+
+    expect($found)->toHaveCount(1)
+        ->and(array_values($found))->toBe([5000])
+
+        // Asserted on the VALUES, because that is how `Support\FleetAbilities` reads this map: it
+        // asks the allowlist about each value and ignores the keys, so a stray entry there is one
+        // developer's listing answering for another developer's fleet.
+        ->and(array_values($found))->not->toContain(5001);
+
+    // The control: the same call asking for both keys returns both, so the single result above is
+    // the comparison narrowing rather than the read finding nothing.
+    expect($this->service(HostUsers::class)->githubIdsForKeys(['5', '5x']))->toHaveCount(2);
+});
+
+it('tells one developer from another whose key is the same number, through the fleet question', function (): void {
+    // The consequence in the place it would actually be felt. `Support\FleetAbilities` answers
+    // `fleet_can_direct`, and it decides by asking the allowlist about every GitHub ID this map
+    // returns -- so an over-matching lookup reports a fleet able to direct on the strength of a
+    // developer who holds no coordinator session at all. That is the reassuring direction, which is
+    // the one that question exists to remove.
+    //
+    // **Which key goes where is the whole test, and the first draft had it backwards.** The
+    // over-match fires on the key being LOOKED UP, because only a canonical numeric string becomes
+    // an integer array key -- so the coordinator whose key is read out of the session row has to be
+    // `'5'`, and the listed developer it must not be confused with has to be the one that merely
+    // coerces to five. Written the other way round the fixture binds `'5x'` as text, matches one
+    // row on every engine, and the test passes before the fix while proving nothing. Measured: it
+    // did.
+    $coordinator = $this->enrollDeveloper(4242, 'coordinator');
+
+    [$session] = $this->startCoordinatorSession($this->approveInstallation($coordinator));
+
+    // The coordinator's own key is NOT on the access list; the numerically equal one is.
+    keyedAs($session, '5');
+
+    GithubIdentity::query()->where('github_id', 4242)->update(['user_id' => '5']);
+    GithubIdentity::query()->create(['user_id' => '5x', 'github_id' => 77, 'github_login' => 'listed']);
+
+    $this->setAccessLists(developers: [77]);
+
+    expect(app(FleetAbilities::class)->anyLiveSessionHolds(Ability::CoordinatorDirect))->toBeFalse();
+
+    // The control: list the coordinator's own developer and the same fleet answers true, so the
+    // false above is the key comparison rather than a fixture that never had a coordinator.
+    $this->setAccessLists(developers: [4242]);
+
+    expect(app(FleetAbilities::class)->anyLiveSessionHolds(Ability::CoordinatorDirect))->toBeTrue();
 });
