@@ -233,15 +233,16 @@ keyword-reference pair in the plain text, same-line and cross-line alike:
   perl -0777 -ne '$n += length; while (/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+(?:[\w.-]+\/[\w.-]+#\d+|#\d+|https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+)/gi) { ($m = $&) =~ s/\s+/ /g; print "$m\n"; $h++ } END { printf "scanned %d bytes, %d keyword-reference pairs\n", $n, $h }'
 ```
 
-Every printed pair should be an issue this PR means to close.
+Every printed pair should be an issue this PR means to close, and `scanned 0 bytes` is a failed read
+rather than a clean result.
 
 **Make it fail rather than print.** A scan you have to read is one you can merge past, and that has
 happened: on `robot-council/core#82` the scan printed `1 fixed: #83` beside the intended
 `Closes #75`, from the sentence *"Truncation is filed rather than **fixed: #83**"* — a body saying
 the issue was **not** fixed — and the merge closed #83. The output was correct and was not acted on.
-Pass the issues the PR means to close and let the check exit non-zero on anything else:
+So pass the issues the PR means to close and let the check exit non-zero on anything else.
 
-**It has to refuse in BOTH directions**, and for a long time it only refused one. A check that
+**And it has to refuse in BOTH directions**, which for a long time it did not. A check that
 rejects a number it did not expect says nothing about a number it expected and did not get — so the
 comma form above passes it: with `intended="240 241"` and a body reading `Closes #240, #241.`, the
 scan finds `240`, finds it in `intended`, and exits 0 while `#241` is not linked at all. That
