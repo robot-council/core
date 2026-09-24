@@ -34,7 +34,7 @@ A **Laravel package** (`robot-council/core`), not an application. It is the core
   a killed run and marking nothing gone meanwhile.
 - **Lock order is `robot_council_installations`, then `robot_council_agent_sessions`, then
   `robot_council_locks`, then `robot_council_lock_fence`, then `robot_council_tasks`, then
-  `robot_council_lane_holds`, then the feed sentinel, then `robot_council_event_addressees`, then
+  `robot_council_placement_waivers`, then `robot_council_lane_holds`, then the feed sentinel, then `robot_council_event_addressees`, then
   `personal_access_tokens`.** Every path that touches more than one takes them in that
   order. A GitHub delivery takes its own `robot_council_github_*` rows first, then
   `robot_council_tasks`, then the feed sentinel; no other path takes those rows. Two paths taking the same two rows in opposite orders deadlock on every engine that locks
