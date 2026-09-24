@@ -210,6 +210,11 @@ it('refuses another developer lifting a seat, and leaves it parked', function ()
 
     expect($this->service(Seats::class)->lift($bobs->user_id, $seat->id))->toBe(Outcome::Forbidden)
         ->and(seatRow($seat)->parked_by)->toBe($installation->user_id);
+
+    // And a free seat of hers is still not his to act on: he is told he may not, not that it is free
+    $this->service(Seats::class)->lift($installation->user_id, $seat->id);
+
+    expect($this->service(Seats::class)->lift($bobs->user_id, $seat->id))->toBe(Outcome::Forbidden);
 });
 
 it("refuses a developer parking another developer's seat, and leaves it free", function (): void {
@@ -347,6 +352,10 @@ it('adds a day off once, and removes it', function (): void {
         ->and($settings->removeHoliday($alice, '2026-12-25'))->toBeTrue()
         ->and($settings->removeHoliday($alice, '2026-12-25'))->toBeFalse()
         ->and($settings->holidays($alice))->toBeEmpty();
+
+    // A day that is not a date matches nothing on every engine, rather than a 500 on Postgres
+    expect($settings->removeHoliday($alice, 'x'))->toBeFalse()
+        ->and($settings->removeHoliday($alice, '2026-02-30'))->toBeFalse();
 });
 
 it('refuses a day off past the ceiling, and accepts one at it', function (): void {
@@ -388,6 +397,36 @@ it("skips weekends by the date on the developer's clock, and only when asked", f
 
     // 01:00 UTC on Saturday is still Friday evening in Chicago, so it is not a weekend there
     expect(AssignmentWindow::isOpen(hoursOf('America/Chicago', '18:00', '23:00', skipWeekends: true), [], CarbonImmutable::parse('2026-09-26 01:00:00 UTC')))->toBeTrue();
+});
+
+it('closes the part of a Friday-night window past midnight when weekends are skipped', function (): void {
+    $fridayNight = hoursOf('UTC', '22:00', '06:00', skipWeekends: true);
+
+    expect(AssignmentWindow::isOpen($fridayNight, [], CarbonImmutable::parse('2026-09-25 23:00:00 UTC')))->toBeTrue()
+        ->and(AssignmentWindow::isOpen($fridayNight, [], CarbonImmutable::parse('2026-09-26 01:00:00 UTC')))->toBeFalse();
+});
+
+it('follows the wall clock through both daylight saving changes', function (): void {
+    // 8 March 2026, Chicago springs forward: 01:59 CST is followed by 03:00 CDT, so 02:00-02:30
+    // local never happens and a window inside it is closed every minute of that day
+    $skipped = hoursOf('America/Chicago', '02:00', '02:30', skipWeekends: false);
+    $openAtAll = false;
+
+    for ($minute = 0; $minute < 24 * 60; $minute += 5) {
+        $openAtAll = $openAtAll || AssignmentWindow::isOpen($skipped, [], CarbonImmutable::parse('2026-03-08 06:00:00 UTC')->addMinutes($minute));
+    }
+
+    expect($openAtAll)->toBeFalse()
+        // The day before, the same window opens as usual: 02:15 CST is 08:15 UTC
+        ->and(AssignmentWindow::isOpen($skipped, [], CarbonImmutable::parse('2026-03-07 08:15:00 UTC')))->toBeTrue();
+
+    // 1 November 2026, Chicago falls back: 01:00-02:00 local happens twice, at 06:00 UTC (CDT)
+    // and again at 07:00 UTC (CST), and a window inside it is open both times
+    $repeated = hoursOf('America/Chicago', '01:00', '02:00', skipWeekends: false);
+
+    expect(AssignmentWindow::isOpen($repeated, [], CarbonImmutable::parse('2026-11-01 06:30:00 UTC')))->toBeTrue()
+        ->and(AssignmentWindow::isOpen($repeated, [], CarbonImmutable::parse('2026-11-01 07:30:00 UTC')))->toBeTrue()
+        ->and(AssignmentWindow::isOpen($repeated, [], CarbonImmutable::parse('2026-11-01 08:30:00 UTC')))->toBeFalse();
 });
 
 it('runs a window overnight when it ends before it starts', function (string $local, bool $open): void {
@@ -495,26 +534,50 @@ it('saves hours and days off through the page, and reports a refused value inste
         ->assertSet('skipWeekends', false);
 });
 
-it('refuses every entry point to a visitor the package guard does not resolve', function (string $action, array $arguments): void {
-    [$installation] = seatedSession($this, $this->alice);
-    $seat = onlySeatOf($this, $installation);
+it('refuses every entry point to a visitor the package guard does not resolve, and changes nothing', function (string $action, array $arguments): void {
+    seatedSession($this, $this->alice);
+    seatedSession($this, $this->alice, location: 'b');
+    $seats = $this->service(Seats::class)->forDeveloper(keyOf($this->alice));
+    $settings = $this->service(DeveloperSettings::class);
 
-    $component = Livewire::actingAs($this->alice)->test(SeatSettings::class);
+    // State for every action to disturb: one seat parked, one exempt, hours and a day off set
+    $this->service(Seats::class)->park(keyOf($this->alice), $seats[0]->id);
+    $this->service(Seats::class)->exempt(keyOf($this->alice), $seats[1]->id, true);
+    $settings->setHours(keyOf($this->alice), 'America/Chicago', '09:00', '17:00', true);
+    $settings->addHoliday(keyOf($this->alice), '2026-12-25');
+
+    $alice = keyOf($this->alice);
+
+    $snapshot = static fn (): array => [
+        Seat::query()->orderBy('id')->get(['id', 'parked_by', 'hours_exempt'])->toArray(),
+        AssignmentHours::query()->get(['user_id', 'timezone', 'starts_at', 'ends_at', 'skip_weekends'])->toArray(),
+        $settings->holidays($alice),
+    ];
+    $before = $snapshot();
+
+    $component = Livewire::actingAs($this->alice)->test(SeatSettings::class)
+        ->set('timezone', 'UTC')->set('startsAt', '00:00')->set('endsAt', '23:00')->set('holiday', '2026-12-31');
 
     auth()->guard('web')->logout();
 
-    $component->call($action, ...array_map(static fn ($argument) => $argument === 'SEAT' ? $seat->id : $argument, $arguments))
-        ->assertForbidden();
+    $resolved = array_map(static fn ($argument) => match ($argument) {
+        'PARKED' => $seats[0]->id,
+        'FREE' => $seats[1]->id,
+        default => $argument,
+    }, $arguments);
 
-    expect(seatRow($seat)->parked_by)->toBeNull();
+    $component->call($action, ...$resolved)->assertForbidden();
+
+    expect($snapshot())->toBe($before);
 })->with([
-    'park' => ['park', ['SEAT']],
-    'lift' => ['lift', ['SEAT']],
-    'exempt' => ['exempt', ['SEAT']],
+    'park' => ['park', ['FREE']],
+    'lift' => ['lift', ['PARKED']],
+    'exempt' => ['exempt', ['PARKED']],
+    'unexempt' => ['unexempt', ['FREE']],
     'save hours' => ['saveHours', []],
+    'clear hours' => ['clearHours', []],
     'add a day off' => ['addHoliday', []],
     'remove a day off' => ['removeHoliday', ['2026-12-25']],
-    'clear hours' => ['clearHours', []],
 ]);
 
 it('escapes a hostile repository and machine label on the page', function (string $payload, array $forbidden, ?string $escaped): void {
@@ -553,12 +616,19 @@ it("lets a coordinator read every developer's settings and seats", function (): 
     $this->service(DeveloperSettings::class)->setHours(keyOf($this->bob), 'Europe/London', '10:00', '18:00', true);
     $this->service(DeveloperSettings::class)->addHoliday(keyOf($this->bob), '2026-12-26');
 
+    // A developer with days off and no hours: the half of the read that comes from the holidays table
+    $this->service(DeveloperSettings::class)->addHoliday(keyOf($this->alice), '2026-11-26');
+
     [, $token] = $this->startCoordinatorSession($this->approveInstallation($this->bob, 'coordinator-box'));
 
     $this->machine($token)->getJson(route('robot-council.developers.settings'))
         ->assertOk()
         ->assertExactJson([
             'developers' => [[
+                'github_login' => 'alice-dev',
+                'hours' => null,
+                'holidays' => ['2026-11-26'],
+            ], [
                 'github_login' => 'bob-dev',
                 'hours' => ['timezone' => 'Europe/London', 'starts_at' => '10:00', 'ends_at' => '18:00', 'skip_weekends' => true],
                 'holidays' => ['2026-12-26'],
@@ -602,16 +672,25 @@ it('gives a coordinator no way to write, and its attempts change nothing', funct
         ->and(AssignmentHours::query()->count())->toBe(0);
 })->with(['POST', 'PUT', 'PATCH', 'DELETE']);
 
-it('registers no machine route that reaches a settings writer', function (): void {
-    // The positive control: the read is found by the same filter
-    $settingsRoutes = collect(app('router')->getRoutes()->getRoutes())
-        ->filter(fn (Route $route): bool => str_contains($route->uri(), 'developers') || str_contains($route->uri(), 'seats'))
-        ->map(fn (Route $route): string => implode('|', array_filter($route->methods(), is_string(...))).' '.$route->uri())
+it('registers no route that reaches a settings writer other than the read and the page', function (): void {
+    // By action class rather than by URI, so a writer mounted at `agent/park` is seen as surely as
+    // one mounted under `developers`
+    $reaching = collect(app('router')->getRoutes()->getRoutes())
+        ->filter(fn (Route $route): bool => str_contains($route->getActionName(), 'DeveloperSettings')
+            || str_contains($route->getActionName(), 'SeatSettings')
+            || str_contains($route->getActionName(), 'Seats'))
+        ->map(fn (Route $route): string => implode('|', array_filter($route->methods(), is_string(...))).' '.$route->getName())
+        ->sort()
         ->values()
         ->all();
 
-    expect($settingsRoutes)->toContain('GET|HEAD '.trim(parse_url(route('robot-council.developers.settings'), PHP_URL_PATH) ?: '', '/'))
-        ->and(array_filter($settingsRoutes, fn (string $route): bool => ! str_starts_with($route, 'GET|HEAD ')))->toBeEmpty();
+    // The read, and the page. The page's own actions arrive through Livewire's update route, which
+    // authenticates on the web guard, and the test above refuses every one of them to a visitor
+    // that guard does not resolve.
+    expect($reaching)->toBe([
+        'GET|HEAD robot-council.developers.settings',
+        'GET|HEAD robot-council.seats',
+    ]);
 });
 
 // --- Migrations -----------------------------------------------------------------------------------

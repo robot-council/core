@@ -7,6 +7,7 @@ namespace RobotCouncil\Livewire;
 use Illuminate\Contracts\View\View;
 use InvalidArgumentException;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 use RobotCouncil\Access\CurrentDeveloper;
 use RobotCouncil\Support\DeveloperSettings;
@@ -59,7 +60,11 @@ final class SeatSettings extends Component
 
     /**
      * What the last action did not do, in words, or null when it did what was asked.
+     *
+     * Locked, so only the server sets it: a client could otherwise put any sentence it liked in
+     * the page's alert, which is harmless on its own page and still not the page's to say.
      */
+    #[Locked]
     public ?string $notice = null;
 
     /**

@@ -49,13 +49,21 @@ final class Seats
             ->where('status', '!=', AgentSessionStatus::Gone->value)
             ->whereNotNull('repository')
             ->whereIn('installation_id', Installation::usable()->where('user_id', $developer)->select('id'))
-            ->distinct()
-            ->get(['installation_id', 'repository', 'work_location']);
+            ->get(['installation_id', 'repository', 'work_location'])
+            // **De-duplicated here, byte for byte, and not with a SQL `DISTINCT`.** The session
+            // table's `repository` has the engine's default collation, so on MySQL a `DISTINCT`
+            // folds `UAMS-Web/x` and `uams-web/x` into one row before the seat table's binary key
+            // ever sees them. Measured: with that collation in place, MySQL still recorded one seat.
+            ->unique(static fn (AgentSession $session): string => json_encode([
+                $session->installation_id,
+                $session->repository,
+                $session->work_location ?? '',
+            ], JSON_THROW_ON_ERROR));
 
         if ($places->isNotEmpty()) {
             $now = PresenceClock::now();
 
-            Seat::query()->insertOrIgnore($places->map(static fn (AgentSession $session): array => [
+            Seat::query()->insertOrIgnore($places->values()->map(static fn (AgentSession $session): array => [
                 'installation_id' => $session->installation_id,
                 'user_id' => $developer,
                 'repository' => $session->repository,
@@ -134,7 +142,10 @@ final class Seats
             ->where('parked_by', $developer)
             ->update(['parked_by' => null, 'parked_at' => null, 'updated_at' => PresenceClock::now()]);
 
+        // Ownership first, so another developer is told they may not rather than that the seat is
+        // free: whether it is parked is not theirs to act on either way
         return $changed === 1 ? Outcome::Applied : $this->diagnose($seatId, static fn (Seat $seat): Outcome => match (true) {
+            $seat->user_id !== $developer => Outcome::Forbidden,
             $seat->parked_by === null => Outcome::Conflict,
             default => Outcome::Forbidden,
         });

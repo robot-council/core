@@ -103,14 +103,15 @@ Route::middleware(['throttle:'.RobotCouncilServiceProvider::AGENT_LIMITER, Ensur
             ->middleware(RequireAbility::class.':'.Ability::CoordinatorDirect->value)
             ->name('directives.store');
 
-        // Every agent sees every task: an agent cannot decide whether to claim work it cannot see,
-        // and a queue half the fleet is blind to is a queue that deadlocks. What narrows a task is
-        // claiming it, and #16's eligibility rule rides in the claim's own conditional update.
         // Read-only: the coordinator reads developers' settings and never writes them (#314). The
         // dashboard is their only writer.
         Route::get('developers/settings', DeveloperSettingsController::class)
             ->middleware(RequireAbility::class.':'.Ability::CoordinatorDirect->value)
             ->name('developers.settings');
+
+        // Every agent sees every task: an agent cannot decide whether to claim work it cannot see,
+        // and a queue half the fleet is blind to is a queue that deadlocks. What narrows a task is
+        // claiming it, and #16's eligibility rule rides in the claim's own conditional update.
         Route::get('tasks', ListTasksController::class)->name('tasks.index');
 
         Route::post('tasks', CreateTaskController::class)

@@ -37,7 +37,7 @@ return new class extends Migration
         Schema::create('robot_council_assignment_hours', function (Blueprint $table): void {
             $owner = $table->string('user_id', self::KEY_LENGTH)->primary();
 
-            // An IANA zone name. The longest PHP knows is 32 characters; 64 leaves room.
+            // An IANA zone name. The longest PHP lists is 30 characters; 64 leaves room.
             $table->string('timezone', 64);
 
             // `HH:MM`, local to `timezone`. A window whose end is before its start runs overnight.

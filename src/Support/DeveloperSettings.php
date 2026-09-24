@@ -122,6 +122,13 @@ final class DeveloperSettings
      */
     public function removeHoliday(string $developer, string $day): bool
     {
+        // Checked before the query, not left to it: the page hands this whatever a client sends,
+        // and Postgres casts the value to a `date` and fails with a 500 (22007, or 22008 for
+        // `2026-02-30`) where SQLite and MySQL simply match nothing
+        if (! AssignmentWindow::isDay($day)) {
+            return false;
+        }
+
         return DB::table('robot_council_holidays')
             ->where('user_id', HostKey::from($developer))
             ->where('day', $day)

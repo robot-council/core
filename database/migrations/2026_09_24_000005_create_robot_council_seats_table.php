@@ -55,7 +55,7 @@ return new class extends Migration
             // `WorkIdentity::MAX_REPOSITORY` and `WorkIdentity::MAX_LOCATION`, written out rather
             // than read from the class, for the reason every migration here gives: this file has to
             // mean the same thing after that class is edited
-            $table->string('repository', 140);
+            $repository = $table->string('repository', 140);
             $table->string('work_location', 32)->default('');
 
             // Who parked it and when, null while the seat takes work. Only this developer lifts it.
@@ -72,9 +72,19 @@ return new class extends Migration
             if (Engines::needsBinaryCollation(DB::getDriverName())) {
                 $owner->collation('utf8mb4_bin');
                 $parker->collation('utf8mb4_bin');
+
+                // And the repository, because it is part of the seat's unique key and
+                // `WorkIdentity` keeps its case. Under MySQL's default collation `UAMS-Web/x` and
+                // `uams-web/x` are one seat, and `insertOrIgnore` drops the second silently; on
+                // Postgres and SQLite they are two. Binary makes MySQL agree with them, so what a
+                // seat IS does not depend on the engine. `work_location` is lower case by its own
+                // pattern and needs nothing.
+                $repository->collation('utf8mb4_bin');
             }
 
-            $table->unique(['installation_id', 'repository', 'work_location']);
+            // Named, because the generated name is 68 characters: MySQL refuses an identifier past
+            // 64 with error 1059, and Postgres truncates past 63 without saying so
+            $table->unique(['installation_id', 'repository', 'work_location'], 'robot_council_seats_place_unique');
             $table->index('user_id');
         });
     }

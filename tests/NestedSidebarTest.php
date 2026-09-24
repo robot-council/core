@@ -210,7 +210,7 @@ it('keeps the administration section out of the list for a developer who is not 
 
     [$console] = topLevelEntries($xpath);
 
-    // The other three are still nested, so this is the admin entry being withheld rather than the
+    // The other four are still nested, so this is the admin entry being withheld rather than the
     // whole group failing to render.
     expect(childLabels($xpath, $console))->toBe(['Presence', 'Queue', 'Change feed', 'My seats and hours']);
 });

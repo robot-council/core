@@ -27,6 +27,12 @@ use RobotCouncil\Models\AssignmentHours;
  * falls on, so the part of a Friday-night window that runs past midnight is closed when weekends
  * are skipped. A window whose start and end are equal is refused, because it could mean an empty
  * window or a whole day and nothing says which.
+ *
+ * **Two moments a year the local clock is not a line, and the window follows the clock.** On the
+ * day it springs forward, the skipped hour never happens, so a window lying wholly inside it is
+ * closed all that day; on the day it falls back, the repeated hour happens twice, so a window
+ * inside it is open both times. Both are what the developer's own wall clock shows, which is the
+ * one thing this class promises, and a test pins each.
  */
 final class AssignmentWindow
 {
