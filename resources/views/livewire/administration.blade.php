@@ -11,8 +11,7 @@
     Nothing on this page is a credential. `Support\InstallationList` reads no column that holds one.
 --}}
 
-@use('RobotCouncil\Support\WireArgument', 'Wire')
-<div wire:poll.{{ Wire::of($pollSeconds) }}s class="card bg-base-100 shadow-sm">
+<div wire:poll.{{ \RobotCouncil\Support\WireArgument::of($pollSeconds) }}s class="card bg-base-100 shadow-sm">
     <div class="card-body">
         <div class="flex flex-wrap items-center justify-between gap-2">
             <h2 class="card-title">Installations</h2>
@@ -21,12 +20,12 @@
                  live one. Sorting would put a mutable column in the ordering, and a cursor over
                  one of those skips rows silently -- which is the defect #83 records. --}}
             <div class="flex gap-1">
-                <button type="button" wire:click="showScope('{{ Wire::of(\RobotCouncil\Support\Scope::Live) }}')"
+                <button type="button" wire:click="showScope('{{ \RobotCouncil\Support\WireArgument::of(\RobotCouncil\Support\Scope::Live) }}')"
                     class="btn btn-xs {{ $scope === \RobotCouncil\Support\Scope::Live ? 'btn-primary' : 'btn-ghost' }}">
                     Usable ({{ $page['live'] }})
                 </button>
 
-                <button type="button" wire:click="showScope('{{ Wire::of(\RobotCouncil\Support\Scope::All) }}')"
+                <button type="button" wire:click="showScope('{{ \RobotCouncil\Support\WireArgument::of(\RobotCouncil\Support\Scope::All) }}')"
                     class="btn btn-xs {{ $scope === \RobotCouncil\Support\Scope::All ? 'btn-primary' : 'btn-ghost' }}">
                     All ({{ $page['live'] + $page['retired'] }})
                 </button>
@@ -70,7 +69,7 @@
                                     <span class="badge badge-sm">expired</span>
                                 @else
                                     <button type="button"
-                                        wire:click="revokeInstallation({{ Wire::of($installation['id']) }})"
+                                        wire:click="revokeInstallation({{ \RobotCouncil\Support\WireArgument::of($installation['id']) }})"
                                         wire:confirm="Revoke this installation? Its credential and every session token it issued stop working immediately."
                                         class="btn btn-sm btn-warning">
                                         Revoke installation
@@ -124,7 +123,7 @@
                                             <span class="badge badge-sm badge-warning">asked for {{ $session['requested_role'] }}</span>
 
                                             <button type="button"
-                                                wire:click="approveRole({{ Wire::of($session['id']) }}, '{{ Wire::of($session['requested_role']) }}')"
+                                                wire:click="approveRole({{ \RobotCouncil\Support\WireArgument::of($session['id']) }}, '{{ \RobotCouncil\Support\WireArgument::of($session['requested_role']) }}')"
                                                 @if ($session['requested_role'] === \RobotCouncil\Access\Role::Coordinator->value)
                                                     wire:confirm="Approve coordinator? This session will be able to release, reassign or cancel any developer's task, and post directives to the whole fleet."
                                                 @endif
@@ -133,7 +132,7 @@
                                             </button>
 
                                             <button type="button"
-                                                wire:click="denyRole({{ Wire::of($session['id']) }})"
+                                                wire:click="denyRole({{ \RobotCouncil\Support\WireArgument::of($session['id']) }})"
                                                 class="btn btn-xs btn-ghost">
                                                 Deny
                                             </button>
@@ -145,7 +144,7 @@
                                         @foreach ($roles as $role)
                                             @if ($role->value !== $session['role'])
                                                 <button type="button"
-                                                    wire:click="imposeRole({{ Wire::of($session['id']) }}, '{{ Wire::of($role) }}')"
+                                                    wire:click="imposeRole({{ \RobotCouncil\Support\WireArgument::of($session['id']) }}, '{{ \RobotCouncil\Support\WireArgument::of($role) }}')"
                                                     @if ($role === \RobotCouncil\Access\Role::Coordinator)
                                                         wire:confirm="Make this session a coordinator? It will be able to release, reassign or cancel any developer's task, and post directives to the whole fleet."
                                                     @endif
@@ -159,7 +158,7 @@
                                              revoked. The reader bounds the list rather than the
                                              view hiding rows. --}}
                                         <button type="button"
-                                            wire:click="revokeSession({{ Wire::of($session['id']) }})"
+                                            wire:click="revokeSession({{ \RobotCouncil\Support\WireArgument::of($session['id']) }})"
                                             class="btn btn-xs btn-ghost">
                                             Revoke session
                                         </button>
@@ -197,7 +196,7 @@
                 @endif
 
                 @if ($page['more'] && $page['cursor'] !== null)
-                    <button type="button" wire:click="showNext({{ Wire::of($page['cursor']) }})"
+                    <button type="button" wire:click="showNext({{ \RobotCouncil\Support\WireArgument::of($page['cursor']) }})"
                         class="btn btn-sm">Older</button>
                 @endif
             </div>

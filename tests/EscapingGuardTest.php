@@ -32,6 +32,19 @@ use RobotCouncil\Support\WireArgument;
 use RobotCouncil\Support\WorkIdentity;
 use RobotCouncil\Tests\Fixtures\HostileContent;
 
+/**
+ * The only call this guard admits, spelled the way a view must spell it.
+ *
+ * **A nowdoc, because Rector rewrites a qualified name in a quoted literal.** Measured three times
+ * on this branch: it replaces `\RobotCouncil\Support\WireArgument` with `WireArgument::class`,
+ * which resolves WITHOUT the leading separator -- and a relative qualified name is exactly what this
+ * guard now refuses, so the rewrite turns every admitted fixture into a rejected one. The bytes are
+ * the subject here.
+ */
+const GUARDED_CALL = <<<'PHP'
+    \RobotCouncil\Support\WireArgument::of
+    PHP;
+
 beforeEach(function (): void {
     $this->migrateUsersTableWithPackageColumns();
 
@@ -283,14 +296,14 @@ it('reports an interpolation in a Livewire expression, and leaves a guarded one 
         ->toBe(['wire:click="$id"']);
 
     // Routed through the whitelist, so nothing to report.
-    expect(wireExpressionInterpolations('<button wire:click="act({{ Wire::of($id) }})">go</button>'))
+    expect(wireExpressionInterpolations('<button wire:click="act({{ '.GUARDED_CALL.'($id) }})">go</button>'))
         ->toBeEmpty();
 
     // The attribute NAME position, which breaks out of the attribute rather than out of a string.
     expect(wireExpressionInterpolations('<div wire:poll.{{ $seconds }}s></div>'))
         ->toBe(['attribute name: {{$seconds}}']);
 
-    expect(wireExpressionInterpolations('<div wire:poll.{{ Wire::of($seconds) }}s></div>'))
+    expect(wireExpressionInterpolations('<div wire:poll.{{ '.GUARDED_CALL.'($seconds) }}s></div>'))
         ->toBeEmpty();
 
     // `wire:key` is a literal identifier Livewire never evaluates, so it is deliberately exempt.
@@ -302,6 +315,248 @@ it('reports an interpolation in a Livewire expression, and leaves a guarded one 
     // An ordinary attribute is not this check's business; `rawOutputIn()` covers the escaping.
     expect(wireExpressionInterpolations('<p title="{{ $title }}">x</p>'))->toBeEmpty();
 });
+
+it('reports every shape that put the guard token somewhere it did not govern', function (string $expression): void {
+    // **The admit rule was anchored at neither end**, so `str_contains($interpolation, '::of(')`
+    // passed every row here. Measured against the shipped detector before the change, each one
+    // admitted (#240). A `wire:click` value is evaluated, so this is expression injection rather
+    // than the navigation the sibling URL guard risks.
+    expect(wireExpressionInterpolations('<button wire:click="act({{ '.$expression.' }})">go</button>'))
+        ->not->toBeEmpty();
+})->with([
+    'concatenated after the call' => ''.GUARDED_CALL.'($id).$evil',
+    'concatenated before it' => '$evil.'.GUARDED_CALL.'($id)',
+    'one element of a list' => '['.GUARDED_CALL.'($a), $evil]',
+    'the token inside a string literal' => "'::of('.\$evil",
+    'the token inside a comment' => '$evil /* ::of( */',
+]);
+
+it('still admits the two call shapes the package actually writes', function (): void {
+    // **The negative control for the test above, and it is the one that matters.** An anchored rule
+    // that reported everything would satisfy every row there and fail the whole suite over the real
+    // views. The second row is not hypothetical: `task-board.blade.php` and `administration.blade.php`
+    // both pass a fully-qualified enum case, whose `::` and `\` the pattern has to carry.
+    expect(wireExpressionInterpolations('<button wire:click="act({{ '.GUARDED_CALL.'($id) }})">go</button>'))
+        ->toBeEmpty();
+
+    // **Nowdocs, because Rector rewrites the qualified name inside a quoted literal.** Measured: it
+    // turned `\RobotCouncil\Support\Scope::All` into `'.Scope::class.'`, which resolves WITHOUT the
+    // leading separator -- so the test kept passing while no longer pinning the shape the views
+    // carry. The bytes are the subject here, so they are written where nothing rewrites them.
+    $qualified = <<<'BLADE'
+        <button wire:click="go({{ \RobotCouncil\Support\WireArgument::of(\RobotCouncil\Support\Scope::All) }})">go</button>
+        BLADE;
+
+    $unqualified = <<<'BLADE'
+        <button wire:click="go({{ \RobotCouncil\Support\WireArgument::of(RobotCouncil\Support\Scope::All) }})">go</button>
+        BLADE;
+
+    expect(wireExpressionInterpolations($qualified))->toBeEmpty()
+        ->and(wireExpressionInterpolations($unqualified))->toBeEmpty();
+});
+
+it('examines the raw echo form in a Livewire expression, which it read past entirely', function (): void {
+    // `interpolationsIn()` matched only `{{ … }}`, so this shape was invisible to the expression
+    // guard -- the one echo form it never examined (#240).
+    expect(wireExpressionInterpolations('<button wire:click="act({!! $evil !!})">go</button>'))
+        ->toBe(['wire:click="$evil"']);
+
+    // And a guarded raw echo is still admitted, so the fix reports the shape rather than the syntax.
+    expect(wireExpressionInterpolations('<button wire:click="act({!! '.GUARDED_CALL.'($id) !!})">go</button>'))
+        ->toBeEmpty();
+});
+
+it('examines the evaluated Alpine attributes it did not name', function (string $attribute): void {
+    // `x-init` and `x-effect` are evaluated expressions and were in no prefix list. `x-text` is a
+    // value rather than a sink, and is examined because that is cheaper than arguing about it.
+    expect(wireExpressionInterpolations('<div '.$attribute.'="{{ $evil }}"></div>'))
+        ->toBe([$attribute.'="$evil"']);
+})->with(['x-init', 'x-effect', 'x-text']);
+
+it('examines the Alpine shorthand, which neither detector reached', function (string $attribute): void {
+    // **#241, and which detector owns it is a decision rather than an accident.** `:href` is the
+    // same attribute as `x-bind:href` spelled two ways, and this detector already owned the long
+    // form -- so splitting one attribute across two detectors by spelling would be the arbitrary
+    // choice. `urlAttributeInterpolations()` is left alone, and `:class` comes along free.
+    //
+    // `v-bind:` is Vue's and this package ships none. It is three characters in an alternation and
+    // the failure it guards is somebody reaching for a familiar spelling, so it is included rather
+    // than argued about.
+    expect(wireExpressionInterpolations('<a '.$attribute.'="{{ $evil }}">x</a>'))
+        ->toBe([$attribute.'="$evil"']);
+})->with([':href', ':class', 'v-bind:href', 'x-bind:href']);
+
+it('does not let the shorthand branch capture an unrelated attribute', function (): void {
+    // **What the lookbehind actually buys, which is narrower than an earlier version of this test
+    // claimed.** It asserted that `x-bind:href` is reported once -- and that assertion cannot fail:
+    // `preg_match_all` consumes the whole attribute in one match starting at the `x`, so `:href` is
+    // never tried inside text already consumed. It returns 1 with the lookbehind deleted entirely.
+    //
+    // The real claim is over-matching: `xlink:href` is not ours, ends in `:href`, and must not be
+    // captured by the `:[\w.:-]+` branch.
+    expect(wireExpressionInterpolations('<a xlink:href="{{ $evil }}">x</a>'))->toBeEmpty()
+        ->and(wireExpressionInterpolations('<svg xmlns:xlink="{{ $ns }}"></svg>'))->toBeEmpty()
+        // The control in the same run, so the two silences are absences rather than a dead branch.
+        ->and(wireExpressionInterpolations('<a :href="{{ $evil }}">x</a>'))->toBe([':href="$evil"']);
+});
+
+it('admits a nested call, which is what the recursive group is for', function (): void {
+    // **The mutant that survived the first version.** Replacing the recursion with `\([^()]*\)`
+    // passed every test and every view, because no fixture carried a nested parenthesis. This is
+    // the input that tells the two apart.
+    expect(wireExpressionInterpolations('<button wire:click="act({{ '.GUARDED_CALL.'(max(1, $n)) }})">x</button>'))
+        ->toBeEmpty()
+        // And the balance still has to close: an unclosed call is not a call.
+        ->and(wireExpressionInterpolations('<button wire:click="act({{ '.GUARDED_CALL.'(max(1, $n) }})">x</button>'))
+        ->not->toBeEmpty();
+});
+
+it('examines a value in every quoting form, and whatever case it is written in', function (string $template): void {
+    // **A `"` inside an expression truncated the capture**, and everything after it in the attribute
+    // went unexamined -- `wire:click="act({{ __("k") }}, {{ $evil }})"` is ordinary Blade and
+    // reported nothing. The sibling `urlAttributeInterpolations()` had solved this; this function
+    // had not. Single-quoted and unquoted values were missed outright, and an HTML parser
+    // lowercases attribute names, so `WIRE:CLICK` is live.
+    expect(wireExpressionInterpolations($template))->not->toBeEmpty();
+})->with([
+    'a quote inside the expression' => '<button wire:click="act({{ __("k") }}, {{ $evil }})">x</button>',
+    'a single-quoted value' => "<button wire:click='act({{ \$evil }})'>x</button>",
+    'an unquoted value' => '<button wire:click=act({{ $evil }})>x</button>',
+    'an uppercase attribute' => '<button WIRE:CLICK="{{ $evil }}">x</button>',
+    'a mixed-case attribute' => '<button Wire:Click="{{ $evil }}">x</button>',
+]);
+
+it('examines the escaped directive Blade renders as a live one', function (): void {
+    // **`@@click` renders as `@click`.** Read in `BladeCompiler::compileStatement()`, which takes
+    // the `str_contains($match[1], '@')` branch and emits the directive verbatim -- so this is a
+    // working Alpine handler with a Blade interpolation in it. A lookbehind class that excluded `@`
+    // silenced exactly this, which is why the class does not.
+    expect(wireExpressionInterpolations('<button @@click="{{ $evil }}">x</button>'))
+        ->toBe(['@click="$evil"'])
+        ->and(wireExpressionInterpolations('<button @click="{{ $evil }}">x</button>'))
+        ->toBe(['@click="$evil"']);
+});
+
+it('reads the raw echo form in the attribute-NAME position too', function (): void {
+    // Fixing only the value position left the sharper half open: the name position breaks out of
+    // the attribute rather than out of a string.
+    expect(wireExpressionInterpolations('<div wire:poll.{!! $evil !!}s></div>'))
+        ->toBe(['attribute name: {{$evil}}'])
+        ->and(wireExpressionInterpolations('<div wire:poll.{!! '.GUARDED_CALL.'($s) !!}s></div>'))
+        ->toBeEmpty();
+});
+
+it('examines every Alpine directive that evaluates or writes', function (string $attribute): void {
+    // `x-html` is the sharpest and was absent: it evaluates its expression AND writes the result as
+    // HTML, so leaving it out while including `x-text` -- a strictly weaker sink -- was backwards.
+    expect(wireExpressionInterpolations('<div '.$attribute.'="{{ $evil }}"></div>'))
+        ->toBe([$attribute.'="$evil"']);
+})->with(['x-html', 'x-if', 'x-for', 'x-init', 'x-effect', 'x-text', 'x-ref', 'x-teleport', 'x-mask']);
+
+it('leaves a commented-out example alone, in both echo forms', function (): void {
+    // Reading `{!! !!}` without stripping comments first made this a finding. The sibling detector
+    // strips `{{-- --}}` and `@verbatim`; this one now does too.
+    expect(wireExpressionInterpolations('<button wire:click="{{-- {!! $evil !!} --}}">x</button>'))
+        ->toBeEmpty()
+        ->and(wireExpressionInterpolations('@verbatim<button wire:click="{{ $evil }}">x</button>@endverbatim'))
+        ->toBeEmpty()
+        // The control: the same expression outside a comment is still reported.
+        ->and(wireExpressionInterpolations('<button wire:click="{!! $evil !!}">x</button>'))
+        ->not->toBeEmpty();
+});
+
+it('examines every Alpine event, not the one directive that was named', function (string $attribute): void {
+    // **Alpine maps ANY attribute starting with `@` to `x-on:`** -- `mapAttributes(startingWith("@",
+    // into(prefix("on:"))))` in its bundled dist -- so the whole event surface is evaluated and the
+    // prefix list named `@click` alone. `@click.away` was caught only because a wildcard followed
+    // the literal.
+    expect(wireExpressionInterpolations('<input '.$attribute.'="save({{ $evil }})">'))
+        ->toBe([$attribute.'="$evil"']);
+})->with(['@submit.prevent', '@keydown.enter', '@input', '@blur', '@mouseover', '@click']);
+
+it('exempts `wire:key` exactly, the way Livewire reserves it', function (): void {
+    // **Livewire's reserved list is an equality test on the segment before the first `.`** -- read
+    // in its bundled `wire-wildcard.js`, where `[…,"key",…].includes(directive.value)` decides.
+    // So `wire:keydown.enter`, which is idiomatic, falls through and becomes an evaluated
+    // `x-on:keydown`, while a `str_starts_with` exemption swallowed it.
+    expect(wireExpressionInterpolations('<input wire:keydown.enter="save({{ $evil }})">'))
+        ->toBe(['wire:keydown.enter="$evil"'])
+        ->and(wireExpressionInterpolations('<input wire:keyup.escape="save({{ $evil }})">'))
+        ->not->toBeEmpty()
+        // The exemption itself still holds, in either case, because an HTML parser lowercases.
+        ->and(wireExpressionInterpolations('<li wire:key="task-{{ $id }}">x</li>'))->toBeEmpty()
+        ->and(wireExpressionInterpolations('<li WIRE:KEY="{{ $id }}">x</li>'))->toBeEmpty()
+        ->and(wireExpressionInterpolations('<li wire:key.foo="{{ $id }}">x</li>'))->toBeEmpty();
+});
+
+it('leaves ordinary Tailwind alone, which the attribute-name scan did not', function (string $class): void {
+    // **`x-` matched anywhere in the document**, so any utility carrying it immediately before an
+    // interpolation was reported as an attribute name -- and a finding fails the build. This
+    // package's own views already carry `class="btn btn-xs {{ … }}"`, so the tree was one class
+    // away from a guard that refused it.
+    expect(wireExpressionInterpolations('<div class="'.$class.'">x</div>'))->toBeEmpty();
+})->with(['px-{{ $n }}', 'max-w-{{ $w }}', 'space-x-{{ $gap }}', 'translate-x-{{ $n }}', 'px-{!! $n !!}']);
+
+it('admits only the fully-qualified name, whatever a template does to the short one', function (string $expression, bool $reported): void {
+    // **Five review rounds killed the bare-name rule, and the last killed its premise.** Admitting
+    // `'.GUARDED_CALL.'()` meant establishing what `Wire` named by reading `@use` -- and binding a name does
+    // not require a `use` statement. Each row below was executed against a real foreign class: the
+    // template compiled, `'.GUARDED_CALL.'()` reached that class, and the guard was silent.
+    //
+    // A leading `\` resolves against the global namespace, so no import, `class_alias()` or
+    // namespace declaration can move it. That is why there is no list here to keep complete.
+    $findings = wireExpressionInterpolations($expression."\n<button wire:click=\"go({{ ".GUARDED_CALL.'($id) }})">x</button>');
+
+    expect($findings === [])->toBe(! $reported);
+})->with([
+    // The one admitted form, with nothing else in the template.
+    'the qualified call alone' => ['', false],
+
+    // Each of these binds `Wire` to something foreign; none of them can touch the qualified call.
+    'an alias onto the short name' => ["@use('Evil\\Wire', 'Wire')", false],
+    'an alias onto the FIRST SEGMENT of the qualified name' => ["@use('Evil\\Foo', 'RobotCouncil')", false],
+    'a class spliced in through a semicolon' => ["@use('A as B; class Wire extends \\Evil\\Wire {}')", false],
+    'a runtime alias in the one-line php form' => ["@php(class_alias(\\Evil\\Wire::class, 'Wire'))", false],
+]);
+
+it('refuses the short name now, however the template imports it', function (string $call): void {
+    // The other direction: the guard no longer takes anybody's word for what a short name means,
+    // including this package's own alias. The views spell it out instead, as they already did for
+    // `\RobotCouncil\Access\Role` and `\RobotCouncil\Support\Scope`.
+    expect(wireExpressionInterpolations("@use('RobotCouncil\\Support\\WireArgument', 'Wire')\n<button wire:click=\"go({{ ".$call.' }})">x</button>'))
+        ->not->toBeEmpty();
+})->with([
+    // **Written as nowdocs, because a blanket qualification pass rewrote these once already.** This
+    // is the one dataset whose subject is the SHORT spelling, so the bytes have to survive editing.
+    'the former alias' => [<<<'PHP'
+        Wire::of($id)
+        PHP],
+    'the bare class name' => [<<<'PHP'
+        WireArgument::of($id)
+        PHP],
+    'relative qualified, which an import can redirect' => [<<<'PHP'
+        RobotCouncil\Support\WireArgument::of($id)
+        PHP],
+]);
+
+it('refuses a qualified class this package does not have', function (): void {
+    // `src/Support/` holds `WireArgument.php` and no `Wire.php`, so admitting
+    // `RobotCouncil\Support\Wire` was untested widening that pre-blessed a class nobody has
+    // written. Removing that alternative killed no assertion, which is what said it was untested.
+    expect(wireExpressionInterpolations('<button wire:click="act({{ RobotCouncil\Support\Wire::of($id) }})">x</button>'))
+        ->not->toBeEmpty();
+});
+
+it('captures a later interpolation in each quoting form, not just the first', function (string $template): void {
+    // **The quoted branches had no test that distinguished them from the bare fallback.** Neutering
+    // either left every assertion green, because the bare branch stops at the first space and still
+    // catches the FIRST interpolation. A guarded value first and an unguarded one second is what
+    // tells them apart.
+    expect(wireExpressionInterpolations($template))->toBe(['x-html="$evil"']);
+})->with([
+    'double-quoted' => '<div x-html="go({{ '.GUARDED_CALL.'($a) }}, {{ $evil }})"></div>',
+    'single-quoted' => "<div x-html='go({{ ".GUARDED_CALL."(\$a) }}, {{ \$evil }})'></div>",
+]);
 
 it('writes nothing into a Livewire expression that did not come from the whitelist', function (): void {
     $views = bladeTemplatesIn(__DIR__.'/../resources/views');
