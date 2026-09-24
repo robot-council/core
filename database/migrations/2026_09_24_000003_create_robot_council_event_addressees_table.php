@@ -53,6 +53,14 @@ return new class extends Migration
             // can hold. No cascade: `FleetEvents::prune()` deletes these first, so a prune that
             // forgot to would fail on the engines that enforce the constraint rather than leave
             // orphans behind.
+            //
+            // **Event ids can be reused too, and this constraint is what stops a reused one
+            // inheriting another event's addressees.** Truncating the events table restarts its ids
+            // on SQLite (`delete from sqlite_sequence`), and a leftover row here would then address
+            // the next event to take the id -- an unaddressed narration included -- to a session
+            // of another developer. Postgres and MySQL refuse that truncate while a row here points
+            // at it; SQLite, which Testbench runs with foreign keys off, does not. So a host that
+            // truncates the feed truncates this table first.
             $table->foreignId('event_id')->constrained('robot_council_events');
 
             // Not a foreign key, for #50's reason, and so nothing nulls it when a session row goes

@@ -291,7 +291,46 @@ it('refuses a list longer than the bound, and accepts one at it', function (stri
         : fn (): array => NarrationAddressees::resolve(null, range(1, NarrationAddressees::MAX + 1), $poster, false);
 
     expect($call)->toThrow(ValidationException::class, 'may not name more than 50');
+
+    // At the bound the list is admitted, and what refuses it is that those ids name nothing -- so
+    // the bound is exactly 50 rather than anything below it
+    $atBound = $this->machine($posterToken)
+        ->postJson(route('robot-council.events.store'), ['body' => 'exactly enough', $field => range(900001, 900000 + NarrationAddressees::MAX)])
+        ->assertUnprocessable();
+
+    expect(stringValue($atBound->json('errors.'.$field.'.0')))->not->toContain('may not name more than')
+        ->and(stringValue($atBound->json('errors.'.$field.'.0')))->toContain('900050');
 })->with(['to', 'to_tasks']);
+
+it('refuses a task that does not exist, naming it', function (): void {
+    [, $posterToken] = addressedSessionFor($this, $this->author);
+
+    $this->machine($posterToken)
+        ->postJson(route('robot-council.events.store'), ['body' => 'hello?', 'to_tasks' => [999999]])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['to_tasks' => '999999']);
+
+    expect(FleetEvent::query()->where('type', FleetEventType::Narration->value)->count())->toBe(0);
+});
+
+it('refuses a task still held by a session that has gone', function (): void {
+    // The sweep releases such a task on its next pass; until then it is held by a process that will
+    // never read another page, so addressing it would reach nobody
+    [$coordinator] = addressedSessionFor($this, $this->boss, coordinator: true);
+    [$holder] = addressedSessionFor($this, $this->other);
+    [, $ciToken] = addressedSessionFor($this, $this->author);
+
+    $task = heldTask($this, $coordinator, $holder);
+
+    AgentSession::query()->whereKey($holder->id)->update(['status' => AgentSessionStatus::Gone]);
+
+    $this->machine($ciToken)
+        ->postJson(route('robot-council.events.store'), ['body' => 'anyone home?', 'to_tasks' => [$task->id]])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['to_tasks' => (string) $task->id]);
+
+    expect(FleetEvent::query()->where('type', FleetEventType::Narration->value)->count())->toBe(0);
+});
 
 it('addresses a session named twice, directly and through its task, once', function (): void {
     [$coordinator] = addressedSessionFor($this, $this->boss, coordinator: true);
