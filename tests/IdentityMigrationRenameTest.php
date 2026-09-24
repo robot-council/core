@@ -284,4 +284,4 @@ it('keeps the unique index through the collation change that actually rebuilds t
         ->value('collation_name');
 
     expect($collation)->toBe('utf8mb4_bin');
-})->skip(notMySql(...), 'MySQL only: `collate()` returns before `change()` is compiled on every other engine, so there is nothing here to rebuild.');
+})->skip(notMySqlFamily(...), 'MySQL only: `collate()` returns before `change()` is compiled on every other engine, so there is nothing here to rebuild.');

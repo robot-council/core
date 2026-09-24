@@ -6,6 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use RobotCouncil\Support\Engines;
 
 /**
  * Creates the table holding the fleet's named locks.
@@ -42,7 +43,7 @@ return new class extends Migration
             // compare bytes already, and neither accepts MySQL's collation names.
             $name = $table->string('name', 191);
 
-            if (DB::getDriverName() === 'mysql') {
+            if (Engines::needsBinaryCollation(DB::getDriverName())) {
                 $name->collation('utf8mb4_bin');
             }
 

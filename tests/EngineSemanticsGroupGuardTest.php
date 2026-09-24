@@ -43,7 +43,7 @@ const ENGINE_SEMANTICS_GROUP = 'engine-semantics';
 function notGatedDespiteTheMarker(): array
 {
     return [
-        // Declares `notMySql()` for everything else to gate on. Not a test file, and the group
+        // Declares `notMySqlFamily()` for everything else to gate on. Not a test file, and the group
         // would have no meaning on it.
         'Pest.php',
 
@@ -70,10 +70,14 @@ function gatesOnMySql(string $path): bool
 
     $code = sourceWithoutComments($path);
 
-    // The two ways a test in this suite says "my subject is MySQL". `notMySql()` skips on the
-    // driver; `ROBOT_COUNCIL_EXPECT_MYSQL` is the workflow's own promise, which `MySqlSchemaTest`
-    // gates on precisely so that a job whose `DB_CONNECTION` never took effect cannot skip every
-    // MySQL test and report green.
+    // The two ways a test in this suite says "my subject is MySQL". `notMySqlFamily()` skips on
+    // the driver; `ROBOT_COUNCIL_EXPECT_MYSQL` is the workflow's own promise, which
+    // `MySqlSchemaTest` gates on precisely so that a job whose `DB_CONNECTION` never took effect
+    // cannot skip every MySQL test and report green.
+    //
+    // The needle stays the shorter `notMySql`, which is a prefix of the current name. That is
+    // deliberate: a future rename in either direction keeps matching rather than silently
+    // narrowing what the `mysql` job selects.
     return str_contains($code, 'notMySql')
         || str_contains($code, 'ROBOT_COUNCIL_EXPECT_MYSQL');
 }
@@ -118,18 +122,18 @@ it('tells a gated file that declares the group from one that does not', function
     $directory = $this->temporaryDirectory('engine-semantics-probe');
 
     $probes = [
-        'GatedNoGroupTest.php' => "<?php\n\nit('x', fn () => null)->skip(notMySql(...), 'reason');\n",
-        'GatedWithGroupTest.php' => "<?php\n\npest()->group('engine-semantics');\n\nit('x', fn () => null)->skip(notMySql(...), 'reason');\n",
+        'GatedNoGroupTest.php' => "<?php\n\nit('x', fn () => null)->skip(notMySqlFamily(...), 'reason');\n",
+        'GatedWithGroupTest.php' => "<?php\n\npest()->group('engine-semantics');\n\nit('x', fn () => null)->skip(notMySqlFamily(...), 'reason');\n",
         'PromiseGatedNoGroupTest.php' => "<?php\n\nit('x', fn () => null)->skip(fn () => getenv('ROBOT_COUNCIL_EXPECT_MYSQL') === false);\n",
         'PromiseGatedWithGroupTest.php' => "<?php\n\npest()->group(\"engine-semantics\");\n\nit('x', fn () => null)->skip(fn () => getenv('ROBOT_COUNCIL_EXPECT_MYSQL') === false);\n",
 
         // The marker in prose only. A scan that read comments would report this file, and the
         // author would satisfy it by adding the group to a test that has nothing to do with MySQL.
-        'ProseOnlyTest.php' => "<?php\n\n// This is not gated on notMySql or ROBOT_COUNCIL_EXPECT_MYSQL.\nit('x', fn () => null);\n",
+        'ProseOnlyTest.php' => "<?php\n\n// This is not gated on notMySqlFamily or ROBOT_COUNCIL_EXPECT_MYSQL.\nit('x', fn () => null);\n",
 
         // A group, but the wrong one. The remedy is a specific string, so a check that merely
         // looked for `->group(` would pass this file while the job still did not select it.
-        'GatedWrongGroupTest.php' => "<?php\n\npest()->group('cross-connection');\n\nit('x', fn () => null)->skip(notMySql(...), 'reason');\n",
+        'GatedWrongGroupTest.php' => "<?php\n\npest()->group('cross-connection');\n\nit('x', fn () => null)->skip(notMySqlFamily(...), 'reason');\n",
 
         'UngatedTest.php' => "<?php\n\nit('x', fn () => null);\n",
     ];

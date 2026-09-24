@@ -99,9 +99,9 @@ it('gives every column holding a role a binary collation, and keeps its default'
     // The whole point is that no CI job runs this. On SQLite and Postgres the migration returns
     // before touching anything, so a future edit that trims `'default'` back out is green on every
     // check the project has.
-    expect(schemaField($row, 'default'))->toBe($expectedDefault)
+    expect(schemaDefault($row))->toBe($expectedDefault)
         ->and(schemaField($row, 'nullable'))->toBe($expectedNullable);
-})->with(roleColumns())->skip(notMySql(...), 'Only MySQL lets a collation decide this.');
+})->with(roleColumns())->skip(notMySqlFamily(...), 'Only MySQL lets a collation decide this.');
 
 it('leaves the role index in place, which the rebuild could have dropped', function (): void {
     // **This is the first `change()` in the package to touch an indexed column.** `2026_09_23_000006`
