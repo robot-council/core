@@ -219,12 +219,19 @@ it('counts an empty fleet as zero rather than null', function (): void {
         ->and($locks['free'])->toBe(0);
 });
 
-it('bounds a page at MAX_PAGE however many rows are asked for', function (): void {
+it('answers a request for more rows than the ceiling without erroring', function (): void {
+    // **This does not prove the ceiling, and an earlier name said it did.** The fixture holds one
+    // session, so asking for `MAX_PAGE + 50` and getting one row is equally true of an
+    // implementation with no ceiling at all -- the exact trap
+    // `FleetPresenceTest > it clamps a page size that makes no sense, on both lists` documents
+    // avoiding, by seeding more rows than the clamp before asserting on it. That test owns both
+    // ends of `max(1, min($limit, MAX_PAGE))` and pins the constant's value; this one only shows an
+    // over-large request is answered rather than refused.
+    //
+    // **It does not move the constant's mutants out of `uncovered` either.** Nothing can: a
+    // constant declaration is not executed where coverage can see it, which is why the annotation
+    // on `FleetPresence::MAX_PAGE` is what accounts for them.
     presenceFixture($this);
-
-    // The constant is otherwise unreached by any test, which is what `uncovered` means: not that no
-    // test discriminates it, but that no test executes the line at all.
-    expect(FleetPresence::MAX_PAGE)->toBe(200);
 
     $page = $this->service(FleetPresence::class)->sessions(FleetPresence::MAX_PAGE + 50);
 
