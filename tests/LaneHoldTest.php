@@ -54,7 +54,7 @@ it('records a hold on a developer, as the board reads it, and lifts it', functio
         ->assertOk()
         ->assertJson(['applied' => true, 'on_what' => 'octodev — clearing this seat to take tickets']);
 
-    $hold = LaneHold::query()->findOrFail($this->session->getKey());
+    $hold = LaneHold::query()->whereKey($this->session->getKey())->firstOrFail();
 
     // Stored as the fleet spells the login, whatever case the coordinator typed
     expect($hold->party)->toBe('octodev')
