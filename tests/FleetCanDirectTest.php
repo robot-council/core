@@ -22,6 +22,7 @@ declare(strict_types=1);
  * @command  vendor/bin/pest --compact tests/FleetCanDirectTest.php
  */
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -32,6 +33,7 @@ use RobotCouncil\Models\AgentSessionStatus;
 use RobotCouncil\Models\Installation;
 use RobotCouncil\Support\FleetAbilities;
 use RobotCouncil\Support\SessionPresence;
+use RobotCouncil\Tests\TestCase;
 
 /**
  * What `robot_council_agent_sessions.role` will hold, in characters.
@@ -500,4 +502,148 @@ it('sends the field as a JSON boolean, not as something that merely compares equ
 
     expect($response->json('fleet_can_direct'))->toBeFalse()
         ->and($response->json('fleet_can_direct'))->toBeBool();
+});
+
+/**
+ * Fill the fleet with `FleetAbilities::CHUNK + 1` live coordinator sessions, exactly one admitted.
+ *
+ * **The unadmitted rows are copies of a real session row rather than rows assembled by hand**, for
+ * the reason `it('pages past the chunk size')` gives above: nothing here can then drift from what
+ * `Support\AgentSessions` and `Support\RoleRequests` actually write.
+ *
+ * **The admitted coordinator is started either before the crowd or after it, and that is the only
+ * thing deciding which page it lands on.** The walk is ordered by `id` and by nothing else, so
+ * "first page" and "last page" are one boolean apart -- which is what lets the two costs be
+ * compared without a second fixture that might differ in some other way.
+ *
+ * The test case is taken as a parameter rather than read off `$this`, for the reason
+ * `tests/PresenceQueryCostTest.php` records: a property assigned in a closure is `mixed` by the
+ * time it reaches a typed parameter.
+ *
+ * @param  TestCase  $test  The test case, for its fixture helpers.
+ * @param  bool  $onTheFirstPage  Whether the admitted coordinator takes the lowest id or the highest.
+ * @return AgentSession The one admitted coordinator's session.
+ */
+function crowdedCoordinatorFleet(TestCase $test, bool $onTheFirstPage): AgentSession
+{
+    // **99 is never admitted here, and nothing needs it to have been.** `it('pages past the chunk
+    // size')` above admits it while its sessions start and drops it afterwards, which walks the
+    // real off-boarding transition; this fixture only needs the end state. Verified before
+    // shortening it: `Support\AgentSessions::start()` bounds its inputs and writes, and the access
+    // list is checked by `Http\Middleware\EnsureInstallation` on the way in -- so a fixture that
+    // does not go through a route is never asked. What the walk reads is the row and the list as
+    // they stand, not how either got there.
+    $test->setAccessLists(developers: [4242, 77]);
+
+    $coordinator = $test->enrollDeveloper(77, 'coordinator');
+
+    $admitted = null;
+
+    if ($onTheFirstPage) {
+        [$admitted] = $test->startCoordinatorSession(
+            $test->approveInstallation($coordinator, machineLabel: 'coordinator-machine')
+        );
+    }
+
+    [$seed] = $test->startCoordinatorSession(
+        $test->approveInstallation($test->enrollDeveloper(99, 'offboarded'), machineLabel: 'quiet-machine')
+    );
+
+    // The query builder rather than a model save, because a save would put the casts back in the
+    // way -- and `id` is dropped so each copy takes the next one.
+    $row = (array) DB::table('robot_council_agent_sessions')->where('id', $seed->getKey())->sole();
+    unset($row['id']);
+
+    DB::table('robot_council_agent_sessions')->insert(array_fill(0, FleetAbilities::CHUNK - 1, $row));
+
+    if (! $admitted instanceof AgentSession) {
+        [$admitted] = $test->startCoordinatorSession(
+            $test->approveInstallation($coordinator, machineLabel: 'coordinator-machine')
+        );
+    }
+
+    return $admitted;
+}
+
+/**
+ * The coordinator sessions the walk will match, as a fresh builder each time.
+ *
+ * @return Builder<AgentSession> A query over every live coordinator session.
+ */
+function matchingCoordinators(): Builder
+{
+    return AgentSession::query()
+        ->where('role', Role::Coordinator->value)
+        ->where('status', AgentSessionStatus::Active->value);
+}
+
+it('stops on the page the admitted coordinator is on, rather than reading the rest', function (): void {
+    // **The acceptance criterion this file exists to meet.** Before, the walk collected every match
+    // and asked the identities table once at the end, so a fleet of `CHUNK + 1` coordinators cost
+    // three reads whatever the answer was and wherever the answer lived. Measured on this fixture
+    // against `main` at `5d73f8f`: 3.
+    $admitted = crowdedCoordinatorFleet($this, onTheFirstPage: true);
+
+    $fleet = app(FleetAbilities::class);
+
+    // **The fixture is asserted before the cost is**, because every claim below is a claim about
+    // which rows are where: one full page and one row more, with the admitted coordinator at the
+    // LOWEST id rather than the highest.
+    expect(matchingCoordinators()->count())->toBe(FleetAbilities::CHUNK + 1)
+        ->and(matchingCoordinators()->min('id'))->toBe($admitted->getKey())
+        ->and(matchingCoordinators()->where('user_id', $admitted->user_id)->count())->toBe(1);
+
+    // Two: the first page, and the one identity read that settles it. The second page is never
+    // asked for, because the callback has already said to stop.
+    expect(queriesIssuedBy(fn () => $fleet->anyLiveSessionHolds(Ability::CoordinatorDirect)))->toBe(2)
+        ->and($fleet->anyLiveSessionHolds(Ability::CoordinatorDirect))->toBeTrue();
+});
+
+it('reads every page when no holder is admitted, which is what makes that early return mean anything', function (): void {
+    // **The negative control the count above cannot do without.** Two reads is also what a fleet
+    // holding ONE coordinator costs, and what a fixture that quietly built nothing costs -- so the
+    // number says "the walk stopped" only beside the same fixture not stopping. One variable moves
+    // between the two tests, and it is the access list.
+    crowdedCoordinatorFleet($this, onTheFirstPage: true);
+
+    $fleet = app(FleetAbilities::class);
+
+    $this->setAccessLists(developers: [4242]);
+
+    expect(matchingCoordinators()->count())->toBe(FleetAbilities::CHUNK + 1)
+        ->and($fleet->anyLiveSessionHolds(Ability::CoordinatorDirect))->toBeFalse()
+
+        // Four: a page and an identity read each, twice. This is the cost side of the trade, and it
+        // is asserted rather than described -- the `false` answer now pays one identity read per
+        // page where it used to pay one in total.
+        ->and(queriesIssuedBy(fn () => $fleet->anyLiveSessionHolds(Ability::CoordinatorDirect)))->toBe(4);
+});
+
+it('pays for every page when the admitted coordinator is on the last one', function (): void {
+    // The same shape as `it('pages past the chunk size')` above, costed. An early return cannot
+    // help here, and the per-page identity read makes it one dearer than before -- 4 against 3.
+    // Recorded rather than glossed, because a reader who saw only the 2 would take the wrong
+    // number away.
+    $admitted = crowdedCoordinatorFleet($this, onTheFirstPage: false);
+
+    $fleet = app(FleetAbilities::class);
+
+    expect(matchingCoordinators()->max('id'))->toBe($admitted->getKey())
+        ->and($fleet->anyLiveSessionHolds(Ability::CoordinatorDirect))->toBeTrue()
+        ->and(queriesIssuedBy(fn () => $fleet->anyLiveSessionHolds(Ability::CoordinatorDirect)))->toBe(4);
+});
+
+it('costs one read on a fleet where nothing holds the role', function (): void {
+    // **The expected state, and the cheapest one.** `Support\Doctor` says in its own text that a
+    // fleet whose agents only receive is a legitimate configuration, so no coordinator running is
+    // the normal reading of this question -- one page that comes back empty, and no identity read
+    // at all, because there is no holder to resolve. Unchanged by this ticket, and asserted so that
+    // a future change to the walk cannot make the common answer dearer unnoticed.
+    $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
+
+    $fleet = app(FleetAbilities::class);
+
+    expect(matchingCoordinators()->count())->toBe(0)
+        ->and($fleet->anyLiveSessionHolds(Ability::CoordinatorDirect))->toBeFalse()
+        ->and(queriesIssuedBy(fn () => $fleet->anyLiveSessionHolds(Ability::CoordinatorDirect)))->toBe(1);
 });
