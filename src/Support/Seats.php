@@ -85,6 +85,31 @@ final class Seats
     }
 
     /**
+     * The seat a session is sitting in, if one has been recorded.
+     *
+     * **This is the rule the lane board's `Parked` and a placement's refusal both read** (#317 and
+     * #320), so the label and the refusal cannot disagree: a lane is parked exactly when this
+     * returns a seat that is. Matched on the seat's whole key and byte for byte, as the key itself
+     * compares -- the seat's `repository` is binary on MySQL for that reason. A session that reported no repository sits in no seat, and neither does one whose
+     * seat was never recorded -- which is the same as a seat nobody parked.
+     *
+     * @param  AgentSession  $session  The lane.
+     * @return Seat|null Its seat, or null.
+     */
+    public function of(AgentSession $session): ?Seat
+    {
+        if ($session->repository === null) {
+            return null;
+        }
+
+        return Seat::query()
+            ->where('installation_id', $session->installation_id)
+            ->where('repository', $session->repository)
+            ->where('work_location', $session->work_location ?? '')
+            ->first();
+    }
+
+    /**
      * Every seat anybody has recorded, for the coordinator to read.
      *
      * @return list<Seat> Every seat, with installations loaded.

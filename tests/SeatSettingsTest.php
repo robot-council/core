@@ -181,6 +181,23 @@ it("records no seat for a gone session, another developer's session, a revoked m
         ->and(onlySeatOf($this, $bobs)->user_id)->toBe($bobs->user_id);
 });
 
+it('finds the seat a session sits in, which is what the board and a placement read', function (): void {
+    [$installation, $session] = seatedSession($this, $this->alice);
+    $seat = onlySeatOf($this, $installation);
+
+    $this->service(Seats::class)->park(keyOf($this->alice), $seat->id);
+
+    $elsewhere = $this->service(AgentSessions::class)->start($installation, 'robot-council/core', 'b')->owner;
+    $noRepository = $this->service(AgentSessions::class)->start($installation, null, 'a')->owner;
+    $restarted = $this->service(AgentSessions::class)->start($installation, 'robot-council/core', 'a')->owner;
+
+    expect($this->service(Seats::class)->of($session)?->id)->toBe($seat->id)
+        ->and($this->service(Seats::class)->of($restarted)?->isParked())->toBeTrue()
+        // Another work location on the same machine is another seat, not yet recorded
+        ->and($this->service(Seats::class)->of($elsewhere))->toBeNull()
+        ->and($this->service(Seats::class)->of($noRepository))->toBeNull();
+});
+
 it('parks and lifts a seat for its own developer, recording who parked it and when', function (): void {
     [$installation] = seatedSession($this, $this->alice);
     $seat = onlySeatOf($this, $installation);

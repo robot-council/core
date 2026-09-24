@@ -52,3 +52,27 @@ it('keeps two spellings of a repository as two seats, on every engine', function
 
     expect($repositories)->toBe(['UAMS-Web/site', 'uams-web/site']);
 });
+
+it("finds a session's own seat and not the other spelling's", function (): void {
+    $developer = $this->enrollDeveloper(5201, login: 'seat-owner');
+    $installation = $this->approveInstallation($developer)->refresh();
+    $key = HostKey::from($developer->getAuthIdentifier());
+
+    $upper = $this->service(AgentSessions::class)->start($installation, 'UAMS-Web/site', 'a')->owner;
+    $lower = $this->service(AgentSessions::class)->start($installation, 'uams-web/site', 'a')->owner;
+
+    $seats = $this->service(Seats::class);
+    $seats->forDeveloper($key);
+
+    $parked = $seats->of($upper);
+    expect($parked)->not->toBeNull();
+
+    if ($parked !== null) {
+        $seats->park($key, $parked->id);
+    }
+
+    expect($seats->of($upper)?->repository)->toBe('UAMS-Web/site')
+        ->and($seats->of($upper)?->isParked())->toBeTrue()
+        ->and($seats->of($lower)?->repository)->toBe('uams-web/site')
+        ->and($seats->of($lower)?->isParked())->toBeFalse();
+});
