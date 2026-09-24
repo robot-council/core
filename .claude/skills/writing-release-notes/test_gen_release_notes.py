@@ -7,6 +7,10 @@ Offline tests for gen_release_notes.py: title cleanup and bucket routing. Neithe
 """
 import os
 import sys
+import contextlib
+import io
+import json
+import types
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -132,10 +136,13 @@ class Routing(unittest.TestCase):
 class IssueType(unittest.TestCase):
     """The type a human set on the linked issue, read as a LAST-RESORT tiebreaker (#268).
 
-    Every fixture is a real pull request named by number, with the path list and the added-line
-    counts read from its own files through the API on 2026-09-24. `diff_signals()` counts **added**
-    lines only (`n = int(added) if added.isdigit() else 0`), so these are additions, never
-    additions-plus-deletions.
+    **Two kinds of fixture, and which is which is stated rather than left to be discovered.** The
+    ones named by a pull-request number -- #235, #224, #243, #259 -- carry that pull request's real
+    path list and added-line counts, read from its own files through the API on 2026-09-24;
+    `diff_signals()` counts **added** lines only, so these are additions, never
+    additions-plus-deletions. The rest are deliberately synthetic (`src/X.php`, `"Anything at
+    all"`), because they exist to isolate ONE rule and a real diff drags in whichever other rules
+    its paths happen to trip.
 
     **What no test in this class can do**, stated here rather than implied away: the `Feature`
     branch is an equivalent mutant. Nothing follows it but the cascade's `return "new"`, so deleting
@@ -166,11 +173,28 @@ class IssueType(unittest.TestCase):
             "fix")
 
     def test_feature_routes_to_new(self):
-        """`#243`. Behavior only -- see the class docstring on why the branch is unpinnable."""
+        """Two fixtures, because the real one never reaches the rule being named.
+
+        **`#243` is decided by rule 3**, five rules earlier: it touches `config/` and `routes/`, so
+        a published surface makes it `new` whatever its type is. It is kept because it is the real
+        change, and it proves the answer; it proves nothing about the branch, and it answers `new`
+        for `Bug`, `Task` and a nonsense type alike. The synthetic case below is the one that
+        actually reaches rule 8.
+
+        Even there the branch cannot be pinned -- see the class docstring. What both assert is the
+        behavior, which is what #268 specified.
+        """
         self.assertEqual(
             g.bucket("s", "Let a session request a role, and an administrator decide it",
                      paths=["config/robot-council.php", "src/Access/Role.php", "routes/api.php"],
                      test_lines=824, other_lines=797, issue_types=("Feature",)),
+            "new")
+        # Reaches rule 8: no published surface, no fix verb, not all-maintenance paths, source
+        # edited so the test-dominance rule is disarmed, and no maintenance word in the title.
+        self.assertEqual(
+            g.bucket("s", "Let a developer choose which panels the dashboard mounts",
+                     paths=["src/Livewire/Dashboard.php"], test_lines=40, other_lines=120,
+                     issue_types=("Feature",)),
             "new")
 
     # ---- the UPPER bound: rules 1 to 5 still win -------------------------------------------
@@ -327,6 +351,78 @@ class IssueTypePlumbing(unittest.TestCase):
         self.assertEqual(len(g._pr_cache[8]), 3)
         self.assertEqual(g.pr_issue_types(8), ())
         self.assertEqual(g.pr_labels(8), ())
+
+
+class IssueTypeGuards(unittest.TestCase):
+    """The two warnings the type rule made necessary (#268).
+
+    Both were verified by hand when they were written, which is exactly the standard this commit
+    set out to raise: a guard nobody re-runs is a guard that stops working silently.
+    """
+
+    def setUp(self):
+        self._real, self._cache = g.subprocess, dict(g._pr_cache)
+        g._pr_cache.clear()
+
+    def tearDown(self):
+        g.subprocess = self._real
+        g._pr_cache.clear()
+        g._pr_cache.update(self._cache)
+
+    def _drive(self, stdout, nums=(7,), returncode=0):
+        class R:
+            def __init__(s_, out, rc):
+                s_.stdout, s_.stderr, s_.returncode = out, "", rc
+        g.subprocess = types.SimpleNamespace(run=lambda *a, **k: R(stdout, returncode))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            g.prime_pr_cache(list(nums), "robot-council/core")
+        return err.getvalue()
+
+    @staticmethod
+    def _ok(total, nodes):
+        return json.dumps({"data": {"repository": {"p7": {
+            "title": "T", "closingIssuesReferences": {"totalCount": total, "nodes": nodes}}}}})
+
+    def test_every_no_data_shape_warns_not_only_the_ones_with_an_errors_array(self):
+        """The three silent shapes an earlier draft missed, and the two it caught.
+
+        Each leaves the whole batch uncached, so every bullet in it loses its link -- the outcome
+        the partial-data handling exists to prevent. Gating on `errors` covered two of five.
+        """
+        shapes = {
+            "graphql error": json.dumps({"data": None, "errors": [
+                {"type": "INVALID", "message": "Field 'issueType' doesn't exist on type 'Issue'"}]}),
+            "empty errors array": json.dumps({"data": None, "errors": []}),
+            "repository null": json.dumps({"data": {"repository": None}}),
+            "empty stdout": "",
+            "an HTML error page": "<html>gateway timeout</html>",
+        }
+        for label, body in shapes.items():
+            out = self._drive(body, returncode=1 if not body.startswith("{") else 0)
+            self.assertIn("warning:", out, label)
+            self.assertIn("carry no links", out, label)
+            self.assertEqual(g.pr_issue_types(7), (), label)
+            g._pr_cache.clear()
+
+    def test_a_healthy_response_warns_about_nothing(self):
+        """The negative control. A guard that cries wolf is turned off within a week."""
+        for label, body in {
+            "one typed issue": self._ok(1, [{"issueType": {"name": "Bug"},
+                                             "labels": {"nodes": [{"name": "development"}]}}]),
+            "one untyped issue": self._ok(1, [{"issueType": None, "labels": {"nodes": []}}]),
+            "no closing issues": self._ok(0, []),
+            "nodes null": json.dumps({"data": {"repository": {"p7": {"title": "T",
+                "closingIssuesReferences": {"totalCount": 0, "nodes": None}}}}}),
+        }.items():
+            self.assertEqual(self._drive(body), "", label)
+            g._pr_cache.clear()
+
+    def test_truncation_is_reported_rather_than_guessed(self):
+        """Since this rule a dropped closing issue can decide the BUCKET, not just lose a label."""
+        out = self._drive(self._ok(25, [{"issueType": {"name": "Feature"}, "labels": {"nodes": []}}]))
+        self.assertIn("closes 25 issues", out)
+        self.assertEqual(g.pr_issue_types(7), ("Feature",))
 
 
 class RemoteParsing(unittest.TestCase):

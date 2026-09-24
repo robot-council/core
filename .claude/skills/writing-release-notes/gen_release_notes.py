@@ -295,7 +295,7 @@ def bucket(subject, title, labels=(), paths=(), test_lines=0, other_lines=0, iss
     #    **Both bounds on this position are load-bearing, and the ticket pinned only the upper
     #    one** (#268).
     #
-    #    *Upper bound -- it must sit below rules 3 to 5.* It reads as belonging beside the other
+    #    *Upper bound -- it must sit below every rule above it, 1 through 5.* It reads as belonging beside the other
     #    human-set signal, up with the labels, and there it would be wrong: `robot-council/cli#154`
     #    is typed `Bug` and is confined to `.claude/`, so rule 5 routes it to Maintenance, which is
     #    right, because a change to a skill file is maintenance whatever the ticket it closes is
@@ -311,9 +311,21 @@ def bucket(subject, title, labels=(), paths=(), test_lines=0, other_lines=0, iss
     #    maintenance -- and the issue type is the coarsest signal here, not the finest. So it
     #    decides only what nothing else could.
     #
-    #    **`Task` is deliberately not encoded.** It predicted `fix` six times out of six on the
-    #    range this was measured against, and the correlation is an artifact of how those tickets
-    #    happened to be typed: `writing-issues` assigns `Task` to a research spike, a decision fork,
+    #    **What that costs, stated rather than discovered later.** Rule 7 is `MAINT_VERBS` OR
+    #    `MAINT_WORDS`, and the second matches `test`, `coverage`, `skill`, `worktree` or
+    #    `dependency` ANYWHERE in a title, which is not the same as a title that says maintenance.
+    #    So a `Bug`-typed fix phrased as an outcome and carrying one of those words incidentally --
+    #    `Register the skill loader even when a host has cached its routes` -- stays Maintenance.
+    #    That is a narrowing of this rule's reach, never a regression: sitting immediately above
+    #    the terminal default, this rule can only turn a would-be `new` into `fix`, so no input
+    #    is worse off than before it existed. Widening `MAINT_WORDS`'s precision is its own
+    #    question, not this one's.
+    #
+    #    **`Task` is deliberately not encoded.** #268 records it agreeing with `fix` six times out
+    #    of six on the range the decision was measured against; that is an editorial reading of
+    #    those six titles rather than a cascade output, and it is not re-derivable by running this
+    #    file, so it is attributed rather than asserted. The reason the rule is refused does not
+    #    rest on it: the correlation is an artifact of how those tickets happened to be typed, `writing-issues` assigns `Task` to a research spike, a decision fork,
     #    a follow-up cleanup or an epic, never to a bug. A rule built on it breaks the first time
     #    somebody types a ticket correctly, and it breaks toward calling a cleanup a fix.
     #
@@ -395,11 +407,18 @@ def prime_pr_cache(nums, repo):
         # partial-data handling exists to prevent, arriving through a door that handling does not
         # cover. Reported on stderr rather than raised, because a release note with plain subjects
         # still beats no release note; what must not happen is that it looks complete.
-        if not data and payload.get("errors"):
-            first = payload["errors"][0]
+        # **Gated on `not data`, NOT on an `errors` array being present**, because the shapes that
+        # carry no `errors` are the ones most likely to happen: `gh` exiting non-zero with empty
+        # stdout (no credential, no network, an HTTP 403 from a proxy), an HTML error page from a
+        # gateway, and `{"data":{"repository":null}}`. Every one of those reaches here with the
+        # whole batch uncached, and an earlier draft of this guard stayed silent for all three --
+        # it asked whether GraphQL had complained rather than whether anything had come back.
+        if not data:
+            errs = payload.get("errors") or []
+            why = (f"{errs[0].get('type') or 'error'}: {errs[0].get('message', '')[:160]}"
+                   if errs else f"no data, gh exit {r.returncode}, {len(r.stdout)} bytes of stdout")
             print(f"warning: the pull-request query returned no data for #{batch[0]}-#{batch[-1]} "
-                  f"({first.get('type') or 'error'}: {first.get('message', '')[:160]}). "
-                  f"Those bullets will fall back to commit subjects and carry no links.",
+                  f"({why}). Those bullets will fall back to commit subjects and carry no links.",
                   file=sys.stderr)
         for n in batch:
             node = data.get(f"p{n}")
@@ -420,9 +439,11 @@ def prime_pr_cache(nums, repo):
                 for iss in issues
                 for l in (iss.get("labels") or {}).get("nodes", []))
 
-            # `issueType` is null on an issue nobody typed, which is most of them -- 14 of 25 on
-            # the range #268 measured. Dropped rather than carried as None, so `bucket()` sees an
-            # empty tuple and falls through exactly as it did before this existed.
+            # `issueType` is null on an issue nobody typed, which is most of them: on the range
+            # #268 measured, 14 of 25 PULL REQUESTS end up with an empty tuple here (the unit is
+            # pull requests, not issues -- those 25 close 19 issues, of which 11 are typed).
+            # Dropped rather than carried as None, so `bucket()` sees an empty tuple and falls
+            # through exactly as it did before this existed.
             types = tuple(
                 (iss.get("issueType") or {}).get("name")
                 for iss in issues
