@@ -70,7 +70,7 @@ final class AgentSessionController
             // cannot answer that: a receive-only session holding no `coordinator:direct` is the
             // normal case, so a client warning on its own abilities would warn on almost every
             // session. False here means nothing will ever arrive, which is a finding (#159).
-            'fleet_can_direct' => $fleet->anyInstallationHolds(Ability::CoordinatorDirect),
+            'fleet_can_direct' => $fleet->anyLiveSessionHolds(Ability::CoordinatorDirect),
         ]);
     }
 }

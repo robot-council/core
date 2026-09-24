@@ -325,19 +325,26 @@ it('reports whether anything on the fleet can post a directive, passing either w
     $quiet = diagnosis('fleet coordination');
 
     expect($quiet->status)->toBe(DiagnosisStatus::Passed)
-        ->and($quiet->detail)->toContain('No installation holds');
+        ->and($quiet->detail)->toContain('No session is coordinating right now');
 
     $developer = $this->enrollDeveloper(4242);
 
-    $this->approveInstallation($developer, [Ability::CoordinatorDirect->value], 'coordinator-machine');
+    $installation = $this->approveInstallation($developer, [Ability::CoordinatorDirect->value], 'coordinator-machine');
 
-    $granted = diagnosis('fleet coordination');
+    // **The enrolled installation alone does not move it, and that is asserted between the two
+    // halves rather than left implied.** It is the whole difference `robot-council/core#223` made:
+    // the same fixture that used to flip this check now leaves it saying no.
+    expect(diagnosis('fleet coordination')->detail)->toContain('No session is coordinating right now');
 
-    expect($granted->status)->toBe(DiagnosisStatus::Passed)
-        ->and($granted->detail)->toContain('At least one installation holds');
+    $this->startCoordinatorSession($installation);
+
+    $running = diagnosis('fleet coordination');
+
+    expect($running->status)->toBe(DiagnosisStatus::Passed)
+        ->and($running->detail)->toContain('At least one session is coordinating right now');
 });
 
-it('says fleet coordination is undetermined when it cannot read the installations', function (): void {
+it('says fleet coordination is undetermined when it cannot read the tables it asks about', function (): void {
     $this->migrateUsersTableWithPackageColumns();
 
     // The same probe the migration check uses, and for the same reason: pointing the default
@@ -358,7 +365,13 @@ it('says fleet coordination is undetermined when it cannot read the installation
         $unknown = diagnosis('fleet coordination');
 
         expect($unknown->status)->toBe(DiagnosisStatus::Undetermined)
-            ->and($unknown->detail)->toContain('php artisan migrate');
+            ->and($unknown->detail)->toContain('php artisan migrate')
+
+            // **The message names what it could not read, and that is pinned rather than assumed.**
+            // The probe empties every table, so nothing here distinguishes sessions from
+            // installations -- and `php artisan migrate` alone is satisfied by the old wording,
+            // which named the installations table this question no longer asks about.
+            ->and($unknown->detail)->toContain('agent sessions');
     } finally {
         config()->set('database.default', $default);
 

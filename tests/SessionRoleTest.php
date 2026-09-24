@@ -389,13 +389,30 @@ it('rolls back twice and migrates twice without erroring, which is what the guar
  */
 function runTheRoleMigration(string $direction): void
 {
-    $migration = require __DIR__.'/../database/migrations/2026_09_23_000003_add_role_to_robot_council_agent_sessions.php';
+    // **The role INDEX migration is carried along, in Laravel's own order**, because a migration
+    // cannot be run in isolation once a later one depends on its column.
+    // `2026_09_23_000006` indexes `role`, and SQLite refuses to drop a column an index still
+    // references: `error in index robot_council_agent_sessions_role_status_id_index after drop
+    // column: no such column: role`. `Migrator::rollbackMigrations()` reverses the order, so a real
+    // `php artisan migrate:rollback` drops the index first and never meets this -- it is reachable
+    // only from a test that calls one `down()` on its own, which is what this helper was doing.
+    //
+    // Postgres and MySQL drop a dependent index along with the column and would not have reported
+    // it, so this is one more thing only the SQLite runs can see.
+    $order = [
+        '2026_09_23_000003_add_role_to_robot_council_agent_sessions',
+        '2026_09_23_000006_index_robot_council_agent_session_roles',
+    ];
 
-    $run = [$migration, $direction];
+    foreach ($direction === 'down' ? array_reverse($order) : $order as $name) {
+        $migration = require __DIR__.'/../database/migrations/'.$name.'.php';
 
-    if (! \is_callable($run)) {
-        throw new RuntimeException('The migration file did not return something with a '.$direction.'().');
+        $run = [$migration, $direction];
+
+        if (! \is_callable($run)) {
+            throw new RuntimeException('The migration file did not return something with a '.$direction.'().');
+        }
+
+        $run();
     }
-
-    $run();
 }
