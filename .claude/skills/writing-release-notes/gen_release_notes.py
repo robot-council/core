@@ -460,8 +460,6 @@ def prime_pr_cache(nums, repo):
                 if (iss.get("issueType") or {}).get("name"))
 
             _pr_cache[n] = (node.get("title") or None, labels, types)
-
-
 def pr_title(num, repo):
     if num not in _pr_cache:
         prime_pr_cache([num], repo)
@@ -504,6 +502,18 @@ def resolve(subject, repo):
         t = pr_title(pr, repo)
         if t:
             return pr, t, f"[#{pr}](https://github.com/{repo}/pull/{pr})"
+    # **Warned HERE, not where the cache is primed** (#294). `main()` primes every `#N` a
+    # subject contains, but only the one chosen above is ever asked for -- so a miss on any of
+    # the others costs nothing. `Cover the two dashboard guarantees #30 claimed and nothing
+    # asserted (#110)` is a real subject on `v0.1.0..v0.2.0`: `#30` is an ISSUE, primed and never
+    # used, while `#110` resolves. Warning at priming time reported it and was wrong to.
+    #
+    # This line is reached only when the bullet genuinely loses its `[#N]` link, which is the
+    # thing worth reporting and the only thing that is.
+    if pr:
+        print(f"warning: #{pr} did not resolve to a pull request, so its bullet falls back to "
+              f"the commit subject and carries no link.", file=sys.stderr)
+
     t = re.sub(r"\s*\(#\d+[^)]*\)\s*$", "", subject).strip()
     t = re.sub(r"\s*\(#\d+\)\s*$", "", t).strip()
     return None, t, ""
