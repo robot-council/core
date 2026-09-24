@@ -24,10 +24,12 @@ use Illuminate\Testing\TestResponse;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\FleetEventType;
+use RobotCouncil\Models\GitHubItem;
 use RobotCouncil\Models\Placement;
 use RobotCouncil\Models\Task;
 use RobotCouncil\Models\TaskStatus;
 use RobotCouncil\Models\TaskTransition;
+use RobotCouncil\Support\AgentSessions;
 use RobotCouncil\Support\BranchName;
 use RobotCouncil\Support\IssueReference;
 use RobotCouncil\Support\Outcome;
@@ -114,6 +116,28 @@ function placeTask(TestCase $case, int $task, AgentSession $assignee, array $ext
         route('robot-council.tasks.transition', ['task' => $task, 'transition' => 'reassign']),
         ['session_id' => $assignee->getKey(), 'directive' => 'Take this task.', ...$extra]
     );
+}
+
+/**
+ * A lane a placement of this issue can land on: the issue recorded as open, and the lane working in
+ * its repository -- which is what #320's invariants ask of a placement that names a ticket.
+ *
+ * @param  TestCase  $case  The test case.
+ * @param  string  $issue  The issue, `owner/name#N`.
+ * @return array{AgentSession, string} The lane and its token.
+ */
+function laneInRepositoryOf(TestCase $case, string $issue): array
+{
+    [$repository, $number] = explode('#', $issue, 2);
+
+    GitHubItem::query()->insert([
+        'repository' => $repository, 'number' => (int) $number, 'is_pull_request' => false, 'state' => 'open',
+        'title' => 'Issue', 'labels' => '[]', 'github_updated_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    $issued = $case->service(AgentSessions::class)->start($case->installation, $repository, 'lane');
+
+    return [$issued->owner, $issued->plainTextToken];
 }
 
 /**
@@ -633,7 +657,7 @@ it('ignores a branch passed to a transition that does not take one', function ()
 it('clears the placement, the hand-back and the branch when a task is given back', function (string $how): void {
     $task = placementTask($this, ['issue' => 'robot-council/core#316']);
 
-    [$lane, $laneToken] = $this->startAgentSession($this->installation);
+    [$lane, $laneToken] = laneInRepositoryOf($this, 'robot-council/core#316');
 
     placeTask($this, $task, $lane, ['hand_back' => true])->assertOk();
 
@@ -666,7 +690,7 @@ it('clears the placement, the hand-back and the branch when a task is given back
 it('keeps the placement and the branch on a finished task, as its history', function (): void {
     $task = placementTask($this, ['issue' => 'robot-council/core#316']);
 
-    [$lane, $laneToken] = $this->startAgentSession($this->installation);
+    [$lane, $laneToken] = laneInRepositoryOf($this, 'robot-council/core#316');
 
     placeTask($this, $task, $lane)->assertOk();
 

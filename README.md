@@ -499,6 +499,24 @@ with `{ "branch": "feature/x" }` (or the `task_branch` tool) once it has made th
 second report replaces the first. Any other session is refused with 403, and a task in another
 status with 409. It moves no status and writes no event; the lane board reads the row.
 
+**A placement is refused when it breaks a lane invariant** (#320), before anything is written, with
+422 naming every rule it broke:
+
+| `rule` | refused when |
+| --- | --- |
+| `ticket_open` | the task names an issue the fleet has no record of, or one that is closed |
+| `lane_in_repository` | the lane does not work in the issue's repository |
+| `lane_free` | the lane already holds another task |
+| `lane_not_parked` | the lane's seat is parked |
+| `ticket_unblocked` | the issue has a `blocked_by` edge whose blocker is open, or unknown |
+| `assignment_hours` | it is outside the lane's developer's hours -- new placements only, so a hand-back, work already held, and an exempt seat are not gated |
+
+The two ticket rules apply only to a task that names an issue. **Only the developer who owns the
+lane's seat can waive a refusal**, from their seats page, for one rule and one placement; the
+placement spends it. A coordinator cannot. A successful placement also returns `warnings` that do not
+block: a title naming an act that needs a human (delete, remove, retire, release, tag, publish,
+install, upgrade, rotate, spend), and an open ticket whose acceptance criteria are all ticked.
+
 A task may name the GitHub issue it is for when it is filed, as `issue: "owner/name#N"`. A bare
 `#N` is refused, because the same number exists in every tracker. Each task reports `placed_by`
 (`coordinator` or `lane`) and `hand_back`, and a release or the gone-session sweep clears both, along

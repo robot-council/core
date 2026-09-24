@@ -17,10 +17,13 @@ use RobotCouncil\Mcp\ActsAsAgent;
 use RobotCouncil\Mcp\Arguments;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\FleetEvent;
+use RobotCouncil\Models\Task;
 use RobotCouncil\Models\TaskStatus;
 use RobotCouncil\Models\TaskTransition;
 use RobotCouncil\Support\BranchName;
 use RobotCouncil\Support\Outcome;
+use RobotCouncil\Support\PlacementRefused;
+use RobotCouncil\Support\PlacementRules;
 use RobotCouncil\Support\TaskList;
 use RobotCouncil\Support\Tasks;
 
@@ -129,7 +132,7 @@ final class TaskTransitionTool extends Tool
      * @param  Tasks  $tasks  The task store.
      * @return Response|ResponseFactory The outcome.
      */
-    public function handle(Request $request, HttpRequest $http, Tasks $tasks): Response|ResponseFactory
+    public function handle(Request $request, HttpRequest $http, Tasks $tasks, PlacementRules $rules): Response|ResponseFactory
     {
         $session = $this->session($http);
         $coordinator = $this->allows($http, Ability::CoordinatorDirect);
@@ -184,25 +187,31 @@ final class TaskTransitionTool extends Tool
         $directive = $request->get('directive');
         $branch = $request->get('branch');
 
-        $outcome = $tasks->transition(
-            $taskId,
-            $this->transition,
-            $session,
-            $coordinator,
-            $assignee,
-            Arguments::structure($result),
-            $this->transition->takesADirective() ? Arguments::string($directive) : null,
-            // Every true form the `boolean` rule admits -- `true`, `1` and `'1'` -- not only a JSON
-            // `true`: an agent sending `1` passed validation, and reading that as false would
-            // quietly place new work where a hand-back was meant
-            $this->transition->takesADirective()
-                && \in_array($request->get('hand_back'), [true, 1, '1'], true),
-            // `trim()` as the HTTP path's `filled()` does: a host that removed the framework's
-            // `TrimStrings` would otherwise hand the store a blank branch, which it refuses with an
-            // exception the agent reads as an internal error
-            \is_string($branch) && trim($branch) !== '' ? $branch : null,
-            \is_string($request->get('expect')) ? TaskStatus::tryFrom($request->get('expect')) : null
-        );
+        try {
+            $outcome = $tasks->transition(
+                $taskId,
+                $this->transition,
+                $session,
+                $coordinator,
+                $assignee,
+                Arguments::structure($result),
+                $this->transition->takesADirective() ? Arguments::string($directive) : null,
+                // Every true form the `boolean` rule admits -- `true`, `1` and `'1'` -- not only a JSON
+                // `true`: an agent sending `1` passed validation, and reading that as false would
+                // quietly place new work where a hand-back was meant
+                $this->transition->takesADirective()
+                    && \in_array($request->get('hand_back'), [true, 1, '1'], true),
+                // `trim()` as the HTTP path's `filled()` does: a host that removed the framework's
+                // `TrimStrings` would otherwise hand the store a blank branch, which it refuses with an
+                // exception the agent reads as an internal error
+                \is_string($branch) && trim($branch) !== '' ? $branch : null,
+                \is_string($request->get('expect')) ? TaskStatus::tryFrom($request->get('expect')) : null
+            );
+        } catch (PlacementRefused $placementRefused) {
+            // Every rule the placement broke, in words, as an error: the model must not read a
+            // refusal as having worked
+            return Response::error($placementRefused->getMessage()." The developer who owns the lane's seat can waive one of these for a single placement; a coordinator cannot.");
+        }
 
         // A refusal is an error, not a result. A client cannot tell a result that describes a
         // failure from one that describes success, so anything the service refused has to arrive
@@ -211,11 +220,19 @@ final class TaskTransitionTool extends Tool
             return Response::error($this->explain($outcome));
         }
 
-        return Response::structured([
+        $placed = [
             'task_id' => $taskId,
             'status' => $this->transition->to()->value,
             'applied' => true,
-        ]);
+        ];
+
+        // The soft invariants (#320), which do not block
+        if ($this->transition === TaskTransition::Reassign) {
+            $task = Task::query()->find($taskId);
+            $placed['warnings'] = $task instanceof Task ? $rules->warnings($task) : [];
+        }
+
+        return Response::structured($placed);
     }
 
     /**
