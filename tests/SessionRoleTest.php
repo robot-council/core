@@ -429,6 +429,12 @@ function runTheRoleMigration(string $direction): void
     $order = [
         '2026_09_23_000003_add_role_to_robot_council_agent_sessions',
         '2026_09_23_000006_index_robot_council_agent_session_roles',
+
+        // **The collation migration belongs here too**, or this helper stops reproducing the
+        // population it exists for: after a `down`/`up` cycle without it, the column comes back on
+        // the server's collation on MySQL, which is not what a real `migrate:rollback` + `migrate`
+        // leaves behind. Inert on SQLite and Postgres, where it returns immediately.
+        '2026_09_23_000007_compare_session_roles_byte_exactly',
     ];
 
     foreach ($direction === 'down' ? array_reverse($order) : $order as $name) {
