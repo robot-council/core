@@ -71,6 +71,9 @@ final class PackageMigrations
         '2026_09_24_000005_create_robot_council_seats_table',
         '2026_09_24_000006_create_robot_council_assignment_hours_table',
         '2026_09_24_000007_create_robot_council_holidays_table',
+        '2026_09_24_000008_create_robot_council_github_deliveries_table',
+        '2026_09_24_000009_create_robot_council_github_items_table',
+        '2026_09_24_000010_create_robot_council_github_blockers_table',
         '2026_09_24_000011_create_robot_council_lane_holds_table',
 
         // Retired by #132, which dated the create so something dated could alter its table. Both

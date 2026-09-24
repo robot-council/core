@@ -22,6 +22,7 @@ use RobotCouncil\Access\Allowlist;
 use RobotCouncil\Access\ApiGuards;
 use RobotCouncil\Access\Guard;
 use RobotCouncil\Console\DoctorCommand;
+use RobotCouncil\Console\ImportGitHubItemsCommand;
 use RobotCouncil\Console\InstallCommand;
 use RobotCouncil\Console\PruneDeviceCodesCommand;
 use RobotCouncil\Console\PruneEventsCommand;
@@ -121,6 +122,12 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
     public const string SLACK_LIMITER = 'robot-council-slack';
 
     /**
+     * The limiter on the GitHub webhook, keyed on the source address, declared before the
+     * signature check so an unsigned flood is limited too.
+     */
+    public const string GITHUB_WEBHOOK_LIMITER = 'robot-council-github-webhook';
+
+    /**
      * Declare the package's name and the resources it registers.
      *
      * @param  Package  $package  The package definition to configure.
@@ -136,6 +143,7 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
                 RevokeInstallationCommand::class,
                 RevokeSessionCommand::class,
                 DoctorCommand::class,
+                ImportGitHubItemsCommand::class,
                 PruneDeviceCodesCommand::class,
                 PruneEventsCommand::class,
                 PruneLocksCommand::class,
@@ -594,6 +602,10 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
         });
 
         // One limit across every worker, because Slack's is per webhook rather than per process
+        RateLimiter::for(self::GITHUB_WEBHOOK_LIMITER, static fn (Request $request): Limit => Limit::perMinute(
+            $credentials->rateLimit('github_webhook_per_minute', 600)
+        )->by('ip:'.$request->ip()));
+
         RateLimiter::for(self::SLACK_LIMITER, static fn (): Limit => Limit::perMinute(
             $credentials->rateLimit('slack_per_minute', 60)
         ));

@@ -411,6 +411,49 @@ A session holding `coordinator:direct` reads all of it:
 Developers are named by GitHub login, as everywhere else on the machine API. Nothing here is
 enforced at placement yet; that is `robot-council/core#320`.
 
+## GitHub
+
+Core learns about issues and pull requests from **GitHub's webhook**, and reads nothing from
+GitHub itself: when GitHub is unreachable, events simply stop arriving and no coordination decision
+waits on it. From each delivery it stores the issue's or pull request's state, and it frees the lane
+working on it:
+
+- **An issue closing** completes the task naming it as `owner/name#N`.
+- **A pull request merging** completes the task whose lane reported that pull request's branch, in
+  the same repository; **one closed without merging** releases the task to `pending`.
+- A pull request from a fork frees nobody, since its branch lives in another repository.
+
+Each is recorded in the change feed attributed to no session, naming the task and not the issue.
+A delivery replayed with the same `X-GitHub-Delivery` id changes nothing, and one older than what is
+stored is ignored, since GitHub does not promise order.
+
+### Enabling it (an operator step)
+
+1. Choose a secret of at least 16 characters and set it as `ROBOT_COUNCIL_GITHUB_WEBHOOK_SECRET` on
+   the deployment. Until one is set, the endpoint answers 404.
+2. On GitHub, add a webhook to each repository (or the organization) with:
+   - **Payload URL:** `https://your-fleet.example.com{prefix}/api/github/webhook`
+   - **Content type:** `application/json` (form-encoded also works)
+   - **Secret:** the same value
+   - **Events:** *Issues*, *Pull requests*, and *Issue dependencies*
+3. GitHub sends a `ping`, which answers 200. Its *Recent Deliveries* tab shows each delivery's
+   status: 401 is a signature mismatch, 422 a payload the service refused.
+4. **Backfill what was already open**, once, since a webhook reports only what happens afterwards.
+   With your own GitHub credentials:
+
+   ```bash
+   gh api --paginate --slurp 'repos/OWNER/REPO/issues?state=open&per_page=100' > issues.json
+   gh api --paginate --slurp 'repos/OWNER/REPO/pulls?state=open&per_page=100' > pulls.json
+   php artisan robot-council:github-import issues.json
+   php artisan robot-council:github-import pulls.json
+   ```
+
+   The import stores state and frees no lane. `blocked_by` edges are not in either file; they
+   arrive from the webhook as they change.
+
+Deliveries are rate-limited per source address by `robot-council.rate_limits.github_webhook_per_minute`
+(600), and the limiter runs before the signature check.
+
 ## Lane holds
 
 A coordinator records why a lane -- an agent session -- is idle on purpose, which the lane board
