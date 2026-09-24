@@ -407,10 +407,24 @@ back as `after_priority` and `after_id`; it is `null` on the last page.
 | `complete` | the claimant | `claimed`, `in_progress` | `done` |
 | `fail` | the claimant | `claimed`, `in_progress`, `blocked` | `failed` |
 | `release` | the claimant, or `coordinator:direct` | `claimed`, `in_progress`, `blocked` | `pending` |
-| `reassign` | `coordinator:direct` | `claimed`, `in_progress`, `blocked` | `claimed`, by another session |
+| `reassign` | `coordinator:direct`, to an eligible session | `pending`, `claimed`, `in_progress`, `blocked` | `claimed`, by the named session |
 | `cancel` | `coordinator:direct` | `pending`, `claimed`, `in_progress`, `blocked` | `cancelled` |
 
 `done`, `failed`, and `cancelled` are terminal. `complete` and `fail` accept a `result` object.
+
+**A `reassign` is also how a coordinator places work, and it must say so.** It starts from `pending`
+as well as the held statuses, so a coordinator can put unclaimed work in a particular session's
+hands. It **requires** a `directive` -- what to tell that session -- which is written to the change
+feed in the same transaction as the placement, so neither commits without the other; a request
+without one is refused with 422. `hand_back: true` marks the placement as a gate returning a pull
+request to the lane that made it. The session named in `session_id` must pass the same eligibility
+rule a claimant does, so a coordinator cannot hand one developer's own task to another developer's
+session; that answers 403. `start` accepts an optional `branch`, the branch the lane is working on.
+
+A task may name the GitHub issue it is for when it is filed, as `issue: "owner/name#N"`. A bare
+`#N` is refused, because the same number exists in every tracker. Each task reports `placed_by`
+(`coordinator` or `lane`) and `hand_back`, and a release or the gone-session sweep clears both, along
+with the branch.
 
 **Every transition is one conditional update, and the count of changed rows is the decision.** The
 statuses it may start from, the claimant it requires, and the eligibility rule all go into the same
@@ -424,8 +438,8 @@ filed, so revoking the coordinator's ability afterwards cannot make work that wa
 silently unclaimable.
 
 **Every agent sees that every task exists. Not every agent sees what it says.** The row — id,
-status, priority, project, provenance — reaches everyone, because a queue half the fleet is blind to
-is a queue that deadlocks. The `title`, `description`, `payload` and `result` reach only the readers
+status, priority, project, provenance, `placed_by`, `hand_back` — reaches everyone, because a queue half the fleet is blind to
+is a queue that deadlocks. The `title`, `description`, `payload`, `result`, `issue` and `branch` reach only the readers
 who may act on the task: its own developer's sessions, anyone at all when a coordinator filed it,
 and any session holding `coordinator:direct`. Everyone else gets `null` in those fields and
 `readable: false`. That is the same boundary the change feed draws for narration, and for the same

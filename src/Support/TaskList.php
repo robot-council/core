@@ -201,6 +201,18 @@ final class TaskList
             'result' => $readable ? $task->result : null,
             'readable' => $readable,
             'project_id' => $task->project_id,
+
+            // **What the task is about, so behind the same rule as its title.** Charset-limited as
+            // they are, a ticket and a branch say what the work is, and the redaction here is a
+            // prompt-injection control: an agent that cannot act on a task should not read what
+            // might instruct it. It costs no real reader anything -- a coordinator, the lane holding
+            // the task, and the human dashboard all read with `$readable` true.
+            'issue' => $readable ? $task->issue : null,
+            'branch' => $readable ? $task->branch : null,
+
+            // How it came to be held, which is state rather than content, beside `status`
+            'placed_by' => $task->placed_by?->value,
+            'hand_back' => $task->hand_back,
             'created_at' => $task->created_at?->toIso8601String(),
             'claimed_at' => $task->claimed_at?->toIso8601String(),
 

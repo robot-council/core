@@ -12,6 +12,7 @@ use InvalidArgumentException;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
 use RobotCouncil\Models\FleetEventType;
+use RobotCouncil\Models\Placement;
 use RobotCouncil\Models\Task;
 use RobotCouncil\Models\TaskStatus;
 use RobotCouncil\Models\TaskTransition;
@@ -100,7 +101,12 @@ final class Tasks
      * @param  bool  $asCoordinator  Whether the session holds `coordinator:direct`.
      * @param  AgentSession|null  $assignee  Who to hand it to, for a reassignment.
      * @param  array<array-key, mixed>|null  $result  What the agent reports, for a completion.
+     * @param  string|null  $directive  What to tell the assignee, for a reassignment, where it is required.
+     * @param  bool  $handBack  Whether a reassignment returns a gate's pull request to the lane that made it.
+     * @param  string|null  $branch  The branch the lane is working on, for a start.
      * @return Outcome What came of it.
+     *
+     * @throws InvalidArgumentException When a reassignment names nobody or says nothing, or a branch is unusable.
      */
     public function transition(
         int $taskId,
@@ -108,7 +114,10 @@ final class Tasks
         AgentSession $actor,
         bool $asCoordinator,
         ?AgentSession $assignee = null,
-        ?array $result = null
+        ?array $result = null,
+        ?string $directive = null,
+        bool $handBack = false,
+        ?string $branch = null
     ): Outcome {
         $holder = $transition->takesTheClaim()
             ? ($assignee ?? $actor)
@@ -121,7 +130,19 @@ final class Tasks
             throw new InvalidArgumentException('A reassignment needs the session to hand the task to.');
         }
 
-        return DB::transaction(function () use ($taskId, $transition, $actor, $asCoordinator, $holder, $result): Outcome {
+        if ($transition->takesADirective() && ($directive === null || trim($directive) === '')) {
+            // The same reason as the guard above, and the one #316 is about: a stored placement with
+            // no directive is the lane that was never told. Refused here so a host calling the store
+            // directly cannot reach the state the endpoint's validation keeps out.
+            throw new InvalidArgumentException('A reassignment needs a directive telling the session what it is being handed.');
+        }
+
+        // Only a start carries one; anything else is ignored rather than refused, so a caller that
+        // passes a branch it happens to know on another transition writes nothing it did not mean to
+        $branch = $transition->takesABranch() ? $branch : null;
+        BranchName::ensure($branch);
+
+        return DB::transaction(function () use ($taskId, $transition, $actor, $asCoordinator, $holder, $result, $directive, $handBack, $branch): Outcome {
             // The session row before the task row, which is the package's lock order. A claim or a
             // reassign writes `claimed_by`, and on InnoDB that takes a shared lock on the new
             // parent -- after the task row, inverting the order against the release step. Taking it
@@ -132,10 +153,10 @@ final class Tasks
                 return Outcome::Conflict;
             }
 
-            $changed = $this->write($taskId, $transition, $actor, $asCoordinator, $holder, $result);
+            $changed = $this->write($taskId, $transition, $actor, $asCoordinator, $holder, $result, $handBack, $branch);
 
             if ($changed !== 1) {
-                return $this->diagnose($taskId, $transition, $actor, $asCoordinator);
+                return $this->diagnose($taskId, $transition, $actor, $asCoordinator, $holder);
             }
 
             $this->events->record(
@@ -149,6 +170,22 @@ final class Tasks
                 ], static fn (mixed $value): bool => $value !== null),
                 $asCoordinator
             );
+
+            // **Inside the same transaction as the placement, and that is the whole of #316's
+            // guarantee.** A throw here -- a body over `FleetEvent::MAX_BODY`, a feed that cannot be
+            // written -- rolls the placement back with it, so there is no committed state in which a
+            // lane holds work nobody told it about, nor one in which it was told about work it does
+            // not hold. `targets` names the lane; the feed does not narrow delivery by it, so every
+            // session sees the directive as it sees any other, and the lane is the one it names.
+            if ($transition->takesADirective() && $holder instanceof AgentSession && $directive !== null) {
+                $this->events->record(
+                    FleetEventType::Directive,
+                    $actor,
+                    $directive,
+                    ['targets' => [$holder->getKey()], 'task_id' => $taskId],
+                    $asCoordinator
+                );
+            }
 
             return Outcome::Applied;
         });
@@ -251,6 +288,12 @@ final class Tasks
                     'status' => TaskStatus::Pending->value,
                     'claimed_by' => null,
                     'claimed_at' => null,
+
+                    // The same clean slate a release writes, so the sweep and a release cannot
+                    // leave a pending task that still claims a placement from its last holder
+                    'placed_by' => null,
+                    'hand_back' => false,
+                    'branch' => null,
                     'updated_at' => Carbon::now(),
                 ]);
 
@@ -293,6 +336,8 @@ final class Tasks
      * @param  bool  $asCoordinator  Whether the session holds `coordinator:direct`.
      * @param  AgentSession|null  $holder  Who ends up holding it, when anybody does.
      * @param  array<array-key, mixed>|null  $result  What the agent reports, for a completion.
+     * @param  bool  $handBack  Whether a reassignment returns a gate's pull request.
+     * @param  string|null  $branch  The branch a start reports, already bounded.
      * @return int How many rows changed, which is one or none.
      */
     private function write(
@@ -301,7 +346,9 @@ final class Tasks
         AgentSession $actor,
         bool $asCoordinator,
         ?AgentSession $holder,
-        ?array $result
+        ?array $result,
+        bool $handBack,
+        ?string $branch
     ): int {
         $query = Task::query()
             ->whereKey($taskId)
@@ -313,11 +360,18 @@ final class Tasks
             $query->where('claimed_by', $actor->getKey());
         }
 
-        if ($transition === TaskTransition::Claim) {
+        if ($transition->takesTheClaim() && $holder instanceof AgentSession) {
             // #16, carried in the write rather than checked before it, so eligibility costs no
-            // read and cannot be decided against a row that changed in between
-            $query->where(function (Builder $eligible) use ($actor): void {
-                $eligible->where('user_id', $actor->user_id)
+            // read and cannot be decided against a row that changed in between.
+            //
+            // **Tested against whoever ends up holding the task, which for a reassignment is the
+            // assignee, not the coordinator doing it.** Before #316 a reassignment checked nobody,
+            // so a coordinator could hand one developer's own task to another developer's session
+            // -- which then held work `TaskList` would not let it read, since what a session may
+            // read is exactly what it may claim. A placement is the lane taking the task at the
+            // coordinator's word, so the lane has to be one that could have taken it itself.
+            $query->where(function (Builder $eligible) use ($holder): void {
+                $eligible->where('user_id', $holder->user_id)
                     ->orWhere('created_with_coordinator', true);
             });
         }
@@ -330,6 +384,20 @@ final class Tasks
         if ($transition->takesTheClaim()) {
             $values['claimed_by'] = $holder?->getKey();
             $values['claimed_at'] = Carbon::now();
+
+            // How it came to be held, and a clean slate for everything a previous holder reported:
+            // a new holder has not started, so no branch of the last one's describes its work
+            $values['placed_by'] = $transition === TaskTransition::Reassign
+                ? Placement::Coordinator->value
+                : Placement::Lane->value;
+            $values['hand_back'] = $transition === TaskTransition::Reassign && $handBack;
+            $values['branch'] = null;
+        }
+
+        if ($branch !== null) {
+            // Only a start reaches here with one. Absent, the column is left alone, so resuming a
+            // blocked task without naming the branch again does not forget the one it was on.
+            $values['branch'] = $branch;
         }
 
         if ($transition->takesAResult() && $result !== null) {
@@ -343,8 +411,12 @@ final class Tasks
 
         if ($transition->to() === TaskStatus::Pending) {
             // A release, including the sweep's, gives the task back with no trace of who held it
+            // or how they came by it
             $values['claimed_by'] = null;
             $values['claimed_at'] = null;
+            $values['placed_by'] = null;
+            $values['hand_back'] = false;
+            $values['branch'] = null;
         }
 
         return $query->update($values);
@@ -362,10 +434,16 @@ final class Tasks
      * @param  TaskTransition  $transition  What was attempted.
      * @param  AgentSession  $actor  The session that attempted it.
      * @param  bool  $asCoordinator  Whether the session holds `coordinator:direct`.
+     * @param  AgentSession|null  $holder  Who would have held it, for a transition that takes the claim.
      * @return Outcome Why nothing happened.
      */
-    private function diagnose(int $taskId, TaskTransition $transition, AgentSession $actor, bool $asCoordinator): Outcome
-    {
+    private function diagnose(
+        int $taskId,
+        TaskTransition $transition,
+        AgentSession $actor,
+        bool $asCoordinator,
+        ?AgentSession $holder
+    ): Outcome {
         // Locked, so the diagnosis reads the row the write tested rather than one that moved in
         // between. Postgres releases the lock on a row an UPDATE's predicate rejected and MySQL's
         // REPEATABLE READ keeps it, so an unlocked read here answers 403 on one engine and 409 on
@@ -381,7 +459,10 @@ final class Tasks
             return Outcome::Conflict;
         }
 
-        if ($transition === TaskTransition::Claim && ! $task->isClaimableBy($actor)) {
+        // The same session the write tested: the claimant for a claim, the assignee for a
+        // reassignment. Diagnosing a reassignment against the coordinator would call an ineligible
+        // assignee a conflict and invite a retry that can never succeed.
+        if ($transition->takesTheClaim() && $holder instanceof AgentSession && ! $task->isClaimableBy($holder)) {
             return Outcome::Forbidden;
         }
 
@@ -428,6 +509,9 @@ final class Tasks
         // puts it into the feed's `meta` below, and `FleetFeed` serves that to every session. So it
         // is bounded in charset as well as length, and by the one helper both stores share.
         ProjectId::ensure($attributes['project_id'] ?? null);
+
+        // Repository-qualified or absent: a bare `#N` names a number that exists in every tracker
+        IssueReference::ensure($attributes['issue'] ?? null);
 
         $limits = ['title' => Task::MAX_TITLE, 'description' => Task::MAX_DESCRIPTION];
 

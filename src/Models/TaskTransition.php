@@ -48,7 +48,19 @@ enum TaskTransition: string
     case Release = 'release';
 
     /**
-     * Move a held task to another session.
+     * Hand a task to a named session, whether or not anybody held it: this is a coordinator's
+     * placement as well as a move.
+     *
+     * **It starts from `pending` too, since #316.** Before then it moved only a held task, so a
+     * coordinator had no way to put unclaimed work in a particular lane's hands -- the one act the
+     * lane board exists to record. It carries a directive, written to the assignee in the same
+     * transaction, and the assignee must pass #16's rule for the task exactly as a claimant would.
+     *
+     * **That is the task's rule, not the session's ability, and the difference is deliberate.**
+     * Every role preset includes `tasks:claim`, so a check on the preset could never fail; the only
+     * session lacking it holds a token an administrator narrowed below its preset. Such a session
+     * can be handed work it cannot then start -- as it could be before #316 by moving held work --
+     * and only a coordinator's release or the gone-session sweep takes it back.
      */
     case Reassign = 'reassign';
 
@@ -68,7 +80,8 @@ enum TaskTransition: string
             self::Claim => [TaskStatus::Pending],
             self::Start => [TaskStatus::Claimed, TaskStatus::Blocked],
             self::Block, self::Complete => [TaskStatus::Claimed, TaskStatus::InProgress],
-            self::Fail, self::Release, self::Reassign => TaskStatus::held(),
+            self::Fail, self::Release => TaskStatus::held(),
+            self::Reassign => [TaskStatus::Pending, ...TaskStatus::held()],
             self::Cancel => [TaskStatus::Pending, ...TaskStatus::held()],
         };
     }
@@ -142,6 +155,33 @@ enum TaskTransition: string
     public function takesTheClaim(): bool
     {
         return $this === self::Claim || $this === self::Reassign;
+    }
+
+    /**
+     * Whether this transition carries a directive to the session it hands the task to.
+     *
+     * Only a reassignment, and it is required there rather than offered: a placement the lane was
+     * never told about is the failure #314 measured at 48 minutes, and making the two one write is
+     * what removes that state rather than detecting it.
+     *
+     * @return bool True when the request must carry a `directive`.
+     */
+    public function takesADirective(): bool
+    {
+        return $this === self::Reassign;
+    }
+
+    /**
+     * Whether this transition may record the branch the lane is working on.
+     *
+     * Only a start, which is a lane taking up a task: that is the moment it knows the branch, and
+     * the board keeps take-up apart from placement for exactly that reason.
+     *
+     * @return bool True when the request may carry a `branch`.
+     */
+    public function takesABranch(): bool
+    {
+        return $this === self::Start;
     }
 
     /**

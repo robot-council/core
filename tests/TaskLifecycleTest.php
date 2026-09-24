@@ -24,6 +24,7 @@ use RobotCouncil\Access\Role;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\FleetEventType;
+use RobotCouncil\Models\Placement;
 use RobotCouncil\Models\Task;
 use RobotCouncil\Models\TaskStatus;
 use RobotCouncil\Models\TaskTransition;
@@ -52,7 +53,8 @@ const STARTS_FROM = [
     'complete' => ['claimed', 'in_progress'],
     'fail' => ['claimed', 'in_progress', 'blocked'],
     'release' => ['claimed', 'in_progress', 'blocked'],
-    'reassign' => ['claimed', 'in_progress', 'blocked'],
+    // `pending` since #316: a reassignment is also a coordinator's placement of unclaimed work
+    'reassign' => ['pending', 'claimed', 'in_progress', 'blocked'],
     'cancel' => ['pending', 'claimed', 'in_progress', 'blocked'],
 ];
 
@@ -236,6 +238,9 @@ function attempt(TestCase $case, int $task, string $transition): TestResponse
     if ($transition === 'reassign') {
         [$assignee] = anotherAgent($case);
         $body['session_id'] = $assignee->getKey();
+
+        // Required since #316, which made a placement and the directive telling the lane one write
+        $body['directive'] = 'Take this task.';
     }
 
     return $case->machine($token)
@@ -382,7 +387,7 @@ it('gives one task to exactly one of two agents claiming it at once', function (
         ->and($held->claimed_by)->toBe($this->session->getKey());
 });
 
-it('settles a release racing a reassignment on exactly one outcome', function (): void {
+it('settles a completion racing a reassignment on exactly one outcome', function (): void {
     $task = taskInStatus($this, 'claimed');
 
     [$assignee] = anotherAgent($this);
@@ -404,11 +409,17 @@ it('settles a release racing a reassignment on exactly one outcome', function ()
         $anchor = $query->sql;
 
         $reassigned = $this->service(Tasks::class)
-            ->transition($task, TaskTransition::Reassign, $coordinatorSession, true, $assignee);
+            ->transition($task, TaskTransition::Reassign, $coordinatorSession, true, $assignee, directive: 'Take this task.');
     });
 
-    $release = $this->machine($this->token)
-        ->postJson(route('robot-council.tasks.transition', ['task' => $task, 'transition' => 'release']));
+    // **A completion, not a release, since #316.** This test once raced a release, and that stopped
+    // discriminating when a reassignment gained `pending` as a starting status: a release followed
+    // by a reassignment is now two legitimate transitions in sequence -- the next test pins it --
+    // so it passes against the read-then-check implementation this test exists to catch. A
+    // completion lands on `done`, which is terminal and which no reassignment can start from, so
+    // "exactly one" still has the teeth it was written with.
+    $completion = $this->machine($this->token)
+        ->postJson(route('robot-council.tasks.transition', ['task' => $task, 'transition' => 'complete']));
 
     expect($injected)->toBe(1)
         ->and(isWriteTo($anchor, 'update', 'robot_council_tasks'))->toBeTrue();
@@ -416,18 +427,70 @@ it('settles a release racing a reassignment on exactly one outcome', function ()
     $final = Task::query()->findOrFail($task);
 
     // Exactly one of the two, which is the criterion. Both applying would mean a reassignment that
-    // handed the task on and a release that gave it back, with the feed claiming both happened.
+    // handed a finished task to another lane, with the feed claiming both happened.
     //
     // Only one branch is reachable under the shipped implementation, and it is named rather than
-    // left as an `if`: the anchor fires after the release's write, so the release always wins and
-    // the reassignment always finds a task nobody holds. The mutation control is what shows the
-    // assertion has teeth -- against a read-then-check-the-claimant implementation, both apply.
-    $release->assertOk();
+    // left as an `if`: the anchor fires after the completion's write, so the completion always wins
+    // and the reassignment always finds a task in a status it cannot start from. The mutation
+    // control is what shows the assertion has teeth -- against a read-then-check implementation,
+    // both apply.
+    $completion->assertOk();
 
     expect($reassigned)->toBe(Outcome::Conflict)
-        ->and($final->status)->toBe(TaskStatus::Pending)
-        ->and($final->claimed_by)->toBeNull()
+        ->and($final->status)->toBe(TaskStatus::Done)
+        ->and($final->claimed_by)->toBe($this->session->getKey())
         ->and($assignee->getKey())->not->toBeNull();
+});
+
+it('places a task on the assignee when a reassignment lands just after a release', function (): void {
+    $task = taskInStatus($this, 'claimed');
+
+    [$assignee] = anotherAgent($this);
+    [$coordinatorSession] = coordinator($this);
+
+    $injected = 0;
+    $reassigned = null;
+
+    DB::listen(function (QueryExecuted $query) use (&$injected, &$reassigned, $coordinatorSession, $task, $assignee): void {
+        if ($injected > 0 || ! str_contains($query->sql, 'robot_council_tasks')) {
+            return;
+        }
+
+        $injected++;
+
+        $reassigned = $this->service(Tasks::class)
+            ->transition($task, TaskTransition::Reassign, $coordinatorSession, true, $assignee, directive: 'Take this task.');
+    });
+
+    $this->machine($this->token)
+        ->postJson(route('robot-council.tasks.transition', ['task' => $task, 'transition' => 'release']))
+        ->assertOk();
+
+    $final = Task::query()->findOrFail($task);
+
+    // **Both apply, in sequence, and that is intended since #316.** The release gave the task back
+    // and the reassignment then placed the pending task -- which is what the coordinator asked for
+    // either way. This is not the lost update the race above guards against: the reassignment's
+    // conditional update ran against the `pending` row the release had just written.
+    expect($injected)->toBe(1)
+        ->and($reassigned)->toBe(Outcome::Applied)
+        ->and($final->status)->toBe(TaskStatus::Claimed)
+        ->and($final->claimed_by)->toBe($assignee->getKey())
+        ->and($final->placed_by)->toBe(Placement::Coordinator);
+
+    // **Each event once, and deliberately not their order.** This technique runs the reassignment
+    // nested inside the release's own transaction, at the release's UPDATE, so the reassignment's
+    // events are recorded before the release reaches its own -- measured: `created, claimed,
+    // reassigned, released`. That order is the harness, not the service. On two real connections the
+    // release holds the task row from its UPDATE until it commits, and records its event under the
+    // feed sentinel before committing, so a concurrent reassignment blocks on the row and records
+    // after. Asserting order here would pin an artifact of the injection.
+    $types = FleetEvent::query()->where('type', 'like', 'task.%')->get()->map(
+        static fn (FleetEvent $event): string => $event->type->value
+    )->countBy()->all();
+
+    expect($types['task.released'] ?? 0)->toBe(1)
+        ->and($types['task.reassigned'] ?? 0)->toBe(1);
 });
 
 it('refuses every claimant transition to a session that does not hold the task', function (string $transition): void {
@@ -642,7 +705,7 @@ it('reassigns to a stale session, which is quiet rather than stopped', function 
     // runs, and the sweep releases the task soon enough if it really has died
     $this->machine($coordinatorToken)->postJson(
         route('robot-council.tasks.transition', ['task' => $task, 'transition' => 'reassign']),
-        ['session_id' => $assignee->getKey()]
+        ['session_id' => $assignee->getKey(), 'directive' => 'Take this task.']
     )->assertOk();
 
     expect(Task::query()->findOrFail($task)->claimed_by)->toBe($assignee->getKey());
@@ -779,7 +842,7 @@ it('records what a transition did in the feed', function (): void {
 
     $this->machine($coordinatorToken)->postJson(
         route('robot-council.tasks.transition', ['task' => $task, 'transition' => 'reassign']),
-        ['session_id' => $assignee->getKey()]
+        ['session_id' => $assignee->getKey(), 'directive' => 'Take this task.']
     )->assertOk();
 
     $event = FleetEvent::query()->where('type', FleetEventType::TaskReassigned->value)->sole();
