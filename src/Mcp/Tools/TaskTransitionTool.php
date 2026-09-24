@@ -103,7 +103,7 @@ final class TaskTransitionTool extends Tool
         if ($this->transition->takesABranch()) {
             $arguments['branch'] = $schema->string()
                 ->max(BranchName::MAX)
-                ->description('The git branch you are working on for this task, as [A-Za-z0-9._/-]. Omit it if you cannot tell.');
+                ->description('The git branch you are working on for this task, as [A-Za-z0-9._/-], if it already exists. Usually it does not yet: omit it here and call `task_branch` once you have created the branch.');
         }
 
         if ($this->transition->takesAResult()) {

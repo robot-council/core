@@ -27,6 +27,7 @@ use RobotCouncil\Http\Controllers\ListTasksController;
 use RobotCouncil\Http\Controllers\LockController;
 use RobotCouncil\Http\Controllers\PostDirectiveController;
 use RobotCouncil\Http\Controllers\PostNarrationController;
+use RobotCouncil\Http\Controllers\ReportTaskBranchController;
 use RobotCouncil\Http\Controllers\RequestRoleController;
 use RobotCouncil\Http\Controllers\SessionEndController;
 use RobotCouncil\Http\Controllers\SessionRenewController;
@@ -122,6 +123,13 @@ Route::middleware(['throttle:'.RobotCouncilServiceProvider::AGENT_LIMITER, Ensur
         Route::post('locks/{action}', LockController::class)
             ->where('action', implode('|', LockAction::values()))
             ->name('locks.action');
+
+        // The lane holding a task reports its branch once it has one (robot-council/cli#238). Its
+        // own route rather than a transition, because it moves no status.
+        Route::post('tasks/{task}/branch', ReportTaskBranchController::class)
+            ->where('task', RobotCouncilServiceProvider::ROUTE_ID)
+            ->middleware(RequireAbility::class.':'.Ability::TasksClaim->value)
+            ->name('tasks.branch');
 
         Route::post('tasks/{task}/{transition}', TransitionTaskController::class)
             ->where('task', RobotCouncilServiceProvider::ROUTE_ID)
