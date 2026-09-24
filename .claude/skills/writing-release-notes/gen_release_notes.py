@@ -268,33 +268,7 @@ def bucket(subject, title, labels=(), paths=(), test_lines=0, other_lines=0, iss
     if _all_maint(paths):
         return "maint"
 
-    # 6. The type a human set on the issue this closes. `Bug` is a fix; `Feature` is new.
-    #
-    #    **After rule 5, and the placement is the whole of the correctness** (#268). It reads as
-    #    belonging before rule 4, beside the other human-set signal -- and there it would be wrong:
-    #    `robot-council/cli#154` is typed `Bug` and is confined to `.claude/`, so rule 5 routes it
-    #    to Maintenance, which is right, because a change to a skill file is maintenance whatever
-    #    the ticket it closes is typed. Placed earlier, the type would take it first and call it a
-    #    fix. That single position is what makes `Bug` agree 2 of 2 rather than 1 of 2.
-    #
-    #    **`Task` is deliberately not encoded.** It predicted `fix` six times out of six on the
-    #    range this was measured against, and the correlation is an artifact of how those tickets
-    #    happened to be typed: `writing-issues` assigns `Task` to a research spike, a decision fork,
-    #    a follow-up cleanup or an epic, never to a bug. A rule built on it breaks the first time
-    #    somebody types a ticket correctly, and it breaks toward calling a cleanup a fix.
-    #
-    #    **A change closing issues of differing types is a FIX.** Nothing forces one answer, so the
-    #    tie is broken deliberately: a pull request that closes a bug and a feature has repaired
-    #    something, and a reader scanning What's fixed for a regression they actually hit is worse
-    #    served by its absence than a reader of What's new is by its absence there. Under-claiming
-    #    novelty is the cheaper error.
-    if 'Bug' in issue_types:
-        return "fix"
-
-    if 'Feature' in issue_types:
-        return "new"
-
-    # 7. Test-dominant diff with no source edit: the change is coverage, not product.
+    # 6. Test-dominant diff with no source edit: the change is coverage, not product.
     #
     #    **The source exclusion is what makes this rule mean anything** (#264). Rule 5 already
     #    routes a diff confined to `.claude/`, `tests/`, `README.md` or the manifests, so by the
@@ -311,8 +285,55 @@ def bucket(subject, title, labels=(), paths=(), test_lines=0, other_lines=0, iss
     if test_lines > other_lines and not any(p.startswith(SOURCE_PREFIXES) for p in paths):
         return "maint"
 
+    # 7. A maintenance verb or noun in the title, whatever the diff looks like (#264).
     if MAINT_VERBS.match(t) or "update dependencies" in t.lower() or MAINT_WORDS.search(t):
         return "maint"
+
+    # 8. The type a human set on the issue this closes, as a LAST-RESORT tiebreaker.
+    #    `Bug` is a fix; `Feature` is new.
+    #
+    #    **Both bounds on this position are load-bearing, and the ticket pinned only the upper
+    #    one** (#268).
+    #
+    #    *Upper bound -- it must sit below rules 3 to 5.* It reads as belonging beside the other
+    #    human-set signal, up with the labels, and there it would be wrong: `robot-council/cli#154`
+    #    is typed `Bug` and is confined to `.claude/`, so rule 5 routes it to Maintenance, which is
+    #    right, because a change to a skill file is maintenance whatever the ticket it closes is
+    #    typed. That position is what makes `Bug` agree 2 of 2 rather than 1 of 2.
+    #
+    #    *Lower bound -- it must also sit below rules 6 and 7, which is NOT what a first reading of
+    #    #268 gives you.* Placed directly after rule 5 it silently overrides two earlier decisions.
+    #    It would take a test-only diff that changed no behavior and call it a fix; and it would
+    #    take `Raise dependency floors to their latest stable releases`, which #264 deliberately
+    #    routes to Maintenance by its title, and call it a fix the moment somebody typed that
+    #    ticket `Bug`. The principle the rest of this cascade already follows is that an explicit
+    #    signal beats an inferred one -- a path that says maintenance, a title that says
+    #    maintenance -- and the issue type is the coarsest signal here, not the finest. So it
+    #    decides only what nothing else could.
+    #
+    #    **`Task` is deliberately not encoded.** It predicted `fix` six times out of six on the
+    #    range this was measured against, and the correlation is an artifact of how those tickets
+    #    happened to be typed: `writing-issues` assigns `Task` to a research spike, a decision fork,
+    #    a follow-up cleanup or an epic, never to a bug. A rule built on it breaks the first time
+    #    somebody types a ticket correctly, and it breaks toward calling a cleanup a fix.
+    #
+    #    **A change closing issues of differing types is a FIX.** Nothing forces one answer, so the
+    #    tie is broken deliberately: a pull request that closes a bug and a feature has repaired
+    #    something, and a reader scanning What's fixed for a regression they actually hit is worse
+    #    served by its absence than a reader of What's new is by its absence there. Under-claiming
+    #    novelty is the cheaper error.
+    if 'Bug' in issue_types:
+        return "fix"
+
+    #    **`Feature` here is an EQUIVALENT MUTANT, and that is stated rather than hidden.** Nothing
+    #    follows it but `return "new"`, so deleting these two lines changes no input's fate and no
+    #    test can tell the two versions apart -- the same situation `CLAUDE.md` records for
+    #    `Locks::acquire()`'s bytes-versus-characters fix. It is kept, not deleted, because it
+    #    states the half of #268's decision that the default only happens to agree with: a rule
+    #    added after this one would otherwise silently take every `Feature` with it. A test asserts
+    #    the behavior; no test can assert the branch, and claiming otherwise would be a false green.
+    if 'Feature' in issue_types:
+        return "new"
 
     return "new"
 
@@ -354,23 +375,46 @@ def prime_pr_cache(nums, repo):
         batch = nums[start:start + _PR_BATCH]
         fields = " ".join(
             f'p{n}: pullRequest(number:{n}){{title '
-            f'closingIssuesReferences(first:5){{nodes{{issueType{{name}} '
+            f'closingIssuesReferences(first:20){{totalCount nodes{{issueType{{name}} '
             f'labels(first:20){{nodes{{name}}}}}}}}}}'
             for n in batch)
         q = f'query {{repository(owner:"{owner}",name:"{name}"){{{fields}}}}}'
         r = subprocess.run(["gh", "api", "graphql", "-f", f"query={q}"],
                            capture_output=True, text=True)
         try:
-            data = (json.loads(r.stdout).get("data") or {}).get("repository") or {}
+            payload = json.loads(r.stdout)
+            data = (payload.get("data") or {}).get("repository") or {}
         except (json.JSONDecodeError, AttributeError):
-            data = {}
+            payload, data = {}, {}
+
+        # **A field error costs one alias; a VALIDATION error costs the whole batch**, and the two
+        # are told apart only here. `issueType` is a newer schema field than everything else this
+        # query asks for, so an endpoint whose schema predates it rejects the entire document:
+        # `data` comes back null, every alias in the batch caches as a miss, and the run emits a
+        # full set of bullets with no `[#N]` links -- the exact outcome the comment above says the
+        # partial-data handling exists to prevent, arriving through a door that handling does not
+        # cover. Reported on stderr rather than raised, because a release note with plain subjects
+        # still beats no release note; what must not happen is that it looks complete.
+        if not data and payload.get("errors"):
+            first = payload["errors"][0]
+            print(f"warning: the pull-request query returned no data for #{batch[0]}-#{batch[-1]} "
+                  f"({first.get('type') or 'error'}: {first.get('message', '')[:160]}). "
+                  f"Those bullets will fall back to commit subjects and carry no links.",
+                  file=sys.stderr)
         for n in batch:
             node = data.get(f"p{n}")
             if not node:
                 # Not a pull request, or unreachable: resolve() falls back to the subject.
                 _pr_cache[n] = (None, (), ())
                 continue
-            issues = (node.get("closingIssuesReferences") or {}).get("nodes", [])
+            cir = node.get("closingIssuesReferences") or {}
+            issues = cir.get("nodes") or []
+            # The page is 20 and nothing orders it, so a pull request closing more than that would
+            # have its types decided by an ordering nobody pinned -- and since #268 the type can
+            # decide the bucket, where before it could only lose a label. Reported, never guessed.
+            if (cir.get("totalCount") or 0) > len(issues):
+                print(f"warning: #{n} closes {cir['totalCount']} issues; only {len(issues)} were "
+                      f"read, so its labels and type may be incomplete.", file=sys.stderr)
             labels = tuple(
                 l["name"]
                 for iss in issues

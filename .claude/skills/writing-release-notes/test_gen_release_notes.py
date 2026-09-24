@@ -130,143 +130,26 @@ class Routing(unittest.TestCase):
 
 
 class IssueType(unittest.TestCase):
-    """The type a human set on the linked issue, read after the maintenance-path rule (#268).
+    """The type a human set on the linked issue, read as a LAST-RESORT tiebreaker (#268).
 
-    Every fixture here is a real pull request from `robot-council/cli`'s v0.3.0 range, named by
-    number, because the decision on `robot-council/cli#162` was measured against that range and a
-    synthetic case cannot be checked back against it. `IssueTypeOnThisRepository` below carries the
-    same properties against pull requests from THIS repository's own range, which is what #268's
-    criteria ask for by name -- the two are not redundant, because the cascade is shared source and
-    a fixture from one tree proves nothing about the other's data.
+    Every fixture is a real pull request named by number, with the path list and the added-line
+    counts read from its own files through the API on 2026-09-24. `diff_signals()` counts **added**
+    lines only (`n = int(added) if added.isdigit() else 0`), so these are additions, never
+    additions-plus-deletions.
+
+    **What no test in this class can do**, stated here rather than implied away: the `Feature`
+    branch is an equivalent mutant. Nothing follows it but the cascade's `return "new"`, so deleting
+    it changes no input's fate. The tests below pin `Feature`'s BEHAVIOR; none of them can pin the
+    branch, and a test claiming to would be a false green.
     """
 
-    SOURCE = ["app/Support/Bridge.php", "tests/Feature/BridgeTest.php"]
+    def test_bug_routes_to_fixed(self):
+        """`#235` and `#224`, the whole measured reach of this rule on this repository.
 
-    def test_bug_is_a_fix_and_feature_is_new(self):
-        # `cli#158` closes an issue typed `Bug`; `cli#149` closes one typed `Feature`.
-        self.assertEqual(
-            g.bucket("s", "Tell a session the sweep marked it stale or gone",
-                     paths=self.SOURCE, test_lines=82, other_lines=32, issue_types=("Bug",)),
-            "fix")
-        self.assertEqual(
-            g.bucket("s", "Renew when this session's role changes",
-                     paths=self.SOURCE, test_lines=648, other_lines=160, issue_types=("Feature",)),
-            "new")
-
-    def test_a_skill_only_change_stays_maintenance_although_its_issue_is_a_bug(self):
-        """The placement, asserted rather than described.
-
-        `robot-council/cli#154` is typed `Bug` and touches `.claude/` alone. Rule 5 takes it first
-        and calls it Maintenance, which is right: a change to a skill file is maintenance whatever
-        the ticket it closes is typed. This is the assertion that fails if the rule is moved up.
-        """
-        self.assertEqual(
-            g.bucket("s", "Take the pull-request skill from `robot-council/core` verbatim",
-                     paths=[".claude/skills/writing-pull-requests/SKILL.md"], issue_types=("Bug",)),
-            "maint")
-
-        # And the same for the other maintenance paths rule 5 owns.
-        for path in ("composer.json", "README.md", "CLAUDE.md", "tests/FooTest.php"):
-            self.assertEqual(g.bucket("s", "Anything at all", paths=[path], issue_types=("Bug",)),
-                             "maint", path)
-
-    def test_task_is_not_consulted(self):
-        """`Task` predicted `fix` 6 of 6 on the measured range, and the correlation is an artifact.
-
-        `writing-issues` assigns it to a spike, a decision fork, a cleanup or an epic -- never to a
-        bug. A change typed `Task` routes exactly as an untyped one does.
-        """
-        for title, paths, t, o in [
-            ("Read the legacy credential once per refusal, not twice", self.SOURCE, 108, 32),
-            ("Count the session ending, and bound stopping the reader", self.SOURCE, 219, 10),
-        ]:
-            self.assertEqual(
-                g.bucket("s", title, paths=paths, test_lines=t, other_lines=o, issue_types=("Task",)),
-                g.bucket("s", title, paths=paths, test_lines=t, other_lines=o),
-                title)
-
-    def test_an_untyped_issue_routes_exactly_as_before(self):
-        """14 of the 25 on the measured range carry no type, so this is the majority path."""
-        cases = [
-            ("Renew when this session's role changes", self.SOURCE, 648, 160),
-            ("Fix the provider name", self.SOURCE, 10, 200),
-            ("Raise dependency floors to their latest stable releases", self.SOURCE, 20, 10),
-            ("Document the published install", [".claude/x.md"], 0, 34),
-        ]
-        for title, paths, t, o in cases:
-            self.assertEqual(
-                g.bucket("s", title, paths=paths, test_lines=t, other_lines=o, issue_types=()),
-                g.bucket("s", title, paths=paths, test_lines=t, other_lines=o),
-                title)
-
-    def test_a_feature_titled_with_an_outcome_verb_is_not_a_fix(self):
-        """The shape most likely to be caught by a wrong rule.
-
-        `cli#121`, `Say when nothing on the fleet can reach a waiting agent`, is a FEATURE whose
-        title opens the way this repository writes a fix. Nothing may route it to What's fixed.
-        """
-        for types in ((), ("Feature",), ("Task",)):
-            self.assertNotEqual(
-                g.bucket("s", "Say when nothing on the fleet can reach a waiting agent",
-                         paths=self.SOURCE, test_lines=177, other_lines=151, issue_types=types),
-                "fix", str(types))
-
-    def test_several_issues_of_differing_types_are_a_fix(self):
-        """The tie is broken deliberately rather than by whichever came back first.
-
-        A pull request closing a bug and a feature has repaired something, and a reader scanning
-        What's fixed for a regression they hit is worse served by its absence than a reader of
-        What's new is by its absence there. Asserted in both orders, so the answer does not depend
-        on what GraphQL happened to return first.
-        """
-        for types in (("Bug", "Feature"), ("Feature", "Bug"), ("Task", "Bug"), ("Bug", "Task")):
-            self.assertEqual(
-                g.bucket("s", "Closes two at once", paths=self.SOURCE,
-                         test_lines=10, other_lines=10, issue_types=types),
-                "fix", str(types))
-
-        # `Feature` with anything that is not `Bug` is still new.
-        self.assertEqual(
-            g.bucket("s", "Closes two at once", paths=self.SOURCE,
-                     test_lines=10, other_lines=10, issue_types=("Task", "Feature")),
-            "new")
-
-    def test_security_and_the_published_surface_still_win(self):
-        """The rules above this one are unmoved, which a new rule is the usual way to break."""
-        self.assertEqual(
-            g.bucket("s", "Prevent an XSS in the enrollment page",
-                     paths=self.SOURCE, issue_types=("Feature",)),
-            "sec")
-        self.assertEqual(
-            g.bucket("s", "Anything at all", labels=["security"],
-                     paths=self.SOURCE, issue_types=("Feature",)),
-            "sec")
-        self.assertEqual(
-            g.bucket("s", "Anything at all", paths=["config/robot-council.php"],
-                     issue_types=("Bug",)),
-            "new")
-        self.assertEqual(
-            g.bucket("s", "Anything at all", labels=["documentation"],
-                     paths=self.SOURCE, issue_types=("Feature",)),
-            "maint")
-
-
-class IssueTypeOnThisRepository(unittest.TestCase):
-    """The same rule, measured against `robot-council/core`'s own v0.3.2..HEAD range (#268).
-
-    Every path list and line count below was read from the pull request's own files on 2026-09-24,
-    not invented, so a fixture that stops describing this repository is a fixture that will be
-    caught. The range holds 29 changes: 9 close a `Bug`, 6 a `Feature`, 13 a `Task`, and 1 closes
-    nothing typed -- so the criterion's "14 of 25 carry none" is `robot-council/cli`'s figure, not
-    this repository's, and the property it names is what carries over rather than the number.
-    """
-
-    def test_the_two_bugs_the_rule_moves(self):
-        """`#235` and `#224`, the whole measured reach of this change on this repository.
-
-        Both are titled with an outcome verb -- `Send`, `Register` -- so rule 4's verb list cannot
-        see them, and both edit `src/`, so #266's source exclusion disarms rule 7. Before this rule
-        they fell through to `new`. They are the shape the ticket exists for.
+        Both open with an outcome verb -- `Send`, `Register` -- so rule 4's verb list cannot see
+        them; both edit `src/`, so #264's source exclusion disarms rule 6; and neither title carries
+        a maintenance word for rule 7. They reach rule 8 and nothing else could have classified
+        them.
         """
         self.assertEqual(
             g.bucket("s", "Send the package prefix root to the dashboard",
@@ -282,54 +165,168 @@ class IssueTypeOnThisRepository(unittest.TestCase):
                      test_lines=157, other_lines=39, issue_types=("Bug",)),
             "fix")
 
-    def test_this_repositorys_own_skill_only_bug_stays_maintenance(self):
-        """The placement criterion, against the change #268 names rather than a stand-in.
+    def test_feature_routes_to_new(self):
+        """`#243`. Behavior only -- see the class docstring on why the branch is unpinnable."""
+        self.assertEqual(
+            g.bucket("s", "Let a session request a role, and an administrator decide it",
+                     paths=["config/robot-council.php", "src/Access/Role.php", "routes/api.php"],
+                     test_lines=824, other_lines=797, issue_types=("Feature",)),
+            "new")
 
-        `#259` closes a `Bug` and edits one file under `.claude/`. Rule 5 takes it, and must: a
-        change to a skill file is maintenance whatever its ticket is typed. Moving the type rule
-        above rule 5 turns this red.
+    # ---- the UPPER bound: rules 1 to 5 still win -------------------------------------------
+
+    def test_a_maintenance_label_still_wins(self):
+        """The real `#259`, which is not the fixture people assume it is.
+
+        It closes `#258`, typed `Bug` and labeled `documentation` -- so **rule 2** holds it, three
+        rules before the path rule does. Asserting it through rule 5 would describe a change that
+        does not exist.
         """
         self.assertEqual(
             g.bucket("s", "Refuse the comma form for multiple closes, and make the scan refuse both directions",
+                     labels=["documentation", "afk"],
                      paths=[".claude/skills/writing-pull-requests/SKILL.md"],
-                     test_lines=0, other_lines=58, issue_types=("Bug",)),
+                     test_lines=0, other_lines=45, issue_types=("Bug",)),
             "maint")
 
-    def test_a_feature_with_an_outcome_verb_stays_new(self):
-        """`#243`, a `Feature` titled `Let a session ...` rather than `Add ...`.
+    def test_a_skill_only_path_still_wins_without_any_label(self):
+        """Rule 5 on its own, with the labels removed so it is the rule actually under test.
 
-        All six `Feature`-closing changes on the range held at `new` with the rule in place and
-        without it, so the `Feature` half changed no outcome here. It earns its line by being
-        stated rather than left to rule 8's default, which any later rule could displace.
+        A change to a skill file is maintenance whatever its ticket is typed. This is the assertion
+        that fails if the type rule is moved above rule 5.
         """
-        for types in ((), ("Feature",)):
-            self.assertEqual(
-                g.bucket("s", "Let a session request a role, and an administrator decide it",
-                         paths=["config/robot-council.php", "src/Access/Role.php",
-                                "routes/api.php", "resources/views/livewire/administration.blade.php"],
-                         test_lines=0, other_lines=417, issue_types=types),
-                "new", str(types))
+        for path in (".claude/skills/writing-pull-requests/SKILL.md", "composer.json",
+                     "README.md", "CLAUDE.md", "tests/FooTest.php"):
+            self.assertEqual(g.bucket("s", "Anything at all", paths=[path], issue_types=("Bug",)),
+                             "maint", path)
 
-    def test_an_earlier_rule_still_wins_where_it_should(self):
-        """Six of the nine `Bug`-closing changes are held above rule 6, and each is held correctly.
-
-        Three route to `sec` (`#242`, `#252`, `#266`), which is where a security fix belongs rather
-        than in What's fixed; one to `maint` (`#259`, above); and three to `new` at rule 3 because
-        they touch a published surface (`#213`, `#229`, `#262`). **The last group is the one worth
-        knowing about**: rule 3 precedes rule 4 as well, so a published-surface change titled `Fix
-        ...` has always routed to `new`. That predates this rule and this rule does not change it.
-        """
+    def test_security_and_the_published_surface_still_win(self):
         self.assertEqual(
-            g.bucket("s", "Stop the release cascade filing a test-heavy feature as maintenance",
-                     paths=[".claude/skills/writing-release-notes/gen_release_notes.py"],
-                     labels=["security"], issue_types=("Bug",)),
+            g.bucket("s", "Prevent an XSS in the enrollment page",
+                     paths=["src/X.php"], issue_types=("Feature",)),
             "sec")
-        # Rule 3: a published surface, so `new` despite the `Bug`. Not a defect of this rule.
         self.assertEqual(
-            g.bucket("s", "Raise the absent-value placeholders above the WCAG AA bar",
-                     paths=["resources/views/livewire/fleet-presence.blade.php"],
-                     test_lines=40, other_lines=20, issue_types=("Bug",)),
+            g.bucket("s", "Anything at all", labels=["security"],
+                     paths=["src/X.php"], issue_types=("Feature",)),
+            "sec")
+        self.assertEqual(
+            g.bucket("s", "Anything at all", paths=["config/robot-council.php"],
+                     issue_types=("Bug",)),
             "new")
+
+    # ---- the LOWER bound: rules 6 and 7 win too, which #268 did not pin ---------------------
+
+    def test_a_maintenance_title_still_wins(self):
+        """#264's decision, which a type rule placed one rule higher would silently reverse.
+
+        `Raise dependency floors ...` is Maintenance because the title SAYS so, whatever its diff
+        shape. Typing that ticket `Bug` must not turn it into a fix.
+        """
+        for title in ("Raise dependency floors to their latest stable releases",
+                      "Refactor the presence sweep",
+                      "Close the mutation survivors in the three read stores"):
+            self.assertEqual(
+                g.bucket("s", title, paths=["CLAUDE.md", "src/RobotCouncilServiceProvider.php"],
+                         test_lines=0, other_lines=10, issue_types=("Bug",)),
+                "maint", title)
+
+    def test_a_test_only_diff_still_wins(self):
+        """A change that edited no source changed no behavior, so it is coverage, not a fix."""
+        self.assertEqual(
+            g.bucket("s", "Neutral title", paths=["docs/x.md"],
+                     test_lines=50, other_lines=10, issue_types=("Bug",)),
+            "maint")
+
+    # ---- the rest of #268's criteria --------------------------------------------------------
+
+    def test_task_is_not_consulted(self):
+        """`Task` predicted `fix` 6 of 6 on the measured range, and the correlation is an artifact.
+
+        Non-vacuous: one side passes `("Task",)` and the other passes nothing, so adding a `Task`
+        branch to the cascade turns this red.
+        """
+        for title, paths, t, o in [
+            ("Read the legacy credential once per refusal, not twice", ["src/A.php"], 108, 32),
+            ("Count the session ending, and bound stopping the reader", ["src/B.php"], 219, 10),
+        ]:
+            self.assertEqual(
+                g.bucket("s", title, paths=paths, test_lines=t, other_lines=o, issue_types=("Task",)),
+                g.bucket("s", title, paths=paths, test_lines=t, other_lines=o),
+                title)
+
+    def test_an_untyped_issue_routes_as_before(self):
+        """Asserted against LITERALS.
+
+        Comparing `bucket(issue_types=())` with `bucket()` would be a tautology, because `()` is the
+        declared default -- the same call twice. Measured: a mutant routing every untyped change to
+        Maintenance leaves such a comparison green.
+        """
+        self.assertEqual(g.bucket("s", "Send the package prefix root to the dashboard",
+                                  paths=["src/A.php"], test_lines=173, other_lines=99), "new")
+        self.assertEqual(g.bucket("s", "Raise dependency floors to their latest stable releases",
+                                  paths=["src/A.php"], test_lines=20, other_lines=10), "maint")
+        self.assertEqual(g.bucket("s", "Document the published install",
+                                  paths=[".claude/x.md"], test_lines=0, other_lines=34), "maint")
+        self.assertEqual(g.bucket("s", "Prevent an XSS in the enrollment page",
+                                  paths=["src/A.php"]), "sec")
+
+    def test_a_feature_titled_with_an_outcome_verb_is_not_a_fix(self):
+        """The shape most likely to be caught by a wrong rule: a feature phrased as an outcome."""
+        for types in ((), ("Feature",), ("Task",)):
+            self.assertNotEqual(
+                g.bucket("s", "Say when nothing on the fleet can reach a waiting agent",
+                         paths=["src/A.php"], test_lines=177, other_lines=151, issue_types=types),
+                "fix", str(types))
+
+    def test_several_issues_of_differing_types_are_a_fix(self):
+        """Asserted in every order, so the answer cannot depend on what GraphQL returned first."""
+        for types in (("Bug", "Feature"), ("Feature", "Bug"), ("Task", "Bug"), ("Bug", "Task")):
+            self.assertEqual(
+                g.bucket("s", "Closes two at once", paths=["src/A.php"],
+                         test_lines=10, other_lines=10, issue_types=types),
+                "fix", str(types))
+        self.assertEqual(
+            g.bucket("s", "Closes two at once", paths=["src/A.php"],
+                     test_lines=10, other_lines=10, issue_types=("Task", "Feature")),
+            "new")
+
+
+class IssueTypePlumbing(unittest.TestCase):
+    """The cache widening and the accessor, which no `bucket()` test reaches (#268).
+
+    The per-pull-request cache went from a 2-tuple to a 3-tuple. Nothing else in the suite indexes
+    it, so an arity slip would surface only as every title silently falling back to a commit subject.
+    """
+
+    def setUp(self):
+        self._saved = dict(g._pr_cache)
+        g._pr_cache.clear()
+
+    def tearDown(self):
+        g._pr_cache.clear()
+        g._pr_cache.update(self._saved)
+
+    def test_a_cold_cache_yields_empty_rather_than_raising(self):
+        """`pr_labels` and `pr_issue_types` read the cache and never prime it.
+
+        `pr_title` is deliberately not called here: it primes on a miss, which would put a live
+        GraphQL call inside the unit suite.
+        """
+        self.assertEqual(g.pr_issue_types(999999), ())
+        self.assertEqual(g.pr_labels(999999), ())
+
+    def test_every_accessor_reads_its_own_slot(self):
+        g._pr_cache[7] = ("A title", ("development",), ("Bug",))
+        self.assertEqual(g.pr_title(7, "robot-council/core"), "A title")
+        self.assertEqual(g.pr_labels(7), ("development",))
+        self.assertEqual(g.pr_issue_types(7), ("Bug",))
+
+    def test_the_miss_default_is_length_three(self):
+        """A 2-tuple default would make `pr_issue_types` raise, or read a label as a type."""
+        g._pr_cache[8] = (None, (), ())
+        self.assertEqual(len(g._pr_cache[8]), 3)
+        self.assertEqual(g.pr_issue_types(8), ())
+        self.assertEqual(g.pr_labels(8), ())
 
 
 class RemoteParsing(unittest.TestCase):
