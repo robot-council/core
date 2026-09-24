@@ -152,6 +152,7 @@ it('mounts every web route at the application root when the prefix is empty', fu
         'feed' => 'dashboard/feed',
         'presence' => 'dashboard/presence',
         'queue' => 'dashboard/queue',
+        'seats' => 'dashboard/seats',
         'sign-out' => 'sign-out',
         'signed-out' => 'signed-out',
     ]);

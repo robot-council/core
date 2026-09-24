@@ -25,6 +25,7 @@ use RobotCouncil\Livewire\Administration;
 use RobotCouncil\Livewire\ChangeFeed;
 use RobotCouncil\Livewire\Dashboard;
 use RobotCouncil\Livewire\FleetPresence;
+use RobotCouncil\Livewire\SeatSettings;
 use RobotCouncil\Livewire\TaskBoard;
 use RobotCouncil\RobotCouncilServiceProvider;
 
@@ -90,6 +91,7 @@ Route::middleware([EnsureAllowlistedDeveloper::class, DenyFraming::class])->grou
     Route::get('dashboard/queue', TaskBoard::class)->name('queue');
     Route::get('dashboard/feed', ChangeFeed::class)->name('feed');
     Route::get('dashboard/administration', Administration::class)->name('administration');
+    Route::get('dashboard/seats', SeatSettings::class)->name('seats');
 
     // Inside the gate, because signing out is something a signed-in developer does. A developer
     // whose account has left the access lists never reaches it -- the gate ends their session on
