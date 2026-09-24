@@ -2,6 +2,60 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.4.0 — Session Roles (2026-09-24)
+
+Session roles replace the per-machine ability grants they made redundant, a session now records where it is working, and the dashboard splits into panels a developer chooses.
+
+**Breaking change** — run `php artisan migrate` for seven new migrations, stop calling the removed ability-grant methods and commands, and match on `session.joined` where you matched on `session.enrolled`.
+
+### Breaking changes
+- Retire the `granted_abilities` column and every reader of it [#269](https://github.com/robot-council/core/pull/269). The column is dropped; `Installation`'s accessor and `Role::permittedBy()` are gone.
+- Retire the per-ability grant and revoke controls the role preset replaced [#250](https://github.com/robot-council/core/pull/250). `robot-council:grant-ability` and `robot-council:revoke-ability` are removed, along with `grant()`, `revokeAbility()`, `setAbility()` and `grantableFrom()`.
+- Rename the `session.enrolled` fleet event, first to `session.started` [#218](https://github.com/robot-council/core/pull/218) and then to `session.joined` [#227](https://github.com/robot-council/core/pull/227). A client matching the old name sees nothing; the net change from v0.3.2 is `session.enrolled` to `session.joined`, and a migration rewrites the recorded rows.
+
+### What's new
+- Return from the fleet-ability walk at the first admitted holder [#251](https://github.com/robot-council/core/pull/251)
+- Answer `fleet_can_direct` from live coordinator sessions [#248](https://github.com/robot-council/core/pull/248)
+- Let a session request a role, and an administrator decide it [#243](https://github.com/robot-council/core/pull/243)
+- Record why no dashboard poll carries the visible modifier [#238](https://github.com/robot-council/core/pull/238)
+- Split a session's project into a repository and a work location [#234](https://github.com/robot-council/core/pull/234)
+- Give a session a role, and its abilities from that role's preset [#233](https://github.com/robot-council/core/pull/233)
+- Raise the absent-value placeholders above the WCAG AA bar [#229](https://github.com/robot-council/core/pull/229)
+- Nest the console sections under the page that holds them [#225](https://github.com/robot-council/core/pull/225)
+- Give each dashboard panel a route of its own [#216](https://github.com/robot-council/core/pull/216)
+- Read a session's last contact in words, not seconds [#213](https://github.com/robot-council/core/pull/213)
+- Let a developer choose which panels the dashboard mounts [#209](https://github.com/robot-council/core/pull/209)
+
+### What's fixed
+- Bind every host user key as text, so MySQL cannot match the wrong developer [#254](https://github.com/robot-council/core/pull/254)
+- Compare a session role byte for byte, whatever the server collates [#256](https://github.com/robot-council/core/pull/256)
+- Treat MariaDB as MySQL where a collation has to be stated [#262](https://github.com/robot-council/core/pull/262)
+- Send the package prefix root to the dashboard [#235](https://github.com/robot-council/core/pull/235)
+- Register Livewire components even when a host has cached its routes [#224](https://github.com/robot-council/core/pull/224)
+
+### Security
+- Anchor the Livewire-expression guard and reach the Alpine shorthand [#252](https://github.com/robot-council/core/pull/252)
+- Refuse a value concatenated into a server-built URL [#242](https://github.com/robot-council/core/pull/242)
+
+### Maintenance and tooling
+- Make the read-shape fixtures able to fail, and correct two recorded reasons [#289](https://github.com/robot-council/core/pull/289)
+- Stop the release cascade filing a test-heavy feature as maintenance [#266](https://github.com/robot-council/core/pull/266)
+- Keep merged head branches, so a pull request's file links keep working [#290](https://github.com/robot-council/core/pull/290)
+- Work from two long-lived worktree slots instead of a worktree per ticket [#287](https://github.com/robot-council/core/pull/287)
+- Stop the duplicate-check recipe hanging on a search term with a space [#286](https://github.com/robot-council/core/pull/286)
+- State the `GH_REPO` bound without naming a repository [#284](https://github.com/robot-council/core/pull/284)
+- Use the placeholders `gh` actually substitutes in every REST recipe [#282](https://github.com/robot-council/core/pull/282)
+- Give the `postgres` job a timeout it cannot trip on a slow runner [#280](https://github.com/robot-council/core/pull/280)
+- Route a release change on the type set on the issue it closes [#274](https://github.com/robot-council/core/pull/274)
+- Take the repository from the checkout in the remaining `gh` recipes [#277](https://github.com/robot-council/core/pull/277)
+- Take the repository from the checkout in the pull-request skill's `gh` recipes [#271](https://github.com/robot-council/core/pull/271)
+- Bump actions/setup-node from 4 to 7 [#265](https://github.com/robot-council/core/pull/265)
+- Record what the query-plan tests cost, and that their fixture is near its floor [#263](https://github.com/robot-council/core/pull/263)
+- Give MySQL a narrow CI job for the tests whose subject is engine semantics [#260](https://github.com/robot-council/core/pull/260)
+- Refuse the comma form for multiple closes, and make the scan refuse both directions [#259](https://github.com/robot-council/core/pull/259)
+- Close the mutation survivors in the three read stores [#244](https://github.com/robot-council/core/pull/244)
+- Record how Postgres answers the fleet totals counts [#237](https://github.com/robot-council/core/pull/237)
+
 ## v0.3.2 — Fleet Totals (2026-09-23)
 
 Fleet totals above the dashboard panels, fewer queries behind them, and a doctor that can answer one question so a deploy can gate on it.
