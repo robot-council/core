@@ -73,7 +73,7 @@ function installationWithSession(TestCase $case, User $developer): array
     return [$installation, $session, $token];
 }
 
-it("shows a session's role beside the installation's abilities, because they answer different questions", function (): void {
+it("shows each live session's role, which is the whole of what it may do", function (): void {
     $installation = $this->approveInstallation($this->developer, [
         Ability::EventsPost->value,
         Ability::CoordinatorDirect->value,
@@ -85,8 +85,9 @@ it("shows a session's role beside the installation's abilities, because they ans
     expect($coordinator->role)->toBe(Role::Coordinator);
 
     // Demoted on the row only, so the two sessions differ while their installation does not. That
-    // is the state no page could show before #221, and the one a bare `assertSee` on the
-    // installation's ability list still cannot.
+    // is the state no page could show before #221, and the reason the panel stopped rendering a
+    // machine-level ability list at all: `robot-council/core#231` removed it, because one list per
+    // machine cannot describe two sessions that differ.
     $build->forceFill(['role' => Role::Build])->save();
 
     Livewire::actingAs($this->admin)
@@ -136,32 +137,6 @@ it('escapes a hostile repository on the administration panel', function (): void
         ->not->toContain('<script>alert(1)</script>');
 });
 
-it('grants the coordinator ability without promoting a session already in flight', function (): void {
-    [$installation, $session] = installationWithSession($this, $this->developer);
-
-    Livewire::actingAs($this->admin)
-        ->test(Administration::class)
-        ->call('grant', $installation->id, Ability::CoordinatorDirect->value);
-
-    // The stored row, read fresh rather than from the instance the call was handed
-    expect($installation->refresh()->abilities())
-        ->toContain(Ability::CoordinatorDirect->value)
-        ->toContain(Ability::EventsPost->value);
-
-    // **And the running session is unchanged, which is the direction #221 chose.** A role is
-    // decided when a session starts; promoting one mid-run would hand a process authority its
-    // developer never started it with.
-    $abilities = $session->tokens()->pluck('abilities')->all();
-
-    // `not->toBeEmpty()` first, and it is load-bearing: `each` over an empty array asserts
-    // nothing and passes, so without it this test would stay green against a session holding no
-    // tokens at all.
-    expect($abilities)->not->toBeEmpty()
-        ->each->not->toContain(Ability::CoordinatorDirect->value);
-
-    expect($session->refresh()->role)->toBe(Role::Build);
-});
-
 it('imposes a role on a live session, which is the demotion an ability revocation used to be', function (): void {
     // **The capability moved rather than disappeared.** Before `robot-council/core#222`, revoking
     // `coordinator:direct` from a machine demoted its coordinator sessions; now an administrator
@@ -182,48 +157,6 @@ it('imposes a role on a live session, which is the demotion an ability revocatio
     expect($session->refresh()->role)->toBe(Role::Build)
         ->and($carried)->not->toBeEmpty()
         ->each->not->toContain(Ability::CoordinatorDirect->value);
-});
-
-it('reaches no session when an installation ability is revoked', function (): void {
-    // The other half, and the one that changed: `granted_abilities` decides nothing about a
-    // session, so taking the very ability the role carries off the machine leaves the session
-    // holding it. `imposeRole` above is the control that says this is inertness rather than a
-    // panel that cannot change anything.
-    $installation = $this->approveInstallation($this->developer, [
-        Ability::EventsPost->value,
-        Ability::CoordinatorDirect->value,
-    ]);
-
-    [$session] = $this->startCoordinatorSession($installation);
-
-    Livewire::actingAs($this->admin)
-        ->test(Administration::class)
-        ->call('revokeAbility', $installation->id, Ability::CoordinatorDirect->value);
-
-    $carried = $session->tokens()->pluck('abilities')->all();
-
-    expect($installation->refresh()->abilities())->not->toContain(Ability::CoordinatorDirect->value)
-        ->and($session->refresh()->role)->toBe(Role::Coordinator)
-        ->and($carried)->not->toBeEmpty()
-        ->each->toContain(Ability::CoordinatorDirect->value);
-});
-
-it('leaves a live token alone when an ability no role gates is revoked', function (): void {
-    // The property that says the preset is the source. `events:post` is in every preset, so
-    // taking it off the installation is a statement about the machine and about nothing that is
-    // currently running -- a session holding it keeps it, and its role does not move.
-    [$installation, $session] = installationWithSession($this, $this->developer);
-
-    Livewire::actingAs($this->admin)
-        ->test(Administration::class)
-        ->call('revokeAbility', $installation->id, Ability::EventsPost->value);
-
-    $carried = $session->tokens()->pluck('abilities')->all();
-
-    expect($installation->refresh()->abilities())->not->toContain(Ability::EventsPost->value)
-        ->and($carried)->not->toBeEmpty()
-        ->each->toContain(Ability::EventsPost->value)
-        ->and($session->refresh()->role)->toBe(Role::Build);
 });
 
 it('refuses a signed-in developer who is not an admin', function (string $action, array $arguments): void {
@@ -254,12 +187,11 @@ it('refuses a signed-in developer who is not an admin', function (string $action
 
     // And the refusal was a refusal: nothing moved
     expect($installation->refresh()->revoked_at)->toBeNull()
-        ->and($installation->abilities())->toBe([Ability::EventsPost->value])
-        ->and($session->refresh()->status)->toBe(AgentSessionStatus::Active);
+        ->and($session->refresh()->status)->toBe(AgentSessionStatus::Active)
+        ->and($session->role)->toBe(Role::Build);
 })
     ->with([
-        'grant' => ['grant', ['installation', 'tasks:create']],
-        'revoke an ability' => ['revokeAbility', ['installation', 'events:post']],
+        'impose a role' => ['imposeRole', ['session', 'coordinator']],
         'revoke an installation' => ['revokeInstallation', ['installation']],
         'revoke a session' => ['revokeSession', ['session']],
         'render' => ['$refresh', []],
@@ -276,7 +208,7 @@ it('decides who is an admin on the package guard, not the host default', functio
     // `new Gate($app, fn () => $app['auth']->userResolver()())`, and that resolver is
     // `guard(null)->user()` -- the DEFAULT guard. So a bare `Gate::authorize()` here decides on a
     // different principal from the one the page signed in, and from the one the event names.
-    [$installation] = installationWithSession($this, $this->developer);
+    [, $session] = installationWithSession($this, $this->developer);
 
     $component = Livewire::actingAs($this->admin)->test(Administration::class);
 
@@ -285,9 +217,11 @@ it('decides who is an admin on the package guard, not the host default', functio
     config()->set('auth.guards.api', ['driver' => 'token', 'provider' => 'users']);
     config()->set('auth.defaults.guard', 'api');
 
-    $component->call('grant', $installation->id, Ability::TasksCreate->value)->assertOk();
+    // `imposeRole` rather than the ability grant this used to call: `robot-council/core#231`
+    // retired that control, and what this test needs is any action behind `authorizeAdmin()`.
+    $component->call('imposeRole', $session->id, Role::Coordinator->value)->assertOk();
 
-    expect($installation->refresh()->abilities())->toContain(Ability::TasksCreate->value);
+    expect($session->refresh()->role)->toBe(Role::Coordinator);
 });
 
 it('refuses to mount for a developer who was never an admin', function (): void {
@@ -299,56 +233,6 @@ it('refuses to mount for a developer who was never an admin', function (): void 
     // The other half of the pair: the same mount for the admin is not forbidden, so the assertion
     // above is about who is asking rather than about the component being broken for everyone
     Livewire::actingAs($this->admin)->test(Administration::class)->assertOk();
-});
-
-it('refuses an ability outside the grantable list, and changes nothing', function (string $action, string $ability): void {
-    [$installation] = installationWithSession($this, $this->developer);
-
-    $before = $installation->abilities();
-
-    // 422 rather than a throw, for the reason the refusal test above records: Livewire's harness
-    // renders an `HttpException` into a response. 422 rather than 403 deliberately -- the caller
-    // is an admin and is allowed here; the value they sent is the thing being refused.
-    Livewire::actingAs($this->admin)
-        ->test(Administration::class)
-        ->call($action, $installation->id, $ability)
-        ->assertStatus(422);
-
-    expect($installation->refresh()->abilities())->toBe($before);
-})->with(['grant', 'revokeAbility'])->with([
-    // Sanctum reads this as every ability, so it is the one value that must never be stored
-    'the wildcard' => '*',
-
-    // A real case, and not grantable: it belongs to an installation credential rather than to a
-    // session token, so granting it would write a value no guard ever checks
-    'the installation credential' => 'sessions:start',
-
-    'an unknown name' => 'tasks:destroy',
-    'an empty string' => '',
-]);
-
-it('grants every ability the panel offers, so the refusal above is not refusing everything', function (): void {
-    // The negative control for the test above. Four refusals prove nothing on their own: a `grant`
-    // that threw for every input would satisfy them and be entirely broken.
-    [$installation] = installationWithSession($this, $this->developer);
-
-    $component = Livewire::actingAs($this->admin)->test(Administration::class);
-
-    foreach (Ability::grantable() as $ability) {
-        $component->call('grant', $installation->id, $ability->value);
-    }
-
-    // Compared as a set: `events:post` was granted before the loop ran, so it keeps its position
-    // in the stored array and the list is not in `grantable()` order
-    $held = $installation->refresh()->abilities();
-
-    sort($held);
-
-    $expected = Ability::values(Ability::grantable());
-
-    sort($expected);
-
-    expect($held)->toBe($expected);
 });
 
 it('revokes an installation, and its credential stops working on the next request', function (): void {
@@ -390,8 +274,10 @@ it('writes an event for every change, and the change feed shows it', function ()
 
     $component = Livewire::actingAs($this->admin)->test(Administration::class);
 
-    $component->call('grant', $installation->id, Ability::TasksCreate->value);
-    $component->call('revokeAbility', $installation->id, Ability::EventsPost->value);
+    // `imposeRole` stands where the two ability controls used to: `robot-council/core#231`
+    // retired them, and what this test is about is that EVERY administrative action reaches the
+    // feed rather than only the destructive ones.
+    $component->call('imposeRole', $session->id, Role::Coordinator->value);
     $component->call('revokeSession', $session->id);
     $component->call('revokeInstallation', $installation->id);
 
@@ -399,8 +285,7 @@ it('writes an event for every change, and the change feed shows it', function ()
 
     $types = $recorded->pluck('type')->all();
 
-    expect($types)->toContain(FleetEventType::InstallationAbilityGranted)
-        ->toContain(FleetEventType::InstallationAbilityRevoked)
+    expect($types)->toContain(FleetEventType::SessionRoleChanged)
         ->toContain(FleetEventType::SessionGone)
         ->toContain(FleetEventType::InstallationRevoked);
 
@@ -412,8 +297,7 @@ it('writes an event for every change, and the change feed shows it', function ()
     $shownTypes = array_map(static fn (array $event): mixed => $event['type'], $shown);
 
     foreach ([
-        FleetEventType::InstallationAbilityGranted->value,
-        FleetEventType::InstallationAbilityRevoked->value,
+        FleetEventType::SessionRoleChanged->value,
         FleetEventType::InstallationRevoked->value,
     ] as $type) {
         expect($shownTypes)->toContain($type);
@@ -421,14 +305,14 @@ it('writes an event for every change, and the change feed shows it', function ()
 });
 
 it('names the admin who made the change, rather than leaving it unattributed', function (): void {
-    [$installation] = installationWithSession($this, $this->developer);
+    [, $session] = installationWithSession($this, $this->developer);
 
     Livewire::actingAs($this->admin)
         ->test(Administration::class)
-        ->call('grant', $installation->id, Ability::TasksCreate->value);
+        ->call('imposeRole', $session->id, Role::Coordinator->value);
 
     $event = FleetEvent::query()
-        ->where('type', FleetEventType::InstallationAbilityGranted)
+        ->where('type', FleetEventType::SessionRoleChanged)
         ->firstOrFail();
 
     // **Two columns, two people, and they are different accounts here precisely so a copy of the
@@ -443,7 +327,7 @@ it('names the admin who made the change, rather than leaving it unattributed', f
     // earlier version of this comment claimed otherwise, which is what let the dashboard render
     // the owner where it had rendered the admin with every test still green.
     $shown = collect($this->service(FleetFeed::class)->latest(50))
-        ->firstWhere('type', FleetEventType::InstallationAbilityGranted->value);
+        ->firstWhere('type', FleetEventType::SessionRoleChanged->value);
 
     expect(arrayValue($shown['actor'] ?? [])['github_login'] ?? null)->toBe('octodev')
         ->and(arrayValue($shown['performed_by'] ?? [])['github_login'] ?? null)->toBe('octoadmin');
@@ -632,14 +516,16 @@ it('writes one event for a change, and none for a repeat of it', function (): vo
     // the decision, so `SessionGone` fires exactly once however a session ended. These two paths
     // did not, and a control the view declines to draw is not a boundary -- the action is
     // reachable whatever the page renders.
-    [$installation] = installationWithSession($this, $this->developer);
+    [$installation, $session] = installationWithSession($this, $this->developer);
 
     $component = Livewire::actingAs($this->admin)->test(Administration::class);
 
-    $component->call('grant', $installation->id, Ability::TasksCreate->value);
-    $component->call('grant', $installation->id, Ability::TasksCreate->value);
+    // Imposing the role a session already holds is the surviving conditional write, now that
+    // `robot-council/core#231` has retired the ability controls this used to drive.
+    $component->call('imposeRole', $session->id, Role::Coordinator->value);
+    $component->call('imposeRole', $session->id, Role::Coordinator->value);
 
-    expect(FleetEvent::query()->where('type', FleetEventType::InstallationAbilityGranted)->count())->toBe(1);
+    expect(FleetEvent::query()->where('type', FleetEventType::SessionRoleChanged)->count())->toBe(1);
 
     $component->call('revokeInstallation', $installation->id);
 

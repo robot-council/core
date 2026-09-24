@@ -496,7 +496,7 @@ final class Doctor
         if ($retired !== []) {
             $parts[] = sprintf(
                 <<<'TEXT'
-                %d installation(s) name something this version does not grant -- a retired ability, or a value like `*` that never was one -- so it is dropped on every read. Repair it with any `robot-council:grant-ability` or `robot-council:revoke-ability` that CHANGES the readable list; one whose answer is what is already readable writes nothing, which includes revoking an ability the row does not readably hold: %s
+                %d installation(s) name something this version does not grant -- a retired ability, or a value like `*` that never was one -- so it is dropped on every read. Nothing in this package writes the column any more, so there is no command that repairs it; the column itself is being retired, and until then a row can only be corrected directly: %s
                 TEXT,
                 \count($retired),
                 self::named($retired)

@@ -69,16 +69,6 @@ enum FleetEventType: string
     case InstallationRevoked = 'installation.revoked';
 
     /**
-     * An admin gave an installation an ability it did not have.
-     */
-    case InstallationAbilityGranted = 'installation.ability_granted';
-
-    /**
-     * An admin took an ability away from an installation.
-     */
-    case InstallationAbilityRevoked = 'installation.ability_revoked';
-
-    /**
      * A session asked to be a different role. Nothing about what it may do has changed.
      *
      * Recorded rather than left in the panel alone, because the request and the decision are two

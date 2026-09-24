@@ -513,7 +513,12 @@ it('tells a retired ability name apart from a malformed value, because the repai
 
     expect($only->status)->toBe(DiagnosisStatus::Failed)
         ->and($only->detail)->toContain('does not grant')
-        ->and($only->detail)->toContain('robot-council:grant-ability')
+        // **The repair advice, pinned because it just changed and could silently go stale again.**
+        // `robot-council/core#231` retired the two commands this used to name, so the message says
+        // there is no command that repairs it. Asserting the phrase rather than only `does not
+        // grant` is what would notice a message that started naming a command again.
+        ->and($only->detail)->toContain('no command that repairs it')
+        ->and($only->detail)->not->toContain('robot-council:grant-ability')
         // And NOT the other cause, which is the half a single combined message would blur.
         ->and($only->detail)->not->toContain('not a list of ability names');
 

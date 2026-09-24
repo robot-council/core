@@ -10,7 +10,6 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use RobotCouncil\Access\Ability;
-use RobotCouncil\Access\Role;
 use RobotCouncil\Access\Tokens;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
@@ -196,93 +195,6 @@ final class Installations
             }
 
             return $deleted;
-        });
-    }
-
-    /**
-     * Add or remove one ability on an installation.
-     *
-     * **It reaches no session, and since `robot-council/core#222` it reaches no future one
-     * either.** A session's abilities come from its `Access\Role` preset, and its role is `build`
-     * at start and an administrator's decision after that -- so this column decides nothing about
-     * authorization at all. `Support\RoleRequests::impose()` is the emergency demotion this method
-     * used to provide, and it acts on the one session that needs it rather than on every session of
-     * a machine.
-     *
-     * The column and its two feed events survive only because the epic ships every slice
-     * backwards compatible; `robot-council/core#231` retires them with the controls that write them.
-     *
-     * @param  Installation  $installation  The installation to re-scope.
-     * @param  Ability  $ability  The ability to add or remove.
-     * @param  bool  $granted  True to add it, false to remove it.
-     * @param  string|null  $actor  The developer making the change, when a signed-in one is.
-     * @return bool True when the stored list changed, false when it already said that.
-     */
-    public function setAbility(Installation $installation, Ability $ability, bool $granted, ?string $actor = null): bool
-    {
-        return DB::transaction(function () use ($installation, $ability, $granted, $actor): bool {
-            // Held for the length of the transaction, so a session starting concurrently waits
-            // rather than minting a token from the abilities as they were a moment ago
-            $installation = Installation::query()
-                ->whereKey($installation->getKey())
-                ->lockForUpdate()
-                ->firstOrFail();
-
-            $held = $installation->abilities();
-
-            // **One `array_values` over both branches, because the hoist is unconditionally the
-            // same thing.** `array_values` is pure and the ternary is evaluated once either way,
-            // so `array_values(c ? a : b)` and `c ? array_values(a) : array_values(b)` cannot
-            // differ for any input. What the hoist buys is that there is one call to get right.
-            //
-            // **Both branches need it, and an earlier note here claimed the granting branch did
-            // not.** That was wrong. `array_unique` preserves keys, so it only leaves `0..n-1` if
-            // `$held` carries no duplicates -- and nothing guarantees that. Measured: with `$held`
-            // as `['tasks:create', 'tasks:create']`, granting `tasks:claim` gives keys `{0, 2}`,
-            // which `json_encode` writes as an OBJECT.
-            //
-            // **The path that note cited is closed, and the hoist still has to stay.** It named
-            // `DeviceCodes::approve()` writing straight through; #170 made that method dedupe, so
-            // re-deriving the argument from it today finds nothing and would read as licence to
-            // unwrap this. What keeps a duplicate reachable is every raw writer the package does
-            // not own: `Installation::query()->create()` and `forceFill()` are mass-assignable on
-            // this column, a seeder or a restore writes what it likes, and
-            // `InstallationStoreTest` plants the duplicate with the query builder for exactly
-            // that reason rather than by routing through a store.
-            //
-            // So the mutant that unwrapped it was a true survivor with no covering input, not an
-            // equivalent one -- a distinction `adversarial-review` draws deliberately, because the
-            // second licenses deleting the call and the first does not. Both cases are covered
-            // now, on the branch each reaches.
-            $abilities = array_values($granted
-                ? array_unique([...$held, $ability->value])
-                : array_filter($held, static fn (string $current): bool => $current !== $ability->value));
-
-            // Nothing changed means nothing happened, and an event saying otherwise is noise in
-            // the one feed an authorization change has to be legible in. Both sides are lists --
-            // `abilities()` re-indexes and the line above does -- so `===` compares members in
-            // position. It is **not** order-insensitive: two lists with the same members in a
-            // different order are not identical and would record a change, which is why nothing
-            // here reorders.
-            if ($abilities === $held) {
-                return false;
-            }
-
-            $installation->forceFill(['granted_abilities' => $abilities])->save();
-
-            // Recorded before nothing, now: there are no token writes after it. The order is kept
-            // explicit anyway, because the sentinel is held to the end of this transaction and any
-            // write added below would be taking a row out of turn -- which is the deadlock
-            // `robot-council/core#233`'s review found and split this method apart to fix.
-            $this->record(
-                $installation,
-                $granted ? FleetEventType::InstallationAbilityGranted : FleetEventType::InstallationAbilityRevoked,
-                $granted ? 'was granted '.$ability->value : 'lost '.$ability->value,
-                ['ability' => $ability->value],
-                $actor
-            );
-
-            return true;
         });
     }
 

@@ -58,35 +58,22 @@ enum Ability: string
     }
 
     /**
-     * The abilities an admin may grant to an installation after enrollment.
+     * The abilities that were ever stored against an installation.
+     *
+     * **It no longer names anything an admin may do**, and the name is kept because it is what
+     * `Models\Installation::abilities()` and `Support\Doctor` read to decide whether a stored value
+     * is one this version recognizes. `robot-council/core#231` retired the controls that granted
+     * them, and `robot-council/core#239` retires the column and this method with it.
+     *
+     * Its companion `grantableFrom()` went with those controls: it existed to turn one string from
+     * an admin's click into an ability, and there is no such click any more. A host that wants the
+     * same narrowing has `tryFrom()` and this list.
      *
      * @return list<self> The requestable abilities, plus the coordinator's.
      */
     public static function grantable(): array
     {
         return [...self::requestable(), self::CoordinatorDirect];
-    }
-
-    /**
-     * One grantable ability, resolved from whatever a client sent.
-     *
-     * The single place an admin action turns a string into an ability, so `*` and anything outside
-     * the fixed list are refused by the same expression rather than by a check written again per
-     * call site. `*` is the one that matters: Sanctum reads it as every ability, so a grant that
-     * let it through would hand an installation everything including abilities added later.
-     *
-     * `sessions:start` is refused too, although it is a real case. It is the installation
-     * credential's own ability and is never carried by a session token, so granting it would write
-     * a value no guard checks and read as authority nobody holds.
-     *
-     * @param  string  $value  The ability as the client named it.
-     * @return self|null The ability, or null when it is not one an admin may grant.
-     */
-    public static function grantableFrom(string $value): ?self
-    {
-        $ability = self::tryFrom($value);
-
-        return $ability !== null && \in_array($ability, self::grantable(), true) ? $ability : null;
     }
 
     /**
