@@ -151,13 +151,10 @@ final class FleetPresence
                 // every one of them had identical authority with nothing on the page saying so.
                 'role' => $session->role->value,
 
-                // Null for a session started without one, and rendered as such rather than filled in.
-                // It reaches the page as an agent-supplied string, which is why `ProjectId` bounds its
-                // charset at the edge and why the view escapes it like every other one.
-                'project_id' => $session->project_id,
-
-                // The two the label is becoming. Both are agent-supplied and both are escaped by
-                // the view, exactly as `project_id` is.
+                // Where the work is. Null for a session that named neither, and rendered as such
+                // rather than filled in. Both are agent-supplied strings, charset-limited at the
+                // edge by `WorkIdentity`, and both are escaped by the view like every other string
+                // that reached this package from a machine.
                 'repository' => $session->repository,
                 'work_location' => $session->work_location,
 

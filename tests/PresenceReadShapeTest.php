@@ -11,9 +11,10 @@ declare(strict_types=1);
  * changed and no test noticed.
  *
  * The key sets are asserted whole rather than field by field, so a key ADDED without being accounted
- * for fails too. #234 is why that matters: it put `repository` and `work_location` beside
- * `project_id` rather than replacing it, so the row this file guards grew from one identifier to
- * three while the survivor list stood still.
+ * for fails too, and a key REMOVED is a deliberate edit here rather than a loosened assertion. Both
+ * directions have now happened: #234 put `repository` and `work_location` beside `project_id`
+ * rather than replacing it, taking the row from one identifier to three while the survivor list
+ * stood still, and #285 retired `project_id` and took it back to two.
  *
  * @command  vendor/bin/pest --compact tests/PresenceReadShapeTest.php
  */
@@ -58,14 +59,13 @@ it('returns every key a session row carries, and no others', function (): void {
         ->and($page['sessions'])->toHaveCount(1);
 
     // Whole, not piecemeal: a dropped key fails, and so does one added without being accounted for.
-    // `repository` and `work_location` arrived beside `project_id` in #234 rather than replacing it.
+    // `repository` and `work_location` arrived beside `project_id` in #234 and outlived it in #285.
     expect(array_keys($page['sessions'][0]))->toBe([
         'id',
         'github_login',
         'harness',
         'machine_label',
         'role',
-        'project_id',
         'repository',
         'work_location',
         'status',

@@ -80,26 +80,16 @@ it('shows where a session is working, as a repository and the checkout within it
         ->assertSeeHtml('<div class="opacity-60">ci</div>');
 });
 
-it('falls back to the old label for a session that predates the split', function (): void {
-    // A row the migration declined to split, because its value is neither a repository path nor a
-    // label. It still says where it is rather than reading as a session that named nothing.
-    $this->session->forceFill([
-        'project_id' => 'uams-statamic',
-        'repository' => null,
-        'work_location' => null,
-    ])->save();
-
-    Livewire::test(FleetPresence::class)
-        ->assertSee('uams-statamic')
-        ->assertDontSee('>none<', escape: false);
-});
-
 it('shows a session that named only a work location, rather than calling it none', function (): void {
-    // Each of the three fields is independently nullable -- an acceptance criterion -- so this is a
-    // shape the endpoint accepts. An earlier version gated the whole cell on the repository and
-    // printed `none` here, which is the page asserting the session named nothing.
+    // Both fields are independently nullable -- an acceptance criterion -- so this is a shape the
+    // endpoint accepts. An earlier version gated the whole cell on the repository and printed
+    // `none` here, which is the page asserting the session named nothing.
+    //
+    // **There used to be a third field and a fallback to it.** `robot-council/core#285` dropped
+    // `project_id`, and with it the row this panel could render from a label the split declined to
+    // guess at. Such a row now reads as a session that named nothing, which is the narrow cost the
+    // retirement was taken with its eyes open about.
     $this->session->forceFill([
-        'project_id' => null,
         'repository' => null,
         'work_location' => 'primary',
     ])->save();
@@ -113,7 +103,6 @@ it('keeps saying none for a session that named nothing at all', function (): voi
     // The control for the test above: the placeholder still appears where it should, so that one
     // is passing because the location renders rather than because the placeholder was removed.
     $this->session->forceFill([
-        'project_id' => null,
         'repository' => null,
         'work_location' => null,
     ])->save();
@@ -291,21 +280,11 @@ it('reports whole seconds since contact, not a fraction of one', function (): vo
         ->not->toMatch('/\d+s ago/');
 });
 
-it('shows which checkout a session belongs to', function (): void {
-    // The only thing telling two worktrees on one machine and one harness apart, which is the
-    // topology robot-council/cli#20 exists for
-    $this->session->forceFill(['project_id' => 'UAMS-Web/uams-statamic/a'])->save();
-
-    Livewire::test(FleetPresence::class)->assertSee('UAMS-Web/uams-statamic/a');
-
-    expect(app(Presence::class)->sessions(20)['sessions'][0]['project_id'])->toBe('UAMS-Web/uams-statamic/a');
-});
-
 it('lists a session that named no checkout, without inventing one for it', function (): void {
-    // `startAgentSession()` starts without a project, so this is the default rather than a
-    // contrived state
-    expect($this->session->project_id)->toBeNull()
-        ->and(app(Presence::class)->sessions(20)['sessions'][0]['project_id'])->toBeNull();
+    // `startAgentSession()` starts naming nowhere, so this is the default rather than a contrived
+    // state
+    expect($this->session->repository)->toBeNull()
+        ->and(app(Presence::class)->sessions(20)['sessions'][0]['repository'])->toBeNull();
 
     $html = Livewire::test(FleetPresence::class)->html();
 
@@ -317,36 +296,33 @@ it('lists a session that named no checkout, without inventing one for it', funct
 it('tells two worktrees on one machine and harness apart', function (): void {
     // The whole point, asserted end to end rather than field by field: same developer, same
     // machine, same harness, and the page distinguishes them by nothing but the project
-    $this->session->forceFill(['project_id' => 'UAMS-Web/uams-statamic/a'])->save();
+    $this->session->forceFill(['repository' => 'UAMS-Web/uams-statamic', 'work_location' => 'a'])->save();
 
     [$second] = $this->startAgentSession($this->installation);
-    $second->forceFill(['project_id' => 'UAMS-Web/uams-statamic/ci'])->save();
+    $second->forceFill(['repository' => 'UAMS-Web/uams-statamic', 'work_location' => 'ci'])->save();
 
     $rows = app(Presence::class)->sessions(20)['sessions'];
 
-    expect(array_column($rows, 'project_id'))
-        ->toContain('UAMS-Web/uams-statamic/a')
-        ->toContain('UAMS-Web/uams-statamic/ci')
+    // The repository is the same on both, which is the point: the work location is the only field
+    // that can tell them apart, and it is the one the split exists for.
+    expect(array_column($rows, 'work_location'))
+        ->toContain('a')
+        ->toContain('ci')
+        ->and(array_unique(array_map(stringValue(...), array_column($rows, 'repository'))))->toHaveCount(1)
 
-        // Same machine and harness on both, so the project is doing all the work
+        // Same machine and harness on both, so the work location is doing all the work
         ->and(array_unique(array_map(stringValue(...), array_column($rows, 'machine_label'))))->toHaveCount(1)
         ->and(array_unique(array_map(stringValue(...), array_column($rows, 'harness'))))->toHaveCount(1);
 
     Livewire::test(FleetPresence::class)
-        ->assertSee('UAMS-Web/uams-statamic/a')
-        ->assertSee('UAMS-Web/uams-statamic/ci');
+        ->assertSeeHtml('<div class="opacity-60">a</div>')
+        ->assertSeeHtml('<div class="opacity-60">ci</div>');
 });
 
-it('renders a hostile project as text', function (): void {
-    // Written past `ProjectId`'s charset deliberately, as the machine-label guard above is: the
-    // page's escaping has to be its own guarantee rather than the validator's
-    $this->session->forceFill(['project_id' => '<script>alert(2)</script>'])->save();
-
-    $html = Livewire::test(FleetPresence::class)->html();
-
-    expect($html)->toContain('&lt;script&gt;alert(2)&lt;/script&gt;')
-        ->not->toContain('<script>alert(2)</script>');
-});
+// **The hostile-repository guard this file used to hold twice now lives once, above.** It was a
+// hostile `project_id` until `robot-council/core#285` retired that field, and rewriting it in terms
+// of `repository` made it a second copy of the test at the top of this file rather than a second
+// guard. The machine-label and lock-name guards below are the ones that cover distinct fields.
 
 it('renders a hostile lock name as text', function (): void {
     // The fourth subject robot-council/core#30's escaping criterion names, and the one its other

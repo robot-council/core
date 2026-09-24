@@ -47,7 +47,7 @@ it("starts a session carrying its role's preset, not the installation's abilitie
     $startedAt = Carbon::now();
 
     $response = $this->machine($this->credential)
-        ->postJson(route('robot-council.sessions.start'), ['project_id' => 'uams-statamic']);
+        ->postJson(route('robot-council.sessions.start'), ['repository' => 'UAMS-Web/uams-statamic']);
 
     $response->assertCreated()->assertJsonStructure(['session_id', 'token', 'abilities', 'expires_in']);
 
@@ -62,7 +62,7 @@ it("starts a session carrying its role's preset, not the installation's abilitie
 
     expect($session->installation_id)->toBe($this->installation->getKey())
         ->and($session->user_id)->toBe(keyValue($this->developer->getKey()))
-        ->and($session->project_id)->toBe('uams-statamic')
+        ->and($session->repository)->toBe('UAMS-Web/uams-statamic')
         ->and($session->role)->toBe(Role::Build)
         ->and($session->hasGone())->toBeFalse();
 
@@ -84,7 +84,7 @@ it('measures the session token lifetime from the request, not from whenever it i
     $startedAt = Carbon::now();
 
     $this->machine($this->credential)
-        ->postJson(route('robot-council.sessions.start'), ['project_id' => 'uams-statamic'])
+        ->postJson(route('robot-council.sessions.start'), ['repository' => 'UAMS-Web/uams-statamic'])
         ->assertCreated();
 
     // Across the second boundary, which is what used to make the assertion below fail at random

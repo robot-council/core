@@ -225,16 +225,20 @@ it('records a repository and a work location separately', function (): void {
     expect($session->repository)->toBe('UAMS-Web/uams-statamic')
         ->and($session->work_location)->toBe('ci')
 
-        // Not derived into the legacy field. The two are what a client says now; `project_id` is
-        // what a client said before, and inventing one would put a value nobody sent into the feed.
-        ->and($session->project_id)->toBeNull();
+        ->and($session->getAttributes())->not->toHaveKey('project_id');
 
     $this->machine(stringValue($response->json('token')))
         ->getJson(route('robot-council.agent.session'))
         ->assertOk()
         ->assertJsonPath('repository', 'UAMS-Web/uams-statamic')
         ->assertJsonPath('work_location', 'ci')
-        ->assertJsonPath('project_id', null);
+
+        // **Absent, not null.** `robot-council/core#285` retired the key rather than emptying it,
+        // and the two are different answers to a client: `assertJsonPath(..., null)` passes for a
+        // key that is present and null AND for one that is missing, so it could not tell them
+        // apart. `robot-council/cli#137` relied on exactly that distinction when it read the
+        // production fleet.
+        ->assertJsonMissingPath('project_id');
 });
 
 it('starts a session for a request that names neither', function (): void {
@@ -245,8 +249,7 @@ it('starts a session for a request that names neither', function (): void {
     $session = AgentSession::query()->sole();
 
     expect($session->repository)->toBeNull()
-        ->and($session->work_location)->toBeNull()
-        ->and($session->project_id)->toBeNull();
+        ->and($session->work_location)->toBeNull();
 });
 
 it('takes a repository with no work location, and a work location with no repository', function (): void {
@@ -289,16 +292,16 @@ it('refuses a repository or a work location outside its bound, and stores nothin
 ]);
 
 it('bounds both fields on the session store too, which writes the same columns', function (): void {
-    // **Through the store, never the endpoint.** `CLAUDE.md` states the rule and the suite already
-    // has the sibling for `project_id` in `TaskLifecycleTest`: every bound here is a public method
-    // on a `final` class a host can resolve and call, so a rule in the controller protects the
-    // endpoint and nothing else. Deleting `WorkIdentity::ensure()` from `start()` leaves all seven
-    // of the 422 rows above green, because none of them reaches the store.
+    // **Through the store, never the endpoint.** `CLAUDE.md` states the rule and `TaskLifecycleTest`
+    // has the sibling for a task's `project_id`: every bound here is a public method on a `final`
+    // class a host can resolve and call, so a rule in the controller protects the endpoint and
+    // nothing else. Deleting `WorkIdentity::ensure()` from `start()` leaves all seven of the 422
+    // rows above green, because none of them reaches the store.
     $sessions = $this->service(AgentSessions::class);
 
-    expect(fn () => $sessions->start($this->installation, null, 'no-slash-at-all'))
+    expect(fn () => $sessions->start($this->installation, 'no-slash-at-all'))
         ->toThrow(InvalidArgumentException::class, 'A repository is up to 140 characters')
-        ->and(fn () => $sessions->start($this->installation, null, null, 'Primary'))
+        ->and(fn () => $sessions->start($this->installation, null, 'Primary'))
         ->toThrow(InvalidArgumentException::class, 'A work location is up to 32 characters');
 
     // Nothing was written by either refusal, which is what makes the bound a guarantee rather than
@@ -307,14 +310,18 @@ it('bounds both fields on the session store too, which writes the same columns',
 
     // The control beside it: an in-bound pair goes through, so the two refusals above are the
     // bound rather than the store being broken
-    $sessions->start($this->installation, null, 'robot-council/core', 'ci');
+    $sessions->start($this->installation, 'robot-council/core', 'ci');
 
     expect(AgentSession::query()->count())->toBe(1);
 });
 
 it('derives both from a project id when the client names neither', function (): void {
-    // The compatibility path: a client that has not been upgraded sends one label and gets both
-    // fields, so grouping by repository works before `robot-council/cli#128` ships.
+    // **The compatibility path, and it outlived the column.** `robot-council/core#285` dropped
+    // `robot_council_agent_sessions.project_id`, and this translation moved from the store to
+    // `Http\Controllers\SessionStartController` rather than going with it: `--project` is still a
+    // flag on the client's `api`, `mcp` and `pending` commands, and `robot-council/cli#137`
+    // recorded production sessions started that way (150, 151, 154). Without it a bridge given
+    // `--project` with nothing derivable from its checkout joins the fleet naming nowhere.
     $this->machine($this->credential)
         ->postJson(route('robot-council.sessions.start'), ['project_id' => 'UAMS-Web/uams-statamic/a'])
         ->assertCreated();
@@ -323,7 +330,10 @@ it('derives both from a project id when the client names neither', function (): 
 
     expect($session->repository)->toBe('UAMS-Web/uams-statamic')
         ->and($session->work_location)->toBe('a')
-        ->and($session->project_id)->toBe('UAMS-Web/uams-statamic/a');
+
+        // The label itself is not kept anywhere. That is the half the retirement changed, and it
+        // is what makes the split above load-bearing rather than a convenience.
+        ->and($session->getAttributes())->not->toHaveKey('project_id');
 
     // And the derived pair reaches the feed, which is the surface every other agent reads. The
     // event test above uses client-supplied values, so without this the path "three segments in,
@@ -372,7 +382,7 @@ it('groups sessions by repository without parsing a label', function (): void {
     ] as [$repository, $location]) {
         $installation = $this->approveInstallation($this->developer, machineLabel: 'm-'.$location);
 
-        $this->service(AgentSessions::class)->start($installation, null, $repository, $location);
+        $this->service(AgentSessions::class)->start($installation, $repository, $location);
     }
 
     // A plain `group by` on a column, which is the criterion: no `like`, no split, no expression.
@@ -397,8 +407,8 @@ it('groups sessions by repository without parsing a label', function (): void {
 it('gives two sessions from one installation identical abilities whatever their repository', function (): void {
     // The rule the epic records a draft breaking: both fields are attribution and neither is ever
     // authorization. Asserted rather than reviewed, because the failure would be silent.
-    $first = $this->service(AgentSessions::class)->start($this->installation, null, 'robot-council/core', 'a');
-    $second = $this->service(AgentSessions::class)->start($this->installation, null, 'UAMS-Web/uams-statamic', 'ci');
+    $first = $this->service(AgentSessions::class)->start($this->installation, 'robot-council/core', 'a');
+    $second = $this->service(AgentSessions::class)->start($this->installation, 'UAMS-Web/uams-statamic', 'ci');
 
     expect($first->abilities)->toBe($second->abilities)
         ->and($first->owner->role)->toBe($second->owner->role)
@@ -423,6 +433,8 @@ it('splits the rows a host already has, the same way the forward rule does', fun
     // `[null, null]` for a value that does not split, while the migration leaves the columns alone.
     // This test cannot see that, because it drops both columns first, so every row it compares
     // starts from null. The re-run test below is where the leaving-alone is pinned.
+    restoreTheLegacyProjectIdColumn();
+
     $planted = [];
 
     foreach (projectIdSplits() as $name => [$projectId]) {
@@ -453,15 +465,19 @@ it('splits the rows a host already has, the same way the forward rule does', fun
             ->toBe(WorkIdentity::fromProjectId($projectId), $name)
             ->toBe([$repository, $location], $name)
 
-            // And the original is still on the row, which is what makes a value the split declined
-            // to guess at a value nothing lost
-            ->and($row->project_id)->toBe($projectId);
+            // And the original is still on the row *at this point in the migration order*, which
+            // is what made a value the split declined to guess at a value nothing lost. Read off
+            // the attribute bag rather than through the model, which stopped declaring the property
+            // when `robot-council/core#285` dropped the column one migration later.
+            ->and($row->getAttributes()['project_id'] ?? null)->toBe($projectId);
     }
 });
 
 it('serves a migrated row through the API and the change feed', function (): void {
     // The acceptance criterion's own shape: seed the old form, migrate, read it back through both
     // surfaces rather than off the row.
+    restoreTheLegacyProjectIdColumn();
+
     [$session] = $this->startAgentSession($this->installation);
 
     DB::table('robot_council_agent_sessions')
@@ -481,7 +497,12 @@ it('serves a migrated row through the API and the change feed', function (): voi
         ->assertOk()
         ->assertJsonPath('repository', 'UAMS-Web/uams-statamic')
         ->assertJsonPath('work_location', 'a')
-        ->assertJsonPath('project_id', 'UAMS-Web/uams-statamic/a');
+
+        // **The migrated row answers through the two fields and nothing else.** The label it was
+        // built from is not served back even while the column is still there, because
+        // `robot-council/core#285` retired the key from the body; a host mid-migration therefore
+        // answers the same shape as one that has finished.
+        ->assertJsonMissingPath('project_id');
 
     // **The migration rewrites the session ROW and not the events already written**, which is worth
     // asserting rather than discovering. This session's own `session.joined` was recorded before
@@ -514,7 +535,9 @@ it('leaves a client-supplied repository alone when the backfill runs again', fun
     // is already serving the new code -- that is why the migration is running -- so a session can
     // start in the re-run window and write a repository the client named. An unguarded backfill
     // rewrites it from a `project_id` the client has stopped maintaining, which is exactly what
-    // `AgentSessions::start()` refuses to do.
+    // `SessionStartController` refuses to do.
+    restoreTheLegacyProjectIdColumn();
+
     [$session] = $this->startAgentSession($this->installation);
 
     DB::table('robot_council_agent_sessions')
@@ -549,6 +572,8 @@ it('leaves a client-supplied repository alone when the backfill runs again', fun
 });
 
 it('rolls back and migrates twice without erroring', function (): void {
+    restoreTheLegacyProjectIdColumn();
+
     [$session] = $this->startAgentSession($this->installation);
 
     runTheWorkIdentityMigration('down');
@@ -568,6 +593,8 @@ it('backfills on a re-run that finds the columns already there', function (): vo
     // The population a crash between the ALTER and the updates leaves, which only Postgres is
     // protected from: the columns exist and nothing was written. A guard reading `hasColumn` would
     // skip the backfill here and report success.
+    restoreTheLegacyProjectIdColumn();
+
     [$session] = $this->startAgentSession($this->installation);
 
     DB::table('robot_council_agent_sessions')
@@ -582,17 +609,47 @@ it('backfills on a re-run that finds the columns already there', function (): vo
 /**
  * Run the work-identity migration in one direction.
  *
- * Called as a narrowed callable rather than as `$migration->up()`, for the reason
- * `tests/EventIndexDropTest.php` records: a migration file returns `mixed` to the analyzer, and
- * `Migration` itself declares no `up()` -- the anonymous class the file returns does.
- *
  * @param  string  $direction  `up` or `down`.
  */
 function runTheWorkIdentityMigration(string $direction): void
 {
-    $migration = require __DIR__.'/../database/migrations/2026_09_23_000004_add_work_identity_to_robot_council_agent_sessions.php';
+    runPackageMigration('2026_09_23_000004_add_work_identity_to_robot_council_agent_sessions', $direction);
+}
 
-    $run = [$migration, $direction];
+/**
+ * Put `robot_council_agent_sessions.project_id` back, so a backfill test can seed what the backfill
+ * reads.
+ *
+ * **The state this reaches is real, not contrived.** `robot-council/core#285` drops the column
+ * *after* `#234`'s backfill has read it, so every host passes through exactly this: the create
+ * migration makes the column, the backfill splits it into two, and the drop retires it. By the time
+ * a test runs, the whole sequence has finished and the column is gone -- so a test about the middle
+ * of it has to step back one migration.
+ *
+ * **Run through the drop's own `down()` rather than declared by hand.** A hand-written
+ * `$table->string('project_id', 128)->nullable()` here would be a third copy of a column definition
+ * that already exists in two migrations, and it would keep passing after either of them changed.
+ */
+function restoreTheLegacyProjectIdColumn(): void
+{
+    runPackageMigration('2026_09_24_000002_drop_project_id_from_robot_council_agent_sessions', 'down');
+}
+
+/**
+ * Run one of this package's migrations in one direction, by file name.
+ *
+ * Called as a narrowed callable rather than as `$migration->up()`, for the reason
+ * `tests/EventIndexDropTest.php` records: a migration file returns `mixed` to the analyzer, and
+ * `Migration` itself declares no `up()` -- the anonymous class the file returns does.
+ *
+ * @param  string  $migration  The file's name under `database/migrations/`, without `.php`.
+ * @param  string  $direction  `up` or `down`.
+ */
+function runPackageMigration(string $migration, string $direction): void
+{
+    $file = require __DIR__.'/../database/migrations/'.$migration.'.php';
+
+    $run = [$file, $direction];
 
     if (! \is_callable($run)) {
         throw new RuntimeException('The migration file did not return something with a '.$direction.'().');

@@ -40,7 +40,6 @@ use RobotCouncil\Support\PresenceTimestamp;
  * @property AgentSessionStatus $status
  * @property Role $role
  * @property Carbon $last_seen_at
- * @property string|null $project_id
  * @property string|null $repository
  * @property string|null $work_location
  * @property Role|null $requested_role
@@ -56,7 +55,6 @@ use RobotCouncil\Support\PresenceTimestamp;
     'status',
     'role',
     'last_seen_at',
-    'project_id',
     'repository',
     'work_location',
     'requested_role',

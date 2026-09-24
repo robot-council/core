@@ -9,9 +9,14 @@ use InvalidArgumentException;
 /**
  * The one place the repository or workspace an agent names is bounded.
  *
- * Two tables hold it -- `robot_council_tasks.project_id` and
- * `robot_council_agent_sessions.project_id` -- and three endpoints validate it, so before this there
+ * `robot_council_tasks.project_id` holds it, and three endpoints validate it, so before this there
  * were three copies of one rule and no copy at all on the path a host reaches.
+ *
+ * **It was two tables until `robot-council/core#285`.** `robot_council_agent_sessions.project_id`
+ * was the other, and `Support\WorkIdentity` replaced it with a repository and a work location.
+ * `Http\Controllers\SessionStartController` still validates the key against this class's bounds,
+ * because a client may still send one for `WorkIdentity::fromProjectId()` to split, but no session
+ * stores it and `Support\Tasks::create()` is the only store that calls `ensure()`.
  *
  * **It is bounded because it reaches other developers' agents, not because of the column.** A task's
  * own words stay behind `TaskList`'s visibility rule, but `Support\Tasks::create()` puts `project_id`

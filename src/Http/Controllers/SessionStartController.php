@@ -31,14 +31,16 @@ final class SessionStartController
         $installation = Principal::installation($request);
 
         $request->validate([
-            // The same restricted character set `harness` and `machine_label` carry, and for a
-            // stronger reason: those two are shown to one developer on the verification page,
-            // while this reaches every agent in the fleet through the `session.joined` event,
-            // from a credential that holds no ability beyond starting sessions. Event content is
-            // untrusted input to an agent that may have shell access.
+            // **A legacy input this endpoint translates, and no longer a field the package
+            // stores.** `robot-council/core#285` dropped `robot_council_agent_sessions.project_id`;
+            // the rule stays because the value is still read here, split below, and the halves
+            // reach every agent in the fleet through the `session.joined` event -- from a
+            // credential that holds no ability beyond starting sessions. Event content is untrusted
+            // input to an agent that may have shell access, so it is charset-limited rather than
+            // merely length-limited, exactly as `harness` and `machine_label` are.
             'project_id' => ['nullable', 'string', 'max:128', 'regex:/^[A-Za-z0-9._\/-]{1,128}$/D'],
 
-            // The two fields `project_id` is becoming, bounded at the edge by the same rules
+            // The two fields `project_id` became, bounded at the edge by the same rules
             // `Support\WorkIdentity` holds for the store. Both optional and independently nullable:
             // a request naming neither still starts a session, which is what keeps a client that
             // has not been upgraded working.
@@ -50,7 +52,23 @@ final class SessionStartController
         $repository = $request->filled('repository') ? $request->string('repository')->value() : null;
         $workLocation = $request->filled('work_location') ? $request->string('work_location')->value() : null;
 
-        $issued = $sessions->start($installation, $projectId, $repository, $workLocation);
+        // **Translated only when the client named NEITHER field.** This is the rule
+        // `Support\AgentSessions::start()` applied while `project_id` was a column, moved to the
+        // edge with the column's retirement (`robot-council/core#285`) so the store speaks only the
+        // two fields the fleet reads. It is kept rather than dropped because `--project` is still a
+        // flag on the client's `api`, `mcp` and `pending` commands: `robot-council/cli#137`
+        // recorded sessions started that way against the production fleet, and a bridge with
+        // nothing derivable from its checkout would otherwise join with no identity at all --
+        // silently, since a session with two null fields is a legitimate state.
+        //
+        // Naming either field is taken as the client knowing its own mind: a repository with no
+        // label is a real answer, and inventing a label for it from a string the client has stopped
+        // maintaining would be worse than leaving it null.
+        if ($repository === null && $workLocation === null) {
+            [$repository, $workLocation] = WorkIdentity::fromProjectId($projectId);
+        }
+
+        $issued = $sessions->start($installation, $repository, $workLocation);
 
         return new JsonResponse([
             'session_id' => $issued->owner->getKey(),

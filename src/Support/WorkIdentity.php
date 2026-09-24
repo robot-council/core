@@ -126,10 +126,24 @@ final class WorkIdentity
      * `owner/name` and one of `owner/name/location`, out of 75. The ticket assumed there was no
      * reliable way to split the value; there is, and `robot-council/core#220` records the counts.
      *
+     * **Its one caller is now `Http\Controllers\SessionStartController`, at the edge.** While
+     * `robot_council_agent_sessions.project_id` existed this ran inside the store beside the write;
+     * `robot-council/core#285` dropped the column, so the translation belongs where the legacy
+     * request is read and the store speaks only the two fields the fleet reads. The backfill in
+     * `2026_09_23_000004_add_work_identity_to_robot_council_agent_sessions` is the other caller and
+     * has already run.
+     *
      * **Anything that does not fit yields two nulls rather than a best effort.** A value that is
-     * neither a repository path nor a label would be wrong in whichever field it landed in, and
-     * `project_id` is kept beside these two until the epic's final slice retires it -- so refusing
-     * to guess loses nothing that is not still on the row.
+     * neither a repository path nor a label would be wrong in whichever field it landed in, and a
+     * wrong repository is worse than an absent one: it is what a reader groups by, and it reaches
+     * every agent in the fleet through the `session.joined` event.
+     *
+     * **What changed with the column is where that value goes instead of being deferred.** It used
+     * to stay on the row, so refusing to guess lost nothing; since `#285` there is no row to keep
+     * it on, so a `--project` outside these shapes is discarded and the session joins naming
+     * nowhere. That is the narrow cost of the retirement, and it is bounded by what the client
+     * sends: a current bridge derives both fields from the checkout and reaches this path only
+     * when it was given `--project` and could derive nothing.
      *
      * The result is always inside `ensure()`'s bounds, so a caller can store it without checking
      * again; `selfConsistent()` in the test suite is what keeps that true.

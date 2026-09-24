@@ -400,7 +400,7 @@ class TestCase extends Orchestra
      */
     public function startAgentSession(Installation $installation): array
     {
-        $issued = $this->service(AgentSessions::class)->start($installation, null);
+        $issued = $this->service(AgentSessions::class)->start($installation);
 
         return [$issued->owner, $issued->plainTextToken];
     }

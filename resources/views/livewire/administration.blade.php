@@ -92,11 +92,14 @@
                                         <span class="badge badge-sm badge-outline">{{ $session['role'] }}</span>
 
                                         {{-- Where it is working, as the two fields #220 split the
-                                             one label into, with the legacy one as the fallback.
-                                             Every stored combination renders: a session naming only
-                                             a location is a shape the endpoint accepts, and an
-                                             earlier version printed `no project` for it. --}}
-                                        @php($where = $session['repository'] ?? $session['project_id'] ?? null)
+                                             one label into. The legacy fallback went with the
+                                             column in #285; a request that still sends the old
+                                             label is split before it is stored, so this reads the
+                                             same value it used to fall back to. Every stored
+                                             combination renders: a session naming only a location
+                                             is a shape the endpoint accepts, and an earlier version
+                                             printed `no project` for it. --}}
+                                        @php($where = $session['repository'] ?? null)
 
                                         @if ($where !== null)
                                             <span class="opacity-70">{{ $where }}</span>

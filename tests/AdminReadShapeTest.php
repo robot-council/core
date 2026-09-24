@@ -9,9 +9,11 @@ declare(strict_types=1);
  * endpoint is what every enrolled agent reads about itself. Until #232 nothing asserted either
  * body's keys, so a build that dropped one reported green.
  *
- * Asserted whole rather than field by field, so a key ADDED without being accounted for fails too.
- * #234 is why: it put `repository` and `work_location` beside `project_id` rather than replacing
- * it, and both of these bodies grew by two fields while nothing here noticed.
+ * Asserted whole rather than field by field, so a key ADDED without being accounted for fails too,
+ * and a key REMOVED is a deliberate edit rather than a loosened assertion. #234 is why the first
+ * matters: it put `repository` and `work_location` beside `project_id` rather than replacing it,
+ * and both of these bodies grew by two fields while nothing here noticed. #285 is why the second
+ * does: it retired `project_id`, and these lists are where that had to be accounted for.
  *
  * @command  vendor/bin/pest --compact tests/AdminReadShapeTest.php
  */
@@ -70,16 +72,15 @@ it('returns every key a nested session row carries, including all three identifi
         ->and($sessions)
         ->and($sessions['shown'])->toHaveCount(1);
 
-    // **Three identifiers where there was one.** `project_id` stays beside `repository` and
-    // `work_location` until the epic's final slice retires it, so all three reach an admin's panel
-    // and all three were unasserted. Dropping any one of them reported green before this.
+    // **Two identifiers where there was one, having briefly been three.** #234 put `repository`
+    // and `work_location` beside `project_id` and #285 retired the label, so what reaches an
+    // admin's panel is the pair. Dropping either reported green before #232 asserted the set.
     expect(array_keys(arrayValue(arrayValue($sessions['shown'])[0])))->toBe([
         'id',
         'status',
         'role',
         'requested_role',
         'requested_at',
-        'project_id',
         'repository',
         'work_location',
     ]);
@@ -189,7 +190,6 @@ it('pins the key set of the session every agent reads about itself', function ()
         'status',
         'role',
         'requested_role',
-        'project_id',
         'repository',
         'work_location',
         'feed_cursor',
