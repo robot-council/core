@@ -6,8 +6,7 @@
     the server counted and the labels are written here, so there is no value for the #67 or #70
     guards to catch -- which is why this is the one dashboard view with nothing to escape.
 --}}
-@use('RobotCouncil\Support\WireArgument', 'Wire')
-<div wire:poll.{{ Wire::of($pollSeconds) }}s class="stats stats-vertical w-full bg-base-100 shadow-sm sm:stats-horizontal">
+<div wire:poll.{{ \RobotCouncil\Support\WireArgument::of($pollSeconds) }}s class="stats stats-vertical w-full bg-base-100 shadow-sm sm:stats-horizontal">
     <div class="stat">
         <div class="stat-title">Live agents</div>
         <div class="stat-value text-3xl">{{ $liveSessions }}</div>

@@ -4,8 +4,7 @@
     those is not yet covered by a guard, which is robot-council/core#81.
 --}}
 
-@use('RobotCouncil\Support\WireArgument', 'Wire')
-<div wire:poll.{{ Wire::of($pollSeconds) }}s class="grid gap-4 lg:grid-cols-2">
+<div wire:poll.{{ \RobotCouncil\Support\WireArgument::of($pollSeconds) }}s class="grid gap-4 lg:grid-cols-2">
     <div class="card bg-base-100 shadow-sm">
         <div class="card-body">
             <div class="flex flex-wrap items-center justify-between gap-2">
@@ -14,12 +13,12 @@
                 {{-- The scope, and what each one holds. A count beside the button is what stops a
                      narrowed list reading as an empty fleet. --}}
                 <div class="flex gap-1">
-                    <button type="button" wire:click="showSessions('{{ Wire::of(\RobotCouncil\Support\Scope::Live) }}')"
+                    <button type="button" wire:click="showSessions('{{ \RobotCouncil\Support\WireArgument::of(\RobotCouncil\Support\Scope::Live) }}')"
                         class="btn btn-xs {{ $sessionScope === \RobotCouncil\Support\Scope::Live ? 'btn-primary' : 'btn-ghost' }}">
                         Live ({{ $sessions['live'] }})
                     </button>
 
-                    <button type="button" wire:click="showSessions('{{ Wire::of(\RobotCouncil\Support\Scope::All) }}')"
+                    <button type="button" wire:click="showSessions('{{ \RobotCouncil\Support\WireArgument::of(\RobotCouncil\Support\Scope::All) }}')"
                         class="btn btn-xs {{ $sessionScope === \RobotCouncil\Support\Scope::All ? 'btn-primary' : 'btn-ghost' }}">
                         All ({{ $sessions['live'] + $sessions['gone'] }})
                     </button>
@@ -130,7 +129,7 @@
                     @endif
 
                     @if ($sessions['more'] && $sessions['cursor'] !== null)
-                        <button type="button" wire:click="showNextSessions({{ Wire::of($sessions['cursor']) }})"
+                        <button type="button" wire:click="showNextSessions({{ \RobotCouncil\Support\WireArgument::of($sessions['cursor']) }})"
                             class="btn btn-sm">Older</button>
                     @endif
                 </div>
@@ -147,12 +146,12 @@
                     {{-- "Held" is held AND lapsed: a lease that has run out while the row still
                          names somebody is exactly what a developer is hunting, so it must not be
                          filtered away with the free ones. --}}
-                    <button type="button" wire:click="showLocks('{{ Wire::of(\RobotCouncil\Support\Scope::Live) }}')"
+                    <button type="button" wire:click="showLocks('{{ \RobotCouncil\Support\WireArgument::of(\RobotCouncil\Support\Scope::Live) }}')"
                         class="btn btn-xs {{ $lockScope === \RobotCouncil\Support\Scope::Live ? 'btn-primary' : 'btn-ghost' }}">
                         Held ({{ $locks['held'] }})
                     </button>
 
-                    <button type="button" wire:click="showLocks('{{ Wire::of(\RobotCouncil\Support\Scope::All) }}')"
+                    <button type="button" wire:click="showLocks('{{ \RobotCouncil\Support\WireArgument::of(\RobotCouncil\Support\Scope::All) }}')"
                         class="btn btn-xs {{ $lockScope === \RobotCouncil\Support\Scope::All ? 'btn-primary' : 'btn-ghost' }}">
                         All ({{ $locks['held'] + $locks['free'] }})
                     </button>
@@ -231,7 +230,7 @@
                     @endif
 
                     @if ($locks['more'] && $locks['cursor'] !== null)
-                        <button type="button" wire:click="showNextLocks('{{ Wire::of($locks['cursor']) }}')"
+                        <button type="button" wire:click="showNextLocks('{{ \RobotCouncil\Support\WireArgument::of($locks['cursor']) }}')"
                             class="btn btn-sm">Next</button>
                     @endif
                 </div>
