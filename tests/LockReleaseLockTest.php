@@ -20,7 +20,6 @@ declare(strict_types=1);
 
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
-use RobotCouncil\Access\Ability;
 use RobotCouncil\Models\Lock;
 use RobotCouncil\Support\Locks;
 use RobotCouncil\Support\SessionPresence;
@@ -39,7 +38,7 @@ function aLockHeldByAGoneSession(TestCase $case): array
 
     $developer = $case->enrollDeveloper(4242);
 
-    $installation = $case->approveInstallation($developer, [Ability::LocksAcquire->value]);
+    $installation = $case->approveInstallation($developer);
 
     [$session] = $case->startAgentSession($installation);
 

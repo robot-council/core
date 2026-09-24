@@ -21,7 +21,6 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Mockery\MockInterface;
-use RobotCouncil\Access\Ability;
 use RobotCouncil\Jobs\MirrorEventToSlack;
 use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\FleetEventType;
@@ -83,7 +82,7 @@ function slackMessages(): array
 it('queues nothing when no webhook is configured', function (): void {
     config()->set('robot-council.slack.webhook_url');
 
-    $installation = $this->approveInstallation($this->developer, [Ability::EventsPost->value]);
+    $installation = $this->approveInstallation($this->developer);
     $this->startAgentSession($installation);
 
     // The control: an event was written, so an empty queue means the mirror declined rather than
@@ -96,7 +95,7 @@ it('queues exactly one job per committed event, on its own queue', function (): 
     config()->set('robot-council.slack.webhook_url', WEBHOOK);
     config()->set('robot-council.slack.queue', 'the-slack-queue');
 
-    $installation = $this->approveInstallation($this->developer, [Ability::EventsPost->value]);
+    $installation = $this->approveInstallation($this->developer);
     [, $token] = $this->startAgentSession($installation);
 
     $this->machine($token)
@@ -138,7 +137,7 @@ it('sends the type, the actor, and the body, and nothing else', function (): voi
     config()->set('robot-council.slack.webhook_url', WEBHOOK);
     Http::fake([WEBHOOK => Http::response('ok', 200)]);
 
-    $installation = $this->approveInstallation($this->developer, [Ability::EventsPost->value]);
+    $installation = $this->approveInstallation($this->developer);
     [$session] = $this->startAgentSession($installation);
 
     $event = $this->service(FleetEvents::class)->record(
@@ -162,7 +161,7 @@ it('escapes what Slack would otherwise read as markup or a mention', function ()
     config()->set('robot-council.slack.webhook_url', WEBHOOK);
     Http::fake([WEBHOOK => Http::response('ok', 200)]);
 
-    $installation = $this->approveInstallation($this->developer, [Ability::EventsPost->value]);
+    $installation = $this->approveInstallation($this->developer);
     [$session] = $this->startAgentSession($installation);
 
     $event = $this->service(FleetEvents::class)->record(
@@ -186,7 +185,7 @@ it('does not put the webhook URL in the exception when Slack cannot be reached',
 
     Http::fake(fn () => throw new ConnectionException('cURL error 6: could not resolve host for '.WEBHOOK));
 
-    $installation = $this->approveInstallation($this->developer, [Ability::EventsPost->value]);
+    $installation = $this->approveInstallation($this->developer);
     [$session] = $this->startAgentSession($installation);
 
     $event = $this->service(FleetEvents::class)->record(FleetEventType::Narration, $session, 'anything');
@@ -221,7 +220,7 @@ it('waits as long as Slack asks after a 429, rather than failing', function (): 
 
     Http::fake([WEBHOOK => Http::response('rate limited', 429, ['Retry-After' => '17'])]);
 
-    $installation = $this->approveInstallation($this->developer, [Ability::EventsPost->value]);
+    $installation = $this->approveInstallation($this->developer);
     [$session] = $this->startAgentSession($installation);
 
     $event = $this->service(FleetEvents::class)->record(FleetEventType::Narration, $session, 'anything');
@@ -238,7 +237,7 @@ it('bounds a malformed Retry-After rather than trusting it', function (string $h
 
     Http::fake([WEBHOOK => Http::response('rate limited', 429, ['Retry-After' => $header])]);
 
-    $installation = $this->approveInstallation($this->developer, [Ability::EventsPost->value]);
+    $installation = $this->approveInstallation($this->developer);
     [$session] = $this->startAgentSession($installation);
 
     $event = $this->service(FleetEvents::class)->record(FleetEventType::Narration, $session, 'anything');
@@ -314,7 +313,7 @@ it('treats anything but a 2xx as a refusal, without naming the webhook', functio
 
     Http::fake([WEBHOOK => Http::response('no', $status)]);
 
-    $installation = $this->approveInstallation($this->developer, [Ability::EventsPost->value]);
+    $installation = $this->approveInstallation($this->developer);
     [$session] = $this->startAgentSession($installation);
 
     $event = $this->service(FleetEvents::class)->record(FleetEventType::Narration, $session, 'anything');
@@ -347,7 +346,7 @@ it('does not leak a malformed webhook URL either', function (): void {
     // test exists for, and a URI this broken never reaches the network.
     config()->set('robot-council.slack.webhook_url', 'https://[hooks.slack.example/secret-path');
 
-    $installation = $this->approveInstallation($this->developer, [Ability::EventsPost->value]);
+    $installation = $this->approveInstallation($this->developer);
     [$session] = $this->startAgentSession($installation);
 
     $event = $this->service(FleetEvents::class)->record(FleetEventType::Narration, $session, 'anything');
@@ -369,7 +368,7 @@ it('does not mirror narration when a host turns that off', function (): void {
     config()->set('robot-council.slack.webhook_url', WEBHOOK);
     config()->set('robot-council.slack.mirror_restricted', false);
 
-    $installation = $this->approveInstallation($this->developer, [Ability::EventsPost->value]);
+    $installation = $this->approveInstallation($this->developer);
     [$session] = $this->startAgentSession($installation);
 
     $queuedForTheSessionStart = DB::table('jobs')->count();

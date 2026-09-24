@@ -27,10 +27,7 @@ beforeEach(function (): void {
 
     $this->developer = $this->enrollDeveloper(4242);
 
-    $this->installation = $this->approveInstallation($this->developer, [
-        Ability::TasksCreate->value,
-        Ability::TasksClaim->value,
-    ]);
+    $this->installation = $this->approveInstallation($this->developer);
 
     [$this->session, $this->token] = $this->startAgentSession($this->installation);
 
@@ -48,7 +45,7 @@ function otherDeveloperSession(TestCase $case, array $abilities = [Ability::Task
 {
     $other = $case->enrollDeveloper(77, login: 'somebody-else');
 
-    $installation = $case->approveInstallation($other, $abilities, machineLabel: 'their-box');
+    $installation = $case->approveInstallation($other, machineLabel: 'their-box');
 
     return $case->startAgentSession($installation);
 }

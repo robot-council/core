@@ -15,7 +15,6 @@ declare(strict_types=1);
 
 use Illuminate\Foundation\Auth\User;
 use Livewire\Livewire;
-use RobotCouncil\Access\Ability;
 use RobotCouncil\Http\Middleware\EnsureAllowlistedDeveloper;
 use RobotCouncil\Livewire\Administration;
 use RobotCouncil\Livewire\ChangeFeed;
@@ -50,10 +49,7 @@ function signInWithAFleet(TestCase $test, int $githubId = 4242): User
 
     $developer = $test->enrollDeveloper($githubId, login: 'dev'.$githubId);
 
-    $installation = $test->approveInstallation($developer, [
-        Ability::TasksCreate->value,
-        Ability::LocksAcquire->value,
-    ]);
+    $installation = $test->approveInstallation($developer);
 
     [$session] = $test->startAgentSession($installation);
 
@@ -201,7 +197,7 @@ it('takes a scope filter from the query string on the page that owns it', functi
 
     // A second installation and a second session, each in the state every panel's default scope
     // leaves out: revoked, gone, and a task that is finished.
-    $retired = $this->approveInstallation($developer, [Ability::TasksCreate->value], machineLabel: 'retired-box');
+    $retired = $this->approveInstallation($developer, machineLabel: 'retired-box');
 
     [$goneSession] = $this->startAgentSession($retired);
 

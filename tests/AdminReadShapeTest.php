@@ -16,7 +16,6 @@ declare(strict_types=1);
  * @command  vendor/bin/pest --compact tests/AdminReadShapeTest.php
  */
 
-use RobotCouncil\Access\Ability;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\Installation;
 use RobotCouncil\Support\InstallationList;
@@ -30,7 +29,7 @@ beforeEach(function (): void {
 
 it('returns every key an installation row carries, and no others', function (): void {
     $developer = $this->enrollDeveloper(4242);
-    $installation = $this->approveInstallation($developer, [Ability::TasksCreate->value]);
+    $installation = $this->approveInstallation($developer);
 
     $this->startAgentSession($installation);
 
@@ -43,7 +42,6 @@ it('returns every key an installation row carries, and no others', function (): 
             'github_login',
             'harness',
             'machine_label',
-            'abilities',
             'revoked',
             'expired',
             'sessions',
@@ -57,7 +55,7 @@ it('returns every key an installation row carries, and no others', function (): 
 
 it('returns every key a nested session row carries, including all three identifiers', function (): void {
     $developer = $this->enrollDeveloper(4242);
-    $installation = $this->approveInstallation($developer, [Ability::TasksCreate->value]);
+    $installation = $this->approveInstallation($developer);
 
     $this->startAgentSession($installation);
 
@@ -96,7 +94,7 @@ it('counts an empty installation table as zero rather than null', function (): v
 
 it('returns both lists as JSON arrays rather than objects', function (): void {
     $developer = $this->enrollDeveloper(4242);
-    $installation = $this->approveInstallation($developer, [Ability::TasksCreate->value]);
+    $installation = $this->approveInstallation($developer);
 
     $this->startAgentSession($installation);
 
@@ -110,7 +108,7 @@ it('returns both lists as JSON arrays rather than objects', function (): void {
 
 it('keeps the shown sessions a JSON array when a gone session sits ahead of a live one', function (): void {
     $developer = $this->enrollDeveloper(4242);
-    $installation = $this->approveInstallation($developer, [Ability::TasksCreate->value]);
+    $installation = $this->approveInstallation($developer);
 
     // **The NEWER session is the gone one, and getting that backwards makes this test prove
     // nothing.** `sessionsOf()` filters with `Collection::filter()`, which preserves keys, so a gap
@@ -138,7 +136,7 @@ it('keeps the shown sessions a JSON array when a gone session sits ahead of a li
 
 it('pins the key set of the session every agent reads about itself', function (): void {
     $developer = $this->enrollDeveloper(4242);
-    $installation = $this->approveInstallation($developer, [Ability::TasksCreate->value]);
+    $installation = $this->approveInstallation($developer);
 
     [, $token] = $this->startAgentSession($installation);
 
@@ -168,8 +166,8 @@ it('pins the key set of the session every agent reads about itself', function ()
 it('separates a revoked installation from an expired one', function (): void {
     $developer = $this->enrollDeveloper(4242);
 
-    $revoked = $this->approveInstallation($developer, [Ability::TasksCreate->value], machineLabel: 'revoked-box');
-    $expired = $this->approveInstallation($developer, [Ability::TasksCreate->value], machineLabel: 'expired-box');
+    $revoked = $this->approveInstallation($developer, machineLabel: 'revoked-box');
+    $expired = $this->approveInstallation($developer, machineLabel: 'expired-box');
 
     Installation::query()->whereKey($revoked->getKey())->update(['revoked_at' => now()]);
     Installation::query()->whereKey($expired->getKey())->update(['expires_at' => now()->subDay()]);

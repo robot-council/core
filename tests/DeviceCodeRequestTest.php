@@ -59,8 +59,7 @@ it('returns what the helper needs, and stores only hashes', function (): void {
 
     expect($stored->device_code_hash)->toBe(hash('sha256', $deviceCode))
         ->and($stored->challenge_hash)->toBe(hash('sha256', hash('sha256', 'a-verifier-only-the-helper-holds-and-nobody-else-at-all')))
-        ->and($stored->requested_abilities)->toBe(['tasks:create', 'events:post'])
-        ->and($stored->granted_abilities)->toBeNull();
+        ->and($stored->requested_abilities)->toBe(['tasks:create', 'events:post']);
 
     // Nothing anywhere in the row is the device code or the verifier
     $row = (array) DB::table('robot_council_device_codes')->sole();

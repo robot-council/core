@@ -66,7 +66,7 @@ beforeEach(function (): void {
  */
 function installationWithSession(TestCase $case, User $developer): array
 {
-    $installation = $case->approveInstallation($developer, [Ability::EventsPost->value]);
+    $installation = $case->approveInstallation($developer);
 
     [$session, $token] = $case->startAgentSession($installation);
 
@@ -74,10 +74,7 @@ function installationWithSession(TestCase $case, User $developer): array
 }
 
 it("shows each live session's role, which is the whole of what it may do", function (): void {
-    $installation = $this->approveInstallation($this->developer, [
-        Ability::EventsPost->value,
-        Ability::CoordinatorDirect->value,
-    ]);
+    $installation = $this->approveInstallation($this->developer);
 
     [$coordinator] = $this->startCoordinatorSession($installation);
     [$build] = $this->startAgentSession($installation);
@@ -142,7 +139,7 @@ it('imposes a role on a live session, which is the demotion an ability revocatio
     // `coordinator:direct` from a machine demoted its coordinator sessions; now an administrator
     // names the one session, which is what the epic wanted -- one machine runs several checkouts
     // and only one of them should be directing.
-    $installation = $this->approveInstallation($this->developer, [Ability::EventsPost->value]);
+    $installation = $this->approveInstallation($this->developer);
 
     [$session] = $this->startCoordinatorSession($installation);
 
@@ -493,7 +490,7 @@ it('refuses to give a role to a session that has already gone', function (): voi
     // The window between the panel rendering and the click. A session that ended in between must
     // not be given a role: its tokens are already deleted, so nothing would carry it, and the feed
     // would say a dead process had been promoted.
-    $installation = $this->approveInstallation($this->developer, [Ability::EventsPost->value]);
+    $installation = $this->approveInstallation($this->developer);
 
     [$gone] = $this->startAgentSession($installation);
     [$alive] = $this->startAgentSession($installation);

@@ -58,7 +58,7 @@ beforeEach(function (): void {
 it('tells a session the fleet can direct when another session is coordinating', function (): void {
     // **The case the session's own answer gets wrong.** This session is `build`, which is correct
     // and normal; what decides whether its sink will ever fill is the other session.
-    $receiver = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
+    $receiver = $this->approveInstallation($this->developer);
 
     $this->startCoordinatorSession($this->approveInstallation(
         $this->enrollDeveloper(77, 'coordinator'),
@@ -78,11 +78,10 @@ it('tells a session the fleet cannot direct when the coordinator has only ENROLL
     // **The case that changed, and the reason this ticket exists.** An installation holding
     // `coordinator:direct` used to be the answer; since `robot-council/core#222` that column
     // decides nothing, and a machine with no session running is a machine that cannot deliver.
-    $receiver = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
+    $receiver = $this->approveInstallation($this->developer);
 
     $this->approveInstallation(
         $this->enrollDeveloper(77, 'coordinator'),
-        [Ability::CoordinatorDirect->value],
         'coordinator-machine'
     );
 
@@ -150,7 +149,6 @@ it('counts a session by its role, whatever its installation was granted', functi
     // **0** rows changed, and no implementation can tell that row from the `ci` one.
     $installation = $this->approveInstallation(
         $this->enrollDeveloper(77, 'coordinator'),
-        [Ability::CoordinatorDirect->value],
         'coordinator-machine'
     );
 
@@ -243,7 +241,7 @@ it('answers false for an ability no role carries at all', function (): void {
 });
 
 it('tells a session the fleet cannot direct when nothing holds the ability', function (): void {
-    $receiver = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
+    $receiver = $this->approveInstallation($this->developer);
 
     [, $token] = $this->startAgentSession($receiver);
 
@@ -261,7 +259,7 @@ it('does not count a coordinator whose installation is revoked, nor one whose in
     // assertions are what caught it. Revoking an installation deletes its sessions' tokens and
     // leaves the rows `active`, so a count built on status alone reports a coordinator whose next
     // request is a 401.
-    $receiver = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
+    $receiver = $this->approveInstallation($this->developer);
 
     $coordinator = $this->enrollDeveloper(77, 'coordinator');
 
@@ -337,7 +335,7 @@ it('reads the roles the enum defines, not whatever string the row happens to hol
             ->toBe('character varying('.ROLE_COLUMN_MAX.')');
     }
 
-    $receiver = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
+    $receiver = $this->approveInstallation($this->developer);
 
     [$session] = $this->startAgentSession($this->approveInstallation(
         $this->enrollDeveloper(77, 'coordinator'),
@@ -380,12 +378,12 @@ it('keeps the query and the row-level answer agreeing about what is usable', fun
     // them would be invisible, because each is correct on its own terms.
     $coordinator = $this->enrollDeveloper(77, 'coordinator');
 
-    $live = $this->approveInstallation($coordinator, [Ability::TasksCreate->value], 'live-machine');
+    $live = $this->approveInstallation($coordinator, 'live-machine');
 
-    $revoked = $this->approveInstallation($coordinator, [Ability::TasksCreate->value], 'revoked-machine');
+    $revoked = $this->approveInstallation($coordinator, 'revoked-machine');
     Installation::query()->whereKey($revoked->getKey())->update(['revoked_at' => Carbon::now()]);
 
-    $expired = $this->approveInstallation($coordinator, [Ability::TasksCreate->value], 'expired-machine');
+    $expired = $this->approveInstallation($coordinator, 'expired-machine');
     Installation::query()->whereKey($expired->getKey())->update(['expires_at' => Carbon::now()->subMinute()]);
 
     $byRow = Installation::query()->orderBy('id')->get()
@@ -426,7 +424,7 @@ it('does not count a coordinator whose developer has left the access list', func
     //
     // Reporting `true` there is the reassuring direction, which is the one this whole field
     // exists to remove: the operator would read a live coordinator where there is none.
-    $receiver = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
+    $receiver = $this->approveInstallation($this->developer);
 
     $coordinator = $this->enrollDeveloper(77, 'coordinator');
 
@@ -497,7 +495,7 @@ it('sends the field as a JSON boolean, not as something that merely compares equ
     // `assertJson` is a loose subset match: measured, `1` satisfies an asserted `true` and `null`
     // satisfies an asserted `false`. A client reading `=== true` would see neither. The return
     // type is what guarantees it today, so this is what would notice if that changed.
-    $receiver = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
+    $receiver = $this->approveInstallation($this->developer);
 
     [, $token] = $this->startAgentSession($receiver);
 
@@ -642,7 +640,7 @@ it('costs one read on a fleet where nothing holds the role', function (): void {
     // the normal reading of this question -- one page that comes back empty, and no identity read
     // at all, because there is no holder to resolve. Unchanged by this ticket, and asserted so that
     // a future change to the walk cannot make the common answer dearer unnoticed.
-    $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
+    $this->approveInstallation($this->developer);
 
     $fleet = app(FleetAbilities::class);
 

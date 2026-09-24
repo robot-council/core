@@ -18,7 +18,6 @@ declare(strict_types=1);
 
 use Illuminate\Foundation\Auth\User;
 use Livewire\Livewire;
-use RobotCouncil\Access\Ability;
 use RobotCouncil\Livewire\FleetPresence as PresencePanel;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Support\FleetPresence as PresenceStore;
@@ -48,10 +47,7 @@ function fleetOf(TestCase $test, int $sessions, int $locks = 0, int $githubId = 
     while (AgentSession::query()->count() < $sessions) {
         $existing = AgentSession::query()->count();
 
-        $installation = $test->approveInstallation($developer, [
-            Ability::TasksCreate->value,
-            Ability::LocksAcquire->value,
-        ], 'box-'.$githubId.'-'.$existing);
+        $installation = $test->approveInstallation($developer, 'box-'.$githubId.'-'.$existing);
 
         [$session, $test->token] = $test->startAgentSession($installation);
 

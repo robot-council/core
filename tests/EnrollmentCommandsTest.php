@@ -33,7 +33,7 @@ beforeEach(function (): void {
     $this->setAccessLists(developers: [4242]);
 
     $this->developer = $this->enrollDeveloper(4242);
-    $this->installation = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
+    $this->installation = $this->approveInstallation($this->developer);
     $this->credential = $this->installationCredential($this->installation);
 });
 

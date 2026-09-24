@@ -11,7 +11,6 @@ declare(strict_types=1);
 
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
-use RobotCouncil\Access\Ability;
 use RobotCouncil\Livewire\FleetPresence as PresencePanel;
 use RobotCouncil\Livewire\FleetTotals;
 use RobotCouncil\Livewire\TaskBoard;
@@ -89,10 +88,7 @@ it('counts the fleet rather than the page', function (): void {
     $first = null;
 
     for ($i = 0; $i < $sessions; $i++) {
-        $installation = $this->approveInstallation($this->developer, [
-            Ability::TasksCreate->value,
-            Ability::LocksAcquire->value,
-        ], 'box-'.$i);
+        $installation = $this->approveInstallation($this->developer, 'box-'.$i);
 
         [$session, $token] = $this->startAgentSession($installation);
 
@@ -125,10 +121,7 @@ it('counts the fleet rather than the page', function (): void {
 });
 
 it('counts every status that is not terminal, and no other', function (): void {
-    $installation = $this->approveInstallation($this->developer, [
-        Ability::TasksCreate->value,
-        Ability::TasksClaim->value,
-    ]);
+    $installation = $this->approveInstallation($this->developer);
 
     [$this->session, $this->token] = $this->startAgentSession($installation);
 
@@ -150,10 +143,7 @@ it('counts every status that is not terminal, and no other', function (): void {
 });
 
 it('cannot disagree with the panel beneath it', function (): void {
-    $installation = $this->approveInstallation($this->developer, [
-        Ability::TasksCreate->value,
-        Ability::LocksAcquire->value,
-    ]);
+    $installation = $this->approveInstallation($this->developer);
 
     [$this->session, $this->token] = $this->startAgentSession($installation);
 
@@ -200,10 +190,7 @@ it('will not let a client set its polling interval', function (): void {
 })->throws(CannotUpdateLockedPropertyException::class);
 
 it('renders on three queries, one per total', function (): void {
-    $installation = $this->approveInstallation($this->developer, [
-        Ability::TasksCreate->value,
-        Ability::LocksAcquire->value,
-    ]);
+    $installation = $this->approveInstallation($this->developer);
 
     [$this->session, $this->token] = $this->startAgentSession($installation);
 
@@ -216,10 +203,7 @@ it('renders on three queries, one per total', function (): void {
 
 it('does not grow with the fleet', function (int $sessions): void {
     for ($i = 0; $i < $sessions; $i++) {
-        $installation = $this->approveInstallation($this->developer, [
-            Ability::LocksAcquire->value,
-            Ability::TasksCreate->value,
-        ], 'box-'.$i);
+        $installation = $this->approveInstallation($this->developer, 'box-'.$i);
 
         [$this->session, $this->token] = $this->startAgentSession($installation);
 

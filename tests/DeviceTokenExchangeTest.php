@@ -77,16 +77,18 @@ it('issues a credential that can do nothing but start sessions', function (): vo
     $response = exchange($this, $enrollment);
 
     $response->assertCreated()
-        ->assertJsonStructure(['installation_id', 'token', 'abilities', 'granted_abilities', 'expires_in']);
+        ->assertJsonStructure(['installation_id', 'token', 'abilities', 'expires_in']);
 
-    expect($response->json('granted_abilities'))->toBe(['tasks:create', 'locks:acquire']);
+    // **The key is gone, and its absence is asserted rather than left to `assertJsonStructure`**,
+    // which checks that the named keys are present and says nothing about any others (#239). A
+    // client older than `robot-council/cli` v0.3.0 read this; that is the breaking half.
+    expect($response->json())->not->toHaveKey('granted_abilities');
 
     $installation = Installation::query()->sole();
 
     expect($installation->user_id)->toBe(keyValue($this->developer->getKey()))
         ->and($installation->harness)->toBe('claude-code')
         ->and($installation->machine_label)->toBe('workbench-01')
-        ->and($installation->granted_abilities)->toBe(['tasks:create', 'locks:acquire'])
 
         // The default maximum age, to the second, measured from the instant the request was
         // handled rather than from a fresh read of the clock

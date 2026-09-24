@@ -146,14 +146,6 @@ final class InstallationList
                 'harness' => $installation->harness,
                 'machine_label' => $installation->machine_label,
 
-                // **Nothing renders this any more**, and it is kept only because
-                // `robot-council/core#239` removes it with the column and every other reader in one
-                // change. `robot-council/core#231` took away the panel's per-ability controls -- one
-                // list per machine could not describe two sessions of that machine whose roles
-                // differ -- and they were its only consumer. Read through the model's own accessor,
-                // which drops anything the fixed list no longer holds.
-                'abilities' => $installation->abilities(),
-
                 // Both halves of `isUsable()`, separately. "Revoked" and "expired" are the same to a
                 // guard and different to an admin: one is a decision somebody made and the other is
                 // the clock, and only the first is worth asking about.
