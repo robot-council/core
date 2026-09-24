@@ -230,7 +230,7 @@ def _all_maint(paths):
     return bool(paths) and all(_is_maint(p) for p in paths)
 
 
-def bucket(subject, title, labels=(), paths=(), test_lines=0, other_lines=0):
+def bucket(subject, title, labels=(), paths=(), test_lines=0, other_lines=0, issue_types=()):
     """Route a change to one of: sec | maint | fix | new.
 
     A cascade, and the ORDER carries the correctness. A maintenance change whose title
@@ -285,8 +285,67 @@ def bucket(subject, title, labels=(), paths=(), test_lines=0, other_lines=0):
     if test_lines > other_lines and not any(p.startswith(SOURCE_PREFIXES) for p in paths):
         return "maint"
 
+    # 7. A maintenance verb or noun in the title, whatever the diff looks like (#264).
     if MAINT_VERBS.match(t) or "update dependencies" in t.lower() or MAINT_WORDS.search(t):
         return "maint"
+
+    # 8. The type a human set on the issue this closes, as a LAST-RESORT tiebreaker.
+    #    `Bug` is a fix; `Feature` is new.
+    #
+    #    **Both bounds on this position are load-bearing, and the ticket pinned only the upper
+    #    one** (#268).
+    #
+    #    *Upper bound -- it must sit below every rule above it, 1 through 5.* It reads as belonging beside the other
+    #    human-set signal, up with the labels, and there it would be wrong: `robot-council/cli#154`
+    #    is typed `Bug` and is confined to `.claude/`, so rule 5 routes it to Maintenance, which is
+    #    right, because a change to a skill file is maintenance whatever the ticket it closes is
+    #    typed. That position is what makes `Bug` agree 2 of 2 rather than 1 of 2.
+    #
+    #    *Lower bound -- it must also sit below rules 6 and 7, which is NOT what a first reading of
+    #    #268 gives you.* Placed directly after rule 5 it silently overrides two earlier decisions.
+    #    It would take a test-only diff that changed no behavior and call it a fix; and it would
+    #    take `Raise dependency floors to their latest stable releases`, which #264 deliberately
+    #    routes to Maintenance by its title, and call it a fix the moment somebody typed that
+    #    ticket `Bug`. The principle the rest of this cascade already follows is that an explicit
+    #    signal beats an inferred one -- a path that says maintenance, a title that says
+    #    maintenance -- and the issue type is the coarsest signal here, not the finest. So it
+    #    decides only what nothing else could.
+    #
+    #    **What that costs, stated rather than discovered later.** Rule 7 is `MAINT_VERBS` OR
+    #    `MAINT_WORDS`, and the second matches `test`, `coverage`, `skill`, `worktree` or
+    #    `dependency` ANYWHERE in a title, which is not the same as a title that says maintenance.
+    #    So a `Bug`-typed fix phrased as an outcome and carrying one of those words incidentally --
+    #    `Register the skill loader even when a host has cached its routes` -- stays Maintenance.
+    #    That is a narrowing of this rule's reach, never a regression: sitting immediately above
+    #    the terminal default, this rule can only turn a would-be `new` into `fix`, so no input
+    #    is worse off than before it existed. Widening `MAINT_WORDS`'s precision is its own
+    #    question, not this one's.
+    #
+    #    **`Task` is deliberately not encoded.** #268 records it agreeing with `fix` six times out
+    #    of six on the range the decision was measured against; that is an editorial reading of
+    #    those six titles rather than a cascade output, and it is not re-derivable by running this
+    #    file, so it is attributed rather than asserted. The reason the rule is refused does not
+    #    rest on it: the correlation is an artifact of how those tickets happened to be typed, `writing-issues` assigns `Task` to a research spike, a decision fork,
+    #    a follow-up cleanup or an epic, never to a bug. A rule built on it breaks the first time
+    #    somebody types a ticket correctly, and it breaks toward calling a cleanup a fix.
+    #
+    #    **A change closing issues of differing types is a FIX.** Nothing forces one answer, so the
+    #    tie is broken deliberately: a pull request that closes a bug and a feature has repaired
+    #    something, and a reader scanning What's fixed for a regression they actually hit is worse
+    #    served by its absence than a reader of What's new is by its absence there. Under-claiming
+    #    novelty is the cheaper error.
+    if 'Bug' in issue_types:
+        return "fix"
+
+    #    **`Feature` here is an EQUIVALENT MUTANT, and that is stated rather than hidden.** Nothing
+    #    follows it but `return "new"`, so deleting these two lines changes no input's fate and no
+    #    test can tell the two versions apart -- the same situation `CLAUDE.md` records for
+    #    `Locks::acquire()`'s bytes-versus-characters fix. It is kept, not deleted, because it
+    #    states the half of #268's decision that the default only happens to agree with: a rule
+    #    added after this one would otherwise silently take every `Feature` with it. A test asserts
+    #    the behavior; no test can assert the branch, and claiming otherwise would be a false green.
+    if 'Feature' in issue_types:
+        return "new"
 
     return "new"
 
@@ -328,36 +387,84 @@ def prime_pr_cache(nums, repo):
         batch = nums[start:start + _PR_BATCH]
         fields = " ".join(
             f'p{n}: pullRequest(number:{n}){{title '
-            f'closingIssuesReferences(first:5){{nodes{{labels(first:20){{nodes{{name}}}}}}}}}}'
+            f'closingIssuesReferences(first:20){{totalCount nodes{{issueType{{name}} '
+            f'labels(first:20){{nodes{{name}}}}}}}}}}'
             for n in batch)
         q = f'query {{repository(owner:"{owner}",name:"{name}"){{{fields}}}}}'
         r = subprocess.run(["gh", "api", "graphql", "-f", f"query={q}"],
                            capture_output=True, text=True)
         try:
-            data = (json.loads(r.stdout).get("data") or {}).get("repository") or {}
+            payload = json.loads(r.stdout)
+            data = (payload.get("data") or {}).get("repository") or {}
         except (json.JSONDecodeError, AttributeError):
-            data = {}
+            payload, data = {}, {}
+
+        # **A field error costs one alias; a VALIDATION error costs the whole batch**, and the two
+        # are told apart only here. `issueType` is a newer schema field than everything else this
+        # query asks for, so an endpoint whose schema predates it rejects the entire document:
+        # `data` comes back null, every alias in the batch caches as a miss, and the run emits a
+        # full set of bullets with no `[#N]` links -- the exact outcome the comment above says the
+        # partial-data handling exists to prevent, arriving through a door that handling does not
+        # cover. Reported on stderr rather than raised, because a release note with plain subjects
+        # still beats no release note; what must not happen is that it looks complete.
+        # **Gated on `not data`, NOT on an `errors` array being present**, because the shapes that
+        # carry no `errors` are the ones most likely to happen: `gh` exiting non-zero with empty
+        # stdout (no credential, no network, an HTTP 403 from a proxy), an HTML error page from a
+        # gateway, and `{"data":{"repository":null}}`. Every one of those reaches here with the
+        # whole batch uncached, and an earlier draft of this guard stayed silent for all three --
+        # it asked whether GraphQL had complained rather than whether anything had come back.
+        if not data:
+            errs = payload.get("errors") or []
+            why = (f"{errs[0].get('type') or 'error'}: {errs[0].get('message', '')[:160]}"
+                   if errs else f"no data, gh exit {r.returncode}, {len(r.stdout)} bytes of stdout")
+            print(f"warning: the pull-request query returned no data for #{batch[0]}-#{batch[-1]} "
+                  f"({why}). Those bullets will fall back to commit subjects and carry no links.",
+                  file=sys.stderr)
         for n in batch:
             node = data.get(f"p{n}")
             if not node:
                 # Not a pull request, or unreachable: resolve() falls back to the subject.
-                _pr_cache[n] = (None, ())
+                _pr_cache[n] = (None, (), ())
                 continue
+            cir = node.get("closingIssuesReferences") or {}
+            issues = cir.get("nodes") or []
+            # The page is 20 and nothing orders it, so a pull request closing more than that would
+            # have its types decided by an ordering nobody pinned -- and since #268 the type can
+            # decide the bucket, where before it could only lose a label. Reported, never guessed.
+            if (cir.get("totalCount") or 0) > len(issues):
+                print(f"warning: #{n} closes {cir['totalCount']} issues; only {len(issues)} were "
+                      f"read, so its labels and type may be incomplete.", file=sys.stderr)
             labels = tuple(
                 l["name"]
-                for iss in (node.get("closingIssuesReferences") or {}).get("nodes", [])
+                for iss in issues
                 for l in (iss.get("labels") or {}).get("nodes", []))
-            _pr_cache[n] = (node.get("title") or None, labels)
+
+            # `issueType` is null on an issue nobody typed, which is most of them: on the range
+            # #268 measured, 14 of 25 PULL REQUESTS end up with an empty tuple here (the unit is
+            # pull requests, not issues -- those 25 close 19 issues, of which 11 are typed).
+            # Dropped rather than carried as None, so `bucket()` sees an empty tuple and falls
+            # through exactly as it did before this existed.
+            types = tuple(
+                (iss.get("issueType") or {}).get("name")
+                for iss in issues
+                if (iss.get("issueType") or {}).get("name"))
+
+            _pr_cache[n] = (node.get("title") or None, labels, types)
 
 
 def pr_title(num, repo):
     if num not in _pr_cache:
         prime_pr_cache([num], repo)
-    return _pr_cache.get(num, (None, ()))[0]
+    return _pr_cache.get(num, (None, (), ()))[0]
 
 
 def pr_labels(num):
-    return _pr_cache.get(num, (None, ()))[1]
+    return _pr_cache.get(num, (None, (), ()))[1]
+
+
+def pr_issue_types(num):
+    """The GitHub issue types of the issues this pull request closes, with the untyped dropped."""
+    return _pr_cache.get(num, (None, (), ()))[2]
 
 
 def diff_signals(sha):
@@ -461,7 +568,8 @@ def main():
         if not disp:
             continue
         paths, test_lines, other_lines = diff_signals(sha)
-        b = bucket(s, title, pr_labels(pr) if pr else (), paths, test_lines, other_lines)
+        b = bucket(s, title, pr_labels(pr) if pr else (), paths, test_lines, other_lines,
+                   pr_issue_types(pr) if pr else ())
         bullet = f"- {noamp(disp)} {link}".rstrip()
         if bullet not in buckets[b]:
             buckets[b].append(bullet)

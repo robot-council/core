@@ -116,11 +116,11 @@ Do **not** invent headings outside this closed set. If something doesn't obvious
 - **Use the Oxford comma** — `config, migrations, and a facade helper`, not
   `config, migrations and a facade helper`.
 
-## Routing (which bucket) — by title, closing-issue label, and diff shape
+## Routing (which bucket) — by title, closing-issue label and type, and diff shape
 
-A change routes on its resolved title, the labels of the issue its PR closes (read from that issue,
-not from the PR), and which paths its diff touches. A cascade, first match wins — the order is
-what makes it correct:
+A change routes on its resolved title, the labels and the **GitHub issue type** of the issue its PR
+closes (read from that issue, not from the PR), and which paths its diff touches. A cascade, first
+match wins — the order is what makes it correct:
 
 1. **Breaking changes** — editorial call, per the bucket definition above; the generator cannot
    infer it, so it is passed in by flag.
@@ -134,12 +134,31 @@ what makes it correct:
    routes on its title and on how test-heavy the diff is.
 5. **What's fixed** — the title opens with `Fix`/`Resolve`/`Repair`/`Prevent`/`Guard`/`Restore`/
    `Correct`/`Harden`/`Stop`/`Avoid`.
-6. **Maintenance and tooling** — the diff is confined to tooling (`.github/`, `.claude/`, `tests/`,
-   `workbench/`, `composer.json`, `phpstan.neon.dist`, `phpstan-baseline.neon`, `phpunit.xml.dist`, `rector.php`,
-   top-level dotfiles, `CHANGELOG.md`, `CLAUDE.md`, `README.md`, `LICENSE.md`); or it adds more lines under
-   `tests/` than elsewhere; or the title opens with a maintenance verb (`Refactor`, `Bump`,
-   `Document`, …) or names tests, coverage, mutation, a skill, or a worktree.
-7. **What's new** — everything else.
+6. **Maintenance and tooling** — any one of three, checked in this order and all returning the same
+   bucket: the diff is confined to tooling (`.github/`, `.claude/`, `tests/`, `workbench/`,
+   `composer.json`, `phpstan.neon.dist`, `phpstan-baseline.neon`, `phpunit.xml.dist`, `rector.php`,
+   top-level dotfiles, `CHANGELOG.md`, `CLAUDE.md`, `README.md`, `LICENSE.md`); or it adds more
+   lines under `tests/` than elsewhere **and edits nothing under `src/` or `app/`**; or the title
+   opens with a maintenance verb (`Refactor`, `Bump`, `Document`, …) or names tests, coverage,
+   mutation, a skill, a worktree, or dependencies.
+7. **The issue type a human set** — `Bug` routes to *What's fixed*, `Feature` to *What's new*, read
+   from `closingIssuesReferences` at the cost of one field on a query the generator already makes.
+   **It is a last-resort tiebreaker, and both bounds on that position are load-bearing.** Above
+   rules 4 to 6 it would call a `Bug`-typed change confined to `.claude/` a fix, where a change to a
+   skill file is maintenance whatever its ticket is typed; it would call a test-only diff that
+   changed no behavior a fix; and it would take `Raise dependency floors …`, which rule 6
+   deliberately routes to Maintenance by its title, and file it under *What's fixed* the moment
+   somebody typed that ticket `Bug`. The rest of this cascade already holds that an explicit signal
+   beats an inferred one, and the issue type is the coarsest signal here — so it decides only what
+   nothing else could. **`Task` is not consulted**, although it correlated with *fixed* six times
+   out of six on the range this was measured on: that is an artifact of this skill set assigning
+   `Task` to spikes, forks, cleanups, and epics, so a rule built on it would break the first time
+   somebody typed a ticket correctly. A change closing issues of several types is a **fix** —
+   under-claiming novelty is the cheaper error.
+8. **What's new** — everything else. Note that `Feature` at rule 7 reaches the same answer as this
+   default, deliberately: the branch is kept so that a rule added after it cannot silently take
+   every `Feature` with it, and it is annotated in the source as an equivalent mutant no test can
+   distinguish.
 
 ## Generating the body — [`gen_release_notes.py`](gen_release_notes.py)
 
