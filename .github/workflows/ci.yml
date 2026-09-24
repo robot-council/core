@@ -193,9 +193,10 @@ jobs:
     name: mysql
     runs-on: ubuntu-latest
     # Ten rather than #137's twenty. That timeout was sized for the whole suite, which was
-    # cancelled at ten with every step reporting success. This job runs 26 tests; measured at 8.4s
-    # locally against MySQL 9.4.0, and CI's container is slower than a local one by roughly the
-    # factor #137 recorded, so ten minutes is generous rather than tight.
+    # cancelled at ten with every step reporting success. This job runs 26 tests, and measured on
+    # its first CI run: 21s for the test step, 65s for the whole job including the service
+    # container, against 312s for `postgres` on the same run. Ten minutes is generous rather than
+    # tight, and the headroom is what an added engine-semantics file spends.
     timeout-minutes: 10
     services:
       mysql:

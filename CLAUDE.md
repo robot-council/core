@@ -266,8 +266,9 @@ A **Laravel package** (`robot-council/core`), not an application. It is the core
     against 168s for `postgres`, rising with every test file added -- 328s, then 409s, then 585s,
     at which point it was cancelled at its timeout with every step reporting success. That number
     is about the whole suite and was never evidence about the few files whose subject is an engine.
-    The narrow job measured **8.4s for 26 tests** locally against MySQL 9.4.0. It sets
-    `explicit_defaults_for_timestamp` OFF and `ROBOT_COUNCIL_EXPECT_MYSQL`, and `ci-passed`
+    **Measured in CI on its first run: 21s for the test step and 65s for the whole job**, against
+    312s for `postgres` on the same run, and 8.4s for the same 26 tests locally against MySQL 9.4.0.
+    It sets `explicit_defaults_for_timestamp` OFF and `ROBOT_COUNCIL_EXPECT_MYSQL`, and `ci-passed`
     requires it.
     **The argument that made the full job's loss tolerable had a gap, and #247 walked into it.**
     #137 recorded that `HostKeyComparisonTest`'s behavioral tests run on every engine, so #54's
