@@ -28,6 +28,10 @@ final class InstallationList
     /**
      * The most installations one read returns, whatever a caller asks for.
      */
+    // Reported `uncovered` rather than `untested`: no test reaches this LINE, because a constant
+    // declaration is not executed anywhere coverage can see it. The same structural blind spot
+    // #232 records for `#[Fillable]`. The value is exercised by the read tests either way.
+    // @pest-mutate-ignore
     public const int MAX_PAGE = 200;
 
     /**
@@ -39,6 +43,10 @@ final class InstallationList
      * panel would hydrate and render every one of them on a `wire:poll` interval.
      * `Support\FleetPresence` bounds its own read the same way.
      */
+    // Reported `uncovered` rather than `untested`: no test reaches this LINE, because a constant
+    // declaration is not executed anywhere coverage can see it. The same structural blind spot
+    // #232 records for `#[Fillable]`. The value is exercised by the read tests either way.
+    // @pest-mutate-ignore
     public const int SESSIONS_PER_INSTALLATION = 10;
 
     /**
@@ -109,7 +117,13 @@ final class InstallationList
             ->selectRaw('count(*) as total, sum(case when revoked_at is null and expires_at > ? then 1 else 0 end) as live', [$now])
             ->first();
 
+        // Unkillable, for the reason recorded on the same pair in `Support\FleetPresence`: an
+        // aggregate with no `GROUP BY` returns exactly one row whatever the table holds, so
+        // `$totals` is never null. Measured against an empty table -- `first()` came back a
+        // `stdClass` with `total` 0 and `live` NULL. Kept as the guard against a future `groupBy`.
+        // @pest-mutate-ignore: RemoveNullSafeOperator
         $live = AggregateCount::from($totals?->live);
+        // @pest-mutate-ignore: RemoveNullSafeOperator
         $total = AggregateCount::from($totals?->total);
 
         return [
@@ -120,6 +134,12 @@ final class InstallationList
             // identical, and this panel is the only interface for revoking a credential.
             'live' => $live,
             'retired' => $total - $live,
+            // Defensive and unkillable HERE: the page is a query result narrowed with
+            // `->take($size)`, which slices from zero, so the keys are already 0..n-1. Note this is
+            // NOT true of the `shown` list in `sessionsOf()` below, which narrows a FILTERED
+            // relation -- `Collection::filter()` preserves keys, so that one is load-bearing and
+            // has a test. Two calls to the same function, one equivalent and one not.
+            // @pest-mutate-ignore: UnwrapArrayValues
             'installations' => array_values($installations->map(fn (Installation $installation): array => [
                 'id' => $installation->id,
                 'github_login' => $logins[$installation->user_id] ?? null,
