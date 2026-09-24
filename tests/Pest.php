@@ -604,56 +604,110 @@ function wireExpressionInterpolations(string $template): array
 {
     $findings = [];
 
-    // **The named prefixes, plus Alpine's `:` shorthand for `x-bind:`.** `x-init` and `x-effect`
-    // are evaluated expressions and were missing entirely; `x-text` is a value rather than a sink
-    // but is cheaper to examine than to argue about. The shorthand is #241: `:href` is the same
-    // attribute as `x-bind:href` spelled two ways, and splitting one attribute across two
-    // detectors by spelling would be the arbitrary choice -- so this detector owns both, and
-    // `urlAttributeInterpolations()` is left alone. `:class` comes along with it.
-    //
-    // **The lookbehind is what keeps the shorthand branch from eating the long forms.** Without it
-    // `x-bind:href` also matches as `:href` and `xlink:href` matches as `:href` too, so the same
-    // attribute is reported twice under two names. Measured both ways.
-    //
-    // `v-bind:` is Vue's and this package ships none, but it is three characters in an alternation
-    // and the failure it guards against is somebody reaching for a familiar spelling. Included
-    // rather than argued about.
-    $prefixes = 'wire:|x-on:|x-bind:|v-bind:|x-data|x-show|x-model|x-init|x-effect|x-text|@click';
+    // **Comments and `@verbatim` come out first, exactly as `urlAttributeInterpolations()` does
+    // it.** Without this, `{{-- {!! $evil !!} --}}` is reported: the raw-echo branch added below
+    // carries no comment guard of its own, and a commented-out example is not a sink.
+    $withoutBlocks = preg_replace('/(?<!@)@verbatim(.*?)@endverbatim/s', '', $template) ?? $template;
+    $scanned = preg_replace('/\{\{--.*?--\}\}/s', '', $withoutBlocks) ?? $withoutBlocks;
 
-    // The value position. `wire:key` is excluded by name; everything else under these prefixes is
-    // treated as an expression, which errs toward reporting.
-    preg_match_all('/(?<![\w:.@-])((?:'.$prefixes.')[\w.:-]*|:[\w.:-]+)\s*=\s*"([^"]*)"/', $template, $attributes, PREG_SET_ORDER);
+    // **Every attribute Alpine or Livewire EVALUATES, plus the ones that write.** `x-html` is the
+    // sharpest: it evaluates its expression and writes the result as HTML, so leaving it out while
+    // including `x-text` -- a strictly weaker sink -- was backwards. `x-if` and `x-for` are
+    // expressions too. `x-ref`, `x-teleport`, `x-id`, `x-mask`, `x-cloak` and `x-transition:*` are
+    // values rather than sinks and are examined anyway, because the list is cheaper to keep wide
+    // than to keep correct.
+    //
+    // **Alpine's `:` shorthand for `x-bind:` is #241.** `:href` is the same attribute as
+    // `x-bind:href` spelled two ways, and this detector already owned the long form -- so splitting
+    // one attribute across two detectors by spelling would be the arbitrary choice.
+    // `urlAttributeInterpolations()` is left alone and `:class` comes along free.
+    //
+    // `v-bind:` is Vue's and this package ships none. Three characters in an alternation, against a
+    // failure whose whole shape is somebody reaching for a familiar spelling.
+    $prefixes = 'wire:|x-on:|x-bind:|v-bind:|x-data|x-show|x-model|x-modelable|x-init|x-effect'
+        .'|x-text|x-html|x-if|x-for|x-ref|x-teleport|x-transition|x-intersect|x-mask|x-id|x-cloak'
+        .'|@click';
+
+    // **The lookbehind excludes `@`, and that is a correction rather than an oversight.** Blade
+    // renders `@@click` as a literal `@click`, so `@@click="{{ $evil }}"` is a live Alpine handler
+    // -- read in `BladeCompiler::compileStatement()`, which takes the `str_contains($match[1], '@')`
+    // branch and emits the directive verbatim. A class that included `@` silenced exactly that.
+    // What it still excludes is what the shorthand branch would otherwise double-report:
+    // `x-bind:href` and `xlink:href` both end in `:href`.
+    //
+    // **The value is captured with an interpolation as an atom, in all three quoting forms**, which
+    // is what `urlAttributeInterpolations()` does and what this function did not. A `"` inside an
+    // expression -- `wire:click="act({{ __("k") }}, {{ $evil }})"` is ordinary Blade -- otherwise
+    // ends the capture early, leaves no complete interpolation in it, and consumes past the real
+    // closing quote so nothing after it is ever rescanned. Single-quoted and unquoted values were
+    // missed entirely. `i`, because an HTML parser lowercases attribute names and `WIRE:CLICK` is
+    // live.
+    $span = '\{\{.*?\}\}|\{!!.*?!!\}';
+
+    $pattern = '/(?<![\w:.-])(?<attribute>(?:'.$prefixes.')[\w.:-]*|:[\w.:-]+)\s*=\s*(?:'
+        .'"(?<double>(?:'.$span.'|[^"])*)"'
+        ."|'(?<single>(?:".$span."|[^'])*)'"
+        .'|(?<bare>(?:'.$span.'|[^\s>])+)'
+        .')/is';
+
+    // **A guard that dies reports clean**, which is the failure mode this repository names by
+    // itself -- `preg_match_all` returns `false` on a PCRE error and leaves `$matches` empty, so
+    // the template passes with nothing examined. The sibling detector throws for this reason and
+    // this one did not, while gaining two more patterns.
+    if (preg_match_all($pattern, $scanned, $attributes, PREG_SET_ORDER) === false) {
+        throw new RuntimeException('Livewire expression scan failed: '.preg_last_error_msg());
+    }
 
     foreach ($attributes as $attribute) {
-        if (str_starts_with($attribute[1], 'wire:key')) {
+        // Lowercased, because the pattern is now case-insensitive and `WIRE:KEY` is the same
+        // attribute. `wire:key` is a literal identifier Livewire never evaluates.
+        if (str_starts_with(strtolower($attribute['attribute']), 'wire:key')) {
             continue;
         }
 
-        foreach (interpolationsIn($attribute[2]) as $interpolation) {
+        $value = ($attribute['double'] ?? '') !== '' ? $attribute['double']
+            : ((($attribute['single'] ?? '') !== '') ? $attribute['single'] : ($attribute['bare'] ?? ''));
+
+        foreach (interpolationsIn($value) as $interpolation) {
             if (! isWireArgumentCall($interpolation)) {
-                $findings[] = sprintf('%s="%s"', $attribute[1], trim($interpolation));
+                $findings[] = sprintf('%s="%s"', $attribute['attribute'], trim($interpolation));
             }
         }
     }
 
-    // The name position: `wire:poll.{{ … }}s`.
-    preg_match_all('/(?:wire:|x-)[\w.:-]*\{\{(.*?)\}\}/s', $template, $names, PREG_SET_ORDER);
+    // The name position: `wire:poll.{{ … }}s`, which breaks out of the attribute rather than out of
+    // a string. **Both echo forms here too**, because fixing only the value position left the
+    // sharper half of the same hole open.
+    if (preg_match_all('/(?:wire:|x-)[\w.:-]*(?:\{\{(?!--)(.*?)\}\}|\{!!(.*?)!!\})/is', $scanned, $names, PREG_SET_ORDER) === false) {
+        throw new RuntimeException('Livewire attribute-name scan failed: '.preg_last_error_msg());
+    }
 
     foreach ($names as $name) {
-        if (! isWireArgumentCall($name[1])) {
-            $findings[] = 'attribute name: {{'.trim($name[1]).'}}';
+        $expression = ($name[1] ?? '') !== '' ? $name[1] : ($name[2] ?? '');
+
+        if (! isWireArgumentCall($expression)) {
+            $findings[] = 'attribute name: {{'.trim($expression).'}}';
         }
     }
 
-    // **The alias is checked, because the guard's whole requirement rests on it.** Every view
-    // spells the helper `Wire` through `@use('RobotCouncil\Support\WireArgument', 'Wire')`, so a
-    // template aliasing that name to something else would satisfy every expression check above
-    // while calling into anything at all.
-    preg_match_all('/@use\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,\s*[\'"](Wire|WireArgument)[\'"]\s*\)/', $template, $aliases, PREG_SET_ORDER);
+    // **The alias is checked, because the guard's whole requirement rests on it.** Every view spells
+    // the helper `Wire` through `@use('RobotCouncil\Support\WireArgument', 'Wire')`, so a template
+    // aliasing that name to something else satisfies every expression check above while calling
+    // into anything at all.
+    //
+    // **Both `@use` forms**, because the single-argument one is the shorter bypass: `@use('Evil\Wire')`
+    // compiles to `use Evil\Wire;`, after which `Wire::of()` in that view is somebody else's method
+    // and every check here still passes.
+    if (preg_match_all('/@use\s*\(\s*[\'"]([^\'"]+)[\'"]\s*(?:,\s*[\'"]([^\'"]+)[\'"]\s*)?\)/i', $scanned, $aliases, PREG_SET_ORDER) === false) {
+        throw new RuntimeException('Blade alias scan failed: '.preg_last_error_msg());
+    }
 
     foreach ($aliases as $alias) {
-        if (ltrim($alias[1], '\\') !== WireArgument::class) {
-            $findings[] = sprintf('alias: %s as %s', $alias[1], $alias[2]);
+        $class = ltrim($alias[1], '\\');
+        $as = $alias[2] ?? substr($class, (int) strrpos('\\'.$class, '\\'));
+
+        if (in_array(strtolower($as), ['wire', 'wireargument'], true) && $class !== WireArgument::class) {
+            $findings[] = sprintf('alias: %s as %s', $alias[1], $as);
         }
     }
 
@@ -674,6 +728,13 @@ function wireExpressionInterpolations(string $template): array
  * The argument list is walked with a recursive group so a call inside it keeps its own parentheses:
  * `Wire::of(\RobotCouncil\Support\Scope::All)` is a real expression in this package's views.
  *
+ * **The name is pinned, and an earlier version pinned only the METHOD.** It admitted any namespace
+ * at all, so `Evil\Wire::of($evil)` passed -- and the alias check could not close that, because a
+ * fully-qualified name needs no alias. What is admitted now is the bare name, which the alias check
+ * does govern, or this package's own fully-qualified one. **A leading separator is allowed only on
+ * the qualified form**: `\Wire::of()` names the ROOT `Wire`, which no `@use` can point at, so it is
+ * a different class wearing the guard's spelling.
+ *
  * **The walk is blind to string context**, which #210 recorded for the URL detector and which
  * applies here unchanged: a parenthesis inside a string literal shifts the count, so
  * `Wire::of(')')` is reported. That is a false positive in the safe direction on first-party
@@ -691,14 +752,19 @@ function isWireArgumentCall(string $interpolation): bool
     // a quoted string would have eaten one layer of them silently, which turns `\\?` -- an optional
     // leading namespace separator -- into a literal `?` that matches nothing.
     $pattern = <<<'REGEX'
-        /^\s*\\?(?:[A-Za-z_]\w*\\)*(?:Wire|WireArgument)::of(?<balanced>\((?:[^()]++|(?&balanced))*\))\s*$/
+        /^\s*(?:\\?RobotCouncil\\Support\\(?:Wire|WireArgument)|Wire|WireArgument)::of\s*(?<balanced>\((?:[^()]++|(?&balanced))*\))\s*$/
         REGEX;
 
     return preg_match(trim($pattern), $interpolation) === 1;
 }
 
 /**
- * The `{{ … }}` interpolations in one attribute value, comments excluded.
+ * The `{{ … }}` and `{!! … !!}` interpolations in one attribute value.
+ *
+ * **Comments are NOT excluded here, and the caller is why.** The `{{` branch carries `(?!--)` and
+ * the raw branch cannot, so this alone would report a commented-out example.
+ * `wireExpressionInterpolations()` strips `{{-- --}}` and `@verbatim` from the template before it
+ * reaches this, exactly as `urlAttributeInterpolations()` does.
  *
  * @param  string  $value  The attribute's value.
  * @return list<string> The expression inside each pair of braces.
