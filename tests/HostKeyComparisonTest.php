@@ -103,7 +103,7 @@ it('gives every column holding a host user key a binary collation', function (st
         $column,
         $collation
     ));
-})->with(hostKeyColumns())->skip(notMySql(...), 'Only MySQL lets a collation decide this.');
+})->with(hostKeyColumns())->skip(notMySqlFamily(...), 'Only MySQL lets a collation decide this.');
 
 it('serves no narration across two developers whose keys differ only in case', function (): void {
     // The failure the column change exists to prevent, driven through the store that decides it.

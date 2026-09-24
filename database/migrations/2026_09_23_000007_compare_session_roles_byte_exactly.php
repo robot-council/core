@@ -6,6 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use RobotCouncil\Support\Engines;
 
 /**
  * Gives a session's role a byte-exact comparison, as `2026_09_22_000002` did for the host user keys.
@@ -101,7 +102,7 @@ return new class extends Migration
     {
         // Nothing to do where the comparison is already byte-exact, and neither Postgres nor SQLite
         // would accept the name anyway.
-        if (DB::getDriverName() !== 'mysql') {
+        if (! Engines::needsBinaryCollation(DB::getDriverName())) {
             return;
         }
 
