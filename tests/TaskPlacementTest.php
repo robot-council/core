@@ -409,12 +409,10 @@ it("gives a reassigned held task a clean slate: the last lane's branch and hand-
         ->and($row->hand_back)->toBeFalse();
 });
 
-it('moves a task a lane already holds when a coordinator places it, and tells the lane that lost it', function (): void {
-    // **Recorded rather than prevented, and deliberately.** A coordinator that read a task as pending
-    // and placed it may find a lane claimed it in between; the reassignment then applies to the held
-    // task and moves it, because a reassignment has always been able to move held work. The lane
-    // that lost it is told through `task.reassigned`, as it always was. Whether a placement should
-    // be able to insist on `pending` is #328, filed as its own question rather than decided here.
+it('moves a task a lane already holds when a placement does not insist, and tells the lane that lost it', function (): void {
+    // **Without `expect`, the coordinator's word wins over a lane that claimed first**, as a
+    // reassignment of held work always has, and the lane that lost it is told through
+    // `task.reassigned`. #328 decided a placement may insist instead; the next test is that form.
     $task = placementTask($this);
 
     $this->machine($this->token)
@@ -430,6 +428,66 @@ it('moves a task a lane already holds when a coordinator places it, and tells th
     expect($row->claimed_by)->toBe($lane->getKey())
         ->and($row->placed_by)->toBe(Placement::Coordinator)
         ->and(FleetEvent::query()->where('type', FleetEventType::TaskReassigned->value)->count())->toBe(1);
+});
+
+it('leaves a task with the lane that claimed it first when the placement insists on pending', function (): void {
+    $task = placementTask($this);
+
+    $this->machine($this->token)
+        ->postJson(route('robot-council.tasks.transition', ['task' => $task, 'transition' => 'claim']))
+        ->assertOk();
+
+    [$lane] = $this->startAgentSession($this->installation);
+
+    // The coordinator first, so its own joining is not counted as something the placement wrote
+    placementCoordinator($this);
+    $events = FleetEvent::query()->count();
+
+    placeTask($this, $task, $lane, ['expect' => 'pending'])->assertConflict()->assertJson(['applied' => false]);
+
+    $row = Task::query()->findOrFail($task);
+
+    // Still the first lane's, placed by nobody, and nothing written to the feed -- no reassignment
+    // event and no directive
+    expect($row->claimed_by)->toBe($this->session->getKey())
+        ->and($row->placed_by)->toBe(Placement::Lane)
+        ->and(FleetEvent::query()->count())->toBe($events);
+});
+
+it('places a pending task when the placement insists on pending', function (): void {
+    $task = placementTask($this);
+    [$lane] = $this->startAgentSession($this->installation);
+
+    placeTask($this, $task, $lane, ['expect' => 'pending'])->assertOk();
+
+    expect(Task::query()->findOrFail($task)->claimed_by)->toBe($lane->getKey());
+});
+
+it('refuses an expectation a reassignment cannot have, or on another transition', function (string $transition, array $body): void {
+    $task = placementTask($this);
+    [, $coordinatorToken] = placementCoordinator($this);
+    [$lane] = $this->startAgentSession($this->installation);
+
+    $this->machine($transition === 'reassign' ? $coordinatorToken : $this->token)
+        ->postJson(route('robot-council.tasks.transition', ['task' => $task, 'transition' => $transition]), [
+            'session_id' => $lane->getKey(), 'directive' => 'Take this task.', ...$body,
+        ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('expect');
+
+    expect(Task::query()->findOrFail($task)->status)->toBe(TaskStatus::Pending);
+})->with([
+    'a finished status' => ['reassign', ['expect' => 'done']],
+    'not a status' => ['reassign', ['expect' => 'unclaimed']],
+    'on a claim' => ['claim', ['expect' => 'pending']],
+]);
+
+it('refuses `expect` on anything but a reassignment at the store', function (): void {
+    $task = placementTask($this);
+
+    expect(fn () => $this->service(Tasks::class)->transition($task, TaskTransition::Claim, $this->session, false, expect: TaskStatus::Pending))
+        ->toThrow(InvalidArgumentException::class, 'Only a reassignment takes `expect`')
+        ->and(Task::query()->findOrFail($task)->status)->toBe(TaskStatus::Pending);
 });
 
 it("places a task a coordinator filed on any developer's lane", function (): void {
