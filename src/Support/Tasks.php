@@ -192,6 +192,58 @@ final class Tasks
     }
 
     /**
+     * Finish or release a held task because GitHub reported its work finished (#318).
+     *
+     * **Attributed to no session, as the sweep's release is**: the fleet is told what GitHub
+     * observed, not what any agent said. #318's decision: an issue closing, or the task's pull
+     * request merging, is `done`; a pull request closed without merging releases the task to
+     * `pending` with the same clean slate a release writes. A task that is not held -- pending,
+     * or already finished -- is left alone, so a redelivered close cannot finish a task twice.
+     *
+     * **The event names the task and the reason, never the issue.** A task's issue is readable only
+     * by sessions that may claim it (`TaskList`), and a state change reaches every session.
+     *
+     * @param  int  $taskId  The task.
+     * @param  bool  $completed  True to finish it, false to release it.
+     * @param  string  $why  The reason, in words the feed shows.
+     * @return bool True when it moved.
+     */
+    public function finishFromGitHub(int $taskId, bool $completed, string $why): bool
+    {
+        return DB::transaction(function () use ($taskId, $completed, $why): bool {
+            $to = $completed ? TaskStatus::Done : TaskStatus::Pending;
+
+            $changed = Task::query()
+                ->whereKey($taskId)
+                ->whereIn('status', TaskStatus::values(TaskStatus::held()))
+                ->update($completed
+                    ? ['status' => $to->value, 'updated_at' => Carbon::now()]
+                    : [
+                        'status' => $to->value,
+                        'claimed_by' => null,
+                        'claimed_at' => null,
+                        'placed_by' => null,
+                        'hand_back' => false,
+                        'branch' => null,
+                        'updated_at' => Carbon::now(),
+                    ]);
+
+            if ($changed !== 1) {
+                return false;
+            }
+
+            $this->events->record(
+                $completed ? FleetEventType::TaskCompleted : FleetEventType::TaskReleased,
+                null,
+                sprintf('Task #%d %s: %s.', $taskId, $completed ? 'completed' : 'released', $why),
+                ['task_id' => $taskId, 'to' => $to->value, 'source' => 'github']
+            );
+
+            return true;
+        });
+    }
+
+    /**
      * Record the branch the lane holding a task is working on, after it has started.
      *
      * **After the start rather than at it, which is `robot-council/cli#238`'s decision.** At

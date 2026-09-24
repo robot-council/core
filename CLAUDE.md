@@ -35,7 +35,8 @@ A **Laravel package** (`robot-council/core`), not an application. It is the core
 - **Lock order is `robot_council_installations`, then `robot_council_agent_sessions`, then
   `robot_council_locks`, then `robot_council_lock_fence`, then the feed sentinel, then
   `robot_council_event_addressees`, then `personal_access_tokens`.** Every path that touches more than one takes them in that
-  order. Two paths taking the same two rows in opposite orders deadlock on every engine that locks
+  order. A GitHub delivery takes its own `robot_council_github_*` rows first, then
+  `robot_council_tasks`, then the feed sentinel; no other path takes those rows. Two paths taking the same two rows in opposite orders deadlock on every engine that locks
   rows, which is all of them but SQLite -- and SQLite serializes writers, so no test in this suite can
   show it. `AgentSessions::renew()` and `Installations::revoke()` both had to be reordered for this.
   **`robot_council_events` takes no session lock at all**, because #50 dropped the foreign key on
