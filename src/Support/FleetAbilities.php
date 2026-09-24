@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RobotCouncil\Support;
 
+use Illuminate\Support\Collection;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Access\Allowlist;
 use RobotCouncil\Access\Role;
@@ -62,13 +63,26 @@ final class FleetAbilities
     /**
      * How many sessions one read takes.
      *
-     * Small on purpose. `lazyById()` defaults to a thousand, and this runs on a route an agent may
-     * call up to its per-session rate limit -- so the default would hydrate a thousand models to
-     * answer one boolean, on a fleet that has nothing like that many live sessions.
+     * Small on purpose. This runs on a route an agent may call up to its per-session rate limit, so
+     * a page sized by habit would hydrate a thousand models to answer one boolean, on a fleet that
+     * has nothing like that many live sessions. A thousand is what `lazyById()` defaults to;
+     * `chunkById()` has no default at all and takes the count as a required argument, so the number
+     * is stated here or nowhere.
+     *
+     * **It is also how much of a page an admitted holder saves**, now that the walk stops on the
+     * page it finds one: a smaller chunk returns sooner and pages more often, which is a trade
+     * between the two costs the method's own table gives rather than a free improvement either way.
      *
      * No test can pin the number, only that paging works across it: 49 and 51 read the same rows in
-     * a different number of round trips, and a test asserting the query count would be asserting
-     * this constant against itself. `it('pages past the chunk size')` covers the boundary instead.
+     * a different number of round trips, and a test asserting the query count against a fixture of
+     * some fixed size would be asserting this constant against itself.
+     * `it('pages past the chunk size')` covers the boundary instead.
+     *
+     * **The four query-count tests are not that test, and the reason is one line of each fixture.**
+     * Every one of them seeds `CHUNK + 1` matching sessions rather than 51, so the fixture moves
+     * with the constant and the counts they assert -- 2, 4, 4 and 1 -- hold at 49 and 51 alike.
+     * What they pin is the number of round trips per page, which is a behavior; the page size is
+     * still not one.
      */
     // The value is a round-trip size and nothing reads it back, so 49 and 51 are the same program.
     // The boundary itself is covered; the number is not a behavior.
@@ -112,10 +126,50 @@ final class FleetAbilities
      * `coordinator:direct` is counted the day it exists rather than the day somebody remembers this
      * method. A role carrying no part of the question is never queried for.
      *
-     * **One read per page, then one for the identities -- not one per session.** The walk collects
-     * the host keys of the sessions holding the ability, usually none or one, and resolves the
-     * identities behind them in a single further read. A fleet with more than `CHUNK` matching
-     * sessions takes a page each, so the count is `ceil(matches / CHUNK) + 2` rather than two.
+     * **The walk decides as it goes, so one admitted holder ends the read** (#246). Each page
+     * resolves the identities behind its own holders and stops there when one of them is still on
+     * the access list, rather than collecting every match and asking once at the end. Over `M`
+     * matching sessions, `M > 0`, reading `P = floor(M / CHUNK) + 1` pages -- the `M = 0` case is
+     * the last row of the measured table below, where the old shape's `$holders === []` guard
+     * skipped the identity read and both cost `P`:
+     *
+     * | | before | now |
+     * | --- | --- | --- |
+     * | nothing admitted | `P + 1` | `P + ceil(M / CHUNK)` |
+     * | something admitted, first on page `k` | `P + 1` | `2k` |
+     *
+     * Measured with `tests/Pest.php`'s `queriesIssuedBy()` on SQLite against `CHUNK + 1` matching
+     * sessions, where `P` is 2. `tests/FleetCanDirectTest.php` asserts every figure in the right
+     * column:
+     *
+     * | | before | now |
+     * | --- | --- | --- |
+     * | the admitted holder is on the first page | 3 | **2** |
+     * | the admitted holder is on the last page | 3 | 4 |
+     * | no holder is admitted | 3 | 4 |
+     * | no session matches the role at all | 1 | 1 |
+     *
+     * **The figure this replaced was reasoned rather than measured, and it was wrong.** The
+     * superseded sentence gave `ceil(matches / CHUNK) + 2`, which is 4 for the fixture above where
+     * the walk actually issued 3. That is the whole reason the numbers here are asserted by tests:
+     * a count in prose has nothing checking it, and the direction it drifted -- overstating what
+     * the old shape cost -- is the direction that would have made this change look better than it
+     * is.
+     *
+     * **So the `true` answer got cheaper and the exhaustive `false` answer got one read per page
+     * dearer**, which is the trade this change weighed rather than a cost it overlooked. The `false`
+     * walk is an index range over rows that genuinely match (`robot-council/core#223`), so its extra
+     * reads are bounded by the matches rather than by the fleet; the `true` walk is the one whose
+     * length a holder of the ability can arrange, and it no longer grows with how many other
+     * ADMITTED sessions hold the same role. That is the reasoning `Support\FleetFeed::EXAMINE_CAP`
+     * records.
+     *
+     * **What it does not fix, said plainly**: a crowd of matching rows whose developers have all
+     * been off-boarded still sits ahead of the admitted one and pushes it onto a later page, so
+     * `k` is not bounded. Reaching that state takes an administrator off-boarding developers whose
+     * coordinator sessions are still `active`, which is not something the holder of an ability can
+     * arrange on its own -- a session cannot be started for a developer who is not admitted. It is
+     * residue rather than a hole, and it is why the `false` row above is the one to watch.
      *
      * **It is a live reading, and a host that turned the presence sweep off has no live readings.**
      * `config/robot-council.php` documents disabling `schedule.sweep_sessions` as supported, and on
@@ -149,23 +203,50 @@ final class FleetAbilities
             return false;
         }
 
-        $holders = [];
+        $admitted = false;
 
-        foreach (AgentSession::query()
+        /**
+         * Decide one page, and say whether the walk should go on.
+         *
+         * **Returning `false` is what stops it, and it stops it BEFORE the next page is read.**
+         * `Concerns\BuildsQueries::orderedChunkById()` returns as soon as the callback answers
+         * `false`, so what is saved is a round trip rather than a hydration.
+         *
+         * @param  Collection<int, AgentSession>  $sessions  One page of matching sessions.
+         * @return bool Whether to read the next page.
+         */
+        $examine = function (Collection $sessions) use (&$admitted): bool {
+            $admitted = $this->anyAdmittedHolder($sessions);
+
+            return ! $admitted;
+        };
+
+        AgentSession::query()
             // Two columns rather than the row, because this runs on a route an agent may call up
             // to its per-session rate limit.
             //
             // **It is not what stops the `role` cast raising, and an earlier comment here said it
             // was.** Eloquent hydrates through `setRawAttributes()` and casts in `getAttribute()`,
-            // so a cast runs only when the attribute is READ -- and this loop reads `user_id`
-            // alone. A row holding a role outside the enum is therefore harmless with or without
-            // this narrowing, which `it('reads the roles the enum defines')` covers either way.
+            // so a cast runs only when the attribute is READ -- and nothing here reads anything
+            // but `user_id`. A row holding a role outside the enum is therefore harmless with or
+            // without this narrowing, which `it('reads the roles the enum defines')` covers either
+            // way.
             //
-            // **`id` is load-bearing and its absence is invisible until the fleet is big enough.**
-            // `lazyById()` reads the key off the last hydrated model to page, and throws
-            // `The lazyById operation was aborted because the [id] column is not present` -- but
-            // only once a page comes back full, so a fleet with fewer than `CHUNK` matching
-            // sessions never reaches it.
+            // **`id` is load-bearing, and moving to `chunkById()` made its absence LOUDER rather
+            // than quieter.** Both walkers read the key off the last hydrated row to page, and both
+            // throw when it is missing -- `The chunkById operation was aborted because the [id]
+            // column is not present`. But `lazyById()` only reaches that throw once a page comes
+            // back FULL, so under it a fleet with fewer than `CHUNK` matching sessions never saw
+            // the defect; `orderedChunkById()` checks after every page whose callback did not stop
+            // the walk, short pages included. Measured by dropping `id` from this list and running
+            // `tests/FleetCanDirectTest.php` as it stands: the old walker failed 4 and this one
+            // fails 5, and the two it adds each hold a SINGLE matching session -- a fleet size at
+            // which the old walker could not have caught it however long the defect sat there.
+            //
+            // The one shape that still cannot see it is a walk that stops on its first page, which
+            // is exactly the `true`-on-page-one answer this method was changed to give. So the
+            // tests that reach the throw are the ones that keep walking: `it('pages past the chunk
+            // size')` and the two costing the `false` and last-page answers.
             ->select(['id', 'user_id'])
             ->whereIn('role', $roles)
             ->where('status', AgentSessionStatus::Active->value)
@@ -175,7 +256,34 @@ final class FleetAbilities
             // here cannot drift from what the middleware asks per request.
             ->whereIn('installation_id', Installation::usable()->select('id'))
             ->orderBy('id')
-            ->lazyById(self::CHUNK) as $session) {
+
+            // The return value is deliberately unread. It reports whether the walk ran to the end,
+            // which is `! $admitted` said a worse way: it would make this method's answer rest on
+            // a contract the framework documents for the CALLBACK rather than for the walker.
+            ->chunkById(self::CHUNK, $examine);
+
+        return $admitted;
+    }
+
+    /**
+     * Whether one page of sessions holds a developer the access list still admits.
+     *
+     * **One read per page, not one per session.** The host keys are deduplicated first, so a page
+     * of fifty sessions belonging to one developer resolves one identity -- which is the shape a
+     * fleet running many agents under one account actually has.
+     *
+     * False here means every holder on this page is off the access list, so the role is held and
+     * unusable -- which reads the same to a caller as nobody holding it, and is the same thing
+     * operationally.
+     *
+     * @param  Collection<int, AgentSession>  $sessions  One page of matching sessions.
+     * @return bool True when at least one of them belongs to an admitted developer.
+     */
+    private function anyAdmittedHolder(Collection $sessions): bool
+    {
+        $holders = [];
+
+        foreach ($sessions as $session) {
             // **Keyed by the host key to deduplicate, and holding it as the value to read back.**
             // A PHP array key coerces a canonical numeric string to an int, so `array_keys()` would
             // hand `42` where the row said `"42"`. `Support\HostKey::tryFrom()` casts an int back
@@ -183,23 +291,11 @@ final class FleetAbilities
             $holders[$session->user_id] = $session->user_id;
         }
 
-        // Saves the identity read on the common answer. Removing it is equivalent --
-        // `HostUsers::githubIdsForKeys([])` returns `[]` early and `array_any` over `[]` is false --
-        // so the mutant on it survives, and the guard stays for the query it does not issue.
-        // @pest-mutate-ignore: RemoveEarlyReturn
-        if ($holders === []) {
-            return false;
-        }
-
-        // False here means every holder is off the access list, so the role is held and unusable --
-        // which reads the same to a caller as nobody holding it, and is the same thing
-        // operationally.
-        //
-        // **`array_values()` is load-bearing for the OTHER gate, not for this one.**
+        // **`array_values()` is load-bearing for the analyzer, not for the answer.**
         // `HostUsers::githubIdsForKeys()` reads values and ignores keys, so dropping it changes no
         // answer -- but its parameter is `list<mixed>` and `$holders` is keyed, so `composer
         // analyse` refuses it. Measured: `expects list<mixed>`, one error. The mutant therefore
-        // cannot be killed without failing PHPStan.
+        // cannot be killed without failing the other gate.
         // @pest-mutate-ignore: UnwrapArrayValues
         return array_any(
             $this->hostUsers->githubIdsForKeys(array_values($holders)),
