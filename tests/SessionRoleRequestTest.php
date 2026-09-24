@@ -17,7 +17,6 @@ declare(strict_types=1);
  */
 
 use Livewire\Livewire;
-use RobotCouncil\Access\Ability;
 use RobotCouncil\Access\Role;
 use RobotCouncil\Access\Tokens;
 use RobotCouncil\Livewire\Administration;
@@ -45,9 +44,7 @@ it('starts every session as build, whatever its installation holds', function ()
     // The decision recorded on #222: the derivation `robot-council/core#221` shipped gave
     // `coordinator` to every checkout of a coordinator machine, which is the defect the epic was
     // filed about. Measured on the deployed fleet at the time: one machine, 41 sessions in 5 days.
-    $coordinatorMachine = $this->approveInstallation($this->developer, [
-        Ability::CoordinatorDirect->value,
-    ], machineLabel: 'coordinator-machine');
+    $coordinatorMachine = $this->approveInstallation($this->developer, machineLabel: 'coordinator-machine');
 
     [$session] = $this->startAgentSession($coordinatorMachine);
 

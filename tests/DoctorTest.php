@@ -19,7 +19,6 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\PendingCommand;
-use RobotCouncil\Access\Ability;
 use RobotCouncil\Access\Allowlist;
 use RobotCouncil\Support\Diagnosis;
 use RobotCouncil\Support\DiagnosisStatus;
@@ -118,7 +117,7 @@ it('passes every check on a configuration with nothing wrong with it', function 
     ));
 
     expect($failed)->toBeEmpty()
-        ->and(app(Doctor::class)->examine())->toHaveCount(11);
+        ->and(app(Doctor::class)->examine())->toHaveCount(10);
 });
 
 it('fails when the sanctum guard names no provider, and passes when it does', function (): void {
@@ -329,7 +328,7 @@ it('reports whether anything on the fleet can post a directive, passing either w
 
     $developer = $this->enrollDeveloper(4242);
 
-    $installation = $this->approveInstallation($developer, [Ability::CoordinatorDirect->value], 'coordinator-machine');
+    $installation = $this->approveInstallation($developer, 'coordinator-machine');
 
     // **The enrolled installation alone does not move it, and that is asserted between the two
     // halves rather than left implied.** It is the whole difference `robot-council/core#223` made:
@@ -461,292 +460,6 @@ it('exits non-zero when a check failed and zero when none did', function (): voi
     if ($broken instanceof PendingCommand) {
         expect($broken->run())->toBe(1);
     }
-});
-
-it('names an installation whose stored abilities cannot be read back, and passes when none is', function (): void {
-    $this->migrateUsersTableWithPackageColumns();
-
-    $developer = $this->enrollDeveloper(4242);
-    $installation = $this->approveInstallation($developer, [Ability::TasksCreate->value]);
-
-    // The control first, and before anything is planted: a clean fleet has to pass, or the failure
-    // asserted below could be this check failing on every fleet it will ever see.
-    expect(diagnosis('stored abilities')->status)->toBe(DiagnosisStatus::Passed);
-
-    DB::table('robot_council_installations')
-        ->where('id', $installation->getKey())
-        ->update(['granted_abilities' => (string) json_encode([Ability::TasksCreate->value, null])]);
-
-    $failed = diagnosis('stored abilities');
-
-    expect($failed->status)->toBe(DiagnosisStatus::Failed)
-        ->and($failed->detail)->toContain((string) $installation->id)
-        ->and($failed->detail)->toContain('not a list of ability names')
-        // **The tail sentence, which nothing asserted until #175's review asked.** It is appended
-        // to every failing verdict rather than to one branch, so it is the half of the message a
-        // reader acts on.
-        //
-        // **What it says changed with `robot-council/core#231`, and the assertions moved with it.**
-        // It used to say the installation "acts with fewer abilities than its row claims" and to
-        // hedge about `fleet_can_direct`. Both were claims about authorization, and neither has been
-        // true since `robot-council/core#222`: no session reads this column, and #223 moved
-        // `fleet_can_direct` onto live sessions. What a bad row actually costs is the enrollment
-        // response, which is the one reader left that a client parses.
-        ->and($failed->detail)->toContain('invisible on every read')
-        ->and($failed->detail)->toContain('the enrollment response reports to a client is narrower')
-        ->and($failed->detail)->toContain('No session is affected either way')
-        // And it no longer promises an authorization consequence that does not exist.
-        ->and($failed->detail)->not->toContain('fewer abilities than its row claims');
-});
-
-it('tells a retired ability name apart from a malformed value, because the repairs differ', function (): void {
-    // **The discrimination is the point of the check, not a refinement of it.** A well-formed
-    // string the fixed list no longer holds means the row was written when that ability existed and
-    // wants rewriting; a value that is not a string means something wrote a shape this package
-    // never writes, and the repair is to find what did. Reported together, the reader has to guess.
-    $this->migrateUsersTableWithPackageColumns();
-
-    $developer = $this->enrollDeveloper(4242);
-    $retired = $this->approveInstallation($developer, [Ability::TasksCreate->value], 'retired-machine');
-
-    // `sessions:start` is a real enum member that `grantable()` deliberately excludes, which is
-    // exactly the shape a retired name takes: present, spelled correctly, no longer granted.
-    DB::table('robot_council_installations')
-        ->where('id', $retired->getKey())
-        ->update(['granted_abilities' => (string) json_encode([Ability::SessionsStart->value])]);
-
-    $only = diagnosis('stored abilities');
-
-    expect($only->status)->toBe(DiagnosisStatus::Failed)
-        ->and($only->detail)->toContain('does not grant')
-        // **The repair advice, pinned because it just changed and could silently go stale again.**
-        // `robot-council/core#231` retired the two commands this used to name, so the message says
-        // there is no command that repairs it. Asserting the phrase rather than only `does not
-        // grant` is what would notice a message that started naming a command again.
-        // **The repair advice, pinned because it just changed and could silently go stale again.**
-        // `robot-council/core#231` retired the two commands this used to name. It names the
-        // remedy that survives -- revoke and re-enroll -- rather than telling an operator to hand-
-        // edit production JSON, which is what a first draft of this message did.
-        ->and($only->detail)->toContain('robot-council:revoke-installation')
-        ->and($only->detail)->not->toContain('robot-council:grant-ability')
-        // And NOT the other cause, which is the half a single combined message would blur.
-        ->and($only->detail)->not->toContain('not a list of ability names');
-
-    $malformed = $this->approveInstallation($developer, [Ability::TasksCreate->value], 'malformed-machine');
-
-    DB::table('robot_council_installations')
-        ->where('id', $malformed->getKey())
-        ->update(['granted_abilities' => 'null']);
-
-    // **A third installation, ordered after the malformed one, and that ordering is the point.**
-    // The scan `continue`s past a row whose container is unreadable. Turn that into a `break` and
-    // everything with a higher id goes unreported -- which a fixture whose malformed row happens to
-    // be last cannot see, because stopping there and carrying on give the same answer.
-    $later = $this->approveInstallation($developer, [Ability::TasksCreate->value], 'later-machine');
-
-    DB::table('robot_council_installations')
-        ->where('id', $later->id)
-        ->update(['granted_abilities' => (string) json_encode([Ability::SessionsStart->value])]);
-
-    $both = diagnosis('stored abilities');
-
-    expect($both->detail)->toContain('does not grant')
-        ->and($both->detail)->toContain('not a list of ability names')
-        ->and($both->detail)->toContain((string) $retired->id)
-        ->and($both->detail)->toContain((string) $malformed->id)
-        ->and($both->detail)->toContain((string) $later->id);
-});
-
-it('reports one row under one cause, whichever of its entries comes first', function (): void {
-    // **Each row stops at its first fault, and both `break`s are load-bearing.** Let the scan carry
-    // on and a row holding a bad entry of each kind is reported under BOTH causes -- which reads as
-    // two problems where there is one, and tells the operator to do two different repairs.
-    //
-    // Asserted in both orders, because a single order only pins whichever `break` that order
-    // reaches first.
-    $this->migrateUsersTableWithPackageColumns();
-
-    $developer = $this->enrollDeveloper(4242);
-    $installation = $this->approveInstallation($developer, [Ability::TasksCreate->value]);
-
-    // Malformed entry first: reported as malformed, and NOT also as retired.
-    DB::table('robot_council_installations')
-        ->where('id', $installation->id)
-        ->update(['granted_abilities' => (string) json_encode([null, Ability::SessionsStart->value])]);
-
-    $malformedFirst = diagnosis('stored abilities');
-
-    expect($malformedFirst->detail)->toContain('not a list of ability names')
-        ->and($malformedFirst->detail)->not->toContain('does not grant');
-
-    // Retired entry first: reported as retired, and NOT also as malformed.
-    DB::table('robot_council_installations')
-        ->where('id', $installation->id)
-        ->update(['granted_abilities' => (string) json_encode([Ability::SessionsStart->value, null])]);
-
-    $retiredFirst = diagnosis('stored abilities');
-
-    expect($retiredFirst->detail)->toContain('does not grant')
-        ->and($retiredFirst->detail)->not->toContain('not a list of ability names');
-});
-
-it('says nothing about an installation that is revoked, nor one that has expired', function (): void {
-    // It reads `Installation::usable()`, so a credential that already cannot act is not a fault to
-    // report. Without this the check would name every historical row a fleet ever held.
-    $this->migrateUsersTableWithPackageColumns();
-
-    $developer = $this->enrollDeveloper(4242);
-    $revoked = $this->approveInstallation($developer, [Ability::TasksCreate->value], 'revoked-machine');
-
-    DB::table('robot_council_installations')
-        ->where('id', $revoked->getKey())
-        ->update([
-            'granted_abilities' => (string) json_encode([null]),
-            'revoked_at' => Carbon::now(),
-        ]);
-
-    expect(diagnosis('stored abilities')->status)->toBe(DiagnosisStatus::Passed);
-
-    // The control: the same row, unrevoked, is reported -- so the pass above is the `usable()`
-    // filter and not the check failing to see a planted value at all.
-    DB::table('robot_council_installations')->where('id', $revoked->id)->update(['revoked_at' => null]);
-
-    expect(diagnosis('stored abilities')->status)->toBe(DiagnosisStatus::Failed);
-
-    // **The expired half, which the name promised and an earlier version did not exercise.**
-    // `usable()` reads two columns, and a filter written against one passes a test that only moves
-    // the other -- so both are moved here, with the revoked flag put back first.
-    DB::table('robot_council_installations')
-        ->where('id', $revoked->id)
-        ->update(['expires_at' => Carbon::now()->subMinute()]);
-
-    expect(diagnosis('stored abilities')->status)->toBe(DiagnosisStatus::Passed);
-});
-
-it('says the stored-abilities check is undetermined when it cannot read the installations', function (): void {
-    // **The third direction, and the one the other database-reading checks both have.** Without it
-    // the entire catch branch could be deleted and the suite would stay green.
-    //
-    // The same probe `migrations()` and `coordination()` use: point the default connection at an
-    // empty database rather than dropping the real schema, which would corrupt whichever test ran
-    // next on an engine that persists.
-    config()->set('database.connections.rc_empty_probe', [
-        'driver' => 'sqlite',
-        'database' => ':memory:',
-        'prefix' => '',
-        'foreign_key_constraints' => false,
-    ]);
-
-    $default = config('database.default');
-
-    config()->set('database.default', 'rc_empty_probe');
-
-    try {
-        $unknown = diagnosis('stored abilities');
-
-        expect($unknown->status)->toBe(DiagnosisStatus::Undetermined)
-            ->and($unknown->detail)->toContain('php artisan migrate');
-    } finally {
-        config()->set('database.default', $default);
-    }
-
-    // The control, back on the real connection: a migrated database with nothing wrong answers
-    // Passed, so the Undetermined above is the missing table and not this check's resting state.
-    $this->migrateUsersTableWithPackageColumns();
-
-    expect(diagnosis('stored abilities')->status)->toBe(DiagnosisStatus::Passed);
-});
-
-it('prints no row contents, only the installation that holds them', function (): void {
-    // `Diagnosis` output is read by whoever is worried. An abilities column is not a secret, but
-    // the habit is: say which row, never what is in it.
-    $this->migrateUsersTableWithPackageColumns();
-
-    $developer = $this->enrollDeveloper(4242);
-    $installation = $this->approveInstallation($developer, [Ability::TasksCreate->value]);
-
-    DB::table('robot_council_installations')
-        ->where('id', $installation->getKey())
-        ->update(['granted_abilities' => (string) json_encode(['a-distinctive-planted-value'])]);
-
-    $detail = diagnosis('stored abilities')->detail;
-
-    expect($detail)->not->toContain('a-distinctive-planted-value')
-        // The positive control for the search itself: the id it SHOULD name is present, so an
-        // assertion passing above cannot mean the detail was empty.
-        ->and($detail)->toContain((string) $installation->id);
-});
-
-it('cuts the list of named installations and counts the rest', function (): void {
-    // **This surface was added to bound one console line, and arrived with no test at all.** Twelve
-    // mutants survived in the helper -- unwrapping the slice, moving the offset, flipping the
-    // remainder's sign and its comparison -- because nothing in the suite had more than a handful of
-    // faulty rows. A bound nobody exercises is a bound nobody has.
-    $this->migrateUsersTableWithPackageColumns();
-
-    $developer = $this->enrollDeveloper(4242);
-    $key = keyValue($developer->getKey());
-    $limit = Doctor::MAX_NAMED_INSTALLATIONS;
-
-    $rows = [];
-
-    for ($i = 0; $i < $limit + 2; $i++) {
-        $rows[] = [
-            'user_id' => $key,
-            'harness' => 'claude-code',
-            'machine_label' => 'machine-'.$i,
-            'granted_abilities' => 'null',
-            'approved_by' => $key,
-            'expires_at' => Carbon::now()->addDays(30),
-            'created_at' => Carbon::now(),
-            'updated_at' => Carbon::now(),
-        ];
-    }
-
-    DB::table('robot_council_installations')->insert($rows);
-
-    $ids = DB::table('robot_council_installations')->orderBy('id')->pluck('id')->all();
-
-    $detail = diagnosis('stored abilities')->detail;
-
-    // **The listed ids are parsed out rather than searched for as substrings.** A first version
-    // asserted `not->toContain('22')` for the last id and failed on the COUNT, which is also 22 --
-    // the aggregate and the detail sharing a number is exactly what a substring match cannot tell
-    // apart.
-    preg_match('/find what did: ([0-9, ]+?)(?: and \d+ more)?\./', $detail, $matches);
-
-    $listed = array_map(intval(...), explode(', ', trim($matches[1] ?? '')));
-
-    expect($detail)
-        // The count is exact even though the list is not.
-        ->toContain(($limit + 2).' installation(s)')
-        // The remainder is counted, and counted right -- a sign flip reads 44 here rather than 2.
-        ->and($detail)->toContain('and 2 more')
-        // Exactly `$limit` ids, taken from the front: moving the slice's offset drops the first.
-        ->and($listed)->toHaveCount($limit)
-        ->and($listed[0])->toBe($ids[0])
-        ->and($listed)->not->toContain($ids[$limit])
-        ->and($listed)->not->toContain($ids[$limit + 1]);
-
-    // **One over the limit, which is the only input that separates `> 0` from `> 1`.** With two
-    // extra rows above and none below, an off-by-one in the remainder is invisible.
-    DB::table('robot_council_installations')->where('id', $ids[$limit + 1])->delete();
-
-    expect(diagnosis('stored abilities')->detail)->toContain('and 1 more');
-
-    // Exactly at the limit: nothing is cut, so no remainder clause at all. This is what separates
-    // `> 0` from `>= 0`, which otherwise differ on no input the suite supplies.
-    DB::table('robot_council_installations')->where('id', $ids[$limit])->delete();
-
-    $atLimit = diagnosis('stored abilities')->detail;
-
-    // Parsed, not searched: the empty branch of that ternary is what runs here, and a non-empty
-    // string in its place appends a character to the last id rather than adding a word -- which
-    // `not->toContain(' more')` cannot see, and which breaks this parse.
-    preg_match('/find what did: ([0-9, ]+?)(?: and \d+ more)?\./', $atLimit, $exact);
-
-    expect($atLimit)->not->toContain(' more')
-        ->and(array_map(intval(...), explode(', ', trim($exact[1] ?? ''))))->toHaveCount($limit);
 });
 
 it("names this package's retired migrations when the database has run them, and passes", function (): void {
@@ -951,25 +664,6 @@ it('reads an empty webhook as unset, not as set', function (): void {
     config()->set('robot-council.slack.webhook_url', 'https://hooks.slack.test/services/T/B/x');
 
     expect(diagnosis('slack webhook')->detail)->toContain('Set, so events are mirrored.');
-});
-
-it('leads the stored-abilities finding with the count, not with a noun', function (): void {
-    // **This test found dead code rather than covering it.** It was written to kill a surviving
-    // `UnwrapUcfirst`, and the mutant survived anyway: both clauses begin with `%d`, so the first
-    // character after `sprintf` is a digit and `ucfirst()` could never change anything. It had been
-    // dead since #171's review made these messages lead with a count. The call is gone; what this
-    // now pins is the shape that made it dead, so a message that goes back to opening with a noun
-    // fails here rather than quietly reintroducing the question.
-    $this->migrateUsersTableWithPackageColumns();
-
-    $developer = $this->enrollDeveloper(4242);
-    $installation = $this->approveInstallation($developer, [Ability::TasksCreate->value]);
-
-    DB::table('robot_council_installations')
-        ->where('id', $installation->id)
-        ->update(['granted_abilities' => 'null']);
-
-    expect(diagnosis('stored abilities')->detail)->toStartWith('1 installation(s) hold a value');
 });
 
 it('runs only the checks named, and nothing else', function (): void {

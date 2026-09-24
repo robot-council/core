@@ -64,6 +64,7 @@ final class PackageMigrations
         '2026_09_23_000005_add_role_requests_to_robot_council_agent_sessions',
         '2026_09_23_000006_index_robot_council_agent_session_roles',
         '2026_09_23_000007_compare_session_roles_byte_exactly',
+        '2026_09_24_000001_drop_granted_abilities_columns',
 
         // Retired by #132, which dated the create so something dated could alter its table. Both
         // names stay here forever: a host that migrated before that change has a row for each.

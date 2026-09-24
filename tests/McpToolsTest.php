@@ -37,12 +37,7 @@ beforeEach(function (): void {
 
     $this->developer = $this->enrollDeveloper(4242);
 
-    $this->installation = $this->approveInstallation($this->developer, [
-        Ability::TasksCreate->value,
-        Ability::TasksClaim->value,
-        Ability::LocksAcquire->value,
-        Ability::EventsPost->value,
-    ]);
+    $this->installation = $this->approveInstallation($this->developer);
 
     [$this->session, $this->token] = $this->startAgentSession($this->installation);
 });
@@ -215,7 +210,7 @@ it('refuses a tool the session has no ability for, as an error rather than a res
     // to produce one and no longer does: since `Access\Role`, every preset carries all four build
     // abilities, so that setup would hand this test a token nothing refuses and every row below
     // would pass for the wrong reason.
-    $narrow = $this->approveInstallation($this->developer, [Ability::EventsPost->value], machineLabel: 'narrow');
+    $narrow = $this->approveInstallation($this->developer, machineLabel: 'narrow');
 
     [, $narrowToken] = $this->startAgentSessionWithAbilities($narrow, [Ability::EventsPost->value]);
 
@@ -263,7 +258,7 @@ it('surfaces a state conflict as a tool error carrying the reason', function ():
 it('surfaces a claim-eligibility refusal as a tool error', function (): void {
     $other = $this->enrollDeveloper(77, login: 'otherdev');
 
-    $theirs = $this->approveInstallation($other, [Ability::TasksCreate->value], machineLabel: 'theirs');
+    $theirs = $this->approveInstallation($other, machineLabel: 'theirs');
 
     [, $theirToken] = $this->startAgentSession($theirs);
 
@@ -299,7 +294,7 @@ it('takes a lock and returns its fence', function (): void {
 it('applies the narration rule when it reads the feed', function (): void {
     $other = $this->enrollDeveloper(77, login: 'otherdev');
 
-    $theirs = $this->approveInstallation($other, [Ability::EventsPost->value], machineLabel: 'theirs');
+    $theirs = $this->approveInstallation($other, machineLabel: 'theirs');
 
     [, $theirToken] = $this->startAgentSession($theirs);
 
@@ -362,11 +357,7 @@ function mcpCoordinator(TestCase $case): array
 
     $other = $case->enrollDeveloper(77, login: 'coordinator');
 
-    $installation = $case->approveInstallation($other, [
-        Ability::CoordinatorDirect->value,
-        Ability::TasksClaim->value,
-        Ability::LocksAcquire->value,
-    ], machineLabel: 'coordinator-box');
+    $installation = $case->approveInstallation($other, machineLabel: 'coordinator-box');
 
     // **A coordinator is made by an administrator, not by a grant.** Since
     // `robot-council/core#222` a session starts as `build` whatever its installation holds, so a
@@ -502,7 +493,7 @@ it('refuses narration from a session holding no ability at all', function (): vo
     // A token holding literally nothing. `[]` on the installation no longer produces one -- since
     // `Access\Role` an installation's abilities decide which ROLES it may run, not what its
     // sessions carry, and the floor role still carries four.
-    $silent = $this->approveInstallation($this->developer, [], machineLabel: 'silent');
+    $silent = $this->approveInstallation($this->developer, machineLabel: 'silent');
 
     [, $silentToken] = $this->startAgentSessionWithAbilities($silent, []);
 

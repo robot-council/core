@@ -59,7 +59,6 @@ function targetedSessionFor(TestCase $case, User $developer, array $abilities): 
 {
     $installation = $case->approveInstallation(
         $developer,
-        $abilities,
         machineLabel: 'm-'.keyValue($developer->getKey()).'-'.Str::random(4)
     );
 

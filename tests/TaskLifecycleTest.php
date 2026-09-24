@@ -97,10 +97,7 @@ beforeEach(function (): void {
 
     $this->developer = $this->enrollDeveloper(4242);
 
-    $this->installation = $this->approveInstallation($this->developer, [
-        Ability::TasksCreate->value,
-        Ability::TasksClaim->value,
-    ]);
+    $this->installation = $this->approveInstallation($this->developer);
 
     [$this->session, $this->token] = $this->startAgentSession($this->installation);
 });
@@ -135,10 +132,7 @@ function coordinator(TestCase $case): array
 
     $other = $case->enrollDeveloper(77, login: 'coordinator');
 
-    $installation = $case->approveInstallation($other, [
-        Ability::CoordinatorDirect->value,
-        Ability::TasksCreate->value,
-    ], machineLabel: 'coordinator-box');
+    $installation = $case->approveInstallation($other, machineLabel: 'coordinator-box');
 
     // **A coordinator is made by an administrator, not by a grant.** Since
     // `robot-council/core#222` a session starts as `build` whatever its installation holds, so a
@@ -480,7 +474,7 @@ it('refuses a claim from a session without tasks:claim', function (): void {
     // The token is built directly rather than by narrowing the installation, which since
     // `Access\Role` narrows nothing: every preset carries all four build abilities, so a session
     // started under that installation would be refused neither transition below.
-    $narrow = $this->approveInstallation($this->developer, [Ability::EventsPost->value], machineLabel: 'narrow');
+    $narrow = $this->approveInstallation($this->developer, machineLabel: 'narrow');
 
     [, $narrowToken] = $this->startAgentSessionWithAbilities($narrow, [Ability::EventsPost->value]);
 
@@ -903,7 +897,7 @@ it("refuses a claim on another developer's task", function (): void {
     $other = $this->enrollDeveloper(99, login: 'thirddev');
     $this->setAccessLists(developers: [4242, 77, 99]);
 
-    $theirs = $this->approveInstallation($other, [Ability::TasksCreate->value], machineLabel: 'theirs');
+    $theirs = $this->approveInstallation($other, machineLabel: 'theirs');
 
     [, $theirToken] = $this->startAgentSession($theirs);
 
@@ -1088,7 +1082,7 @@ it("shows that another developer's task exists, and not what it says", function 
     $other = $this->enrollDeveloper(99, login: 'thirddev');
     $this->setAccessLists(developers: [4242, 77, 99]);
 
-    $theirs = $this->approveInstallation($other, [Ability::TasksCreate->value], machineLabel: 'theirs');
+    $theirs = $this->approveInstallation($other, machineLabel: 'theirs');
 
     [, $theirToken] = $this->startAgentSession($theirs);
 
@@ -1485,7 +1479,7 @@ it('refuses text and identifiers the package will not store, through the store n
 it('bounds a project id on the session store too, which writes the same column', function (): void {
     // `robot_council_agent_sessions.project_id` is the second table holding this value, and
     // `AgentSessions::start()` is as directly callable as `Tasks::create()`.
-    $installation = $this->approveInstallation($this->developer, [Ability::TasksCreate->value], machineLabel: 'second');
+    $installation = $this->approveInstallation($this->developer, machineLabel: 'second');
 
     expect(fn (): object => $this->service(AgentSessions::class)
         ->start($installation, str_repeat('z', ProjectId::MAX + 1)))

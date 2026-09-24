@@ -70,9 +70,12 @@ final class DeviceTokenController
             // installation credential carries one ability and cannot act on the fleet at all.
             'abilities' => $issued->abilities,
 
-            // What the session tokens it starts will carry, which is the list the developer
-            // approved. Named apart from `abilities` because it describes a different token.
-            'granted_abilities' => $installation->abilities(),
+            // **`granted_abilities` is gone from here** (#239), and its absence is the breaking
+            // half of this change. It described what a session started by this installation would
+            // carry, which stopped being true at `robot-council/core#222`: a session takes its
+            // abilities from its `Access\Role` preset, so the list answered for no session.
+            // `robot-council/cli` stopped reading it in `robot-council/cli#152` and shipped that in
+            // v0.3.0; a client older than that gets one key fewer and must tolerate its absence.
 
             // A duration rather than an instant, as on the session endpoints: a helper whose clock
             // is wrong can still tell how long it has.

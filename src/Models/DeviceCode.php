@@ -26,7 +26,6 @@ use RobotCouncil\Support\PresenceTimestamp;
  * @property string $challenge_hash
  * @property string $user_code
  * @property list<string> $requested_abilities
- * @property list<string>|null $granted_abilities
  * @property string $harness
  * @property string $machine_label
  * @property string|null $requested_ip
@@ -80,7 +79,6 @@ final class DeviceCode extends Model
     {
         return [
             'requested_abilities' => 'array',
-            'granted_abilities' => 'array',
             // Not `datetime`: that hydrates in the application's timezone, while
             // `Support\Credentials::deviceCodeExpiry()` writes this on `Support\PresenceClock` and
             // `Support\DeviceCodes` compares it there. `DeviceCodes::consume()` also re-reads the row

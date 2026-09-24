@@ -13,7 +13,6 @@ use Illuminate\Support\Carbon;
 use Laravel\Sanctum\PersonalAccessToken;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
-use RobotCouncil\Access\Ability;
 use RobotCouncil\Access\Role;
 use RobotCouncil\Livewire\FleetPresence;
 use RobotCouncil\Models\AgentSessionStatus;
@@ -30,9 +29,7 @@ beforeEach(function (): void {
 
     $this->developer = $this->enrollDeveloper(4242);
 
-    $this->installation = $this->approveInstallation($this->developer, [
-        Ability::LocksAcquire->value,
-    ], machineLabel: 'workbench-01');
+    $this->installation = $this->approveInstallation($this->developer, machineLabel: 'workbench-01');
 
     [$this->session, $this->token] = $this->startAgentSession($this->installation);
 
@@ -163,7 +160,7 @@ it('lists a held lock with its holder, fence and lease', function (): void {
     // would pass with the entire holder cell replaced by the word `nobody`.
     $other = $this->enrollDeveloper(77, login: 'somebody-else');
 
-    $installation = $this->approveInstallation($other, [Ability::LocksAcquire->value], machineLabel: 'their-box');
+    $installation = $this->approveInstallation($other, machineLabel: 'their-box');
 
     [$theirs] = $this->startAgentSession($installation);
 
@@ -254,7 +251,7 @@ it("loads each session's installation without a query per row", function (): voi
     // The harness and the machine label live on the installation, and this list hydrates many
     // sessions. `Model::preventLazyLoading()` only raises on a query that returned more than one
     // row, so the second session is what makes this able to fail at all.
-    $second = $this->approveInstallation($this->developer, [], machineLabel: 'laptop');
+    $second = $this->approveInstallation($this->developer, machineLabel: 'laptop');
 
     $this->startAgentSession($second);
 
@@ -358,7 +355,7 @@ it('renders a hostile lock name as text', function (): void {
     // page's escaping is shown to be its own guarantee rather than the validator's.
     $other = $this->enrollDeveloper(77, login: 'somebody-else');
 
-    $installation = $this->approveInstallation($other, [Ability::LocksAcquire->value], machineLabel: 'their-box');
+    $installation = $this->approveInstallation($other, machineLabel: 'their-box');
 
     [$theirs] = $this->startAgentSession($installation);
 

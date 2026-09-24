@@ -131,7 +131,6 @@ final class Installations
                 'user_id' => $code->decided_by,
                 'harness' => $code->harness,
                 'machine_label' => $code->machine_label,
-                'granted_abilities' => Ability::requestableFrom($code->getAttribute('granted_abilities')),
                 'approved_by' => $code->decided_by,
                 'requested_ip' => $code->requested_ip,
                 'expires_at' => $this->credentials->installationExpiry(),

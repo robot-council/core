@@ -71,7 +71,6 @@ function seedFleet(int $coordinators = 0): void
         'user_id' => '1',
         'machine_label' => 'machine-'.$n,
         'harness' => 'claude-code',
-        'granted_abilities' => '[]',
         'created_at' => '2026-09-01 00:00:00',
         'updated_at' => '2026-09-01 00:00:00',
         'expires_at' => '2126-09-01 00:00:00',

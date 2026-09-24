@@ -184,13 +184,6 @@ final class DeviceCodes
             'approved_at' => Carbon::now(),
             'decided_by' => $decidedBy,
 
-            // Encoded here because a query-builder update writes its values straight through,
-            // without the model's casts. Narrowed for the reason `issue()` records: the only
-            // in-package caller already passes `Ability::granted()`'s answer, so this changes
-            // nothing for the enrollment flow and stops a direct caller writing an ability the
-            // device-code flow can never produce -- `coordinator:direct` above all, which
-            // `Models\Installation::abilities()` would then honor (#170)
-            'granted_abilities' => json_encode(Ability::requestableFrom($granted), JSON_THROW_ON_ERROR),
         ]) === 1;
     }
 

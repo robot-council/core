@@ -39,7 +39,7 @@ beforeEach(function (): void {
     $this->developer = $this->enrollDeveloper(4242, 'octodev');
     $this->admin = $this->enrollDeveloper(77, 'octoadmin');
 
-    $this->installation = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
+    $this->installation = $this->approveInstallation($this->developer);
 });
 
 it('records which admin revoked a session, against a second developer entirely', function (): void {
@@ -104,7 +104,7 @@ it('serves a restricted event to the developer it is about, not to whoever recor
     // realism rather than because the rule reads it; it does not.
     [$ownerSession] = $this->startAgentSession($this->installation);
 
-    $adminInstallation = $this->approveInstallation($this->admin, [Ability::TasksCreate->value], 'admin-machine');
+    $adminInstallation = $this->approveInstallation($this->admin, 'admin-machine');
 
     [$adminSession] = $this->startAgentSession($adminInstallation);
 

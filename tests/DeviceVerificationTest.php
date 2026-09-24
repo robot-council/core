@@ -111,8 +111,7 @@ it('grants what the request asked for, and records who decided', function (): vo
 
     $decided = $enrollment['record']->refresh();
 
-    expect($decided->granted_abilities)->toBe([Ability::TasksClaim->value])
-        ->and($decided->approved_at)->not->toBeNull()
+    expect($decided->approved_at)->not->toBeNull()
         ->and($decided->denied_at)->toBeNull()
         ->and($decided->decided_by)->toBe(keyValue($this->developer->getKey()));
 });
@@ -132,7 +131,17 @@ it('grants nothing that was added to the approval itself', function (): void {
         ])
         ->assertRedirect();
 
-    expect($enrollment['record']->refresh()->granted_abilities)->toBe([Ability::TasksCreate->value]);
+    // **The property survives the column that used to carry it** (#239). It used to be that a
+    // `granted_abilities` posted by the approver's browser did not widen what was stored. There is
+    // no stored list any more, so the assertion moves to the row that remains: approving records
+    // the decision and changes nothing about what was asked for. A form field named after a column
+    // this package no longer has must reach nothing.
+    $decided = $enrollment['record']->refresh();
+
+    expect($decided->approved_at)->not->toBeNull()
+        ->and($decided->requestedAbilities())->toBe([Ability::TasksCreate->value])
+        ->and($decided->getAttributes())->not->toHaveKey('granted_abilities')
+        ->and($decided->getAttributes())->not->toHaveKey('abilities');
 });
 
 it('records a denial, and grants nothing', function (): void {
@@ -146,7 +155,6 @@ it('records a denial, and grants nothing', function (): void {
 
     expect($decided->denied_at)->not->toBeNull()
         ->and($decided->approved_at)->toBeNull()
-        ->and($decided->granted_abilities)->toBeNull()
         ->and(Installation::query()->count())->toBe(0);
 });
 
@@ -232,7 +240,7 @@ it('keeps requests apart when two are in flight', function (): void {
         'confirmed' => '1',
     ])->assertRedirect();
 
-    expect($second['record']->refresh()->granted_abilities)->toBe([Ability::LocksAcquire->value])
+    expect($second['record']->refresh()->requestedAbilities())->toBe([Ability::LocksAcquire->value])
         ->and($first['record']->refresh()->isDecided())->toBeFalse()
         ->and(DeviceCode::query()->count())->toBe(2);
 });

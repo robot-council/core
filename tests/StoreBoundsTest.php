@@ -186,7 +186,6 @@ it('refuses to copy an unstorable harness forward into an installation', functio
     $code = new DeviceCode([
         'harness' => str_repeat('a', MachineIdentity::MAX_HARNESS + 1),
         'machine_label' => 'workbench-01',
-        'granted_abilities' => [Ability::TasksCreate->value],
     ]);
 
     $code->decided_by = '4242';

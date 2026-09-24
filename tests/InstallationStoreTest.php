@@ -111,7 +111,7 @@ it('leaves the caller holding a revoked installation, not the one it passed in',
     // `revoke()` updates the row and then refreshes the instance. Without the refresh the caller
     // keeps an object that still answers `isUsable()` true -- and the dashboard re-renders from
     // exactly that object after calling this.
-    $installation = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
+    $installation = $this->approveInstallation($this->developer);
 
     expect($installation->isUsable())->toBeTrue();
 
@@ -124,7 +124,7 @@ it('leaves the caller holding a revoked installation, not the one it passed in',
 it('counts the tokens it deleted across the installation and its sessions', function (): void {
     // The count is a sum over two sources, so a sign flip reports the session's tokens as a debit
     // against the installation's and the caller is told fewer credentials died than did.
-    $installation = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
+    $installation = $this->approveInstallation($this->developer);
 
     $this->installationCredential($installation);
 
@@ -146,7 +146,7 @@ it('carries the installation id on an event whose caller passed no meta of its o
     // `revoke()` passes an empty `meta`, so the literal `installation_id` is the only entry and
     // the spread contributes nothing -- the case where dropping the literal leaves `meta` null
     // rather than merely shorter.
-    $installation = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
+    $installation = $this->approveInstallation($this->developer);
 
     $this->service(Installations::class)->revoke($installation, keyValue($this->admin->getKey()));
 

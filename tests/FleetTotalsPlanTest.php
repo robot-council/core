@@ -78,8 +78,8 @@ function seedForTotals(): void
     DB::statement(
         <<<'SQL'
             insert into robot_council_installations
-                (user_id, harness, machine_label, granted_abilities, expires_at, created_at, updated_at)
-            values ('dev-0', 'probe', 'plan-fixture', '[]', ?::timestamp, ?::timestamp, ?::timestamp)
+                (user_id, harness, machine_label, expires_at, created_at, updated_at)
+            values ('dev-0', 'probe', 'plan-fixture', ?::timestamp, ?::timestamp, ?::timestamp)
             SQL,
         [now()->addYear()->toDateTimeString(), $now, $now]
     );

@@ -115,18 +115,16 @@ it('makes `abilities` describe the token beside it, everywhere', function (): vo
     // An installation credential can do one thing, and says so about itself
     expect($responses['device/token']['abilities'])->toBe([Ability::SessionsStart->value])
 
-        // while `granted_abilities` describes the INSTALLATION, which is a different subject and
-        // therefore a different key. Since #221 it no longer describes the session tokens it will
-        // start either -- it says which roles this machine may run -- so the two keys are further
-        // apart than they were, not closer.
-        ->and($responses['device/token']['granted_abilities'])->toBe([Ability::TasksCreate->value]);
+        // **And `abilities` is now the only ability key any of these answers carry** (#239).
+        // `granted_abilities` sat beside it describing the INSTALLATION, which was a different
+        // subject under a name one letter apart -- and after #221 it no longer described the
+        // session tokens that installation would start either. The vocabulary is simpler for its
+        // removal, which is what this assertion now pins.
+        ->and($responses['device/token'])->not->toHaveKey('granted_abilities');
 
-    // Both session responses describe their own token, which is the role's preset. The point of
-    // the assertion is that `abilities` is never the installation's list: it is not, and these
-    // two lists are now visibly different from the one above.
+    // Both session responses describe their own token, which is the role's preset.
     expect($responses['sessions']['abilities'])->toBe(Role::Build->tokenAbilities())
-        ->and($responses['sessions/renew']['abilities'])->toBe(Role::Build->tokenAbilities())
-        ->and($responses['sessions']['abilities'])->not->toBe($responses['device/token']['granted_abilities']);
+        ->and($responses['sessions/renew']['abilities'])->toBe(Role::Build->tokenAbilities());
 });
 
 it('answers 201 where it creates something and 200 where it replaces one', function (): void {

@@ -51,7 +51,7 @@ beforeEach(function (): void {
  */
 function sessionFor(TestCase $case, User $developer, array $abilities): array
 {
-    $installation = $case->approveInstallation($developer, $abilities, machineLabel: 'm-'.keyValue($developer->getKey()));
+    $installation = $case->approveInstallation($developer, machineLabel: 'm-'.keyValue($developer->getKey()));
 
     // **A coordinator is made by an administrator, not by a grant.** Since
     // `robot-council/core#222` a session starts as `build` whatever its installation holds, so a
@@ -67,7 +67,7 @@ it('refuses narration from a session whose token lacks the ability', function ()
     // The token is built to lack it, rather than the installation being narrowed: since
     // `Access\Role`, `events:post` is in every preset, so a session started under a narrowed
     // installation carries it and this test would assert nothing.
-    $installation = $this->approveInstallation($this->mine, [Ability::TasksCreate->value], machineLabel: 'm-narrow');
+    $installation = $this->approveInstallation($this->mine, machineLabel: 'm-narrow');
 
     [, $token] = $this->startAgentSessionWithAbilities($installation, [Ability::TasksCreate->value]);
 
@@ -242,7 +242,6 @@ it('keeps showing narration posted while the ability was held, after it is revok
 
     $theirInstallation = $this->approveInstallation(
         $this->theirs,
-        [Ability::EventsPost->value, Ability::CoordinatorDirect->value],
         machineLabel: 'theirs'
     );
 
@@ -396,7 +395,7 @@ it('limits two sessions of one installation separately', function (): void {
 
     // One installation, two processes. Keyed on the installation or the developer, these would
     // throttle each other; the limit is per session.
-    $installation = $this->approveInstallation($this->mine, [Ability::EventsPost->value]);
+    $installation = $this->approveInstallation($this->mine);
 
     [, $first] = $this->startAgentSession($installation);
     [, $second] = $this->startAgentSession($installation);
@@ -442,7 +441,7 @@ it('refuses metadata too large or too deep to be worth storing', function (array
 ]);
 
 it('refuses a project id outside the safe character set', function (): void {
-    $installation = $this->approveInstallation($this->mine, [Ability::EventsPost->value]);
+    $installation = $this->approveInstallation($this->mine);
     $credential = $this->installationCredential($installation);
 
     // It reaches every agent in the fleet through `session.joined`, from a credential holding
@@ -478,7 +477,7 @@ it('starts a session at the head of the feed, so it reaches current events in on
         $events->record(FleetEventType::Narration, $mine, sprintf('Old %03d', $n));
     }
 
-    $installation = $this->approveInstallation($this->mine, [Ability::EventsPost->value], machineLabel: 'fresh');
+    $installation = $this->approveInstallation($this->mine, machineLabel: 'fresh');
 
     $started = $this->machine($this->installationCredential($installation))
         ->postJson(route('robot-council.sessions.start'));
@@ -516,7 +515,7 @@ it('makes the starting cursor a default rather than a restriction', function ():
 
     $this->service(FleetEvents::class)->record(FleetEventType::Narration, $mine, 'Older than the session.');
 
-    $installation = $this->approveInstallation($this->mine, [Ability::EventsPost->value], machineLabel: 'fresh');
+    $installation = $this->approveInstallation($this->mine, machineLabel: 'fresh');
 
     $started = $this->machine($this->installationCredential($installation))
         ->postJson(route('robot-council.sessions.start'));
@@ -542,7 +541,7 @@ it('returns an event written after the session started', function (): void {
     // and SQLite serializes writers. `tests/FeedOrderingTest.php` proves the lock holds; telling
     // `$enrolled->id` apart from a `MAX(id)` read outside it needs a second connection, which is
     // the `cross-connection` group and is #62's measurement.
-    $installation = $this->approveInstallation($this->mine, [Ability::EventsPost->value], machineLabel: 'fresh');
+    $installation = $this->approveInstallation($this->mine, machineLabel: 'fresh');
 
     $started = $this->machine($this->installationCredential($installation))
         ->postJson(route('robot-council.sessions.start'));
@@ -581,7 +580,7 @@ it("does not let a reused session id hand one developer another developer's narr
 
     // Now MY developer takes that id. Written explicitly rather than by truncating, because the
     // engines reuse ids by different routes and the point is what happens once one is reused.
-    $mineInstallation = $this->approveInstallation($this->mine, [Ability::EventsPost->value], machineLabel: 'recycler');
+    $mineInstallation = $this->approveInstallation($this->mine, machineLabel: 'recycler');
 
     AgentSession::query()->insert([
         'id' => $deadId,
