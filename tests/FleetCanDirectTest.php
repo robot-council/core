@@ -359,16 +359,18 @@ it('reads the roles the enum defines, not whatever string the row happens to hol
     'an ability name in the role column' => 'coordinator:dir',
     'empty' => '',
 
-    // **`'COORDINATOR'` is deliberately NOT a row here, and the reason is worth the paragraph.**
-    // The match happens in SQL, and nothing in this package case-folds -- so whether an uppercase
-    // role matches is the COLLATION's answer, not this code's. Measured 2026-09-23 on MySQL 9.4.0
-    // under Testbench's default `utf8mb4_unicode_ci`: it matches, `anyLiveSessionHolds()` returns
-    // true, and the row fails. It passes on SQLite and Postgres, which compare case-sensitively.
+    // **`'COORDINATOR'` is back, and it took a schema change to make it honest.** The match happens
+    // in SQL and nothing in this package case-folds, so whether an uppercase role matches was the
+    // COLLATION's answer rather than this code's: measured 2026-09-23 on MySQL 9.4.0 under
+    // Testbench's default `utf8mb4_unicode_ci`, it matched and this row failed, while passing on
+    // SQLite and Postgres. It was removed rather than left pinning an engine property as though it
+    // were a code property -- and green forever in a CI with no `mysql` job.
     //
-    // Keeping it would pin an engine property as though it were a code property, and it would go
-    // green in CI forever because there is no `mysql` job. `robot-council/core#245` is whether
-    // `role` belongs in the byte-exact collation list `2026_09_22_000002` maintains, which is where
-    // the question actually lives.
+    // `robot-council/core#245` decided the column should mean one thing on every engine, and
+    // `2026_09_23_000007_compare_session_roles_byte_exactly.php` gives it a binary collation. The
+    // row now holds everywhere for the same reason. `RoleComparisonTest` asserts the collation
+    // itself, on the one engine that can answer.
+    'the wrong case' => 'COORDINATOR',
 ]);
 
 it('keeps the query and the row-level answer agreeing about what is usable', function (): void {
