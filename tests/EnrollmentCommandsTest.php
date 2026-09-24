@@ -3,8 +3,14 @@
 declare(strict_types=1);
 
 /**
- * The admin commands: granting and revoking one ability, revoking an installation or a session, and
- * pruning expired device codes.
+ * The admin commands: revoking an installation or a session, and pruning expired device codes.
+ *
+ * **The per-ability grant and revoke commands were retired by `robot-council/core#231`**, with the
+ * tests that covered them. One of those is worth naming rather than just deleting: a test asserting
+ * that revoking `coordinator:direct` mid-request could not be outrun by a session starting at the
+ * same moment. That race stopped existing when `robot-council/core#222` made
+ * `Support\AgentSessions::start()` write `Access\Role::Build` unconditionally -- both sides of its
+ * assertion became `Build`, so no implementation could fail it.
  *
  * Each is checked by what happens to a live credential on the next request, not only by what the
  * rows say. A revocation that leaves a token working is not a revocation.
@@ -14,13 +20,9 @@ declare(strict_types=1);
 
 use Illuminate\Console\Scheduling\Event;
 use Illuminate\Console\Scheduling\Schedule;
-use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\Artisan;
-use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\PersonalAccessToken;
 use RobotCouncil\Access\Ability;
-use RobotCouncil\Access\Role;
-use RobotCouncil\Access\Tokens;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\DeviceCode;
 use RobotCouncil\Models\Installation;
@@ -33,102 +35,6 @@ beforeEach(function (): void {
     $this->developer = $this->enrollDeveloper(4242);
     $this->installation = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
     $this->credential = $this->installationCredential($this->installation);
-});
-
-it('grants and revokes an ability without reaching any session', function (): void {
-    // **Since `robot-council/core#222` this command writes a stored list and records an event, and
-    // that is all it does.** A session's abilities come from its role, and its role is `build` at
-    // start and an administrator's decision after that -- so neither direction reaches a running
-    // process or a future one. `robot-council/core#231` retires the command with the column.
-    [$session, $token] = $this->startAgentSession($this->installation);
-
-    expect(Artisan::call('robot-council:grant-ability', [
-        'installation' => $this->installation->getKey(),
-        'ability' => Ability::CoordinatorDirect->value,
-    ]))->toBe(0)
-        ->and($this->installation->refresh()->granted_abilities)->toBe([Ability::TasksCreate->value, Ability::CoordinatorDirect->value]);
-
-    $this->machine($token)
-        ->getJson(route('robot-council.agent.session'))
-        ->assertOk()
-        ->assertJsonPath('role', Role::Build->value)
-        ->assertJsonPath('abilities', Role::Build->tokenAbilities());
-
-    // And the NEXT session is a build session too, which is the half that changed: #221 derived a
-    // coordinator here, and the derivation is gone.
-    [, $next] = $this->startAgentSession($this->installation->refresh());
-
-    $this->machine($next)
-        ->getJson(route('robot-council.agent.session'))
-        ->assertOk()
-        ->assertJsonPath('role', Role::Build->value);
-
-    expect($session->refresh()->role)->toBe(Role::Build);
-
-    // **Revoking is the same, asserted against a COORDINATOR session.** The only session-reaching
-    // behavior the deleted code had was a demotion to `build`, so checking that a build session is
-    // still `build` afterwards is a tautology -- it would pass with the demotion restored.
-    [$coordinator] = $this->startCoordinatorSession($this->installation->refresh());
-
-    expect($coordinator->role)->toBe(Role::Coordinator)
-        ->and(Artisan::call('robot-council:revoke-ability', [
-            'installation' => $this->installation->getKey(),
-            'ability' => Ability::CoordinatorDirect->value,
-        ]))->toBe(0)
-        ->and($this->installation->refresh()->granted_abilities)->toBe([Ability::TasksCreate->value])
-        ->and($session->refresh()->role)->toBe(Role::Build)
-        ->and($coordinator->refresh()->role)->toBe(Role::Coordinator)
-        ->and(Tokens::abilities($coordinator->tokens()->sole()))->toContain(Ability::CoordinatorDirect->value);
-});
-
-it('leaves a running session alone when an ability outside the role gate moves', function (): void {
-    // The other half of the property above, and the one that says the preset is now the source: a
-    // build ability going onto or off the installation changes nothing about a live session,
-    // because the installation is no longer where a session's abilities come from.
-    [$session, $token] = $this->startAgentSession($this->installation);
-
-    Artisan::call('robot-council:revoke-ability', [
-        'installation' => $this->installation->getKey(),
-        'ability' => Ability::TasksCreate->value,
-    ]);
-
-    expect($this->installation->refresh()->granted_abilities)->toBeEmpty();
-
-    $this->machine($token)
-        ->getJson(route('robot-council.agent.session'))
-        ->assertOk()
-        ->assertJsonPath('role', Role::Build->value)
-        ->assertJsonPath('abilities', Role::Build->tokenAbilities());
-
-    expect($session->refresh()->role)->toBe(Role::Build);
-});
-
-it('refuses an ability outside the fixed list', function (string $command, string $ability): void {
-    expect(Artisan::call($command, [
-        'installation' => $this->installation->getKey(),
-        'ability' => $ability,
-    ]))->toBe(1)
-        ->and($this->installation->refresh()->granted_abilities)->toBe([Ability::TasksCreate->value]);
-})->with([
-    'the wildcard, granted' => ['robot-council:grant-ability', '*'],
-    'the wildcard, revoked' => ['robot-council:revoke-ability', '*'],
-    'an invention' => ['robot-council:grant-ability', 'tasks:delete'],
-
-    // An installation credential's own ability, which belongs to no session token
-    'the installation credential' => ['robot-council:grant-ability', Ability::SessionsStart->value],
-]);
-
-it('refuses an installation that does not exist', function (string $command): void {
-    expect(Artisan::call($command, ['installation' => 987654, 'ability' => Ability::EventsPost->value]))->toBe(1);
-})->with(['robot-council:grant-ability', 'robot-council:revoke-ability']);
-
-it('grants an ability the installation already holds without duplicating it', function (): void {
-    Artisan::call('robot-council:grant-ability', [
-        'installation' => $this->installation->getKey(),
-        'ability' => Ability::TasksCreate->value,
-    ]);
-
-    expect($this->installation->refresh()->granted_abilities)->toBe([Ability::TasksCreate->value]);
 });
 
 it('revoking an installation stops its credential and every session token it issued', function (): void {
@@ -231,51 +137,4 @@ it('ends a session through the store without touching its installation', functio
 
     // The installation can still start a new session, which is what the process does next
     $this->machine($this->credential)->postJson(route('robot-council.sessions.start'))->assertCreated();
-});
-
-it('cannot be outrun by a session starting at the same moment', function (): void {
-    // `coordinator:direct` is the ability this can still be written about. Since #221 an
-    // installation's stored abilities decide which ROLE a session starts in rather than what it
-    // holds, so a race over `events:post` has no observable outcome: every preset carries it
-    // whichever side wins. The race over coordinator eligibility is the same race and is real.
-    Artisan::call('robot-council:grant-ability', [
-        'installation' => $this->installation->getKey(),
-        'ability' => Ability::CoordinatorDirect->value,
-    ]);
-
-    $fired = false;
-
-    // The revocation lands after the request has already loaded the installation -- the guard
-    // resolves a token's owner before any controller runs -- and before the role is derived. An
-    // implementation that derived it from the instance it arrived with would start a coordinator
-    // session for a machine that is no longer one, and live with it for the session's whole
-    // lifetime, while the command reported that it had taken the ability away.
-    DB::listen(function (QueryExecuted $query) use (&$fired): void {
-        if ($fired || ! str_contains($query->sql, 'robot_council_installations')) {
-            return;
-        }
-
-        $fired = true;
-
-        Artisan::call('robot-council:revoke-ability', [
-            'installation' => $this->installation->getKey(),
-            'ability' => Ability::CoordinatorDirect->value,
-        ]);
-    });
-
-    $started = $this->machine($this->credential)
-        ->postJson(route('robot-council.sessions.start'))
-        ->assertCreated();
-
-    expect($fired)->toBeTrue()
-        ->and($started->json('abilities'))->toBe(Role::Build->tokenAbilities())
-        ->and(AgentSession::query()->sole()->role)->toBe(Role::Build);
-
-    $token = stringValue($started->json('token'));
-
-    $this->machine($token)
-        ->getJson(route('robot-council.agent.session'))
-        ->assertOk()
-        ->assertJsonPath('role', Role::Build->value)
-        ->assertJsonPath('abilities', Role::Build->tokenAbilities());
 });

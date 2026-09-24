@@ -385,12 +385,12 @@ final class Doctor
     /**
      * How many usable installations hold an abilities value the package cannot read back.
      *
-     * **A value `Models\Installation::abilities()` drops is invisible everywhere else, and what it
-     * changes is fleet-wide.** `Support\FleetAbilities::anyInstallationHolds()` reads every usable
-     * installation to answer `fleet_can_direct`, so one unreadable row can tell every agent on the
-     * fleet that no directive will ever arrive. That answer is correct and its cause is not
-     * recorded anywhere: before #167 the same row raised, which was at least loud. This is the
-     * check that names it (#171).
+     * **A value `Models\Installation::abilities()` drops is invisible everywhere else.** Before
+     * `robot-council/core#223` the cost was fleet-wide: `Support\FleetAbilities` read every usable
+     * installation to answer `fleet_can_direct`, so one unreadable row could tell every agent that
+     * no directive would ever arrive. It reads live sessions now, so a malformed row no longer
+     * reaches that answer -- and this check is still the only thing that names one, because nothing
+     * else reports a value the accessor silently drops (#171).
      *
      * **It separates two causes, because they have different fixes.** A stored element that is a
      * well-formed string the fixed list no longer holds is a RETIRED name -- the row was written
@@ -496,7 +496,7 @@ final class Doctor
         if ($retired !== []) {
             $parts[] = sprintf(
                 <<<'TEXT'
-                %d installation(s) name something this version does not grant -- a retired ability, or a value like `*` that never was one -- so it is dropped on every read. Repair it with any `robot-council:grant-ability` or `robot-council:revoke-ability` that CHANGES the readable list; one whose answer is what is already readable writes nothing, which includes revoking an ability the row does not readably hold: %s
+                %d installation(s) name something this version does not grant -- a retired ability, or a value like `*` that never was one -- so it is dropped on every read. Nothing updates the column any more, so no command repairs one in place: revoke the installation with `robot-council:revoke-installation` and have its developer enroll again, which writes a clean row and drops the old one out of every read: %s
                 TEXT,
                 \count($retired),
                 self::named($retired)
@@ -511,7 +511,7 @@ final class Doctor
             // which is what the criterion says to do with code no input can reach.
             implode('; ', $parts)
             .<<<'TEXT'
-            . Until then those entries are invisible on every read, so the installation acts with fewer abilities than its row claims. Whether repairing one changes `fleet_can_direct` depends on a gate this check does not apply: that answer also requires the installation's developer to still be on the access list.
+            . Those entries are invisible on every read, so what the enrollment response reports to a client is narrower than the row claims. No session is affected either way: a session's abilities come from its role, and `fleet_can_direct` reads live sessions rather than this column.
             TEXT
         );
     }
@@ -639,21 +639,27 @@ final class Doctor
      *
      * **A fleet can be wired correctly and still deliver nothing.** The CLI's follower treats a
      * directive as the one event that always reaches an idle agent, and posting one needs
-     * `coordinator:direct`, which enrollment can never request. Unless an admin has granted it to
-     * some installation, every stop hook on the fleet finds an empty sink forever -- and an empty
-     * sink is byte-identical to a fleet that genuinely has nothing to say, which is why nothing
-     * reports it today.
+     * `coordinator:direct`, which a session cannot ask itself into. Unless an administrator has put
+     * some session in the `coordinator` role, every stop hook on the fleet finds an empty sink
+     * forever -- and an empty sink is byte-identical to a fleet that genuinely has nothing to say,
+     * which is why nothing reports it today.
      *
      * **It passes when the answer is no.** A fleet whose agents only ever receive is a legitimate
      * configuration, and a check that failed on one would be a check people switch off. What it
      * does is say which of the two a deployment is, so the absence is not read as quiet.
+     *
+     * **It is a point-in-time answer since `robot-council/core#223`, and the wording says so.** The
+     * subject is live sessions rather than installations, so a fleet whose coordinator is between
+     * runs reports `no` and reports `yes` a moment later. A message phrased as a standing property
+     * of the deployment -- which the installation-level one was -- would send an operator looking
+     * for a configuration problem that does not exist.
      *
      * @return Diagnosis What the check concluded.
      */
     private function coordination(): Diagnosis
     {
         try {
-            $anyone = $this->fleet->anyInstallationHolds(Ability::CoordinatorDirect);
+            $anyone = $this->fleet->anyLiveSessionHolds(Ability::CoordinatorDirect);
         } catch (QueryException) {
             // **`QueryException`, not `Throwable`.** The only cause this message can honestly name
             // is a table it could not read, and a blanket catch would report a `TypeError` from a
@@ -662,7 +668,7 @@ final class Doctor
             return Diagnosis::undetermined(
                 'fleet coordination',
                 <<<'TEXT'
-                The installations table could not be read, so whether anything on this fleet can post a directive is unknown. Run `php artisan migrate` first.
+                The agent sessions and installations tables could not be read, so whether anything on this fleet can post a directive is unknown. Run `php artisan migrate` first.
                 TEXT
             );
         }
@@ -671,14 +677,14 @@ final class Doctor
             return Diagnosis::passed(
                 'fleet coordination',
                 <<<'TEXT'
-                No installation holds `coordinator:direct`, so no directive can be posted and nothing will reach an agent waiting on one. That is correct for a fleet whose agents only receive. Grant it with `php artisan robot-council:grant-ability` if it is not.
+                No session is coordinating right now, so no directive can be posted and nothing will reach an agent waiting on one. That is correct for a fleet whose agents only receive, and for one whose coordinator is between runs. If it is neither, put a running session in the `coordinator` role from the administration page.
                 TEXT
             );
         }
 
         return Diagnosis::passed(
             'fleet coordination',
-            'At least one installation holds `coordinator:direct`, so a directive can reach a waiting agent.'
+            'At least one session is coordinating right now, so a directive can reach a waiting agent.'
         );
     }
 

@@ -10,6 +10,12 @@ declare(strict_types=1);
  * changed, and the criterion in this repository is **no unexplained survivors** rather than a
  * score -- a percentage merges an unexamined survivor with a provably equivalent one.
  *
+ * **`setAbility()` and the four tests that covered it went with `robot-council/core#231`.** What
+ * they pinned -- that an `array_values` hoist kept the stored list a JSON array rather than an
+ * object, and that a no-op write recorded no event -- was about a column no authorization path
+ * reads and a control no surface offers. Deleted rather than repointed: there is no surviving
+ * method with that shape to repoint them at.
+ *
  * **Where a store's guarantee is about what was written, the assertion reads the ROW or the
  * recorded event** rather than the instance a method returned, for the reason `CLAUDE.md` records:
  * an instance reports whatever PHP put in it. Two tests here deliberately read the instance
@@ -22,7 +28,6 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\DB;
 use RobotCouncil\Access\Ability;
-use RobotCouncil\Access\Role;
 use RobotCouncil\Models\DeviceCode;
 use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\FleetEventType;
@@ -137,89 +142,6 @@ it('counts the tokens it deleted across the installation and its sessions', func
         ->and($first->getKey())->not->toBe($second->getKey());
 });
 
-it('answers zero and records nothing when the ability is already what was asked for', function (): void {
-    // The "nothing changed" answer from a conditional write, which is the pattern every store here
-    // decides by. A mutant returning 1 or -1 says an authorization change happened when none did.
-    //
-    // Asserted alongside the event count. Since `robot-council/core#222` the return says whether
-    // the STORED list changed and no token is ever rewritten by this path, so `false` here means
-    // exactly one thing -- but the absent event is kept beside it, because a return that said
-    // `false` while an event was written would be the more interesting failure.
-    $installation = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
-
-    $before = FleetEvent::query()->count();
-
-    expect($this->service(Installations::class)
-        ->setAbility($installation, Ability::TasksCreate, true, keyValue($this->admin->getKey())))
-        ->toBeFalse()
-        ->and(FleetEvent::query()->count())->toBe($before);
-
-    // And the same for removing one that was never held.
-    expect($this->service(Installations::class)
-        ->setAbility($installation, Ability::LocksAcquire, false, keyValue($this->admin->getKey())))
-        ->toBeFalse()
-        ->and(FleetEvent::query()->count())->toBe($before);
-});
-
-it('stores the remaining abilities as a list after removing the first of three', function (): void {
-    // **`array_values` around the filter is load-bearing, not tidiness.** `array_filter` preserves
-    // keys, so removing the first of three leaves `[1 => ..., 2 => ...]` -- which the `array` cast
-    // writes to the JSON column as an OBJECT rather than an array. Every reader of
-    // `granted_abilities` then gets a shape it was not written for, and
-    // `Installation::abilities()`'s own `array_values` would paper over it one layer too late.
-    $installation = $this->approveInstallation($this->developer, [
-        Ability::TasksCreate->value,
-        Ability::TasksClaim->value,
-        Ability::EventsPost->value,
-    ]);
-
-    // A live session, which this deliberately does not touch. Since `robot-council/core#222` the
-    // return says whether the STORED list changed and no session is reached at all, so the column
-    // write below is the whole subject. The session assertion is kept as a reminder of that, not as
-    // a discriminator -- `AdministrationTest` and `SessionRoleTest` both make a session a
-    // coordinator first, which is what it takes to show the inertness.
-    [$session] = $this->startAgentSession($installation);
-
-    expect($this->service(Installations::class)
-        ->setAbility($installation, Ability::TasksCreate, false, keyValue($this->admin->getKey())))
-        ->toBeTrue()
-        ->and($session->refresh()->role)->toBe(Role::Build);
-
-    // The RAW column, because the cast on the way out would hide a keyed write.
-    $stored = DB::table('robot_council_installations')->where('id', $installation->id)->value('granted_abilities');
-
-    expect($stored)->toBeString()
-        ->and(json_decode(\is_string($stored) ? $stored : '', true))
-        ->toBe([Ability::TasksClaim->value, Ability::EventsPost->value]);
-});
-
-it('says in the event body which ability moved and which way', function (): void {
-    // The body is what a human reads in the feed, and the ternary plus two concatenations were
-    // changeable in six ways with nothing failing -- a feed saying "lost tasks:create" where an
-    // ability was granted is worse than saying nothing.
-    $installation = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
-
-    $this->service(Installations::class)
-        ->setAbility($installation, Ability::LocksAcquire, true, keyValue($this->admin->getKey()));
-
-    $granted = FleetEvent::query()->where('type', FleetEventType::InstallationAbilityGranted)->sole();
-
-    expect($granted->body)->toBe('claude-code on workbench was granted locks:acquire.')
-        ->and($granted->meta['ability'] ?? null)->toBe(Ability::LocksAcquire->value)
-        ->and($granted->meta['installation_id'] ?? null)->toBe($installation->id);
-
-    $this->service(Installations::class)
-        ->setAbility($installation, Ability::LocksAcquire, false, keyValue($this->admin->getKey()));
-
-    $revoked = FleetEvent::query()->where('type', FleetEventType::InstallationAbilityRevoked)->sole();
-
-    expect($revoked->body)->toBe('claude-code on workbench lost locks:acquire.')
-        ->and($revoked->meta['ability'] ?? null)->toBe(Ability::LocksAcquire->value)
-        // Both keys, because the spread merges the caller's `meta` into a literal one and either
-        // side could be dropped without the other noticing.
-        ->and($revoked->meta['installation_id'] ?? null)->toBe($installation->id);
-});
-
 it('carries the installation id on an event whose caller passed no meta of its own', function (): void {
     // `revoke()` passes an empty `meta`, so the literal `installation_id` is the only entry and
     // the spread contributes nothing -- the case where dropping the literal leaves `meta` null
@@ -232,35 +154,4 @@ it('carries the installation id on an event whose caller passed no meta of its o
 
     expect($event->body)->toBe('claude-code on workbench was revoked.')
         ->and($event->meta['installation_id'] ?? null)->toBe($installation->id);
-});
-
-it('stores a list when granting against a row that already carries a duplicate', function (): void {
-    // **The granting branch needs `array_values` too, and an earlier note here said it did not.**
-    // `array_unique` preserves keys, so it leaves `0..n-1` only when nothing was deduped. A
-    // duplicated row is reachable, though **not by the path this note first cited**: it named
-    // `DeviceCodes::approve()` writing straight through, and #170 made that method dedupe. What
-    // keeps it reachable is the raw writers the package does not own -- `granted_abilities` is
-    // mass-assignable through `Installation::query()->create()` and `forceFill()`, and a seeder or
-    // a restore writes what it likes. Which is why the row below is planted with the query builder
-    // rather than routed through a store.
-    //
-    // Measured: with `['tasks:create', 'tasks:create']` held, granting `tasks:claim` gives keys
-    // `{0, 2}`, which `json_encode` writes as an OBJECT. So the mutant that unwrapped that call
-    // was a true survivor with no covering input rather than an equivalent one. This is the input.
-    $installation = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
-
-    // Written straight to the row, because the store will not produce a duplicate -- which is
-    // exactly why the store is not the only writer that matters.
-    Installation::query()->whereKey($installation->getKey())->update([
-        'granted_abilities' => json_encode([Ability::TasksCreate->value, Ability::TasksCreate->value]),
-    ]);
-
-    $this->service(Installations::class)
-        ->setAbility($installation->refresh(), Ability::TasksClaim, true, keyValue($this->admin->getKey()));
-
-    $stored = DB::table('robot_council_installations')->where('id', $installation->id)->value('granted_abilities');
-
-    expect($stored)->toBeString()
-        ->and(json_decode(\is_string($stored) ? $stored : '', true))
-        ->toBe([Ability::TasksCreate->value, Ability::TasksClaim->value]);
 });

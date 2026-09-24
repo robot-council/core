@@ -22,14 +22,12 @@ use RobotCouncil\Access\Allowlist;
 use RobotCouncil\Access\ApiGuards;
 use RobotCouncil\Access\Guard;
 use RobotCouncil\Console\DoctorCommand;
-use RobotCouncil\Console\GrantAbilityCommand;
 use RobotCouncil\Console\InstallCommand;
 use RobotCouncil\Console\PruneDeviceCodesCommand;
 use RobotCouncil\Console\PruneEventsCommand;
 use RobotCouncil\Console\PruneLocksCommand;
 use RobotCouncil\Console\PruneSessionsCommand;
 use RobotCouncil\Console\PruneTasksCommand;
-use RobotCouncil\Console\RevokeAbilityCommand;
 use RobotCouncil\Console\RevokeInstallationCommand;
 use RobotCouncil\Console\RevokeSessionCommand;
 use RobotCouncil\Console\SweepSessionsCommand;
@@ -134,8 +132,6 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
             ->hasViews()
             ->hasCommands([
                 InstallCommand::class,
-                GrantAbilityCommand::class,
-                RevokeAbilityCommand::class,
                 RevokeInstallationCommand::class,
                 RevokeSessionCommand::class,
                 DoctorCommand::class,

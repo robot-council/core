@@ -325,19 +325,26 @@ it('reports whether anything on the fleet can post a directive, passing either w
     $quiet = diagnosis('fleet coordination');
 
     expect($quiet->status)->toBe(DiagnosisStatus::Passed)
-        ->and($quiet->detail)->toContain('No installation holds');
+        ->and($quiet->detail)->toContain('No session is coordinating right now');
 
     $developer = $this->enrollDeveloper(4242);
 
-    $this->approveInstallation($developer, [Ability::CoordinatorDirect->value], 'coordinator-machine');
+    $installation = $this->approveInstallation($developer, [Ability::CoordinatorDirect->value], 'coordinator-machine');
 
-    $granted = diagnosis('fleet coordination');
+    // **The enrolled installation alone does not move it, and that is asserted between the two
+    // halves rather than left implied.** It is the whole difference `robot-council/core#223` made:
+    // the same fixture that used to flip this check now leaves it saying no.
+    expect(diagnosis('fleet coordination')->detail)->toContain('No session is coordinating right now');
 
-    expect($granted->status)->toBe(DiagnosisStatus::Passed)
-        ->and($granted->detail)->toContain('At least one installation holds');
+    $this->startCoordinatorSession($installation);
+
+    $running = diagnosis('fleet coordination');
+
+    expect($running->status)->toBe(DiagnosisStatus::Passed)
+        ->and($running->detail)->toContain('At least one session is coordinating right now');
 });
 
-it('says fleet coordination is undetermined when it cannot read the installations', function (): void {
+it('says fleet coordination is undetermined when it cannot read the tables it asks about', function (): void {
     $this->migrateUsersTableWithPackageColumns();
 
     // The same probe the migration check uses, and for the same reason: pointing the default
@@ -358,7 +365,13 @@ it('says fleet coordination is undetermined when it cannot read the installation
         $unknown = diagnosis('fleet coordination');
 
         expect($unknown->status)->toBe(DiagnosisStatus::Undetermined)
-            ->and($unknown->detail)->toContain('php artisan migrate');
+            ->and($unknown->detail)->toContain('php artisan migrate')
+
+            // **The message names what it could not read, and that is pinned rather than assumed.**
+            // The probe empties every table, so nothing here distinguishes sessions from
+            // installations -- and `php artisan migrate` alone is satisfied by the old wording,
+            // which named the installations table this question no longer asks about.
+            ->and($unknown->detail)->toContain('agent sessions');
     } finally {
         config()->set('database.default', $default);
 
@@ -471,13 +484,19 @@ it('names an installation whose stored abilities cannot be read back, and passes
         ->and($failed->detail)->toContain('not a list of ability names')
         // **The tail sentence, which nothing asserted until #175's review asked.** It is appended
         // to every failing verdict rather than to one branch, so it is the half of the message a
-        // reader acts on: it says the entries are dropped on every read, and it refuses to promise
-        // that repairing them restores `fleet_can_direct`, which also needs the developer to still
-        // be on the access list. A message that implied otherwise would send somebody to fix the
-        // wrong thing.
+        // reader acts on.
+        //
+        // **What it says changed with `robot-council/core#231`, and the assertions moved with it.**
+        // It used to say the installation "acts with fewer abilities than its row claims" and to
+        // hedge about `fleet_can_direct`. Both were claims about authorization, and neither has been
+        // true since `robot-council/core#222`: no session reads this column, and #223 moved
+        // `fleet_can_direct` onto live sessions. What a bad row actually costs is the enrollment
+        // response, which is the one reader left that a client parses.
         ->and($failed->detail)->toContain('invisible on every read')
-        ->and($failed->detail)->toContain('fewer abilities than its row claims')
-        ->and($failed->detail)->toContain('still be on the access list');
+        ->and($failed->detail)->toContain('the enrollment response reports to a client is narrower')
+        ->and($failed->detail)->toContain('No session is affected either way')
+        // And it no longer promises an authorization consequence that does not exist.
+        ->and($failed->detail)->not->toContain('fewer abilities than its row claims');
 });
 
 it('tells a retired ability name apart from a malformed value, because the repairs differ', function (): void {
@@ -500,7 +519,16 @@ it('tells a retired ability name apart from a malformed value, because the repai
 
     expect($only->status)->toBe(DiagnosisStatus::Failed)
         ->and($only->detail)->toContain('does not grant')
-        ->and($only->detail)->toContain('robot-council:grant-ability')
+        // **The repair advice, pinned because it just changed and could silently go stale again.**
+        // `robot-council/core#231` retired the two commands this used to name, so the message says
+        // there is no command that repairs it. Asserting the phrase rather than only `does not
+        // grant` is what would notice a message that started naming a command again.
+        // **The repair advice, pinned because it just changed and could silently go stale again.**
+        // `robot-council/core#231` retired the two commands this used to name. It names the
+        // remedy that survives -- revoke and re-enroll -- rather than telling an operator to hand-
+        // edit production JSON, which is what a first draft of this message did.
+        ->and($only->detail)->toContain('robot-council:revoke-installation')
+        ->and($only->detail)->not->toContain('robot-council:grant-ability')
         // And NOT the other cause, which is the half a single combined message would blur.
         ->and($only->detail)->not->toContain('not a list of ability names');
 

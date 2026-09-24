@@ -25,6 +25,7 @@ use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
 use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\FleetEventType;
+use RobotCouncil\Models\Installation;
 use RobotCouncil\Support\AgentSessions;
 use RobotCouncil\Support\Installations;
 use RobotCouncil\Support\PresenceClock;
@@ -224,12 +225,34 @@ it('falls back to the instance when the session row has gone, rather than failin
     expect($issued->abilities)->toBe(Role::Coordinator->tokenAbilities());
 });
 
-it('changes no session when an installation ability moves, in either direction', function (): void {
-    // **The property that replaced two tests here.** `robot-council/core#221` let an ability change
-    // demote a machine's coordinator sessions, and `robot-council/core#222` took that away: a role
-    // is `build` at start and an administrator's decision after that, so `granted_abilities` decides
-    // nothing about any session. `Support\RoleRequests::impose()` is the demotion now, and it acts
-    // on the one session that needs it rather than on every session of a machine.
+/**
+ * Write a `granted_abilities` payload straight onto a row, past every narrowing in the package.
+ *
+ * **Named apart from `MalformedAbilitiesTest`'s `plantAbilities()` deliberately.** A function
+ * declared in a test file is global once that file loads, so sharing the name would redeclare it on
+ * a full run, and calling the other file's copy would fail when this file runs on its own.
+ *
+ * The query builder rather than the model, because a save would put the `array` cast back in the
+ * way -- which is the narrowing being stepped around.
+ */
+function plantStoredAbilities(Installation $installation, string $json): void
+{
+    DB::table('robot_council_installations')
+        ->where('id', $installation->getKey())
+        ->update(['granted_abilities' => $json]);
+}
+
+it('reads no stored ability anywhere in the authorization path, in either direction', function (): void {
+    // **The acceptance criterion of `robot-council/core#231`, asserted rather than reviewed.**
+    // `robot-council/core#221` let an ability change demote a machine's coordinator sessions;
+    // `robot-council/core#222` took that away, and #231 removed the last writer. A role is `build`
+    // at start and an administrator's decision after that.
+    //
+    // **Written straight to the row, which is what makes this outlive the method it replaced.**
+    // The version before it drove `Support\Installations::setAbility()` and so could only say that
+    // one method reached nothing; deleting that method would have deleted the coverage with it.
+    // Planting the column directly asks the question the criterion actually poses -- does anything
+    // in the authorization path read this -- and keeps asking it after every writer is gone.
     $installation = $this->approveInstallation($this->developer, [
         Ability::EventsPost->value,
         Ability::CoordinatorDirect->value,
@@ -239,23 +262,38 @@ it('changes no session when an installation ability moves, in either direction',
 
     expect($session->role)->toBe(Role::Coordinator);
 
-    // Revoking the very ability the role carries, which is the sharpest case: before #222 this
-    // demoted the session, and now it reaches nothing.
-    expect($this->service(Installations::class)
-        ->setAbility($installation, Ability::CoordinatorDirect, false))
-        ->toBeTrue();
+    // Taking away the very ability the role carries, which is the sharpest case.
+    plantStoredAbilities($installation, (string) json_encode([Ability::EventsPost->value]));
+
+    // **The plant is asserted before anything is concluded from it, and an earlier version of this
+    // test did not do that.** Every assertion below reads `Coordinator`, which is also what they
+    // read if the column never changed -- so with the helper inert the whole test passed, verified
+    // by emptying its body. This is the same defect the note thirty lines down describes catching
+    // once already, arriving through the other door: there the fixture never held the ability, here
+    // it never lost it.
+    expect($installation->refresh()->abilities())->not->toContain(Ability::CoordinatorDirect->value)
+        ->and($installation->abilities())->toBe([Ability::EventsPost->value]);
 
     expect($session->refresh()->role)->toBe(Role::Coordinator)
         ->and(Tokens::abilities($session->tokens()->sole()))->toBe(Role::Coordinator->tokenAbilities());
 
-    // And granting one back does not promote anything either. **Started under `$installation`,
-    // which holds `coordinator:direct` at this point** -- an earlier version started it under a
-    // fresh installation that never held the ability, so the assertion was equally true with the
-    // derivation restored and could not fail.
-    expect($this->service(Installations::class)
-        ->setAbility($installation, Ability::CoordinatorDirect, true))
-        ->toBeTrue()
-        ->and($installation->refresh()->abilities())->toContain(Ability::CoordinatorDirect->value);
+    // Renewal is the other door: it re-mints from the row's role, and an implementation that
+    // re-derived from the column would narrow the token here instead.
+    $renewed = $this->service(AgentSessions::class)->renew($installation->refresh(), $session);
+
+    expect($renewed->abilities)->toBe(Role::Coordinator->tokenAbilities());
+
+    // And putting it back promotes nothing. **Started under `$installation`, which holds
+    // `coordinator:direct` again at this point** -- an earlier version started it under a fresh
+    // installation that never held the ability, so the assertion was equally true with the
+    // derivation restored and could not fail. The assertion below is what makes this plant
+    // observable, exactly as the one above does for the removal.
+    plantStoredAbilities($installation, (string) json_encode([
+        Ability::EventsPost->value,
+        Ability::CoordinatorDirect->value,
+    ]));
+
+    expect($installation->refresh()->abilities())->toContain(Ability::CoordinatorDirect->value);
 
     [$next] = $this->startAgentSession($installation);
 
@@ -263,22 +301,11 @@ it('changes no session when an installation ability moves, in either direction',
         ->and(Tokens::abilities($next->tokens()->sole()))->not->toContain(Ability::CoordinatorDirect->value);
 });
 
-it('answers false when an ability change asks for what is already stored', function (): void {
-    // The "nothing changed" answer from a conditional write, which is what the return means now
-    // that no token is ever re-minted by this path.
-    $installation = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
-
-    expect($this->service(Installations::class)->setAbility($installation, Ability::TasksCreate, true))
-        ->toBeFalse()
-        ->and($this->service(Installations::class)->setAbility($installation, Ability::TasksCreate, false))
-        ->toBeTrue();
-});
-
 it('takes the installation row while it renews, which is the package lock order', function (): void {
     // `renew()` no longer needs the installation's abilities, so the call that locks its row reads
     // as removable. It is not: it is the first row in the documented lock order, and dropping it
     // would let a renewal reach the session row and the token rows without it -- inverting the
-    // order `Installations::revoke()` and `setAbility()` take the same three in.
+    // order `Installations::revoke()` takes the same three in.
     //
     // **SQLite serializes writers, so no deadlock test in this suite could show that.** What is
     // observable on every engine is the query itself, which is what this counts. Driven through
@@ -389,13 +416,30 @@ it('rolls back twice and migrates twice without erroring, which is what the guar
  */
 function runTheRoleMigration(string $direction): void
 {
-    $migration = require __DIR__.'/../database/migrations/2026_09_23_000003_add_role_to_robot_council_agent_sessions.php';
+    // **The role INDEX migration is carried along, in Laravel's own order**, because a migration
+    // cannot be run in isolation once a later one depends on its column.
+    // `2026_09_23_000006` indexes `role`, and SQLite refuses to drop a column an index still
+    // references: `error in index robot_council_agent_sessions_role_status_id_index after drop
+    // column: no such column: role`. `Migrator::rollbackMigrations()` reverses the order, so a real
+    // `php artisan migrate:rollback` drops the index first and never meets this -- it is reachable
+    // only from a test that calls one `down()` on its own, which is what this helper was doing.
+    //
+    // Postgres and MySQL drop a dependent index along with the column and would not have reported
+    // it, so this is one more thing only the SQLite runs can see.
+    $order = [
+        '2026_09_23_000003_add_role_to_robot_council_agent_sessions',
+        '2026_09_23_000006_index_robot_council_agent_session_roles',
+    ];
 
-    $run = [$migration, $direction];
+    foreach ($direction === 'down' ? array_reverse($order) : $order as $name) {
+        $migration = require __DIR__.'/../database/migrations/'.$name.'.php';
 
-    if (! \is_callable($run)) {
-        throw new RuntimeException('The migration file did not return something with a '.$direction.'().');
+        $run = [$migration, $direction];
+
+        if (! \is_callable($run)) {
+            throw new RuntimeException('The migration file did not return something with a '.$direction.'().');
+        }
+
+        $run();
     }
-
-    $run();
 }

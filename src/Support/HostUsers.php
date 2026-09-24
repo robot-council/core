@@ -247,21 +247,12 @@ final class HostUsers
     }
 
     /**
-     * Read the GitHub user ID recorded against a key in the host's users table.
-     *
-     * Used where the developer is known by key rather than as a signed-in user: an installation
-     * and an agent session each record the developer they belong to, and every request they make
-     * is checked against the access lists again.
-     *
-     * @param  mixed  $key  The user's primary key, as the host's model types it.
-     * @return int|null The account's GitHub user ID, or null when no identity points at that key.
-     */
-    /**
      * The GitHub account IDs behind several host user keys, in one query.
      *
      * **The bulk form exists so a fleet-wide question is not N queries.** `githubIdForKey()` is
-     * right for one principal on one request; `Support\FleetAbilities` asks about every usable
-     * installation at once, on a route an agent may call twice a second.
+     * right for one principal on one request; `Support\FleetAbilities` asks about every developer
+     * holding a live session in the role under question, on a route an agent may call twice a
+     * second.
      *
      * A key the identity table does not know is absent from the result rather than null in it,
      * because every caller reads absence as "not admitted" and a null would have to be checked
@@ -297,6 +288,16 @@ final class HostUsers
         return $found;
     }
 
+    /**
+     * Read the GitHub user ID recorded against a key in the host's users table.
+     *
+     * Used where the developer is known by key rather than as a signed-in user: an installation
+     * and an agent session each record the developer they belong to, and every request they make
+     * is checked against the access lists again.
+     *
+     * @param  mixed  $key  The user's primary key, as the host's model types it.
+     * @return int|null The account's GitHub user ID, or null when no identity points at that key.
+     */
     public function githubIdForKey(mixed $key): ?int
     {
         $userId = HostKey::tryFrom($key);

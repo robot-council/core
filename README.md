@@ -179,11 +179,21 @@ The *error* bodies do follow RFC 8628 section 3.5 exactly: HTTP 400 with `author
 has, and nothing better exists for them.
 
 Abilities come from a fixed list — `tasks:create`, `tasks:claim`, `locks:acquire`, `events:post` —
-and `coordinator:direct`, which enrollment can never request. An admin grants it afterwards:
+and `coordinator:direct`, which enrollment can never request.
+
+**What a session may do comes from its role, not from its machine.** Every session starts as
+`build`, whatever its installation asked for at enrollment, and carries the four abilities above. A
+session that needs to direct other agents asks to become a `coordinator` — `POST {prefix}/api/agent/role`
+— and an administrator approves or denies it on the dashboard's administration page. Asking changes
+nothing on its own: the token in the client's hand is untouched until somebody decides, which is what
+stops any checkout from taking `coordinator:direct` by asserting it. The same page imposes a role
+with no request outstanding, which is the emergency demotion.
+
+There is deliberately no machine-level gate any more, and no console command for one. An
+administrator who does not want a machine coordinating declines its request, which is one action
+rather than two authorities that can disagree.
 
 ```bash
-php artisan robot-council:grant-ability  <installation> coordinator:direct
-php artisan robot-council:revoke-ability <installation> events:post
 php artisan robot-council:revoke-installation <installation>   # and every session token it issued
 php artisan robot-council:revoke-session <session>             # one process only
 php artisan robot-council:doctor                               # reports misconfiguration; exits non-zero
@@ -195,8 +205,8 @@ php artisan robot-council:prune-locks                          # scheduled daily
 php artisan robot-council:prune-sessions                       # scheduled daily at 03:40
 ```
 
-Granting or revoking an ability rewrites the session tokens already in flight, so it takes effect on
-the next request rather than within the hour a session token lives.
+Approving or imposing a role rewrites that session's token in the same transaction, so it takes
+effect on the next request rather than within the hour a session token lives.
 
 ## Retention
 
@@ -555,15 +565,20 @@ than stored.
 position, so a restarted process reads it back instead of choosing between replaying the feed from
 `0` and starting a new session.
 
-**`GET agent/session` also answers whether anything can ever arrive.** Its `fleet_can_direct` is
-true when some installation could post a directive today -- neither revoked nor expired, and its
-developer still on the access list. It is a fleet-level answer deliberately, and not the same as
-the session's own `abilities`: a directive is the one event that reaches an idle agent, posting one
-needs `coordinator:direct`, and enrollment can never request it. A process that only ever receives
-holds none of it and is correctly configured, so a client that warned on its own abilities would
-warn on almost every session. **False means nothing will ever reach a waiting agent**, which is
-worth saying out loud, because an empty sink and a fleet with nothing to say look identical from
-the agent's side.
+**`GET agent/session` also answers whether anything can arrive right now.** Its `fleet_can_direct`
+is true when some session on the fleet is running in the `coordinator` role -- active, on an
+installation that is neither revoked nor expired, and with its developer still on the access list.
+It is a fleet-level answer deliberately, and not the same as the session's own `abilities`: a
+directive is the one event that reaches an idle agent, posting one needs `coordinator:direct`, and a
+session cannot ask itself into the role that carries it. A process that only ever receives holds
+none of it and is correctly configured, so a client that warned on its own abilities would warn on
+almost every session. **False means nothing will reach a waiting agent while that stays true**,
+which is worth saying out loud, because an empty sink and a fleet with nothing to say look identical
+from the agent's side.
+
+**It is a reading, not a property of the deployment**, and it flips when the fleet's one coordinator
+restarts. A client that states it once at startup is describing that moment; a fleet whose
+coordinator is between runs reports false and reports true a moment later.
 
 ### Mirroring to Slack
 

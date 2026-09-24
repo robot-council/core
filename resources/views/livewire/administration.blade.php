@@ -79,45 +79,6 @@
                             </div>
                         </div>
 
-                        <div class="mt-3 flex flex-wrap gap-2">
-                            {{-- One control per grantable ability, from `Ability::grantable()`, so
-                                 what is offered is exactly what the action accepts. `*` is not in
-                                 that list and is refused by the action regardless of what is
-                                 rendered here.
-
-                                 The label carries the state as well as the action, rather than
-                                 leaving the filled button to mean "held". Colour alone cannot say
-                                 which of two buttons is the granted one to a reader who does not
-                                 see it, and the distinction here decides authorization. --}}
-                            @foreach ($grantable as $ability)
-                                @if (in_array($ability->value, $installation['abilities'], true))
-                                    <button type="button"
-                                        wire:click="revokeAbility({{ Wire::of($installation['id']) }}, '{{ Wire::of($ability) }}')"
-                                        class="btn btn-xs btn-primary">
-                                        Revoke {{ $ability->value }}
-                                    </button>
-                                @else
-                                    {{-- `coordinator:direct` is confirmed and the rest are not.
-                                         It is the one ability that reaches outside its own
-                                         developer's work: a session holding it can release,
-                                         reassign or cancel ANY developer's task and post
-                                         directives to the whole fleet, and #29 makes narration
-                                         posted while holding it visible to everyone. The
-                                         confirmation is not a boundary -- the action authorizes
-                                         regardless -- it is there because the blast radius does
-                                         not look different from the other four on the page. --}}
-                                    <button type="button"
-                                        wire:click="grant({{ Wire::of($installation['id']) }}, '{{ Wire::of($ability) }}')"
-                                        @if ($ability === \RobotCouncil\Access\Ability::CoordinatorDirect)
-                                            wire:confirm="Grant coordinator:direct? A session holding it can release, reassign or cancel any developer's task, and post directives to the whole fleet."
-                                        @endif
-                                        class="btn btn-xs btn-ghost">
-                                        Grant {{ $ability->value }}
-                                    </button>
-                                @endif
-                            @endforeach
-                        </div>
-
                         @if ($installation['sessions']['shown'] !== [])
                             <ul class="mt-3 space-y-1">
                                 @foreach ($installation['sessions']['shown'] as $session)
@@ -125,10 +86,10 @@
                                         class="flex flex-wrap items-center gap-2 text-xs">
                                         <span class="badge badge-sm">{{ $session['status'] }}</span>
 
-                                        {{-- Beside the installation's abilities above rather than
-                                             instead of them, because the two are now different
-                                             questions: what this machine is eligible for, and what
-                                             this one process is. --}}
+                                        {{-- The role, which is the whole of what this session may
+                                             do. There is no longer a machine-level list beside it:
+                                             a stored ability list stopped reaching any session, and
+                                             the controls that wrote it are gone with it. --}}
                                         <span class="badge badge-sm badge-outline">{{ $session['role'] }}</span>
 
                                         {{-- Where it is working, as the two fields #220 split the

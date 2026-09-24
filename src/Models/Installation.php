@@ -130,26 +130,35 @@ final class Installation extends Model implements AuthenticatableContract
     /**
      * The abilities this installation has been granted.
      *
-     * **It no longer decides what a session token carries.** Since `robot-council/core#221` that
-     * comes from the session's own `Access\Role` preset, and this list decides only which roles the
-     * machine is eligible to run -- `Access\Role::permittedBy()` is its one authorization reader.
-     * Every ability in it that an enrollment could have requested is therefore inert, and the
-     * column goes when the epic's final slice retires the per-ability controls. Treat a change
-     * here as a statement about the machine, not about any session already running.
+     * **It decides nothing about authorization, and has no authorization reader at all.** Since
+     * `robot-council/core#221` a session token carries its `Access\Role` preset; `#222` removed
+     * `Role::permittedBy()`, which had been this column's one authorization reader, so machine-level
+     * eligibility stopped existing rather than moving somewhere else. `#231` then retired the
+     * controls that wrote it. What remains reads it for display and for the enrollment response a
+     * released client still parses, which is what `robot-council/core#239` is waiting on before the
+     * column can go. Treat a value here as a record of what an enrollment asked for, not as a
+     * statement about any session.
      *
      * **It reads the attribute as `mixed`, because the column is `json` and the row decides.**
      * `@property list<string>` states what this package writes, not what the accessor can be
      * handed: a host calling the model directly, a seeder, a hand-edited row, or a restore can
      * leave `null`, a scalar, or a nested value there. A declared `string` parameter on the
-     * filter raised a `TypeError` for any of them, and since #159 `Support\FleetAbilities` reads
-     * **every** usable installation to answer one request -- so one malformed row 500s
-     * `GET {prefix}/api/agent/session` for every agent in the fleet, on the route a bridge calls
-     * after every start and renewal. Dropping the value answers that request instead of failing it.
+     * filter raised a `TypeError` for any of them. Between #159 and
+     * `robot-council/core#223`, `Support\FleetAbilities` read **every** usable installation to
+     * answer one request, so one malformed row 500s `GET {prefix}/api/agent/session` for every
+     * agent in the fleet. Dropping the value answers that request instead of failing it.
      *
-     * **Dropping does not make one bad row that row's own problem, and it should not be read as
-     * doing so.** `fleet_can_direct` is computed across the fleet, so an installation whose
-     * abilities cannot be read still changes what every other session is told: the answer goes
-     * from a 500 to a quiet `false`, which `Http\Controllers\AgentSessionController` documents as
+     * **#223 narrowed the blast radius back to this row, and the guard stays anyway.** That
+     * question reads live sessions and their roles now, so this accessor no longer runs fleet-wide
+     * -- but it is still what the enrollment page, the approval path and `robot-council:doctor`
+     * read, it is public on a model a host can call directly, and `MalformedAbilitiesTest` pins
+     * both directions of the narrowing rather than assuming it.
+     *
+     * **Dropping did not make one bad row that row's own problem while the read WAS fleet-wide, and
+     * the reasoning is kept because it is what the guard was built for.** `fleet_can_direct` was
+     * computed across every installation, so one whose abilities could not be read changed what
+     * every other session was told: the answer went from a 500 to a quiet `false`, which
+     * `Http\Controllers\AgentSessionController` documents as
      * meaning nothing will ever arrive. Nothing logs the drop and `robot-council:doctor` has no
      * check that would name it. #171 is that gap.
      *
