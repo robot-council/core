@@ -97,7 +97,7 @@ A **Laravel package** (`robot-council/core`), not an application. It is the core
 - `src/Livewire/` — the dashboard's Livewire components, mounted by `routes/web.php` behind the
   allowlist gate. Testbench registers no provider it is not told about, so `tests/TestCase.php`
   lists Livewire's provider by hand exactly as it does Socialite's.
-- `tests/` — Pest on Orchestra Testbench. `tests/Pest.php` binds `tests/TestCase.php`, which registers the service provider; `tests/ArchTest.php` applies Pest's `php()`, `security()`, and `strict()` arch presets to the package's namespaces. Tests that read data a second database connection commits belong to the `cross-connection` group, which `phpunit.xml.dist` excludes from every run that does not name it; `tests/CrossConnectionTest.php` is the pattern. A test whose subject is a **query plan** skips unless the driver is `pgsql`, so it runs in the `postgres` job and nowhere else -- `tests/TaskQueuePlanTest.php` is the pattern, and it has to seed enough rows for the planner to prefer an index at all, because on a small table a sequential scan really is cheaper and a thinly seeded guard would pin the opposite plan.
+- `tests/` — Pest on Orchestra Testbench. `tests/Pest.php` binds `tests/TestCase.php`, which registers the service provider; `tests/ArchTest.php` applies Pest's `php()`, `security()`, and `strict()` arch presets to the package's namespaces. Tests whose subject is what an ENGINE does rather than what the package does belong to the `engine-semantics` group, which the `mysql` job runs and `tests/EngineSemanticsGroupGuardTest.php` keeps complete. Tests that read data a second database connection commits belong to the `cross-connection` group, which `phpunit.xml.dist` excludes from every run that does not name it; `tests/CrossConnectionTest.php` is the pattern. A test whose subject is a **query plan** skips unless the driver is `pgsql`, so it runs in the `postgres` job and nowhere else -- `tests/TaskQueuePlanTest.php` is the pattern, and it has to seed enough rows for the planner to prefer an index at all, because on a small table a sequential scan really is cheaper and a thinly seeded guard would pin the opposite plan.
 - `.claude/rules/` loads into every session; `.claude/skills/` loads on demand.
 
 ## Commands
@@ -261,16 +261,32 @@ A **Laravel package** (`robot-council/core`), not an application. It is the core
     **A local run is not parity with the job, though, and what is listening changes under you.** Re-measured 2026-09-22 while taking #80: port 5432 served **PostgreSQL 18.0** and port 3306 served **MariaDB 12.3.2**, not the Postgres 17.0 and MySQL 9.4.0 recorded above hours earlier. A second Herd service, `robot-council-pgsql`, now serves **PostgreSQL 17.6** on **5433**, which is the one that matches CI's `postgres:17`; Herd refuses to create a service on a port another already holds, and the error names neither the port nor the holder. So read `select version()` off the connection you are about to measure and record it beside the result -- **the port does not identify the engine, let alone its major.** MariaDB is not MySQL: it is a separate optimizer, and a plan or a `NOT NULL TIMESTAMP` behavior read there is evidence about MariaDB only. Use local runs to find and fix, and the job to confirm.
 
     **A third service, `robot-council-mysql`, serves real MySQL 9.7.2 on 3307** (added 2026-09-23 while taking #247, which asked for a MySQL measurement that 3306 could not supply). `select version()` reads `9.7.2` with `version_comment` **MySQL Community Server - GPL**, against 3306's `12.3.2-MariaDB`; read the comment as well as the version, because the number alone does not say which product answered. It is `root` with an empty password, database `robot_council`, `collation_server` `utf8mb4_0900_ai_ci` and `explicit_defaults_for_timestamp` **ON** -- the job turned that off, so a `NOT NULL TIMESTAMP` reading here is not the job's. **`herd services:create` with `--no-interaction` and no `--service-version` crashes** on `Laravel\Prompts\select(): Return value must be of type string|int, null returned`, having created nothing; pass `--service-version` and read `herd services:list` rather than the exit code, which a pipe discards. **The full suite against it is far slower than against Postgres on this machine, and the gap is per test rather than a fixed startup cost** -- measured while taking #247 over the first 435 tests of a run: median **1.69s** per test and 3.45s at the 90th percentile, against **558s for 1,200 tests** on PostgreSQL 17.6, which is 0.47s each. It sits at about 5% CPU throughout, so it is waiting on the server rather than on PHP. Run one file against MySQL while working, and the whole suite only when something actually needs it.
-  - **There is no `mysql` job, deliberately, and the tests it ran still exist.** It was dropped on
-    2026-09-22: the deployment runs Postgres on Laravel Cloud, and the job cost 585s against 168s
-    for `postgres` and rose with every test file added -- 328s, then 409s, then 585s, at which
-    point it was cancelled at its timeout with every step reporting success. What that costs is
-    named rather than glossed. `HostKeyComparisonTest`'s collation assertions skip, but **its two
-    behavioral tests still run on every engine**, so #54's access-control property is still covered.
-    `tests/MySqlSchemaTest.php` is now only the promise-guard: it fails when a run that set
+  - **The `mysql` job runs the `engine-semantics` group and nothing else** (#253). The FULL MySQL
+    job was dropped on 2026-09-22: the deployment runs Postgres on Laravel Cloud, and it cost 585s
+    against 168s for `postgres`, rising with every test file added -- 328s, then 409s, then 585s,
+    at which point it was cancelled at its timeout with every step reporting success. That number
+    is about the whole suite and was never evidence about the few files whose subject is an engine.
+    The narrow job measured **8.4s for 26 tests** locally against MySQL 9.4.0. It sets
+    `explicit_defaults_for_timestamp` OFF and `ROBOT_COUNCIL_EXPECT_MYSQL`, and `ci-passed`
+    requires it.
+    **The argument that made the full job's loss tolerable had a gap, and #247 walked into it.**
+    #137 recorded that `HostKeyComparisonTest`'s behavioral tests run on every engine, so #54's
+    access-control property stayed covered on Postgres. That holds only where the ANSWER is the
+    same on every engine, and comparison semantics are exactly where it is not: `Support\HostUsers`
+    bound an integer against a `varchar(64)`, which matched one row on SQLite and Postgres and
+    every numerically equal row on MySQL and MariaDB. Measured by reverting that fix: the `mysql`
+    job's selection fails **3** tests and the SQLite suite fails **1**, and two of the three are
+    row-level properties no other engine can answer.
+    **Membership is a Pest group, and `tests/EngineSemanticsGroupGuardTest.php` derives it from the
+    gate each test already declares** -- `notMySql(...)` or `ROBOT_COUNCIL_EXPECT_MYSQL` -- so a new
+    MySQL-gated test that forgets `pest()->group('engine-semantics');` fails that guard on every
+    engine rather than silently dropping out of the only job that could answer it. Two files are
+    exempt by name and the list is asserted: `tests/Pest.php`, which declares `notMySql()`, and the
+    guard itself, whose probes quote both markers as fixture source.
+    `tests/MySqlSchemaTest.php` is the promise-guard: it fails when a run that set
     `ROBOT_COUNCIL_EXPECT_MYSQL` is not actually on MySQL with `explicit_defaults_for_timestamp`
-    off, which is what stops a restored job from skipping every MySQL-gated test and reporting
-    green. Re-adding the job is a matter of restoring the block from that commit.
+    off, which is what stops the job skipping every MySQL-gated test and reporting green. Herd
+    defaults that variable ON, so a local run reproduces the job only after a `SET GLOBAL`.
   - **The `NOT NULL TIMESTAMP` rule is guarded at the source, not on one engine** (#136).
     `tests/MigrationTimestampGuardTest.php` scans `database/migrations/` for a non-nullable
     `timestamp()` and runs on every engine with no database, because the rule is about what the

@@ -20,6 +20,11 @@ declare(strict_types=1);
  * @command  vendor/bin/pest --compact tests/HostKeyComparisonTest.php
  */
 
+// Selected by the `mysql` job, which runs `--group=engine-semantics` rather than the whole
+// suite. `EngineSemanticsGroupGuardTest` fails when a file that gates itself on MySQL omits
+// this line, so the group cannot silently stop covering a test.
+pest()->group('engine-semantics');
+
 use Illuminate\Support\Facades\DB;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Models\AgentSession;
@@ -186,9 +191,13 @@ function twoNumericallyEqualKeys(string $first = '5', string $second = '5x'): vo
 
 it('binds every host key as text, on every engine', function (): void {
     // **The guard that can actually fail in CI, and the reason it asserts bindings rather than
-    // rows.** The defect below is visible only on MySQL, and there is no `mysql` job -- so a test
-    // written against the rows it returns is green in CI whether or not the fix is present. What
-    // every engine can answer is what PHP put in the bindings, which is where the defect is.
+    // rows.** The defect below is visible only on MySQL. When this was written there was no
+    // `mysql` job, so a test written against the rows it returns was green in CI whether or not the
+    // fix was present. `robot-council/core#253` added one -- this file is in the `engine-semantics`
+    // group and the job now answers the rows too -- but the bindings assertion stays, because it is
+    // the half every engine can answer and it fails in the developing run rather than only in CI.
+    // Measured by reverting the fix: the `mysql` job fails 3 tests here and the SQLite suite fails
+    // this one.
     //
     // `Support\HostKey::tryFrom()` returns a string for every key. The one thing that turns one
     // back into an integer is a PHP array key, so this is the property that has to hold: nothing
@@ -247,9 +256,10 @@ it('resolves one developer per host key, not every key that is the same number',
     // the ticket. This keeps the smallest pair that still discriminates, because a fixture is a
     // thing every future reader has to hold in their head.
     //
-    // It is written to run everywhere regardless, exactly as this file's other assertions are: a
-    // test gated on MySQL is a test nobody runs while developing, and there is no `mysql` job for
-    // it to run in.
+    // It is written to run everywhere regardless, exactly as this file's other assertions are,
+    // because a test gated on MySQL is a test nobody runs while developing. The `mysql` job added
+    // by `robot-council/core#253` runs this file, so the rows are now answered in CI as well -- the
+    // ungated form is what makes it answerable in a local SQLite run too.
     //
     // **`2026_09_22_000002`'s binary collation does not cover this.** Measured on MySQL 9.7.2: the
     // column reads `utf8mb4_bin` and the coercion happens anyway, because a numeric comparison

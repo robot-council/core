@@ -25,6 +25,11 @@ declare(strict_types=1);
  * @command  vendor/bin/pest --compact tests/IdentityMigrationRenameTest.php
  */
 
+// Selected by the `mysql` job, which runs `--group=engine-semantics` rather than the whole
+// suite. `EngineSemanticsGroupGuardTest` fails when a file that gates itself on MySQL omits
+// this line, so the group cannot silently stop covering a test.
+pest()->group('engine-semantics');
+
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -146,9 +151,10 @@ it('keeps one identity per host user after the collation migration redefines the
     // rather than left to be discovered.** `collate()` returns before `change()` is ever compiled
     // off MySQL, so here it asserts only that `Schema::create`'s two `unique()` indexes work --
     // deleting the new entry from the collation migration's list leaves this green on both CI
-    // engines. There is no `mysql` job (`CLAUDE.md` records why it was dropped), so the fold-back
-    // is gated by a local run and by the MySQL-only test below, not by CI. That is the honest
-    // bound, and it is the same shape `CLAUDE.md` records for SQLite foreign keys.
+    // engines. The fold-back is covered by the MySQL-only test below, which the `mysql` job runs
+    // because this file is in the `engine-semantics` group (`robot-council/core#253`). That is the
+    // honest bound on THIS assertion, and it is the same shape `CLAUDE.md` records for SQLite
+    // foreign keys: it is not evidence about the fold-back, whatever engine it passes on.
     $this->migrateUsersTableWithPackageColumns();
 
     DB::table('robot_council_github_identities')->insert([
