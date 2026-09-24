@@ -167,6 +167,96 @@ jobs:
       - name: Execute cross-connection tests
         run: vendor/bin/pest --ci --group=cross-connection
 
+  # MySQL, running only the tests whose subject is what an ENGINE does rather than what the package
+  # does (#253). #137 dropped the full MySQL job for a measured reason that still holds -- 585s
+  # against 168s for `postgres`, rising with every test file added -- and that number is about the
+  # whole suite. It is not evidence about the handful of files this job selects.
+  #
+  # **The argument that made the loss tolerable had a gap, and #247 walked into it.** #137 recorded
+  # that `HostKeyComparisonTest`'s behavioral tests run on every engine, so #54's access-control
+  # property stayed covered on Postgres. That holds only where the ANSWER is the same on every
+  # engine, and comparison semantics are exactly where it is not: `Support\HostUsers` bound an
+  # integer against a `varchar(64)`, which matched one row on SQLite and Postgres and every
+  # numerically equal row on MySQL and MariaDB -- five developers' GitHub IDs for a lookup of one.
+  # An engine-neutral test of that property is green on every engine CI ran, defect or no defect,
+  # and it was, for as long as the defect existed.
+  #
+  # `explicit_defaults_for_timestamp` is turned OFF, which is the mode the OTHER defect this job
+  # covers lives in: with it off, the first NOT NULL TIMESTAMP column in a table is given an
+  # implicit `DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`, so an UPDATE silently
+  # rewrites it. MySQL 5.7 and MariaDB before 10.10 default it off and both are ordinary production
+  # choices; a current image is used and put into that mode deliberately rather than pinning CI to
+  # an end-of-life one. The suite asserts the mode rather than trusting the step below, because a
+  # `SET GLOBAL` that silently did nothing would leave this job testing the safe configuration and
+  # reporting green.
+  mysql:
+    name: mysql
+    runs-on: ubuntu-latest
+    # Ten rather than #137's twenty. That timeout was sized for the whole suite, which was
+    # cancelled at ten with every step reporting success. This job runs 26 tests, and measured on
+    # its first CI run: 21s for the test step, 65s for the whole job including the service
+    # container, against 312s for `postgres` on the same run. Ten minutes is generous rather than
+    # tight, and the headroom is what an added engine-semantics file spends.
+    timeout-minutes: 10
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: robot_council
+          MYSQL_USER: robot_council
+          MYSQL_PASSWORD: robot_council
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping --host=127.0.0.1 --user=root --password=root"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: robot_council
+      DB_USERNAME: robot_council
+      DB_PASSWORD: robot_council
+      # Read by `MySqlSchemaTest`, which asserts the connection really is MySQL and really is in
+      # the mode above. Without it, a job whose `DB_CONNECTION` never took effect would run on
+      # SQLite, skip every MySQL-only test, and report green.
+      ROBOT_COUNCIL_EXPECT_MYSQL: '1'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, pdo_mysql, bcmath, intl, fileinfo
+          coverage: none
+
+      - name: Install composer dependencies
+        uses: ramsey/composer-install@v4
+
+      - name: List Installed Dependencies
+        run: composer show -D
+
+      # Set as a global so every connection the suite opens inherits it. Read back in the same
+      # step, and the value is asserted again from inside the suite.
+      - name: Turn explicit_defaults_for_timestamp off
+        run: |
+          mysql --host=127.0.0.1 --port=3306 --user=root --password=root \
+            --execute "SET GLOBAL explicit_defaults_for_timestamp = OFF;"
+          mysql --host=127.0.0.1 --port=3306 --user=root --password=root \
+            --execute "SELECT @@GLOBAL.explicit_defaults_for_timestamp AS explicit_defaults;"
+
+      # The selection is a Pest group rather than a file list, because a file list lives in this
+      # file and a group lives beside the test. `EngineSemanticsGroupGuardTest` derives membership
+      # from the gate each test already declares and fails when a gated file omits the group, so
+      # forgetting it is a red pull request rather than a job that quietly runs less.
+      - name: Execute the engine-semantics tests
+        run: vendor/bin/pest --ci --group=engine-semantics
+
   # The committed stylesheet against a fresh build of its sources, so a view added without a
   # rebuild fails here rather than rendering half-styled in a consuming application.
   stylesheet:
@@ -221,7 +311,7 @@ jobs:
   ci-passed:
     name: ci-passed
     if: always()
-    needs: [tests, phpstan, pint, rector, postgres, stylesheet]
+    needs: [tests, phpstan, pint, rector, postgres, mysql, stylesheet]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -232,7 +322,8 @@ jobs:
           PINT: ${{ needs.pint.result }}
           RECTOR: ${{ needs.rector.result }}
           POSTGRES: ${{ needs.postgres.result }}
+          MYSQL: ${{ needs.mysql.result }}
           STYLESHEET: ${{ needs.stylesheet.result }}
         run: |
-          echo "tests=$TESTS phpstan=$PHPSTAN pint=$PINT rector=$RECTOR postgres=$POSTGRES stylesheet=$STYLESHEET"
-          [ "$TESTS" = success ] && [ "$PHPSTAN" = success ] && [ "$PINT" = success ] && [ "$RECTOR" = success ] && [ "$POSTGRES" = success ] && [ "$STYLESHEET" = success ]
+          echo "tests=$TESTS phpstan=$PHPSTAN pint=$PINT rector=$RECTOR postgres=$POSTGRES mysql=$MYSQL stylesheet=$STYLESHEET"
+          [ "$TESTS" = success ] && [ "$PHPSTAN" = success ] && [ "$PINT" = success ] && [ "$RECTOR" = success ] && [ "$POSTGRES" = success ] && [ "$MYSQL" = success ] && [ "$STYLESHEET" = success ]

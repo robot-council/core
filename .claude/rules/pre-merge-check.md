@@ -4,7 +4,7 @@ The required check answers one question: **does the change pass tests, analysis,
 
 ## What the checks already enforce
 
-The `main` ruleset requires every change to arrive through a pull request, requires the `ci-passed` check to succeed, and requires the branch to be up to date with `main` before it merges. GitHub also refuses to merge a draft. `ci-passed` is the last job of [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) and succeeds only when every other job succeeded: the SQLite test matrix, the `postgres` test job, PHPStan, `pint --test`, and `rector --dry-run`. The last two fail rather than fixing. On a pull request those jobs run against GitHub's merge of the branch into `main`, and the up-to-date requirement keeps that merge current.
+The `main` ruleset requires every change to arrive through a pull request, requires the `ci-passed` check to succeed, and requires the branch to be up to date with `main` before it merges. GitHub also refuses to merge a draft. `ci-passed` is the last job of [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) and succeeds only when every other job succeeded: the SQLite test matrix, the `postgres` test job, the `mysql` job (the `engine-semantics` group alone), the `stylesheet` job, PHPStan, `pint --test`, and `rector --dry-run`. The last two fail rather than fixing. On a pull request those jobs run against GitHub's merge of the branch into `main`, and the up-to-date requirement keeps that merge current.
 
 So bringing the branch current, trial-merging, running the gate, and recording the result are done by the ruleset and the checks panel, not by hand. **Do not merge around them**, and do not treat a `ci-passed` from an older head commit as covering the current one.
 

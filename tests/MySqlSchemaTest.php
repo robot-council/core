@@ -17,11 +17,16 @@ declare(strict_types=1);
  * than only the one it used to sit beside -- `HostKeyComparisonTest`'s collation assertions are the
  * others. A `mysql` job whose `DB_CONNECTION` never took effect would run the whole suite on SQLite,
  * skip all of them, and report green: a job that tests nothing, in the reassuring direction. This
- * file is what refuses that. There is no `mysql` job today, so it skips; restoring the job restores
- * the check with it.
+ * file is what refuses that. The `mysql` job sets `ROBOT_COUNCIL_EXPECT_MYSQL`, so this runs there
+ * and skips everywhere else.
  *
  * @command  DB_CONNECTION=mysql ROBOT_COUNCIL_EXPECT_MYSQL=1 vendor/bin/pest --compact tests/MySqlSchemaTest.php
  */
+
+// Selected by the `mysql` job, which runs `--group=engine-semantics` rather than the whole
+// suite. `EngineSemanticsGroupGuardTest` fails when a file that gates itself on MySQL omits
+// this line, so the group cannot silently stop covering a test.
+pest()->group('engine-semantics');
 
 use Illuminate\Support\Facades\DB;
 

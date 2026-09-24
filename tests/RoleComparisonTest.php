@@ -38,6 +38,11 @@ declare(strict_types=1);
  * @command  DB_CONNECTION=mysql DB_HOST=127.0.0.1 DB_PORT=3306 DB_DATABASE=<throwaway> DB_USERNAME=root DB_PASSWORD= vendor/bin/pest --compact tests/RoleComparisonTest.php
  */
 
+// Selected by the `mysql` job, which runs `--group=engine-semantics` rather than the whole
+// suite. `EngineSemanticsGroupGuardTest` fails when a file that gates itself on MySQL omits
+// this line, so the group cannot silently stop covering a test.
+pest()->group('engine-semantics');
+
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 

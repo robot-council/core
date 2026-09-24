@@ -364,7 +364,8 @@ it('reads the roles the enum defines, not whatever string the row happens to hol
     // COLLATION's answer rather than this code's: measured 2026-09-23 on MySQL 9.4.0 under
     // Testbench's default `utf8mb4_unicode_ci`, it matched and this row failed, while passing on
     // SQLite and Postgres. It was removed rather than left pinning an engine property as though it
-    // were a code property -- and green forever in a CI with no `mysql` job.
+    // were a code property. This file is not in the `engine-semantics` group, so the `mysql` job
+    // does not run it and the row would have been green in CI either way.
     //
     // `robot-council/core#245` decided the column should mean one thing on every engine, and
     // `2026_09_23_000007_compare_session_roles_byte_exactly.php` gives it a binary collation. The
