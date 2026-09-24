@@ -85,7 +85,7 @@ it('refuses a note, a bare number, an unknown developer, and a reason for the ot
         ->assertUnprocessable()
         ->assertJsonValidationErrors('party');
 
-    expect(fn () => $this->service(LaneHolds::class)->hold($this->coordinatorSession, $this->session->getKey(), $party, HoldReason::from($reason)))
+    expect(fn () => $this->service(LaneHolds::class)->hold($this->coordinatorSession, $this->session->id, $party, HoldReason::from($reason)))
         ->toThrow(InvalidArgumentException::class)
         ->and(LaneHold::query()->count())->toBe(0);
 })->with([
@@ -118,7 +118,7 @@ it('refuses to hold a lane that holds work, or has gone', function (string $stat
         $this->markSessionGone($this->session);
     }
 
-    expect($this->service(LaneHolds::class)->hold($this->coordinatorSession, $this->session->getKey(), 'octodev', HoldReason::Decision))
+    expect($this->service(LaneHolds::class)->hold($this->coordinatorSession, $this->session->id, 'octodev', HoldReason::Decision))
         ->toBe(Outcome::Conflict)
         ->and(LaneHold::query()->count())->toBe(0);
 })->with(['working', 'gone']);
