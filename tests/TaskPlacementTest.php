@@ -360,6 +360,78 @@ it('refuses to place a task on a lane that could not have claimed it itself', fu
         ->and(FleetEvent::query()->where('type', FleetEventType::Directive->value)->count())->toBe(0);
 });
 
+it('diagnoses an ineligible assignee against the assignee, not against the coordinator', function (): void {
+    // **The case that tells the two apart**, which the test above cannot: there the coordinator and
+    // the lane both belong to developer 77, so both are ineligible and a diagnosis tested against
+    // the coordinator would still answer 403. Here the coordinator belongs to 4242, the task's own
+    // developer, so it IS eligible -- and only a diagnosis of the assignee answers 403. Tested
+    // against the coordinator, this becomes a 409, which invites a retry that can never succeed.
+    [, $coordinatorToken] = $this->startCoordinatorSession($this->installation);
+
+    $task = placementTask($this);
+
+    $otherInstallation = placementCoordinator($this)[0]->installation;
+    [$ineligible] = $this->startAgentSession($otherInstallation);
+
+    $this->machine($coordinatorToken)->postJson(
+        route('robot-council.tasks.transition', ['task' => $task, 'transition' => 'reassign']),
+        ['session_id' => $ineligible->getKey(), 'directive' => 'Take this task.']
+    )->assertForbidden();
+
+    expect(Task::query()->findOrFail($task)->status)->toBe(TaskStatus::Pending);
+});
+
+it("gives a reassigned held task a clean slate: the last lane's branch and hand-back do not carry over", function (): void {
+    $task = placementTask($this);
+
+    [$first, $firstToken] = $this->startAgentSession($this->installation);
+    [$second] = $this->startAgentSession($this->installation);
+
+    // Placed as a hand-back, then taken up on a branch
+    placeTask($this, $task, $first, ['hand_back' => true])->assertOk();
+
+    $this->machine($firstToken)->postJson(
+        route('robot-council.tasks.transition', ['task' => $task, 'transition' => 'start']),
+        ['branch' => 'first-lane']
+    )->assertOk();
+
+    // **From a held status, which is where these two can be wrong.** A task arriving from `pending`
+    // has no branch and no hand-back -- release and the sweep already cleared them -- so only a
+    // reassignment of held work can show a column carried over from the previous holder.
+    placeTask($this, $task, $second)->assertOk();
+
+    $row = Task::query()->findOrFail($task);
+
+    expect($row->claimed_by)->toBe($second->getKey())
+        ->and($row->status)->toBe(TaskStatus::Claimed)
+        ->and($row->placed_by)->toBe(Placement::Coordinator)
+        ->and($row->branch)->toBeNull()
+        ->and($row->hand_back)->toBeFalse();
+});
+
+it('moves a task a lane already holds when a coordinator places it, and tells the lane that lost it', function (): void {
+    // **Recorded rather than prevented, and deliberately.** A coordinator that read a task as pending
+    // and placed it may find a lane claimed it in between; the reassignment then applies to the held
+    // task and moves it, because a reassignment has always been able to move held work. The lane
+    // that lost it is told through `task.reassigned`, as it always was. Whether a placement should
+    // be able to insist on `pending` is #328, filed as its own question rather than decided here.
+    $task = placementTask($this);
+
+    $this->machine($this->token)
+        ->postJson(route('robot-council.tasks.transition', ['task' => $task, 'transition' => 'claim']))
+        ->assertOk();
+
+    [$lane] = $this->startAgentSession($this->installation);
+
+    placeTask($this, $task, $lane)->assertOk();
+
+    $row = Task::query()->findOrFail($task);
+
+    expect($row->claimed_by)->toBe($lane->getKey())
+        ->and($row->placed_by)->toBe(Placement::Coordinator)
+        ->and(FleetEvent::query()->where('type', FleetEventType::TaskReassigned->value)->count())->toBe(1);
+});
+
 it("places a task a coordinator filed on any developer's lane", function (): void {
     // The other half of the eligibility rule: filed with the coordinator's ability, so open to all
     [, $coordinatorToken] = placementCoordinator($this);
@@ -461,6 +533,8 @@ it('refuses a branch outside its shape at the edge', function (string $branch): 
     'a double separator' => 'a//b',
     'a trailing separator' => 'branch/',
     'a trailing dot' => 'branch.',
+    'a component starting with a dot' => 'feature/.hidden',
+    'a .lock suffix' => 'feature.lock',
     'a space' => 'lane board',
     'a shell character' => 'lane;rm',
 

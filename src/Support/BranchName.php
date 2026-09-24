@@ -17,9 +17,12 @@ use InvalidArgumentException;
  * characters that mean something to a shell or to Markdown. This reaches another developer's agent
  * when that agent may read the task, so it carries the same restricted set as every other
  * agent-facing identifier here -- letters, digits, `.`, `_`, `/` and `-` -- plus the handful of git's
- * own rules that shape could otherwise break: no leading `-`, `.` or `/`, no `..`, no `//`, and no
- * trailing `.` or `/`. A branch outside this set is refused rather than rewritten, because a
- * rewritten branch name names a different branch.
+ * own rules that shape could otherwise break: no leading `-`, `.` or `/`, no `..`, no `//`, no
+ * component that starts with `.`, no trailing `.` or `/`, and no `.lock` at the end. Every one of
+ * those is a name git refuses, so no branch a lane can actually be on is turned away by them.
+ *
+ * A branch outside this set is refused rather than rewritten, because a rewritten branch name names
+ * a different branch.
  */
 final class BranchName
 {
@@ -31,7 +34,7 @@ final class BranchName
     /**
      * What a branch name may be. `/D` so a trailing newline cannot slip past `$`.
      */
-    public const string PATTERN = '/^(?![-.\/])(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9._\/-]+(?<![.\/])$/D';
+    public const string PATTERN = '/^(?![-.\/])(?!.*\.\.)(?!.*\/\/)(?!.*\/\.)(?!.*\.lock$)[A-Za-z0-9._\/-]+(?<![.\/])$/D';
 
     /**
      * Refuse a branch name the package will not store.

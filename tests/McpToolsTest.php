@@ -21,6 +21,7 @@ use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\FleetEventType;
 use RobotCouncil\Models\Lock;
+use RobotCouncil\Models\Placement;
 use RobotCouncil\Models\Task;
 use RobotCouncil\Models\TaskStatus;
 use RobotCouncil\Tests\TestCase;
@@ -683,4 +684,84 @@ it('refuses a directive through the tool when it names a session that has gone',
 
     expect($error)->toContain('sessions that can still be worked')
         ->and(FleetEvent::query()->where('type', FleetEventType::Directive->value)->count())->toBe(0);
+});
+
+/**
+ * A coordinator under a second developer, for the placement tools, memoized on `TestCase`'s declared
+ * properties so the check stays an `isset()` Rector leaves alone.
+ *
+ * @param  TestCase  $case  The test case.
+ * @return string The coordinator's token.
+ */
+function mcpCoordinatorToken(TestCase $case): string
+{
+    if (! isset($case->coordinatorToken)) {
+        $installation = $case->approveInstallation($case->enrollDeveloper(77, login: 'coordinator'), machineLabel: 'coordinator-box');
+
+        [$case->coordinatorSession, $case->coordinatorToken] = $case->startCoordinatorSession($installation);
+    }
+
+    return $case->coordinatorToken;
+}
+
+it('places an unclaimed task through the tool, reading every true form the boolean rule admits', function (mixed $handBack): void {
+    $taskId = intValue(toolResult(callTool($this, $this->token, 'task_create', ['title' => 'Place me']))['task_id']);
+
+    [$lane] = $this->startAgentSession($this->installation);
+
+    // **The integer 1 is the case that matters.** It passes the `boolean` rule, and a check written
+    // as `=== true` would read it as false and quietly place new work where a hand-back was meant.
+    toolResult(callTool($this, mcpCoordinatorToken($this), 'task_reassign', [
+        'task_id' => $taskId,
+        'session_id' => $lane->getKey(),
+        'directive' => 'Take this task.',
+        'hand_back' => $handBack,
+    ]));
+
+    $row = Task::query()->findOrFail($taskId);
+
+    expect($row->claimed_by)->toBe($lane->getKey())
+        ->and($row->placed_by)->toBe(Placement::Coordinator)
+        ->and($row->hand_back)->toBeTrue();
+})->with(['true' => true, 'the integer 1' => 1, 'the string 1' => '1']);
+
+it('records the branch a lane reports when it starts through the tool', function (): void {
+    $taskId = intValue(toolResult(callTool($this, $this->token, 'task_create', ['title' => 'Start me']))['task_id']);
+
+    toolResult(callTool($this, $this->token, 'task_claim', ['task_id' => $taskId]));
+    toolResult(callTool($this, $this->token, 'task_start', ['task_id' => $taskId, 'branch' => 'lane-board']));
+
+    expect(Task::query()->findOrFail($taskId)->branch)->toBe('lane-board');
+});
+
+it('refuses a placement argument on a transition that does not take it', function (string $tool, array $arguments, string $field): void {
+    $taskId = intValue(toolResult(callTool($this, $this->token, 'task_create', ['title' => 'Mine']))['task_id']);
+
+    $error = toolError(callTool($this, $this->token, $tool, ['task_id' => $taskId, ...$arguments]));
+
+    // The control is that the same tool, without the field, would have worked on this task
+    expect($error)->toContain($field)
+        ->and(Task::query()->findOrFail($taskId)->status)->toBe(TaskStatus::Pending);
+})->with([
+    'a directive on a claim' => ['task_claim', ['directive' => 'Take it.'], 'directive'],
+    'a hand-back on a claim' => ['task_claim', ['hand_back' => true], 'hand back'],
+    'a branch on a claim' => ['task_claim', ['branch' => 'lane-board'], 'branch'],
+]);
+
+it('says the assignee could not have claimed the task, not that the coordinator may not act', function (): void {
+    // Developer 4242's own task, filed with no coordinator's ability
+    $taskId = intValue(toolResult(callTool($this, $this->token, 'task_create', ['title' => 'Mine']))['task_id']);
+
+    // A plain lane under the coordinator's developer, 77, who is not eligible for it
+    mcpCoordinatorToken($this);
+    [$ineligible] = $this->startAgentSession($this->coordinatorSession->installation);
+
+    $error = toolError(callTool($this, mcpCoordinatorToken($this), 'task_reassign', [
+        'task_id' => $taskId,
+        'session_id' => $ineligible->getKey(),
+        'directive' => 'Take this task.',
+    ]));
+
+    expect($error)->toContain('could not have claimed this task itself')
+        ->and($error)->not->toContain('This session may not');
 });

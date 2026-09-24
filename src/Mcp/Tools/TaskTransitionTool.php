@@ -87,7 +87,7 @@ final class TaskTransitionTool extends Tool
 
         if ($this->transition === TaskTransition::Reassign) {
             $arguments['session_id'] = $schema->integer()
-                ->description('The agent session to hand the task to. It must not have gone, and must be one that could claim the task itself.')
+                ->description("The agent session to hand the task to. It must not have gone, and the task must be its developer's or one a coordinator filed.")
                 ->required();
         }
 
@@ -187,7 +187,10 @@ final class TaskTransitionTool extends Tool
             // quietly place new work where a hand-back was meant
             $this->transition->takesADirective()
                 && \in_array($request->get('hand_back'), [true, 1, '1'], true),
-            \is_string($branch) && $branch !== '' ? $branch : null
+            // `trim()` as the HTTP path's `filled()` does: a host that removed the framework's
+            // `TrimStrings` would otherwise hand the store a blank branch, which it refuses with an
+            // exception the agent reads as an internal error
+            \is_string($branch) && trim($branch) !== '' ? $branch : null
         );
 
         // A refusal is an error, not a result. A client cannot tell a result that describes a

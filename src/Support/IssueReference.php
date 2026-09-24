@@ -19,8 +19,11 @@ use InvalidArgumentException;
  * `#N` for exactly that reason; this is where the refusal starts, at the first write.
  *
  * **The repository half is `WorkIdentity::REPOSITORY`'s shape**, so a repository a session may
- * report as its own is one a task may name. A test holds the two together rather than trusting that
- * nobody edits one of them.
+ * report as its own is one a task may name. A test holds the two shapes together rather than trusting
+ * that nobody edits one of them. **They agree on shape, not on length:** only the whole reference is
+ * bounded, by `MAX`, so a repository a few characters over `WorkIdentity::MAX_REPOSITORY` with a
+ * short number is accepted here. Bounding the half separately would need the same check at the edge,
+ * or a value the edge admits would reach the store and be refused there as a 500.
  *
  * It is charset-limited as well as length-limited because it reaches another developer's agent when
  * that agent may read the task, which is `TaskList`'s rule. It stays behind that rule rather than

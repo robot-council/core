@@ -54,7 +54,13 @@ enum TaskTransition: string
      * **It starts from `pending` too, since #316.** Before then it moved only a held task, so a
      * coordinator had no way to put unclaimed work in a particular lane's hands -- the one act the
      * lane board exists to record. It carries a directive, written to the assignee in the same
-     * transaction, and the assignee must be one that could have claimed the task itself.
+     * transaction, and the assignee must pass #16's rule for the task exactly as a claimant would.
+     *
+     * **That is the task's rule, not the session's ability, and the difference is deliberate.**
+     * Every role preset includes `tasks:claim`, so a check on the preset could never fail; the only
+     * session lacking it holds a token an administrator narrowed below its preset. Such a session
+     * can be handed work it cannot then start -- as it could be before #316 by moving held work --
+     * and only a coordinator's release or the gone-session sweep takes it back.
      */
     case Reassign = 'reassign';
 
