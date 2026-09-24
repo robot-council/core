@@ -610,23 +610,24 @@ function wireExpressionInterpolations(string $template): array
     $withoutBlocks = preg_replace('/(?<!@)@verbatim(.*?)@endverbatim/s', '', $template) ?? $template;
     $scanned = preg_replace('/\{\{--.*?--\}\}/s', '', $withoutBlocks) ?? $withoutBlocks;
 
-    // **Every attribute Alpine or Livewire EVALUATES, plus the ones that write.** `x-html` is the
-    // sharpest: it evaluates its expression and writes the result as HTML, so leaving it out while
-    // including `x-text` -- a strictly weaker sink -- was backwards. `x-if` and `x-for` are
-    // expressions too. `x-ref`, `x-teleport`, `x-id`, `x-mask`, `x-cloak` and `x-transition:*` are
-    // values rather than sinks and are examined anyway, because the list is cheaper to keep wide
-    // than to keep correct.
+    // **The four prefixes, not a list of names.** Three reviews of this guard each found another
+    // evaluated attribute missing from an enumeration -- `x-init`, `x-effect`, then `x-html`, then
+    // every Alpine event -- because the set is not enumerable. Alpine maps **any** attribute
+    // starting with `@` to `x-on:` (`mapAttributes(startingWith("@", into(prefix("on:"))))` in its
+    // bundled dist), and any `x-` is one of its directives. So the prefixes are matched generically
+    // and the inert ones are exempted below, which is the only direction that closes rather than
+    // chases.
     //
-    // **Alpine's `:` shorthand for `x-bind:` is #241.** `:href` is the same attribute as
-    // `x-bind:href` spelled two ways, and this detector already owned the long form -- so splitting
-    // one attribute across two detectors by spelling would be the arbitrary choice.
-    // `urlAttributeInterpolations()` is left alone and `:class` comes along free.
+    // **`\s*=\s*` is what keeps Blade's own directives out of the `@` branch.** `@use(...)`,
+    // `@class([...])` and `@php ... @endphp` are followed by `(` or whitespace, never by `=`.
     //
-    // `v-bind:` is Vue's and this package ships none. Three characters in an alternation, against a
-    // failure whose whole shape is somebody reaching for a familiar spelling.
-    $prefixes = 'wire:|x-on:|x-bind:|v-bind:|x-data|x-show|x-model|x-modelable|x-init|x-effect'
-        .'|x-text|x-html|x-if|x-for|x-ref|x-teleport|x-transition|x-intersect|x-mask|x-id|x-cloak'
-        .'|@click';
+    // **The shorthand branches require a leading letter**, because `:` and `@` followed by digits
+    // occur in prose: `Ratio :1 = {{ $n }}` was reported as an attribute named `:1`.
+    //
+    // #241 is the `:` branch: `:href` is the same attribute as `x-bind:href` spelled two ways, and
+    // this detector already owned the long form. `v-bind:` is Vue's and this package ships none;
+    // included because it is cheaper than the paragraph explaining its absence.
+    $prefixes = 'wire:[\w.:-]+|x-[\w.:-]+|v-bind:[\w.:-]+|@[A-Za-z][\w.:-]*|:[A-Za-z][\w.:-]*';
 
     // **The lookbehind excludes `@`, and that is a correction rather than an oversight.** Blade
     // renders `@@click` as a literal `@click`, so `@@click="{{ $evil }}"` is a live Alpine handler
@@ -644,7 +645,7 @@ function wireExpressionInterpolations(string $template): array
     // live.
     $span = '\{\{.*?\}\}|\{!!.*?!!\}';
 
-    $pattern = '/(?<![\w:.-])(?<attribute>(?:'.$prefixes.')[\w.:-]*|:[\w.:-]+)\s*=\s*(?:'
+    $pattern = '/(?<![\w:.-])(?<attribute>'.$prefixes.')\s*=\s*(?:'
         .'"(?<double>(?:'.$span.'|[^"])*)"'
         ."|'(?<single>(?:".$span."|[^'])*)'"
         .'|(?<bare>(?:'.$span.'|[^\s>])+)'
@@ -659,9 +660,13 @@ function wireExpressionInterpolations(string $template): array
     }
 
     foreach ($attributes as $attribute) {
-        // Lowercased, because the pattern is now case-insensitive and `WIRE:KEY` is the same
-        // attribute. `wire:key` is a literal identifier Livewire never evaluates.
-        if (str_starts_with(strtolower($attribute['attribute']), 'wire:key')) {
+        // **`wire:key` exactly, not anything starting with it.** Livewire's own reserved list is an
+        // equality test on the segment before the first `.` -- read in its bundled
+        // `wire-wildcard.js`, where `["snapshot","effects","model",…,"key",…].includes(directive.value)`
+        // decides -- so `wire:keydown.enter`, which is idiomatic Livewire, falls through and becomes
+        // an evaluated `x-on:keydown`. A `str_starts_with` exempted it. Lowercased because the
+        // pattern is case-insensitive and an HTML parser lowercases attribute names.
+        if (preg_match('/^wire:key(?:$|[.\s])/i', $attribute['attribute']) === 1) {
             continue;
         }
 
@@ -678,7 +683,11 @@ function wireExpressionInterpolations(string $template): array
     // The name position: `wire:poll.{{ … }}s`, which breaks out of the attribute rather than out of
     // a string. **Both echo forms here too**, because fixing only the value position left the
     // sharper half of the same hole open.
-    if (preg_match_all('/(?:wire:|x-)[\w.:-]*(?:\{\{(?!--)(.*?)\}\}|\{!!(.*?)!!\})/is', $scanned, $names, PREG_SET_ORDER) === false) {
+    // **Anchored to an attribute-name position, which it was not.** `x-` matched anywhere in the
+    // document, so `class="px-{{ $n }}"` -- ordinary Tailwind Blade -- was reported as an attribute
+    // name and would have failed the build. `max-w-`, `space-x-`, `translate-x-` and `border-x-`
+    // are all the same shape, and this file's own views already carry `class="btn btn-xs {{ … }}"`.
+    if (preg_match_all('/(?<=[\s<])(?:wire:|x-)[\w.:-]*(?:\{\{(?!--)(.*?)\}\}|\{!!(.*?)!!\})/is', $scanned, $names, PREG_SET_ORDER) === false) {
         throw new RuntimeException('Livewire attribute-name scan failed: '.preg_last_error_msg());
     }
 
@@ -695,23 +704,74 @@ function wireExpressionInterpolations(string $template): array
     // aliasing that name to something else satisfies every expression check above while calling
     // into anything at all.
     //
-    // **Both `@use` forms**, because the single-argument one is the shorter bypass: `@use('Evil\Wire')`
-    // compiles to `use Evil\Wire;`, after which `Wire::of()` in that view is somebody else's method
-    // and every check here still passes.
-    if (preg_match_all('/@use\s*\(\s*[\'"]([^\'"]+)[\'"]\s*(?:,\s*[\'"]([^\'"]+)[\'"]\s*)?\)/i', $scanned, $aliases, PREG_SET_ORDER) === false) {
-        throw new RuntimeException('Blade alias scan failed: '.preg_last_error_msg());
-    }
-
-    foreach ($aliases as $alias) {
-        $class = ltrim($alias[1], '\\');
-        $as = $alias[2] ?? substr($class, (int) strrpos('\\'.$class, '\\'));
-
+    // **Read the way `CompilesUseStatements::compileUse()` reads it, not with a narrower regex.**
+    // A first version required both quotes and a comma; Blade requires neither, so four forms it
+    // accepts went unchecked while compiling to statements byte-identical to the one that was
+    // reported -- `@use(Evil\Wire)` unquoted, `@use('Evil\Wire as Wire')`, `@use('Evil\{Wire}')`
+    // and `@use(Evil\Wire, Wire)`. Verified by running each emitted statement against a real class.
+    foreach (bladeUseAliases($scanned) as [$class, $as]) {
         if (in_array(strtolower($as), ['wire', 'wireargument'], true) && $class !== WireArgument::class) {
-            $findings[] = sprintf('alias: %s as %s', $alias[1], $as);
+            $findings[] = sprintf('alias: %s as %s', $class, $as);
         }
     }
 
     return $findings;
+}
+
+/**
+ * Every class `@use` imports into one template, with the name it is reachable by.
+ *
+ * **Modelled on `Illuminate\View\Compilers\Concerns\CompilesUseStatements::compileUse()`** rather
+ * than on a guess at its syntax, because the guard that reads this is the only thing making a bare
+ * `Wire::of()` safe. That method strips the surrounding parentheses, trims `" '\""`, and branches
+ * on whether the expression contains `{` -- so quotes are optional, `as` is accepted inside the
+ * string, and a group import is legal. Each of those was a way past a stricter regex.
+ *
+ * **A group import is reported by the caller rather than resolved.** `@use('Evil\{Wire}')` binds
+ * `Wire`, and unpacking the braces here would be re-implementing a second piece of Blade to decide
+ * something no first-party view does. It is returned under the name it binds, so it is refused.
+ *
+ * @param  string  $template  The template source.
+ * @return list<array{0: string, 1: string}> One `[class, alias]` pair per import.
+ */
+function bladeUseAliases(string $template): array
+{
+    if (preg_match_all('/@use\s*\((.*?)\)/is', $template, $matches, PREG_SET_ORDER) === false) {
+        throw new RuntimeException('Blade alias scan failed: '.preg_last_error_msg());
+    }
+
+    $aliases = [];
+
+    foreach ($matches as $match) {
+        // The order Blade uses: the comma form is split first, then the expression is trimmed of
+        // quotes, then ` as ` is read out of what remains.
+        //
+        // Indexed rather than destructured through `array_pad()`, which types the first element as
+        // nullable to the analyzer even though `explode()` always returns at least one.
+        $parts = explode(',', $match[1], 2);
+
+        $class = ltrim(trim(trim($parts[0]), '"\''), '\\');
+        $alias = isset($parts[1]) ? trim(trim($parts[1]), '"\'') : null;
+
+        if ($alias === null && stripos($class, ' as ') !== false) {
+            [$class, $alias] = array_map(trim(...), preg_split('/ as /i', $class, 2) ?: [$class, '']);
+        }
+
+        // A group import binds the braced names. Reported under the whole expression, which no
+        // first-party view writes and which therefore fails.
+        if (str_contains($class, '{')) {
+            $aliases[] = [$class, trim(rtrim(substr($class, (int) strrpos($class, '{') + 1), '}'))];
+
+            continue;
+        }
+
+        // **The separator is prepended so `strrpos` lands one past the last one.** Without it the
+        // index is off by one; with no separator at all it returns the whole name, which is correct
+        // for an unqualified import.
+        $aliases[] = [$class, ($alias ?? '') !== '' ? (string) $alias : substr($class, (int) strrpos('\\'.$class, '\\'))];
+    }
+
+    return $aliases;
 }
 
 /**
@@ -752,7 +812,7 @@ function isWireArgumentCall(string $interpolation): bool
     // a quoted string would have eaten one layer of them silently, which turns `\\?` -- an optional
     // leading namespace separator -- into a literal `?` that matches nothing.
     $pattern = <<<'REGEX'
-        /^\s*(?:\\?RobotCouncil\\Support\\(?:Wire|WireArgument)|Wire|WireArgument)::of\s*(?<balanced>\((?:[^()]++|(?&balanced))*\))\s*$/
+        /^\s*(?:\\?RobotCouncil\\Support\\WireArgument|Wire|WireArgument)::of\s*(?<balanced>\((?:[^()]++|(?&balanced))*\))\s*$/
         REGEX;
 
     return preg_match(trim($pattern), $interpolation) === 1;
