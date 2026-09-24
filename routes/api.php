@@ -24,6 +24,7 @@ use RobotCouncil\Http\Controllers\DeveloperSettingsController;
 use RobotCouncil\Http\Controllers\DeviceCodeController;
 use RobotCouncil\Http\Controllers\DeviceTokenController;
 use RobotCouncil\Http\Controllers\FleetFeedController;
+use RobotCouncil\Http\Controllers\GitHubWebhookController;
 use RobotCouncil\Http\Controllers\ListTasksController;
 use RobotCouncil\Http\Controllers\LockController;
 use RobotCouncil\Http\Controllers\PostDirectiveController;
@@ -37,6 +38,7 @@ use RobotCouncil\Http\Controllers\TransitionTaskController;
 use RobotCouncil\Http\Middleware\EnsureAgentSession;
 use RobotCouncil\Http\Middleware\EnsureInstallation;
 use RobotCouncil\Http\Middleware\RequireAbility;
+use RobotCouncil\Http\Middleware\VerifyGitHubSignature;
 use RobotCouncil\Models\LockAction;
 use RobotCouncil\Models\TaskTransition;
 use RobotCouncil\RobotCouncilServiceProvider;
@@ -55,6 +57,12 @@ Route::post('device/token', DeviceTokenController::class)
 // present, nothing moves. Declared after the guard, the limiter never runs for a request the guard
 // refuses, and an unauthenticated flood is not limited at all. The limiter resolves the
 // installation through the guard, so it needs nothing the guard would have left behind.
+// GitHub's deliveries (#318). Signed rather than authenticated: GitHub holds no token, only the
+// shared secret. The limiter is declared first, which is what makes it run first.
+Route::post('github/webhook', GitHubWebhookController::class)
+    ->middleware(['throttle:'.RobotCouncilServiceProvider::GITHUB_WEBHOOK_LIMITER, VerifyGitHubSignature::class])
+    ->name('github.webhook');
+
 Route::middleware(['throttle:'.RobotCouncilServiceProvider::SESSIONS_LIMITER, EnsureInstallation::class])
     ->group(function (): void {
         Route::post('sessions', SessionStartController::class)->name('sessions.start');

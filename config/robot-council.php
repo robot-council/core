@@ -160,6 +160,21 @@ return [
     |
     */
 
+    /*
+    |--------------------------------------------------------------------------
+    | GitHub
+    |--------------------------------------------------------------------------
+    |
+    | The webhook that tells the fleet when an issue or pull request changes (#318). Core reads
+    | nothing from GitHub; GitHub posts to `{prefix}/api/github/webhook`, signed with this secret.
+    | Until a secret of at least 16 characters is set, that route answers 404.
+    |
+    */
+
+    'github' => [
+        'webhook_secret' => env('ROBOT_COUNCIL_GITHUB_WEBHOOK_SECRET'),
+    ],
+
     'presence' => [
         'stale_after_minutes' => (int) env('ROBOT_COUNCIL_PRESENCE_STALE_AFTER_MINUTES', 5),
         'gone_after_minutes' => (int) env('ROBOT_COUNCIL_PRESENCE_GONE_AFTER_MINUTES', 30),
@@ -310,6 +325,10 @@ return [
 
         // Slack's own guidance is about one message a second per webhook
         'slack_per_minute' => (int) env('ROBOT_COUNCIL_RATE_SLACK_PER_MINUTE', 60),
+
+        // GitHub webhook deliveries, per source address. A busy organization sends a few a second
+        // at most; this bounds an unsigned flood without refusing GitHub.
+        'github_webhook_per_minute' => (int) env('ROBOT_COUNCIL_RATE_GITHUB_WEBHOOK_PER_MINUTE', 600),
     ],
 
 ];
