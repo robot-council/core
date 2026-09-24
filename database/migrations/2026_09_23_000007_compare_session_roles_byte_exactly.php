@@ -17,11 +17,13 @@ use Illuminate\Support\Facades\Schema;
  * `coordinator` with a diacritic matches as well.
  *
  * **What this is NOT, because `robot-council/core#245` first said otherwise.** It is not privilege
- * escalation. `Models\AgentSession` casts `role` to `Access\Role`, so a row outside the enum raises
- * `ValueError` the moment anything hydrates it; `Http\Middleware\EnsureAgentSession` never reads the
- * column at all, and a token's abilities are minted from a hydrated enum. The measured consequence
- * is a wrong `fleet_can_direct` from the one query whose narrowed `select(['id', 'user_id'])` dodges
- * the cast, and a 500 anywhere else. Such a row grants nothing.
+ * escalation. `Models\AgentSession` casts `role` to `Access\Role`, and Eloquent casts in
+ * `getAttribute()` rather than at hydration -- so a row outside the enum raises `ValueError` the
+ * moment anything READS the attribute, which the dashboard and every feed render do.
+ * `Http\Middleware\EnsureAgentSession` never reads the column at all, and a token's abilities are
+ * minted from a hydrated enum. The measured consequence is a wrong `fleet_can_direct` from the one
+ * query that never reads `role` back, and a `ValueError` anywhere that does. Such a row grants
+ * nothing.
  *
  * **The reason is drift rather than blast radius.** This package's settled position is that a bound
  * a validation rule states is not a bound the package holds -- every store here holds its own rather
@@ -75,7 +77,12 @@ return new class extends Migration
     }
 
     /**
-     * Put each role column back on the server's default collation.
+     * Put each role column back on the TABLE's collation.
+     *
+     * **Not the server's, which the sibling migration's wording says and which is wrong.** The
+     * compiled `down` carries no `collate` clause, so MySQL applies the table's charset and
+     * collation -- whatever the connection config set when the table was created. On a host whose
+     * server default has changed since, those are different.
      *
      * **Rolling back reopens the defect**, which is the honest direction for a down migration: it
      * restores the schema this changed rather than pretending the change was cosmetic.
