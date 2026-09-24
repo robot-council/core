@@ -75,11 +75,13 @@ it('gives user_id one meaning across an agent-written and an admin-written event
     // a single test so the two cannot drift apart unnoticed.
     [$session] = $this->startAgentSession($this->installation);
 
-    $this->service(Installations::class)
-        ->setAbility($this->installation, Ability::LocksAcquire, true, keyValue($this->admin->getKey()));
+    // **`revoke()` rather than the ability grant this used to call.** `robot-council/core#231`
+    // retired that control; what this needs is an administrative act whose actor differs from its
+    // subject, and revoking another developer's installation is one.
+    $this->service(Installations::class)->revoke($this->installation, keyValue($this->admin->getKey()));
 
     $enrolled = FleetEvent::query()->where('type', FleetEventType::SessionJoined)->sole();
-    $granted = FleetEvent::query()->where('type', FleetEventType::InstallationAbilityGranted)->sole();
+    $granted = FleetEvent::query()->where('type', FleetEventType::InstallationRevoked)->sole();
 
     expect($enrolled->user_id)->toBe(keyValue($this->developer->getKey()))
         ->and($enrolled->actor_user_id)->toBeNull()
@@ -128,12 +130,14 @@ it('serves a restricted event to the developer it is about, not to whoever recor
 it('resolves both developers for the dashboard, and neither for an ordinary event', function (): void {
     [$session] = $this->startAgentSession($this->installation);
 
-    $this->service(Installations::class)
-        ->setAbility($this->installation, Ability::LocksAcquire, true, keyValue($this->admin->getKey()));
+    // **`revoke()` rather than the ability grant this used to call.** `robot-council/core#231`
+    // retired that control; what this needs is an administrative act whose actor differs from its
+    // subject, and revoking another developer's installation is one.
+    $this->service(Installations::class)->revoke($this->installation, keyValue($this->admin->getKey()));
 
     $feed = collect($this->service(FleetFeed::class)->latest(50));
 
-    $granted = $feed->firstWhere('type', FleetEventType::InstallationAbilityGranted->value);
+    $granted = $feed->firstWhere('type', FleetEventType::InstallationRevoked->value);
     $enrolled = $feed->firstWhere('type', FleetEventType::SessionJoined->value);
 
     expect(arrayValue($granted['actor'] ?? [])['github_login'] ?? null)->toBe('octodev')

@@ -65,12 +65,14 @@ it('names both the owner and the admin on an administrative event', function ():
     // above it and the sequence pins both names to that row.
     $admin = $this->enrollDeveloper(77, 'octoadmin');
 
-    $this->service(Installations::class)
-        ->setAbility($this->installation, Ability::LocksAcquire, true, keyValue($admin->getKey()));
+    // **`revoke()` rather than the ability grant this used to call.**
+    // `robot-council/core#231` retired that control; what this test needs is any administrative act
+    // whose ACTOR differs from its SUBJECT, and revoking somebody else's installation is one.
+    $this->service(Installations::class)->revoke($this->installation, keyValue($admin->getKey()));
 
     Livewire::test(ChangeFeed::class)
         ->assertSeeInOrder([
-            FleetEventType::InstallationAbilityGranted->value,
+            FleetEventType::InstallationRevoked->value,
             'octodev',
             'by octoadmin',
         ]);

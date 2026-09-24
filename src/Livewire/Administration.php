@@ -6,12 +6,10 @@ namespace RobotCouncil\Livewire;
 
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\View\View;
-use Illuminate\Support\Facades\Log;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
 use Livewire\Component;
-use RobotCouncil\Access\Ability;
 use RobotCouncil\Access\CurrentDeveloper;
 use RobotCouncil\Access\Role;
 use RobotCouncil\Models\AgentSession;
@@ -132,40 +130,6 @@ final class Administration extends Component
     }
 
     /**
-     * Give an installation one ability.
-     *
-     * **It does not reach a session that is already running, and since `robot-council/core#221`
-     * it does not decide what one holds either.** A session's abilities come from its
-     * `Access\Role` preset; this list decides which roles the MACHINE may run, so granting
-     * `coordinator:direct` makes its next session a coordinator and leaves the running ones
-     * alone. Granting any other ability changes what is stored and nothing else.
-     *
-     * @param  int  $installationId  The installation to re-scope.
-     * @param  string  $ability  The ability to grant, as the rendered control named it.
-     */
-    public function grant(int $installationId, string $ability): void
-    {
-        $this->setAbility($installationId, $ability, granted: true);
-    }
-
-    /**
-     * Take one ability away from an installation, and demote any live session it no longer
-     * qualifies to run.
-     *
-     * **Only `coordinator:direct` reaches a running session**, because it is the only ability a
-     * role turns on. Revoking one of the four an enrollment may request changes the stored list
-     * and nothing about any session, now or later -- `Access\Role`'s presets carry all four
-     * whatever this column says. `robot-council/core#223` retires these controls.
-     *
-     * @param  int  $installationId  The installation to re-scope.
-     * @param  string  $ability  The ability to revoke, as the rendered control named it.
-     */
-    public function revokeAbility(int $installationId, string $ability): void
-    {
-        $this->setAbility($installationId, $ability, granted: false);
-    }
-
-    /**
      * Revoke an installation: its own credential and every session token it issued.
      *
      * @param  int  $installationId  The installation to revoke.
@@ -265,8 +229,10 @@ final class Administration extends Component
      * Put a session in a role with no request outstanding.
      *
      * **This is the emergency demotion**, and the administrator's own action is the approval. It is
-     * also the only way a role narrows: `Support\Installations::setAbility()` stopped reaching
-     * sessions when a role became the thing that decides what one may do.
+     * also the only way a role narrows. `robot-council/core#222` took the last machine-level lever
+     * away -- a stored ability list stopped reaching any session -- and
+     * `robot-council/core#231` removed the controls that wrote it, so this is the whole of what an
+     * administrator can do about a session that should not be coordinating.
      *
      * The role arrives as a string from a rendered control, so it goes through the enum rather than
      * being trusted: an unknown name is refused with a 422, because a Livewire action is an
@@ -319,51 +285,10 @@ final class Administration extends Component
             'scope' => Scope::orDefault($this->scope, Scope::Live),
             'installations' => $page['installations'],
 
-            // The fixed list, so the controls offered are exactly what `setAbility()` accepts and
-            // the two cannot drift apart
-            'grantable' => Ability::grantable(),
-
             // Every role, for the same reason: a control per case, so a fourth role is offered the
             // day it exists rather than the day somebody remembers this file.
             'roles' => Role::cases(),
         ]);
-    }
-
-    /**
-     * Add or remove one ability, refusing anything an admin may not grant.
-     *
-     * @param  int  $installationId  The installation to re-scope.
-     * @param  string  $ability  The ability, as the client named it.
-     * @param  bool  $granted  True to add it, false to remove it.
-     *
-     * @throws UnprocessableEntityHttpException When the ability is not one an admin may grant.
-     */
-    private function setAbility(int $installationId, string $ability, bool $granted): void
-    {
-        $this->authorizeAdmin();
-
-        // Resolved through the enum's own gate rather than compared here, so `*` -- which Sanctum
-        // reads as every ability -- and `sessions:start`, which no session token carries, are
-        // refused by the same expression the console command uses.
-        $resolved = Ability::grantableFrom($ability);
-
-        if (! $resolved instanceof Ability) {
-            Log::warning('robot-council refused an ability outside the grantable list.', [
-                'ability' => $ability,
-            ]);
-
-            // A 422 rather than a silent return: the rendered controls only ever name a grantable
-            // ability, so a request carrying anything else was not built by this page.
-            throw new UnprocessableEntityHttpException;
-        }
-
-        $installation = Installation::query()->find($installationId);
-
-        if (! $installation instanceof Installation) {
-            return;
-        }
-
-        $this->service(Installations::class)->setAbility($installation, $resolved, $granted, $this->actor());
     }
 
     /**
