@@ -140,9 +140,38 @@ def clean_title(t, recase=True):
 
 # ---- routing (which bucket) ---------------------------------------------
 
+# Terms that mean a security problem wherever they appear. None of these is ordinary
+# vocabulary for a command line, so a title carrying one is making a security claim.
 SEC = re.compile(
-    r"\b(xss|ssrf|csp|hsts|xxe|redos|egress|nonce|secret|credentials?|"
+    r"\b(xss|ssrf|csp|hsts|xxe|redos|egress|nonce|"
     r"impersonat\w*|sanitiz\w*|clickjack\w*)\b", re.I)
+
+# **`secret`, `credential`, `token` and `password` are this repository's SUBJECT, not a
+# signal.** This file is shared with `robot-council/cli`, whose product IS a credential store, so
+# these appear in the title of ordinary feature work there. Measured for `robot-council/core#264`:
+# they misfire here too the moment this package grows a credential-shaped feature, and the
+# two-tier split costs nothing in the meantime.
+#
+# Measured on `robot-council/cli#78` across all 35 merged subjects on `main`, routed with no
+# paths and no labels: `credential` alone fired 8 times and `secret` once, and the nine
+# included `Bridge MCP over stdio, holding the credential outside the agent (#10)` -- the
+# headline feature of `v0.1.0` -- plus enrollment, the Windows credential store, and the
+# per-harness keying. None of the unambiguous terms above fired even once. So this is the
+# whole of the defect, and splitting the tiers is the whole of the fix.
+#
+# A **Security** heading claims something was wrong and is now fixed. Nine such claims in a
+# release that had at most one real one does not merely mislabel bullets: it buries the
+# genuine fix among eight that are not, which is the direction that costs a reader something.
+SEC_AMBIGUOUS = re.compile(r"\b(secrets?|credentials?|tokens?|passwords?)\b", re.I)
+
+# What turns one of those into a security claim: a word about the value ESCAPING, rather
+# than about storing, choosing or reading it. Deliberately not `argv`, `transcript` or
+# `plaintext`-adjacent phrasing about where a credential is *kept*, because keeping one out
+# of argv is what several of this repository's features are FOR -- `Store the credential in
+# Windows Credential Manager, without putting it in argv (#35)` is a feature, not a fix.
+SEC_EXPOSURE = re.compile(
+    r"\b(leak\w*|expos\w*|disclos\w*|exfiltrat\w*|world-readable|hard-?coded)\b"
+    r"|\bin the clear\b|\bplain ?text\b", re.I)
 
 # A Conventional-Commit prefix is STRIPPED, never routed on. The title conventions in
 # `writing-pull-requests` forbid these outright, so a prefix here is legacy litter -- and
@@ -169,12 +198,22 @@ MAINT_FILES = {"composer.json", "phpstan.neon.dist", "phpstan-baseline.neon", "p
 # test-dominance rules below instead.
 USER_FACING_PREFIXES = ("config/", "database/", "resources/", "routes/")
 
+# Where each repository keeps the code it ships. **Not a user-facing surface** -- these hold
+# internals as well as public API, so they must not route to `new` on their own -- but a change
+# touching one is not maintenance either, which is what rule 6 below was deciding by accident.
+SOURCE_PREFIXES = ("src/", "app/")
+
 FIX_VERBS = re.compile(r"^(Fix|Resolve|Repair|Prevent|Guard|Restore|Correct|Harden|Stop|Avoid)\b")
 MAINT_VERBS = re.compile(
     r"^(Migrate|Document|Adopt|Refactor|Refresh|Rework|Bump|Reformat|Consolidate|Deduplicate)\b")
 MAINT_WORDS = re.compile(
     r"\btests?\b|paratest|test hygiene|test isolation|"
-    r"ci parity|\bcoverage\b|mutation|\bmutant\b|pcov|coverage driver|\bskill\b|worktree", re.I)
+    r"ci parity|\bcoverage\b|mutation|\bmutant\b|pcov|coverage driver|\bskill\b|worktree|"
+    # Dependency work, by the thing it is about rather than by its diff shape. Before #264 a
+    # hand-written `Raise dependency floors ...` reached Maintenance only because its test diff
+    # happened to be the larger one, which is the accident that also hid nine features. Dependabot's
+    # own titles route on `Bump` in MAINT_VERBS and never needed this.
+    r"\bdependenc(?:y|ies)\b", re.I)
 
 
 def strip_cc_prefix(s):
@@ -208,7 +247,8 @@ def bucket(subject, title, labels=(), paths=(), test_lines=0, other_lines=0):
         return "sec"
     if (SEC.search(combo) or "ssl verif" in low or "security header" in low or "x-powered-by" in low
             or "password protection" in low or "internal-network" in low or "internal network" in low
-            or (("escap" in low) and re.search(r"script|json-ld|xss|html", low))):
+            or (("escap" in low) and re.search(r"script|json-ld|xss|html", low))
+            or (SEC_AMBIGUOUS.search(combo) and SEC_EXPOSURE.search(combo))):
         return "sec"
 
     # 2. A category-bearing label on the linked issue. Pull requests usually carry no labels
@@ -228,9 +268,21 @@ def bucket(subject, title, labels=(), paths=(), test_lines=0, other_lines=0):
     if _all_maint(paths):
         return "maint"
 
-    # 6. Test-dominant diff: the production edit is incidental to the coverage it enables.
-    #    Safe only here, below rule 3 -- standalone it claims product work that ships tests.
-    if test_lines > other_lines:
+    # 6. Test-dominant diff with no source edit: the change is coverage, not product.
+    #
+    #    **The source exclusion is what makes this rule mean anything** (#264). Rule 5 already
+    #    routes a diff confined to `.claude/`, `tests/`, `README.md` or the manifests, so by the
+    #    time control arrives here every remaining change has touched `src/` or `app/` -- and
+    #    comparing its line counts then decides a product change on the size of its test suite.
+    #    Measured over `robot-council/cli`'s `v0.2.0..main`: nine user-visible changes landed in
+    #    Maintenance this way, including both the release was named for. A threshold on the
+    #    non-test lines cannot fix it either, because product changes there run as low as 10 added
+    #    lines while genuine maintenance reaches 82 -- the two ranges overlap completely, and only
+    #    the paths separate them.
+    #
+    #    `robot-council/cli` has none of rule 3's directories, so before this every one of its pull
+    #    requests fell through to here.
+    if test_lines > other_lines and not any(p.startswith(SOURCE_PREFIXES) for p in paths):
         return "maint"
 
     if MAINT_VERBS.match(t) or "update dependencies" in t.lower() or MAINT_WORDS.search(t):

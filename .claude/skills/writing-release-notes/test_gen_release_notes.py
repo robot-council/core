@@ -56,11 +56,74 @@ class Routing(unittest.TestCase):
         self.assertEqual(g.bucket("s", self.TITLE, paths=["CLAUDE.md", "composer.json"]), "maint")
         self.assertEqual(g.bucket("s", self.TITLE, paths=["CLAUDE.md"]), "maint")
 
-    def test_source_changes_still_route_by_title_and_diff_shape(self):
+    def test_a_source_change_routes_by_title_not_by_how_many_tests_it_ships(self):
+        """The correction #264 made, and the assertion it had to invert.
+
+        The version before it required a test-dominant `src/` change to be Maintenance. That is the
+        mechanism that hid nine user-visible changes in `robot-council/cli`'s v0.3.0 range,
+        including both the release was named for, because rule 5 already routes genuine maintenance
+        by path -- so by the time the test-dominance rule is reached, every change left has touched
+        source.
+        """
         paths = ["CLAUDE.md", "src/RobotCouncilServiceProvider.php"]
-        self.assertEqual(g.bucket("s", self.TITLE, paths=paths, other_lines=10), "new")
+        neutral = "Report the fleet's roles on the dashboard"
+
+        # A title claiming nothing in particular, touching source: a product change.
+        self.assertEqual(g.bucket("s", neutral, paths=paths, other_lines=10), "new")
         self.assertEqual(g.bucket("s", "Fix the provider name", paths=paths, other_lines=10), "fix")
-        self.assertEqual(g.bucket("s", self.TITLE, paths=paths, test_lines=20, other_lines=10), "maint")
+
+        # **And still a product change when the tests outweigh it.** Taken from `robot-council/cli#149`
+        # with its real line counts; before #264 this returned "maint".
+        self.assertEqual(
+            g.bucket("s", "Renew when this session's role changes",
+                     paths=["app/Support/Bridge.php", "tests/Feature/SessionRoleChangeTest.php"],
+                     test_lines=648, other_lines=160),
+            "new")
+
+        # Dependency work is Maintenance because it SAYS so, whatever its diff shape. Before #264
+        # this title reached Maintenance only when its test diff happened to be the larger one.
+        floors = "Raise dependency floors to their latest stable releases"
+
+        self.assertEqual(g.bucket("s", floors, paths=paths, other_lines=10), "maint")
+        self.assertEqual(g.bucket("s", floors, paths=paths, test_lines=20, other_lines=10), "maint")
+
+    def test_a_domain_noun_does_not_assert_a_vulnerability(self):
+        """`credential` and `secret` are what this project is about, not markers of a fix to it.
+
+        Both titles are real, from `robot-council/cli#109` and `#110`. Each routed to Security on
+        the word `credential` alone, which would have told readers of a release that they had been
+        exposed.
+        """
+        source = ["app/Support/Credentials/KeychainStore.php", "tests/Feature/KeychainStoreTest.php"]
+
+        self.assertEqual(
+            g.bucket("s", "Answer a multi-key credential read in one `powershell.exe` invocation",
+                     paths=source, test_lines=301, other_lines=206),
+            "new")
+        self.assertEqual(
+            g.bucket("s", "Read the legacy credential once per refusal, not twice",
+                     paths=source, test_lines=108, other_lines=32),
+            "new")
+        self.assertEqual(g.bucket("s", "Store the secret where the keychain wants it", paths=source), "new")
+
+        # **But the domain noun still routes when a second word says the value ESCAPED.** Removing
+        # the nouns outright was the first attempt and was worse: it would have missed a genuine
+        # credential-disclosure fix entirely. The two tiers come from `robot-council/cli#78`, which
+        # measured them across 35 subjects.
+        for claim in ("Stop a credential leaking into the transcript",
+                      "Prevent a token being exposed in argv",
+                      "Fix a password stored in the clear"):
+            self.assertEqual(g.bucket("s", claim, paths=source), "sec", claim)
+
+        # The label a human set still routes, which is how a genuine credential fix gets there --
+        # `robot-council/cli#105` reached Security exactly this way.
+        self.assertEqual(g.bucket("s", "Read the legacy credential once per refusal, not twice",
+                                  labels=["security"], paths=source), "sec")
+
+        # And the vocabulary that is not domain-specific still routes on its own.
+        for word in ("Prevent an XSS in the enrollment page", "Stop an SSRF in the callback",
+                     "Add a CSP nonce to the layout"):
+            self.assertEqual(g.bucket("s", word, paths=source), "sec", word)
 
     def test_published_surface_still_wins(self):
         self.assertEqual(g.bucket("s", self.TITLE, paths=["CLAUDE.md", "config/robot-council.php"]), "new")
