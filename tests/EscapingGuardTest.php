@@ -24,7 +24,6 @@ declare(strict_types=1);
  *
  * @command  vendor/bin/pest --compact tests/EscapingGuardTest.php
  */
-
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Models\TaskStatus;
 use RobotCouncil\Support\Locks;
@@ -301,6 +300,107 @@ it('reports an interpolation in a Livewire expression, and leaves a guarded one 
 
     // An ordinary attribute is not this check's business; `rawOutputIn()` covers the escaping.
     expect(wireExpressionInterpolations('<p title="{{ $title }}">x</p>'))->toBeEmpty();
+});
+
+it('reports every shape that put the guard token somewhere it did not govern', function (string $expression): void {
+    // **The admit rule was anchored at neither end**, so `str_contains($interpolation, '::of(')`
+    // passed every row here. Measured against the shipped detector before the change, each one
+    // admitted (#240). A `wire:click` value is evaluated, so this is expression injection rather
+    // than the navigation the sibling URL guard risks.
+    expect(wireExpressionInterpolations('<button wire:click="act({{ '.$expression.' }})">go</button>'))
+        ->not->toBeEmpty();
+})->with([
+    'concatenated after the call' => 'Wire::of($id).$evil',
+    'concatenated before it' => '$evil.Wire::of($id)',
+    'one element of a list' => '[Wire::of($a), $evil]',
+    'the token inside a string literal' => "'::of('.\$evil",
+    'the token inside a comment' => '$evil /* ::of( */',
+]);
+
+it('still admits the two call shapes the package actually writes', function (): void {
+    // **The negative control for the test above, and it is the one that matters.** An anchored rule
+    // that reported everything would satisfy every row there and fail the whole suite over the real
+    // views. The second row is not hypothetical: `task-board.blade.php` and `administration.blade.php`
+    // both pass a fully-qualified enum case, whose `::` and `\` the pattern has to carry.
+    expect(wireExpressionInterpolations('<button wire:click="act({{ Wire::of($id) }})">go</button>'))
+        ->toBeEmpty();
+
+    // **Nowdocs, because Rector rewrites the qualified name inside a quoted literal.** Measured: it
+    // turned `\RobotCouncil\Support\Scope::All` into `'.Scope::class.'`, which resolves WITHOUT the
+    // leading separator -- so the test kept passing while no longer pinning the shape the views
+    // carry. The bytes are the subject here, so they are written where nothing rewrites them.
+    $qualified = <<<'BLADE'
+        <button wire:click="go({{ Wire::of(\RobotCouncil\Support\Scope::All) }})">go</button>
+        BLADE;
+
+    $unqualified = <<<'BLADE'
+        <button wire:click="go({{ Wire::of(RobotCouncil\Support\Scope::All) }})">go</button>
+        BLADE;
+
+    expect(wireExpressionInterpolations($qualified))->toBeEmpty()
+        ->and(wireExpressionInterpolations($unqualified))->toBeEmpty();
+});
+
+it('examines the raw echo form in a Livewire expression, which it read past entirely', function (): void {
+    // `interpolationsIn()` matched only `{{ … }}`, so this shape was invisible to the expression
+    // guard -- the one echo form it never examined (#240).
+    expect(wireExpressionInterpolations('<button wire:click="act({!! $evil !!})">go</button>'))
+        ->toBe(['wire:click="$evil"']);
+
+    // And a guarded raw echo is still admitted, so the fix reports the shape rather than the syntax.
+    expect(wireExpressionInterpolations('<button wire:click="act({!! Wire::of($id) !!})">go</button>'))
+        ->toBeEmpty();
+});
+
+it('examines the evaluated Alpine attributes it did not name', function (string $attribute): void {
+    // `x-init` and `x-effect` are evaluated expressions and were in no prefix list. `x-text` is a
+    // value rather than a sink, and is examined because that is cheaper than arguing about it.
+    expect(wireExpressionInterpolations('<div '.$attribute.'="{{ $evil }}"></div>'))
+        ->toBe([$attribute.'="$evil"']);
+})->with(['x-init', 'x-effect', 'x-text']);
+
+it('examines the Alpine shorthand, which neither detector reached', function (string $attribute): void {
+    // **#241, and which detector owns it is a decision rather than an accident.** `:href` is the
+    // same attribute as `x-bind:href` spelled two ways, and this detector already owned the long
+    // form -- so splitting one attribute across two detectors by spelling would be the arbitrary
+    // choice. `urlAttributeInterpolations()` is left alone, and `:class` comes along free.
+    //
+    // `v-bind:` is Vue's and this package ships none. It is three characters in an alternation and
+    // the failure it guards is somebody reaching for a familiar spelling, so it is included rather
+    // than argued about.
+    expect(wireExpressionInterpolations('<a '.$attribute.'="{{ $evil }}">x</a>'))
+        ->toBe([$attribute.'="$evil"']);
+})->with([':href', ':class', 'v-bind:href', 'x-bind:href']);
+
+it('does not report one attribute twice under two names', function (): void {
+    // The shorthand branch is anchored with a lookbehind. Without it `x-bind:href` also matches as
+    // `:href` and `xlink:href` matches as `:href` too, so the same attribute is reported under two
+    // names and a reader cannot tell one finding from two.
+    expect(wireExpressionInterpolations('<a x-bind:href="{{ $evil }}">x</a>'))
+        ->toHaveCount(1)
+        ->and(wireExpressionInterpolations('<a xlink:href="{{ $evil }}">x</a>'))
+        ->toBeEmpty();
+});
+
+it('reports an alias that does not point at the class the whole rule rests on', function (): void {
+    // **Every view spells the helper `Wire`, through a per-view Blade alias.** A template aliasing
+    // that name to something else satisfies every expression check in this file while calling into
+    // anything at all, so the alias is checked rather than assumed.
+    expect(wireExpressionInterpolations("@use('Evil\\Thing', 'Wire')"))
+        ->toBe(['alias: Evil\\Thing as Wire']);
+
+    // The control, and the spelling the views actually carry.
+    expect(wireExpressionInterpolations("@use('RobotCouncil\\Support\\WireArgument', 'Wire')"))
+        ->toBeEmpty();
+});
+
+it("leaves `data-href` alone, which is what the URL detector's lookbehind is for", function (): void {
+    // Asserted because the shorthand work is adjacent to that lookbehind: a pattern widened to
+    // admit `:href` must not also start matching the attribute the lookbehind exists to exclude.
+    expect(urlAttributeInterpolations('<a data-href="{{ $evil }}">x</a>'))->toBeEmpty()
+        // The control in the same run, so the silence above is an absence rather than a broken
+        // detector.
+        ->and(urlAttributeInterpolations('<a href="{{ $evil }}">x</a>'))->toBe(['href="$evil"']);
 });
 
 it('writes nothing into a Livewire expression that did not come from the whitelist', function (): void {

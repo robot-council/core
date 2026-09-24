@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\DB;
 use Laravel\Socialite\Two\User as GitHubAccount;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Models\DeviceCode;
+use RobotCouncil\Support\WireArgument;
 use RobotCouncil\Tests\TestCase;
 
 pest()->extend(TestCase::class)->in(__DIR__);
@@ -603,9 +604,25 @@ function wireExpressionInterpolations(string $template): array
 {
     $findings = [];
 
+    // **The named prefixes, plus Alpine's `:` shorthand for `x-bind:`.** `x-init` and `x-effect`
+    // are evaluated expressions and were missing entirely; `x-text` is a value rather than a sink
+    // but is cheaper to examine than to argue about. The shorthand is #241: `:href` is the same
+    // attribute as `x-bind:href` spelled two ways, and splitting one attribute across two
+    // detectors by spelling would be the arbitrary choice -- so this detector owns both, and
+    // `urlAttributeInterpolations()` is left alone. `:class` comes along with it.
+    //
+    // **The lookbehind is what keeps the shorthand branch from eating the long forms.** Without it
+    // `x-bind:href` also matches as `:href` and `xlink:href` matches as `:href` too, so the same
+    // attribute is reported twice under two names. Measured both ways.
+    //
+    // `v-bind:` is Vue's and this package ships none, but it is three characters in an alternation
+    // and the failure it guards against is somebody reaching for a familiar spelling. Included
+    // rather than argued about.
+    $prefixes = 'wire:|x-on:|x-bind:|v-bind:|x-data|x-show|x-model|x-init|x-effect|x-text|@click';
+
     // The value position. `wire:key` is excluded by name; everything else under these prefixes is
     // treated as an expression, which errs toward reporting.
-    preg_match_all('/((?:wire:|x-on:|x-bind:|x-data|x-show|x-model|@click)[\w.:-]*)\s*=\s*"([^"]*)"/', $template, $attributes, PREG_SET_ORDER);
+    preg_match_all('/(?<![\w:.@-])((?:'.$prefixes.')[\w.:-]*|:[\w.:-]+)\s*=\s*"([^"]*)"/', $template, $attributes, PREG_SET_ORDER);
 
     foreach ($attributes as $attribute) {
         if (str_starts_with($attribute[1], 'wire:key')) {
@@ -613,7 +630,7 @@ function wireExpressionInterpolations(string $template): array
         }
 
         foreach (interpolationsIn($attribute[2]) as $interpolation) {
-            if (! str_contains($interpolation, '::of(')) {
+            if (! isWireArgumentCall($interpolation)) {
                 $findings[] = sprintf('%s="%s"', $attribute[1], trim($interpolation));
             }
         }
@@ -623,12 +640,61 @@ function wireExpressionInterpolations(string $template): array
     preg_match_all('/(?:wire:|x-)[\w.:-]*\{\{(.*?)\}\}/s', $template, $names, PREG_SET_ORDER);
 
     foreach ($names as $name) {
-        if (! str_contains($name[1], '::of(')) {
+        if (! isWireArgumentCall($name[1])) {
             $findings[] = 'attribute name: {{'.trim($name[1]).'}}';
         }
     }
 
+    // **The alias is checked, because the guard's whole requirement rests on it.** Every view
+    // spells the helper `Wire` through `@use('RobotCouncil\Support\WireArgument', 'Wire')`, so a
+    // template aliasing that name to something else would satisfy every expression check above
+    // while calling into anything at all.
+    preg_match_all('/@use\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,\s*[\'"](Wire|WireArgument)[\'"]\s*\)/', $template, $aliases, PREG_SET_ORDER);
+
+    foreach ($aliases as $alias) {
+        if (ltrim($alias[1], '\\') !== WireArgument::class) {
+            $findings[] = sprintf('alias: %s as %s', $alias[1], $alias[2]);
+        }
+    }
+
     return $findings;
+}
+
+/**
+ * Whether one interpolation is exactly one call to `Support\WireArgument::of()` and nothing else.
+ *
+ * **Anchored at both ends, which the predicate this replaces was at neither.** It asked
+ * `str_contains($interpolation, '::of(')`, so every one of these was admitted, measured against the
+ * shipped detector before the change: `Wire::of($id).$evil`, `$evil.Wire::of($id)`,
+ * `[Wire::of($a), $evil]`, `'::of('.$evil` -- where the token appears only inside a string literal
+ * -- and `$evil /* ::of( *\/`, where it appears only inside a comment. A `wire:click` value is
+ * evaluated, so that is expression injection rather than the navigation the sibling URL guard
+ * risks (#240).
+ *
+ * The argument list is walked with a recursive group so a call inside it keeps its own parentheses:
+ * `Wire::of(\RobotCouncil\Support\Scope::All)` is a real expression in this package's views.
+ *
+ * **The walk is blind to string context**, which #210 recorded for the URL detector and which
+ * applies here unchanged: a parenthesis inside a string literal shifts the count, so
+ * `Wire::of(')')` is reported. That is a false positive in the safe direction on first-party
+ * templates, and it is recorded rather than fixed with a tokenizer.
+ *
+ * @param  string  $interpolation  The expression between the braces.
+ * @return bool True when the whole expression is one such call.
+ */
+function isWireArgumentCall(string $interpolation): bool
+{
+    // `(?&balanced)` recurses into the group, so nested parentheses are consumed as a unit. The
+    // possessive `[^()]++` is what keeps a long argument from backtracking exponentially.
+    //
+    // A nowdoc, so the pattern is the bytes written here: the backslashes are the regex's own and
+    // a quoted string would have eaten one layer of them silently, which turns `\\?` -- an optional
+    // leading namespace separator -- into a literal `?` that matches nothing.
+    $pattern = <<<'REGEX'
+        /^\s*\\?(?:[A-Za-z_]\w*\\)*(?:Wire|WireArgument)::of(?<balanced>\((?:[^()]++|(?&balanced))*\))\s*$/
+        REGEX;
+
+    return preg_match(trim($pattern), $interpolation) === 1;
 }
 
 /**
@@ -639,9 +705,22 @@ function wireExpressionInterpolations(string $template): array
  */
 function interpolationsIn(string $value): array
 {
-    preg_match_all('/\{\{(?!--)(.*?)\}\}/s', $value, $matches);
+    // **Both echo forms, because only one of them was read.** `{!! !!}` in a `wire:` attribute --
+    // `wire:click="act({!! $evil !!})"` -- was invisible to this function entirely, so the raw form
+    // was the one shape the expression guard never examined (#240). Blade compiles it to the same
+    // `echo` either way; in an attribute value it is the *expression* that matters, and both
+    // shapes put one there.
+    preg_match_all('/\{\{(?!--)(.*?)\}\}|\{!!(.*?)!!\}/s', $value, $matches, PREG_SET_ORDER);
 
-    return $matches[1];
+    $found = [];
+
+    foreach ($matches as $match) {
+        // The alternation leaves the unmatched branch empty, so the raw form's capture is the
+        // second group whenever the first did not participate.
+        $found[] = ($match[1] ?? '') !== '' ? $match[1] : ($match[2] ?? '');
+    }
+
+    return $found;
 }
 
 /**
