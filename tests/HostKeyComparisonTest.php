@@ -65,6 +65,10 @@ function hostKeyColumns(): array
         ['robot_council_tasks', 'user_id'],
         ['robot_council_device_codes', 'decided_by'],
         ['robot_council_github_identities', 'user_id'],
+        ['robot_council_seats', 'user_id'],
+        ['robot_council_seats', 'parked_by'],
+        ['robot_council_assignment_hours', 'user_id'],
+        ['robot_council_holidays', 'user_id'],
     ];
 }
 

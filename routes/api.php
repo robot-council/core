@@ -20,6 +20,7 @@ use RobotCouncil\Access\Ability;
 use RobotCouncil\Http\Controllers\AgentHeartbeatController;
 use RobotCouncil\Http\Controllers\AgentSessionController;
 use RobotCouncil\Http\Controllers\CreateTaskController;
+use RobotCouncil\Http\Controllers\DeveloperSettingsController;
 use RobotCouncil\Http\Controllers\DeviceCodeController;
 use RobotCouncil\Http\Controllers\DeviceTokenController;
 use RobotCouncil\Http\Controllers\FleetFeedController;
@@ -101,6 +102,12 @@ Route::middleware(['throttle:'.RobotCouncilServiceProvider::AGENT_LIMITER, Ensur
         Route::post('directives', PostDirectiveController::class)
             ->middleware(RequireAbility::class.':'.Ability::CoordinatorDirect->value)
             ->name('directives.store');
+
+        // Read-only: the coordinator reads developers' settings and never writes them (#314). The
+        // dashboard is their only writer.
+        Route::get('developers/settings', DeveloperSettingsController::class)
+            ->middleware(RequireAbility::class.':'.Ability::CoordinatorDirect->value)
+            ->name('developers.settings');
 
         // Every agent sees every task: an agent cannot decide whether to claim work it cannot see,
         // and a queue half the fleet is blind to is a queue that deadlocks. What narrows a task is
