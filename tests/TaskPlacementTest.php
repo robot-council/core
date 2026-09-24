@@ -486,9 +486,8 @@ it('refuses `expect` on anything but a reassignment at the store', function (): 
     $task = placementTask($this);
 
     expect(fn () => $this->service(Tasks::class)->transition($task, TaskTransition::Claim, $this->session, false, expect: TaskStatus::Pending))
-        ->toThrow(InvalidArgumentException::class, 'Only a reassignment takes `expect`');
-
-    expect(Task::query()->findOrFail($task)->status)->toBe(TaskStatus::Pending);
+        ->toThrow(InvalidArgumentException::class, 'Only a reassignment takes `expect`')
+        ->and(Task::query()->findOrFail($task)->status)->toBe(TaskStatus::Pending);
 });
 
 it("places a task a coordinator filed on any developer's lane", function (): void {
