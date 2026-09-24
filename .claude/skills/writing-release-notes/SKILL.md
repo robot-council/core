@@ -116,11 +116,11 @@ Do **not** invent headings outside this closed set. If something doesn't obvious
 - **Use the Oxford comma** — `config, migrations, and a facade helper`, not
   `config, migrations and a facade helper`.
 
-## Routing (which bucket) — by title, closing-issue label, and diff shape
+## Routing (which bucket) — by title, closing-issue label and type, and diff shape
 
-A change routes on its resolved title, the labels of the issue its PR closes (read from that issue,
-not from the PR), and which paths its diff touches. A cascade, first match wins — the order is
-what makes it correct:
+A change routes on its resolved title, the labels and the **GitHub issue type** of the issue its PR
+closes (read from that issue, not from the PR), and which paths its diff touches. A cascade, first
+match wins — the order is what makes it correct:
 
 1. **Breaking changes** — editorial call, per the bucket definition above; the generator cannot
    infer it, so it is passed in by flag.
@@ -136,10 +136,20 @@ what makes it correct:
    `Correct`/`Harden`/`Stop`/`Avoid`.
 6. **Maintenance and tooling** — the diff is confined to tooling (`.github/`, `.claude/`, `tests/`,
    `workbench/`, `composer.json`, `phpstan.neon.dist`, `phpstan-baseline.neon`, `phpunit.xml.dist`, `rector.php`,
-   top-level dotfiles, `CHANGELOG.md`, `CLAUDE.md`, `README.md`, `LICENSE.md`); or it adds more lines under
-   `tests/` than elsewhere; or the title opens with a maintenance verb (`Refactor`, `Bump`,
-   `Document`, …) or names tests, coverage, mutation, a skill, or a worktree.
-7. **What's new** — everything else.
+   top-level dotfiles, `CHANGELOG.md`, `CLAUDE.md`, `README.md`, `LICENSE.md`).
+7. **The issue type a human set** — `Bug` routes to *What's fixed*, `Feature` to *What's new*. It is
+   read from `closingIssuesReferences`, so it costs a field on a query the generator already makes.
+   **It sits here, after rule 6, and that placement is the whole of the correctness**: read before
+   rule 4 it would take a `Bug`-typed change confined to `.claude/` and call it a fix, where a
+   change to a skill file is maintenance whatever its ticket is typed. **`Task` is not consulted**,
+   although it correlated with *fixed* six times out of six on the range this was measured on — the
+   correlation is an artifact of this skill set assigning `Task` to spikes, forks, cleanups, and
+   epics, so a rule built on it would break the first time somebody typed a ticket correctly. A
+   change closing issues of several types is a **fix**; under-claiming novelty is the cheaper error.
+8. **Maintenance and tooling** — the diff adds more lines under `tests/` than elsewhere **and edits
+   nothing under `src/` or `app/`**; or the title opens with a maintenance verb (`Refactor`, `Bump`,
+   `Document`, …) or names tests, coverage, mutation, a skill, a worktree, or dependencies.
+9. **What's new** — everything else.
 
 ## Generating the body — [`gen_release_notes.py`](gen_release_notes.py)
 
