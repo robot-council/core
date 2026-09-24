@@ -2,6 +2,23 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.5.0 — Repository and Work Location (2026-09-24)
+
+Sessions now carry a repository and a work location instead of one opaque project label, completing the fleet-topology epic.
+
+**Breaking change** — run `php artisan migrate` after upgrading, and read `repository` and `work_location` where a client previously read `project_id`.
+
+### Breaking changes
+- Retire the session's `project_id`, keeping its split at the edge [#306](https://github.com/robot-council/core/pull/306). `robot_council_agent_sessions.project_id` is dropped, and the key is gone from `GET api/agent/session`, the administration panel's session rows, and the presence read shape. `POST api/sessions` still accepts `project_id` and splits it into `repository` and `work_location` when a client names neither, so a client that has not been upgraded keeps working. `robot_council_tasks.project_id` is untouched.
+
+### Maintenance and tooling
+- Add the `fleet-facing` and `housekeeping` priority labels to the issue-writing skill [#304](https://github.com/robot-council/core/pull/304)
+- Put the `ci-passed` comment back on `ci-passed` [#303](https://github.com/robot-council/core/pull/303)
+- Run the release generator's tests in CI [#301](https://github.com/robot-council/core/pull/301)
+- Stop the issue skill and the impersonal-voice rule naming one repository [#300](https://github.com/robot-council/core/pull/300)
+- Report a bullet that loses its link, where it loses it [#297](https://github.com/robot-council/core/pull/297)
+- Stop the release generator's no-data warning raising on the response it reports [#296](https://github.com/robot-council/core/pull/296)
+
 ## v0.4.0 — Session Roles (2026-09-24)
 
 Session roles replace the per-machine ability grants they made redundant, a session now records where it is working, and the dashboard splits into panels a developer chooses.
