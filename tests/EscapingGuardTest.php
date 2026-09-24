@@ -563,29 +563,61 @@ it('leaves ordinary Tailwind alone, which the attribute-name scan did not', func
     expect(wireExpressionInterpolations('<div class="'.$class.'">x</div>'))->toBeEmpty();
 })->with(['px-{{ $n }}', 'max-w-{{ $w }}', 'space-x-{{ $gap }}', 'translate-x-{{ $n }}', 'px-{!! $n !!}']);
 
-it('reads `@use` the way Blade reads it, in every form Blade accepts', function (string $directive): void {
-    // **`CompilesUseStatements::compileUse()` requires neither quotes nor a comma**, and has a
-    // group-import branch. A stricter regex left four forms unchecked while they compiled to
-    // statements byte-identical to the one it did report -- and the alias check is the only thing
-    // that makes a bare `Wire::of()` safe.
-    expect(wireExpressionInterpolations($directive."\n<button wire:click=\"act({{ Wire::of(\$evil) }})\">x</button>"))
+it('reports every `@use` form that binds a foreign class under the guarded name', function (string $directive): void {
+    // **The alias check is the only thing that makes a bare `Wire::of()` safe**, so a binding it
+    // misses defeats every other check in this file at once. Three versions modelled
+    // `CompilesUseStatements::compileUse()` with string operations and each was wrong in a new way;
+    // every row here was executed end to end against a real foreign class before it became a test --
+    // the template compiled, `Wire::of()` reached the foreign class, and the guard said nothing.
+    expect(wireExpressionInterpolations($directive."\n<button wire:click=\"go({{ Wire::of(\$id) }})\">x</button>"))
         ->not->toBeEmpty();
 })->with([
-    'quoted, one argument' => "@use('Evil\\Wire')",
-    'unquoted' => '@use(Evil\\Wire)',
-    'aliased inside the string' => "@use('Evil\\Wire as Wire')",
-    'a group import' => "@use('Evil\\{Wire}')",
-    'unquoted, two arguments' => '@use(Evil\\Wire, Wire)',
+    // Blade trims quotes and whitespace with one interleaved charlist; two sequential trims leave
+    // the space behind, and an alias of `Wire ` matches nothing.
+    'a trailing space inside the quotes' => "@use('Evil\\Wire ')",
+    'a trailing space in the alias' => "@use('Evil\\Foo', 'Wire ')",
+    'a tab in the alias' => "@use('Evil\\Foo', \"Wire\t\")",
+
+    // `compileUse()` deletes every parenthesis before parsing; a non-greedy `\((.*?)\)` stops at the
+    // first one. The third row lands on a class string that compares EQUAL to the safe one.
+    'a parenthesis inside the quotes' => "@use('Evil\\Foo)', 'Wire')",
+    'a parenthesis in the alias' => "@use('Evil\\Foo', 'Wi)re')",
+    'a truncation ending at the safe name' => "@use('RobotCouncil\\Support\\WireArgument)Sneaky', 'Wire')",
+
+    // A group import binds every name in the braces.
+    'a group import binding a second name' => "@use('Evil\\{Foo, Wire}')",
+    'a group import with an alias' => "@use('Evil\\{Foo as Wire}')",
+    'a group import with a nested name' => "@use('Evil\\{Sub\\Nope, Wire}')",
+
+    // Blade emits the string verbatim and PHP accepts any whitespace around `as`.
+    'as separated by tabs' => "@use(\"Evil\\Foo\tas\tWire\")",
+    'as separated by newlines' => "@use(\"Evil\\Foo\nas\nWire\")",
+
+    'unquoted' => '@use(Evil\Wire)',
+    'unquoted with two arguments' => '@use(Evil\Foo, Wire)',
+    'the plain quoted form' => "@use('Evil\\Wire')",
 ]);
 
-it("leaves this package's own imports alone, in either form", function (): void {
-    // The control for the test above: the spelling every view carries, the single-argument form,
-    // and an unrelated import that binds a different name.
-    expect(wireExpressionInterpolations("@use('RobotCouncil\\Support\\WireArgument', 'Wire')"))->toBeEmpty()
-        ->and(wireExpressionInterpolations("@use('RobotCouncil\\Support\\WireArgument')"))->toBeEmpty()
-        ->and(wireExpressionInterpolations("@use('RobotCouncil\\Support\\Scope')"))->toBeEmpty()
-        ->and(wireExpressionInterpolations('@class([\'a\' => $b])'))->toBeEmpty();
-});
+it('leaves alone every form that binds nothing, or binds the right class', function (string $directive): void {
+    // **The other half, and the one that decides whether this guard is usable at all.** A check
+    // that reported these would fail the build on ordinary templates.
+    // `robotcouncil\support\wireargument` is here because PHP class names are case-insensitive, so
+    // it binds the real class and a byte comparison against `WireArgument::class` refused it.
+    expect(wireExpressionInterpolations($directive))->toBeEmpty();
+})->with([
+    'the spelling every view carries' => "@use('RobotCouncil\\Support\\WireArgument', 'Wire')",
+    'the one-argument form' => "@use('RobotCouncil\\Support\\WireArgument')",
+    'a group import of the safe class' => "@use('RobotCouncil\\Support\\{WireArgument}')",
+    'padding Blade strips' => "@use(' RobotCouncil\\Support\\WireArgument ', 'Wire')",
+    'a case PHP accepts' => "@use('robotcouncil\\support\\wireargument', 'Wire')",
+    'an escaped directive Blade renders literally' => "@@use('Evil\\Wire')",
+    'a function import, which binds no class' => "@use('function Evil\\wire')",
+    'a const import' => "@use('const Evil\\WIRE')",
+    'an unrelated import' => "@use('RobotCouncil\\Support\\Scope')",
+    'one inside a Blade comment' => "{{-- @use('Evil\\Wire') --}}",
+    'one inside @verbatim' => "@verbatim @use('Evil\\Wire') @endverbatim",
+    'a closure use, which is not an import' => '<?php $f = function () use ($x) { return $x; }; ?>',
+]);
 
 it('refuses a qualified class this package does not have', function (): void {
     // `src/Support/` holds `WireArgument.php` and no `Wire.php`, so admitting

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\DB;
 use Laravel\Socialite\Two\User as GitHubAccount;
 use RobotCouncil\Access\Ability;
@@ -709,8 +710,8 @@ function wireExpressionInterpolations(string $template): array
     // accepts went unchecked while compiling to statements byte-identical to the one that was
     // reported -- `@use(Evil\Wire)` unquoted, `@use('Evil\Wire as Wire')`, `@use('Evil\{Wire}')`
     // and `@use(Evil\Wire, Wire)`. Verified by running each emitted statement against a real class.
-    foreach (bladeUseAliases($scanned) as [$class, $as]) {
-        if (in_array(strtolower($as), ['wire', 'wireargument'], true) && $class !== WireArgument::class) {
+    foreach (bladeUseAliases($template) as [$class, $as]) {
+        if (in_array(strtolower($as), ['wire', 'wireargument'], true) && strcasecmp($class, WireArgument::class) !== 0) {
             $findings[] = sprintf('alias: %s as %s', $class, $as);
         }
     }
@@ -721,57 +722,165 @@ function wireExpressionInterpolations(string $template): array
 /**
  * Every class `@use` imports into one template, with the name it is reachable by.
  *
- * **Modelled on `Illuminate\View\Compilers\Concerns\CompilesUseStatements::compileUse()`** rather
- * than on a guess at its syntax, because the guard that reads this is the only thing making a bare
- * `Wire::of()` safe. That method strips the surrounding parentheses, trims `" '\""`, and branches
- * on whether the expression contains `{` -- so quotes are optional, `as` is accepted inside the
- * string, and a group import is legal. Each of those was a way past a stricter regex.
+ * **It compiles the template with Blade and reads the result, rather than parsing the directive.**
+ * Three attempts modelled `CompilesUseStatements::compileUse()` with string operations and each was
+ * wrong in a new way -- five independent divergences, every one of them a way to bind an arbitrary
+ * class under the name `Wire` while this guard stayed silent, and every one reproduced end to end:
  *
- * **A group import is reported by the caller rather than resolved.** `@use('Evil\{Wire}')` binds
- * `Wire`, and unpacking the braces here would be re-implementing a second piece of Blade to decide
- * something no first-party view does. It is returned under the name it binds, so it is refused.
+ * - `@use('Evil\Wire ')` -- Blade trims quotes and spaces with one interleaved charlist; two
+ *   sequential trims leave the space, and the derived alias `Wire ` matched nothing.
+ * - `@use('Evil\Foo)', 'Wire')` -- `compileUse()` deletes every parenthesis before parsing, while a
+ *   non-greedy `\((.*?)\)` stops at the first one.
+ * - `@use('RobotCouncil\Support\WireArgument)Sneaky', 'Wire')` -- the same truncation, landing on a
+ *   class string that compares EQUAL to the safe one while Blade binds a different class.
+ * - `@use('Evil\{Foo, Wire}')` -- a group import binds every name; reading the text after the last
+ *   brace sees one.
+ * - `@use("Evil\Foo\tas\tWire")` -- Blade emits the string verbatim and PHP accepts any whitespace
+ *   around `as`; a literal `' as '` does not.
  *
- * @param  string  $template  The template source.
- * @return list<array{0: string, 1: string}> One `[class, alias]` pair per import.
+ * **So the parsing is delegated twice over.** Blade turns the directive into a `use` statement, and
+ * PHP's own tokenizer reads that statement. Neither step is an imitation of anything, which is what
+ * makes the list of divergences above closed rather than the latest five found.
+ *
+ * `use function` and `use const` bind no class and are skipped. A closure's `use ($x)` is not an
+ * import and is skipped by the same walk, because it has no name token before its parenthesis.
+ *
+ * @param  string  $template  The template source, uncompiled.
+ * @return list<array{0: string, 1: string}> One `[class, alias]` pair per class import.
  */
 function bladeUseAliases(string $template): array
 {
-    if (preg_match_all('/@use\s*\((.*?)\)/is', $template, $matches, PREG_SET_ORDER) === false) {
-        throw new RuntimeException('Blade alias scan failed: '.preg_last_error_msg());
-    }
+    // The raw template rather than the comment-stripped copy: Blade strips its own comments and
+    // `@verbatim` blocks, and compiling what a view actually contains is the point of doing this.
+    $compiled = Blade::compileString($template);
 
-    $aliases = [];
+    $tokens = token_get_all($compiled);
 
-    foreach ($matches as $match) {
-        // The order Blade uses: the comma form is split first, then the expression is trimmed of
-        // quotes, then ` as ` is read out of what remains.
-        //
-        // Indexed rather than destructured through `array_pad()`, which types the first element as
-        // nullable to the analyzer even though `explode()` always returns at least one.
-        $parts = explode(',', $match[1], 2);
+    $imports = [];
+    $index = 0;
+    $count = \count($tokens);
 
-        $class = ltrim(trim(trim($parts[0]), '"\''), '\\');
-        $alias = isset($parts[1]) ? trim(trim($parts[1]), '"\'') : null;
+    while ($index < $count) {
+        $token = $tokens[$index];
+        $index++;
 
-        if ($alias === null && stripos($class, ' as ') !== false) {
-            [$class, $alias] = array_map(trim(...), preg_split('/ as /i', $class, 2) ?: [$class, '']);
+        if (! \is_array($token) || $token[0] !== T_USE) {
+            continue;
         }
 
-        // A group import binds the braced names. Reported under the whole expression, which no
-        // first-party view writes and which therefore fails.
-        if (str_contains($class, '{')) {
-            $aliases[] = [$class, trim(rtrim(substr($class, (int) strrpos($class, '{') + 1), '}'))];
+        $index = importedNames($tokens, $index, $count, $imports);
+    }
+
+    return array_map(
+        static fn (array $pair): array => [ltrim($pair[0], '\\'), ltrim($pair[1], '\\')],
+        $imports
+    );
+}
+
+/**
+ * Read one `use` statement's imports, starting just past the `T_USE`.
+ *
+ * **Written without a closure on purpose.** A `$flush` closure capturing five variables by reference
+ * reads well and defeats static analysis entirely: PHPStan evaluates its body against the values at
+ * the definition point, where the name is `''` and the alias is `null`, and reported three
+ * always-true comparisons. Inlining the two flush points is longer and analyzable.
+ *
+ * @param  array<int, array{0: int, 1: string, 2: int}|string>  $tokens  The tokenized compiled template.
+ * @param  int  $index  The offset just past the `T_USE`.
+ * @param  int  $count  How many tokens there are.
+ * @param  list<array{0: string, 1: string}>  $imports  Collected imports, appended to in place.
+ * @return int The offset to continue the outer walk from.
+ */
+function importedNames(array $tokens, int $index, int $count, array &$imports): int
+{
+    $skippable = [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT];
+
+    while ($index < $count && \is_array($tokens[$index]) && \in_array($tokens[$index][0], $skippable, true)) {
+        $index++;
+    }
+
+    // `use function …` and `use const …` bind no class.
+    if ($index < $count && \is_array($tokens[$index]) && \in_array($tokens[$index][0], [T_FUNCTION, T_CONST], true)) {
+        return $index;
+    }
+
+    $prefix = '';
+    $name = '';
+    $alias = '';
+    $expectingAlias = false;
+    $grouped = false;
+
+    while ($index < $count) {
+        $token = $tokens[$index];
+
+        // A closure's `use ($x)` reaches `(` having collected no name, and contributes nothing.
+        if ($token === ';' || $token === '(') {
+            break;
+        }
+
+        if ($token === '{') {
+            $grouped = true;
+            $prefix = $name;
+            $name = '';
+            $index++;
 
             continue;
         }
 
-        // **The separator is prepended so `strrpos` lands one past the last one.** Without it the
-        // index is off by one; with no separator at all it returns the whole name, which is correct
-        // for an unqualified import.
-        $aliases[] = [$class, ($alias ?? '') !== '' ? (string) $alias : substr($class, (int) strrpos('\\'.$class, '\\'))];
+        if ($token === ',') {
+            if ($name !== '') {
+                $imports[] = [$prefix.$name, importedAs($name, $alias)];
+            }
+
+            $name = '';
+            $alias = '';
+            $expectingAlias = false;
+
+            if (! $grouped) {
+                $prefix = '';
+            }
+
+            $index++;
+
+            continue;
+        }
+
+        if (\is_array($token)) {
+            if ($token[0] === T_AS) {
+                $expectingAlias = true;
+            } elseif (\in_array($token[0], [T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED, T_NS_SEPARATOR], true)) {
+                if ($expectingAlias) {
+                    $alias = $token[1];
+                } else {
+                    $name .= $token[1];
+                }
+            }
+        }
+
+        $index++;
     }
 
-    return $aliases;
+    if ($name !== '') {
+        $imports[] = [$prefix.$name, importedAs($name, $alias)];
+    }
+
+    return $index;
+}
+
+/**
+ * The name one import is reachable by: its alias, or the last segment of its path.
+ *
+ * **The separator is prepended so `strrpos` lands one past the last one.** Without it the index is
+ * off by one; with no separator in the name at all it returns the whole name, which is what an
+ * unqualified import binds.
+ *
+ * @param  string  $name  The imported path.
+ * @param  string  $alias  The declared alias, or an empty string.
+ * @return string The name the class is reachable by.
+ */
+function importedAs(string $name, string $alias): string
+{
+    return $alias !== '' ? $alias : substr($name, (int) strrpos('\\'.$name, '\\'));
 }
 
 /**
