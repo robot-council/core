@@ -104,9 +104,13 @@ final class Tasks
      * @param  string|null  $directive  What to tell the assignee, for a reassignment, where it is required.
      * @param  bool  $handBack  Whether a reassignment returns a gate's pull request to the lane that made it.
      * @param  string|null  $branch  The branch the lane is working on, for a start.
+     * @param  TaskStatus|null  $expect  For a reassignment, the one status the task must still be in
+     *                                   -- `pending` for a coordinator placing unclaimed work that
+     *                                   must not take it from a lane that claimed it meanwhile.
      * @return Outcome What came of it.
      *
-     * @throws InvalidArgumentException When a reassignment names nobody or says nothing, or a branch is unusable.
+     * @throws InvalidArgumentException When a reassignment names nobody or says nothing, a branch is
+     *                                  unusable, or `expect` is given where it cannot apply.
      */
     public function transition(
         int $taskId,
@@ -117,7 +121,8 @@ final class Tasks
         ?array $result = null,
         ?string $directive = null,
         bool $handBack = false,
-        ?string $branch = null
+        ?string $branch = null,
+        ?TaskStatus $expect = null
     ): Outcome {
         $holder = $transition->takesTheClaim()
             ? ($assignee ?? $actor)
@@ -137,12 +142,20 @@ final class Tasks
             throw new InvalidArgumentException('A reassignment needs a directive telling the session what it is being handed.');
         }
 
+        // #328: a placement may insist on the status it read. Refused elsewhere rather than ignored,
+        // because a caller that meant it as a guard and had it silently dropped would believe it
+        // was guarded.
+        if ($expect instanceof TaskStatus
+            && ($transition !== TaskTransition::Reassign || ! \in_array($expect, $transition->startsFrom(), true))) {
+            throw new InvalidArgumentException('Only a reassignment takes `expect`, and only a status it starts from.');
+        }
+
         // Only a start carries one; anything else is ignored rather than refused, so a caller that
         // passes a branch it happens to know on another transition writes nothing it did not mean to
         $branch = $transition->takesABranch() ? $branch : null;
         BranchName::ensure($branch);
 
-        return DB::transaction(function () use ($taskId, $transition, $actor, $asCoordinator, $holder, $result, $directive, $handBack, $branch): Outcome {
+        return DB::transaction(function () use ($taskId, $transition, $actor, $asCoordinator, $holder, $result, $directive, $handBack, $branch, $expect): Outcome {
             // The session row before the task row, which is the package's lock order. A claim or a
             // reassign writes `claimed_by`, and on InnoDB that takes a shared lock on the new
             // parent -- after the task row, inverting the order against the release step. Taking it
@@ -153,10 +166,10 @@ final class Tasks
                 return Outcome::Conflict;
             }
 
-            $changed = $this->write($taskId, $transition, $actor, $asCoordinator, $holder, $result, $handBack, $branch);
+            $changed = $this->write($taskId, $transition, $actor, $asCoordinator, $holder, $result, $handBack, $branch, $expect);
 
             if ($changed !== 1) {
-                return $this->diagnose($taskId, $transition, $actor, $asCoordinator, $holder);
+                return $this->diagnose($taskId, $transition, $actor, $asCoordinator, $holder, $expect);
             }
 
             $this->events->record(
@@ -390,6 +403,7 @@ final class Tasks
      * @param  array<array-key, mixed>|null  $result  What the agent reports, for a completion.
      * @param  bool  $handBack  Whether a reassignment returns a gate's pull request.
      * @param  string|null  $branch  The branch a start reports, already bounded.
+     * @param  TaskStatus|null  $expect  The one status a reassignment insists on, already checked.
      * @return int How many rows changed, which is one or none.
      */
     private function write(
@@ -400,11 +414,14 @@ final class Tasks
         ?AgentSession $holder,
         ?array $result,
         bool $handBack,
-        ?string $branch
+        ?string $branch,
+        ?TaskStatus $expect = null
     ): int {
+        // `expect` narrows the statuses the write starts from to the one the caller read, in the
+        // write's own `where`, so the database decides the race rather than a read before it
         $query = Task::query()
             ->whereKey($taskId)
-            ->whereIn('status', TaskStatus::values($transition->startsFrom()));
+            ->whereIn('status', TaskStatus::values($expect instanceof TaskStatus ? [$expect] : $transition->startsFrom()));
 
         // A claimant's transition names the claimant in the write. A coordinator releasing does
         // not, which is the whole point of the override.
@@ -487,6 +504,7 @@ final class Tasks
      * @param  AgentSession  $actor  The session that attempted it.
      * @param  bool  $asCoordinator  Whether the session holds `coordinator:direct`.
      * @param  AgentSession|null  $holder  Who would have held it, for a transition that takes the claim.
+     * @param  TaskStatus|null  $expect  The one status the write insisted on, if any.
      * @return Outcome Why nothing happened.
      */
     private function diagnose(
@@ -494,7 +512,8 @@ final class Tasks
         TaskTransition $transition,
         AgentSession $actor,
         bool $asCoordinator,
-        ?AgentSession $holder
+        ?AgentSession $holder,
+        ?TaskStatus $expect = null
     ): Outcome {
         // Locked, so the diagnosis reads the row the write tested rather than one that moved in
         // between. Postgres releases the lock on a row an UPDATE's predicate rejected and MySQL's
@@ -508,6 +527,12 @@ final class Tasks
         }
 
         if (! \in_array($task->status, $transition->startsFrom(), true)) {
+            return Outcome::Conflict;
+        }
+
+        // Moved on from the status the placement read -- a lane claimed it first. A conflict, so the
+        // coordinator re-reads, rather than a refusal it cannot act on.
+        if ($expect instanceof TaskStatus && $task->status !== $expect) {
             return Outcome::Conflict;
         }
 

@@ -6,6 +6,7 @@ namespace RobotCouncil\Http\Controllers;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Access\Tokens;
@@ -13,6 +14,7 @@ use RobotCouncil\Http\Principal;
 use RobotCouncil\Http\Rules\BoundedMeta;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\FleetEvent;
+use RobotCouncil\Models\TaskStatus;
 use RobotCouncil\Models\TaskTransition;
 use RobotCouncil\Support\BranchName;
 use RobotCouncil\Support\Outcome;
@@ -81,7 +83,8 @@ final class TransitionTaskController
             $this->result($request, $move),
             $this->directive($request, $move),
             $move === TaskTransition::Reassign && $request->boolean('hand_back'),
-            $this->branch($request, $move)
+            $this->branch($request, $move),
+            $this->expect($request, $move)
         );
 
         return new JsonResponse([
@@ -135,6 +138,24 @@ final class TransitionTaskController
         ]);
 
         return $request->string('directive')->value();
+    }
+
+    /**
+     * The status a placement insists the task is still in (#328).
+     *
+     * @param  Request  $request  The incoming request.
+     * @param  TaskTransition  $move  The transition being attempted.
+     * @return TaskStatus|null The status, when this is a reassignment that named one.
+     */
+    private function expect(Request $request, TaskTransition $move): ?TaskStatus
+    {
+        $request->validate([
+            'expect' => $move === TaskTransition::Reassign
+                ? ['sometimes', 'nullable', 'string', Rule::in(TaskStatus::values($move->startsFrom()))]
+                : ['prohibited'],
+        ]);
+
+        return $request->filled('expect') ? TaskStatus::tryFrom($request->string('expect')->value()) : null;
     }
 
     /**
