@@ -6,6 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use RobotCouncil\Support\Engines;
 
 /**
  * Give `robot_council_events` a column for who ACTED, so `user_id` can go back to one meaning.
@@ -113,7 +114,7 @@ return new class extends Migration
         // statement above, which would have thrown otherwise. The sibling's equivalent guard is
         // reachable because it loops over six columns that may or may not exist; copied into this
         // position it is one `information_schema` round trip that cannot change the outcome.
-        if (DB::getDriverName() !== 'mysql') {
+        if (! Engines::needsBinaryCollation(DB::getDriverName())) {
             return;
         }
 

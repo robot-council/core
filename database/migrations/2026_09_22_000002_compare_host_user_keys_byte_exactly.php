@@ -6,6 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use RobotCouncil\Support\Engines;
 
 /**
  * Makes every column holding a host user key compare byte-exactly.
@@ -108,7 +109,7 @@ return new class extends Migration
     {
         // Nothing to do where the comparison is already byte-exact, and neither Postgres nor SQLite
         // would accept the name anyway.
-        if (DB::getDriverName() !== 'mysql') {
+        if (! Engines::needsBinaryCollation(DB::getDriverName())) {
             return;
         }
 

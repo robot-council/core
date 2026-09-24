@@ -7,17 +7,52 @@ use Illuminate\Support\Facades\DB;
 use Laravel\Socialite\Two\User as GitHubAccount;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Models\DeviceCode;
+use RobotCouncil\Support\Engines;
 use RobotCouncil\Support\WireArgument;
 use RobotCouncil\Tests\TestCase;
 
 pest()->extend(TestCase::class)->in(__DIR__);
 
 /**
+ * One `information_schema` column default, with MariaDB's quoting removed.
+ *
+ * **MariaDB reports a string default QUOTED and an absent one as the four characters `NULL`**,
+ * where MySQL reports the bare value and a real SQL NULL. Measured on MariaDB 11.8.9 against MySQL
+ * 9.4.0 for `robot_council_agent_sessions.role`: MariaDB says `'build'` and `NULL`, MySQL says
+ * `build` and nothing. Both are correct for their own engine and neither is what the other's test
+ * expectation was written against, so the difference is normalized here rather than in each
+ * assertion (#257).
+ *
+ * The `ifnull(..., '(none)')` in the queries handles MySQL's real NULL; this handles MariaDB's
+ * string.
+ *
+ * @param  mixed  $row  One `information_schema` row as the driver returned it.
+ * @param  string  $absent  What the caller uses to mean "no default".
+ * @return string The default, comparable across both engines.
+ */
+function schemaDefault(mixed $row, string $absent = '(none)'): string
+{
+    $value = schemaField($row, 'default');
+
+    // MariaDB's literal four characters, not a value somebody defaulted to the word NULL -- which
+    // would arrive quoted, as `'NULL'`, and is left alone by the check below.
+    if ($value === 'NULL') {
+        return $absent;
+    }
+
+    if (\strlen($value) >= 2 && str_starts_with($value, "'") && str_ends_with($value, "'")) {
+        return substr($value, 1, -1);
+    }
+
+    return $value;
+}
+
+/**
  * Whether this run is against MySQL or MariaDB, which is the only place these questions exist.
  */
-function notMySql(): bool
+function notMySqlFamily(): bool
 {
-    return DB::connection()->getDriverName() !== 'mysql';
+    return ! Engines::needsBinaryCollation(DB::connection()->getDriverName());
 }
 
 /**
