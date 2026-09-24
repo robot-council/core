@@ -12,6 +12,7 @@ use Laravel\Mcp\Server\Contracts\Transport;
 use Laravel\Mcp\Server\Tool;
 use RobotCouncil\Mcp\Tools\CreateTaskTool;
 use RobotCouncil\Mcp\Tools\HeartbeatTool;
+use RobotCouncil\Mcp\Tools\LaneHoldTool;
 use RobotCouncil\Mcp\Tools\ListTasksTool;
 use RobotCouncil\Mcp\Tools\LockTool;
 use RobotCouncil\Mcp\Tools\PostDirectiveTool;
@@ -84,6 +85,8 @@ final class CouncilServer extends Server
                 LockAction::cases()
             ),
             new TaskBranchTool,
+            new LaneHoldTool,
+            new LaneHoldTool(lifts: true),
             new ReadFeedTool,
             new PostNarrationTool,
             new PostDirectiveTool,

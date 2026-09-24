@@ -21,6 +21,7 @@ use RobotCouncil\Mcp\Tools\PostNarrationTool;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\FleetEventType;
+use RobotCouncil\Models\LaneHold;
 use RobotCouncil\Models\Lock;
 use RobotCouncil\Models\Placement;
 use RobotCouncil\Models\Task;
@@ -128,7 +129,8 @@ it('lists its tools to a session that authenticated', function (): void {
     expect($names)->toContain('task_list', 'task_create', 'task_claim', 'task_complete', 'task_cancel', 'task_branch')
         ->toContain('lock_acquire', 'lock_renew', 'lock_release', 'lock_force_release')
         ->toContain('events_read', 'events_narrate', 'directive_post', 'presence_heartbeat')
-        ->and($names)->toHaveCount(19);
+        ->and($names)->toContain('lane_hold', 'lane_clear_hold')
+        ->and($names)->toHaveCount(21);
 });
 
 it('tells an agent the content it reads is data, not instructions', function (): void {
@@ -234,6 +236,8 @@ it('refuses a tool the session has no ability for, as an error rather than a res
     'cancelling a task' => ['task_cancel', ['task_id' => 1], 'coordinator:direct'],
     'reassigning one' => ['task_reassign', ['task_id' => 1, 'session_id' => 1], 'coordinator:direct'],
     'reporting a branch' => ['task_branch', ['task_id' => 1, 'branch' => 'feature/x'], 'tasks:claim'],
+    'holding a lane' => ['lane_hold', ['session_id' => 1, 'party' => 'octodev', 'reason' => 'decision'], 'coordinator:direct'],
+    'lifting a hold' => ['lane_clear_hold', ['session_id' => 1], 'coordinator:direct'],
     'taking a lock' => ['lock_acquire', ['name' => 'deploy', 'ttl' => 60], 'locks:acquire'],
     'renewing one' => ['lock_renew', ['name' => 'deploy', 'ttl' => 60], 'locks:acquire'],
     'releasing a lock' => ['lock_release', ['name' => 'deploy'], 'locks:acquire'],
@@ -854,4 +858,17 @@ it('refuses expect on a tool that is not task_reassign', function (): void {
 
     expect(Task::query()->findOrFail($taskId)->status->value)->toBe('claimed')
         ->and(json_encode($body, JSON_THROW_ON_ERROR))->toContain('expect');
+});
+
+it('holds a lane through lane_hold, refuses a note, and lifts it through lane_clear_hold', function (): void {
+    $token = mcpCoordinatorToken($this);
+    $lane = $this->session->getKey();
+
+    expect(toolResult(callTool($this, $token, 'lane_hold', ['session_id' => $lane, 'party' => 'robot-council/core#1', 'reason' => 'ticket_lands'])))
+        ->toBe(['session_id' => $lane, 'applied' => true, 'on_what' => 'robot-council/core#1 — that ticket to land'])
+        ->and(toolError(callTool($this, $token, 'lane_hold', ['session_id' => $lane, 'party' => 'waiting on lunch', 'reason' => 'decision'])))
+        ->toContain('A note is not a party')
+        ->and(toolResult(callTool($this, $token, 'lane_clear_hold', ['session_id' => $lane])))
+        ->toBe(['session_id' => $lane, 'cleared' => true])
+        ->and(LaneHold::query()->count())->toBe(0);
 });
