@@ -182,7 +182,7 @@ A **Laravel package** (`robot-council/core`), not an application. It is the core
   the endpoint, or it tests the validator instead of the guarantee, and it asserts on the ROW rather
   than on the instance the store returned, which reports whatever PHP handed in.
   **Every store now holds its own bounds**, through one narrow helper per value rather than a check
-  per call site: `Support\HostKey` (64, the width of the eight columns holding a host user key, which `tests/HostKeyComparisonTest.php`'s `hostKeyColumns()` enumerates and keeps closed),
+  per call site: `Support\HostKey` (64, the width of the thirteen columns holding a host user key, which `tests/HostKeyComparisonTest.php`'s `hostKeyColumns()` enumerates and keeps closed),
   `Support\ProjectId` (128 and a charset), and `Support\MachineIdentity` (`harness` 32,
   `machine_label` 64, each with a charset). `Models\FleetEvent::MAX_BODY` replaced four private
   copies of `4000`. **The unit is characters, everywhere**, because that is what Laravel's `max:`

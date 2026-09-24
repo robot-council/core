@@ -337,7 +337,7 @@ package's route files then, and the server is registered inside that same guard.
 
 ## The dashboard
 
-A signed-in developer reaches the fleet's state through five pages, each behind the same access
+A signed-in developer reaches the fleet's state through six pages, each behind the same access
 list and framing refusal as the verification page:
 
 | path | shows |
@@ -346,6 +346,7 @@ list and framing refusal as the verification page:
 | `{prefix}/dashboard/presence` | the agents and the locks they hold |
 | `{prefix}/dashboard/queue` | the task board |
 | `{prefix}/dashboard/feed` | the change feed |
+| `{prefix}/dashboard/seats` | the signed-in developer's own seats, assignment hours and days off |
 | `{prefix}/dashboard/administration` | the installations -- **admins only** |
 
 **Each page is its own, so each one pays only for what it shows.** The administration page
@@ -363,7 +364,7 @@ sits outside the `web` middleware group and outside the access list: it reads no
 nothing, so a visitor being sent elsewhere has no session written for them. It is documented here
 rather than in the table above because the two sentences around that table -- the access list, the
 framing refusal, and a host's own gate in `robot-council.routes.web_middleware` -- are true of those
-five pages and not of this redirect.
+six pages and not of this redirect.
 
 **It is not registered when the prefix resolves to `/`**, whether the host configured an empty
 string or a bare slash. That path belongs to the host, and a host serving the console at its root
@@ -384,6 +385,31 @@ its own `/livewire/update` endpoint and a global middleware. The package registe
 `EnsureAllowlistedDeveloper` as Livewire *persistent* middleware, because Livewire strips from that
 endpoint every middleware not on its own fixed list -- without which a developer removed from the
 access list would keep driving components from a page already open.
+
+## Seats and assignment hours
+
+Each developer decides, for themselves, when their machines take new work. **The coordinator reads
+these and never writes them**: they are constraints on the coordinator, so it is not the one who
+changes them. The only writer is the developer's own page at `{prefix}/dashboard/seats`.
+
+- **A seat** is one of a developer's machines working in one repository at one work location. It is
+  recorded when its developer opens the page, from what their live sessions report, and it outlives
+  every session that sits in it -- a restarted agent is still in the same seat.
+- **Parking** a seat says it takes no new work. It records who parked it and when. **Only that
+  developer lifts it**, and nothing lifts it on a timer.
+- **Assignment hours** are a daily window, whether weekends count, and an IANA timezone such as
+  `America/Chicago`. A window whose end is before its start runs overnight. Everything is read on the
+  developer's own clock, including through daylight saving changes.
+- **Days off** are the developer's own list of dates. They apply once hours are set, since a date
+  needs a timezone to say when it starts. A developer with no hours set is not gated at all.
+- **Exempting** a seat takes it out of its developer's hours.
+
+A session holding `coordinator:direct` reads all of it:
+
+- `GET  {prefix}/api/developers/settings` — every developer's hours and days off, and every recorded seat
+
+Developers are named by GitHub login, as everywhere else on the machine API. Nothing here is
+enforced at placement yet; that is `robot-council/core#320`.
 
 ## Tasks
 

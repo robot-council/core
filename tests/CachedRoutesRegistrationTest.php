@@ -61,6 +61,7 @@ it('registers every component name even though the routes are cached', function 
         'robot-council-change-feed',
         'robot-council-fleet-presence',
         'robot-council-fleet-totals',
+        'robot-council-seat-settings',
         'robot-council-task-board',
     ] as $name) {
         expect(componentIsRegistered($name))->toBeTrue(

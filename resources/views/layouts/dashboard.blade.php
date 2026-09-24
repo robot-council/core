@@ -149,6 +149,12 @@
                                     @if ($currentRoute === 'robot-council.feed') aria-current="page" @endif>Change feed</a>
                             </li>
 
+                            <li>
+                                <a href="{{ route('robot-council.seats') }}"
+                                    @class(['menu-active' => $currentRoute === 'robot-council.seats'])
+                                    @if ($currentRoute === 'robot-council.seats') aria-current="page" @endif>My seats and hours</a>
+                            </li>
+
                             {{--
                                 Offered only to an admin, decided in `Http\ViewComposers\DashboardLayoutComposer`
                                 on the package's own guard rather than with `@can`, which resolves the host's
