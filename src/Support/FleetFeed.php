@@ -16,7 +16,8 @@ use RobotCouncil\Models\FleetEventType;
  * Reads the change feed for one agent session, applying the visibility rule decided in #29.
  *
  * **Narration is the only restricted kind.** An agent reads narration from its own developer's
- * sessions, and from any session that held `coordinator:direct` when it posted. State changes and
+ * sessions, from any session that held `coordinator:direct` when it posted, and from any session
+ * that addressed it by name or through a task it holds (#315). State changes and
  * directives reach everyone, because they describe the fleet rather than one agent's opinion of it.
  *
  * The reason the rule is worth this much care: task, event, and directive content is untrusted
@@ -183,9 +184,20 @@ final class FleetFeed
                 // a different developer -- and a subquery against the live table would then serve
                 // that developer this event. The rule is about who posted, which is a fact from the
                 // past, so it is decided from what the past recorded.
+                //
+                // The fourth branch is addressing (#315): a narration that named this reader. It
+                // matches the addressee's developer as well as its session id, both recorded when
+                // the narration was posted, because session ids are reused -- a match on the id
+                // alone would hand a dead session's mail to whoever holds its id now.
                 $query->whereNotIn('type', FleetEventType::restrictedValues())
                     ->orWhere('posted_with_coordinator', true)
-                    ->orWhere('user_id', $reader->user_id);
+                    ->orWhere('user_id', $reader->user_id)
+                    ->orWhereExists(fn (QueryBuilder $addressed): QueryBuilder => $addressed
+                        ->select(DB::raw(1))
+                        ->from(FleetEvents::ADDRESSEE_TABLE)
+                        ->whereColumn(FleetEvents::ADDRESSEE_TABLE.'.event_id', 'window.id')
+                        ->where(FleetEvents::ADDRESSEE_TABLE.'.agent_session_id', $reader->id)
+                        ->where(FleetEvents::ADDRESSEE_TABLE.'.user_id', $reader->user_id));
             })
             ->orderBy('id')
             ->limit($page);
