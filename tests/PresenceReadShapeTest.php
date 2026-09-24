@@ -38,7 +38,7 @@ beforeEach(function (): void {
  * @param  TestCase  $test  The test case.
  * @return AgentSession The session.
  */
-function presenceFixture($test): AgentSession
+function presenceFixture(TestCase $test): AgentSession
 {
     $developer = $test->enrollDeveloper(4242);
 
@@ -160,7 +160,11 @@ it('reports no holder for a lock nobody holds, which is the other side of the te
 it('names the previous holder once a lock has changed hands', function (): void {
     $first = presenceFixture($this);
 
-    // A second developer, so the two holders are distinguishable by login rather than only by id
+    // A second developer, so the two holders are distinguishable by login rather than only by id.
+    //
+    // The list REPLACES rather than appends, which is why `4242` is named again -- and `Access\
+    // Allowlist` tests it with `in_array()`, so the order carries no meaning. Written out because
+    // a reader can otherwise take the sequence for a precondition that neither store has (#283).
     $other = $this->enrollDeveloper(77, login: 'otherdev');
     $this->setAccessLists(developers: [4242, 77], admins: [4242]);
     [$second] = $this->startAgentSession(
@@ -175,7 +179,10 @@ it('names the previous holder once a lock has changed hands', function (): void 
     // copies a null forward and the field stays empty. The only way it is ever populated is a
     // takeover of a lease that lapsed with its holder still named, which is exactly the state a
     // reader needs it for: telling a lock being handed round from one that was seized.
-    Lock::query()->where('name', 'deploy')->update(['expires_at' => now()->subMinute()]);
+    // `PresenceClock::now()`, not `now()`: this file sets the clock through it twice above, and
+    // `Support\Locks` compares against it. Identical under Testbench's UTC default, which is the
+    // hazard `PresenceClock` exists for (#283).
+    Lock::query()->where('name', 'deploy')->update(['expires_at' => PresenceClock::now()->subMinute()]);
 
     $locks->acquire($second, 'deploy', 60, false);
 
