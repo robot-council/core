@@ -60,9 +60,15 @@ inline argument (the failure is intermittent, so an inline body looks fine until
 it). The REST form keeps working when the GraphQL quota behind `gh issue` is spent (see
 [`github-api-budget`](../../rules/github-api-budget.md)):
 
+**`{owner}` and `{repo}` are literal.** `gh` fills them from the checkout, so these act on the
+repository you are in rather than one named here -- which matters because most of them are
+**writes**. Keep the quotes: PowerShell parses an unquoted `{…}` as a script block and splits the
+argument. The mechanism and its bounds are in
+[`writing-pull-requests`](../writing-pull-requests/SKILL.md).
+
 ```bash
-gh api -X POST repos/robot-council/core/issues -f title='…' -F body=@body.md -f 'labels[]=<existing-label>'
-gh api -X PATCH repos/robot-council/core/issues/<n> -F body=@body.md
+gh api -X POST 'repos/{owner}/{repo}/issues' -f title='…' -F body=@body.md -f 'labels[]=<existing-label>'
+gh api -X PATCH 'repos/{owner}/{repo}/issues/<n>' -F body=@body.md
 ```
 
 `gh issue create --body-file body.md` and `gh issue edit <n> --body-file body.md` are the
@@ -228,7 +234,7 @@ Apply the labels that match the issue's nature; multiple are normal. **The label
 by hand, so re-list it before labeling rather than trusting the summary below:**
 
 ```bash
-gh api 'repos/robot-council/core/labels?per_page=100' --jq '.[] | "\(.name)\t\(.description)"'
+gh api 'repos/{owner}/{repo}/labels?per_page=100' --jq '.[] | "\(.name)\t\(.description)"'
 ```
 
 Apply only labels that exist, choosing by each label's description. If an issue needs a label
@@ -265,12 +271,12 @@ decision fork, a follow-up cleanup, or an epic. The templates declare the matchi
 issues filed through the web UI. When filing through REST, pass the type's name:
 
 ```bash
-gh api -X POST repos/robot-council/core/issues -f title='…' -F body=@body.md -f type=Feature
+gh api -X POST 'repos/{owner}/{repo}/issues' -f title='…' -F body=@body.md -f type=Feature
 ```
 
 **Read the type back after setting it.** GitHub's REST description says a type set without push
 access is silently dropped, so the call succeeds either way:
-`gh api repos/robot-council/core/issues/<n> --jq '.type.name'`.
+`gh api 'repos/{owner}/{repo}/issues/<n>' --jq '.type.name'`.
 
 ### Execution mode — `afk` / `hitl` (exactly one — except on an `epic`)
 
@@ -307,8 +313,8 @@ That constraint is what makes an epic useful. A container with its own checklist
 **Wiring, and it is not the same thing as a dependency.** A sub-issue says *this is part of that*; a `blocked_by` edge says *this cannot start until that finishes*. Most epics need both, and they are set independently:
 
 ```bash
-id=$(gh api repos/robot-council/core/issues/<child> --jq '.id')     # numeric .id, NOT the issue number
-gh api -X POST repos/robot-council/core/issues/<parent>/sub_issues -F sub_issue_id=$id
+id=$(gh api 'repos/{owner}/{repo}/issues/<child>' --jq '.id')     # numeric .id, NOT the issue number
+gh api -X POST 'repos/{owner}/{repo}/issues/<parent>/sub_issues' -F sub_issue_id=$id
 ```
 
 **Sub-issues work across repositories.** The endpoint keys on the global database id, so a slice living in another repository attaches to an epic here exactly like a local one; listing it only in prose loses it. Read the set back with `GET …/sub_issues`, and see [`github-api-budget`](../../rules/github-api-budget.md) for why these are REST calls.
@@ -321,9 +327,9 @@ Run a few searches with varied terms and **include closed issues** (a fixed or w
 means *don't* refile):
 
 ```bash
-gh api "search/issues?q=repo:robot-council/core+<symptom or feature>&per_page=100" --jq '"matches: \(.total_count) (showing \(.items|length))", (.items[] | "\(if .pull_request then "PR " else "iss" end) #\(.number)  \(.title)")'
-gh api "search/issues?q=repo:robot-council/core+<affected file / class / config key>&per_page=100" --jq '"matches: \(.total_count) (showing \(.items|length))", (.items[] | "\(if .pull_request then "PR " else "iss" end) #\(.number)  \(.title)")'
-gh api "search/issues?q=repo:robot-council/core+<class of problem or label>&per_page=100" --jq '"matches: \(.total_count) (showing \(.items|length))", (.items[] | "\(if .pull_request then "PR " else "iss" end) #\(.number)  \(.title)")'
+gh api 'search/issues?q=repo:{owner}/{repo}+<symptom or feature>&per_page=100' --jq '"matches: \(.total_count) (showing \(.items|length))", (.items[] | "\(if .pull_request then "PR " else "iss" end) #\(.number)  \(.title)")'
+gh api 'search/issues?q=repo:{owner}/{repo}+<affected file / class / config key>&per_page=100' --jq '"matches: \(.total_count) (showing \(.items|length))", (.items[] | "\(if .pull_request then "PR " else "iss" end) #\(.number)  \(.title)")'
+gh api 'search/issues?q=repo:{owner}/{repo}+<class of problem or label>&per_page=100' --jq '"matches: \(.total_count) (showing \(.items|length))", (.items[] | "\(if .pull_request then "PR " else "iss" end) #\(.number)  \(.title)")'
 ```
 
 **Read the `matches:` line before the rows.** `search/issues` returns one page, so a query broader than the page size is answered with a silent prefix, and the truncated output is identical in shape to a query that genuinely found everything. In `UAMS-Web/uams-statamic` (measured 2026-09-06) a broad query reported hundreds of matches while a narrow one reported single digits, and nothing but the total distinguished the truncated page from the complete one.
@@ -341,22 +347,32 @@ gh api "search/issues?q=repo:robot-council/core+<class of problem or label>&per_
 
 Two issues were filed on the strength of that line. Re-run afterwards with a working parser the check was genuinely clean — so no duplicate was filed, but that was luck rather than method, and the same output would have appeared had there been ten.
 
-**So show the query finding something, in the same invocation, before reading it finding nothing.** A term certain to appear in the repository is enough, and it costs one call:
+**So show the query finding something, in the same invocation, before reading it finding nothing.** A term certain to appear in the repository is enough, and it costs one call.
+
+**A count is not enough on its own, and the control has to name the repository that answered.** A term common enough to be a reliable control is common enough to match in *either* repository, so a healthy total confirms the instrument while saying nothing about which tracker was asked — and a duplicate check aimed at the wrong one reads exactly like a clean one. Measured from a `robot-council/core` checkout on 2026-09-24: the term `robot-council` returned **197** matches aimed at this repository and **126** aimed at the other. Both look fine. `repository_url` off the first item is what tells them apart.
 
 ```bash
-# The control and the question, same endpoint, same --jq, same quoting. A zero on the first line
-# means the instrument is broken and the second line says nothing about the world.
+# The control and the question, same endpoint, same --jq, same quoting. Two things must hold
+# before the second line is evidence: the control found something, and `from:` is the repository
+# this checkout is in. A zero total means the instrument is broken; a `from:` naming somewhere
+# else means it was pointed at the wrong tracker.
+here=$(gh api 'repos/{owner}/{repo}' --jq .full_name)
 for q in "robot-council" "<symptom or feature>"; do
-  printf '%s -> ' "$q"
-  gh api "search/issues?q=repo:robot-council/core+$q&per_page=100" --jq '"matches: \(.total_count)"'
+  printf '%-32s -> ' "$q"
+  gh api "search/issues?q=repo:{owner}/{repo}+$q&per_page=100" \
+    --jq '"matches: \(.total_count)  from: \(.items[0].repository_url // "-" | sub(".*/repos/"; ""))"'
 done
+echo "checkout: $here   <- the control's from: must equal this"
 ```
 
-Read the control's total first. If it is `0`, or the line is missing entirely, stop — nothing below it is evidence. This is [`an-empty-result-is-not-evidence`](../../rules/an-empty-result-is-not-evidence.md) applied to the duplicate check; that rule owns the general form and the reasoning, and is not restated here.
+Read the control's total and its `from:` first. If the total is `0`, if the line is missing entirely, or if `from:` is not this checkout, stop — nothing below it is evidence. This is [`an-empty-result-is-not-evidence`](../../rules/an-empty-result-is-not-evidence.md) applied to the duplicate check; that rule owns the general form and the reasoning, and is not restated here.
+
+**`from:` reads `-` when a query matches nothing**, which is the honest answer and not a failure: there is no item to take a repository from. That is why the total is read first — the two lines answer different questions.
 
 Vary the terms across the symptom, the affected file/class/config key, and the class of problem —
-one query rarely surfaces a differently-worded duplicate. For work that spans repositories, search
-the other repository too (swap the `repo:` qualifier). If anything plausibly covers the concept:
+one query rarely surfaces a differently-worded duplicate. **The `repo:` qualifier above takes
+`{owner}` and `{repo}` from the checkout**, so these search the repository you are in; for work
+that spans repositories, name the other one explicitly in a further query. If anything plausibly covers the concept:
 **link it and skip**, or add a comment / sharpen the existing issue — don't open a duplicate. Only
 file once you've confirmed nothing matches.
 
