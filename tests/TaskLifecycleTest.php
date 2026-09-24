@@ -16,11 +16,11 @@ declare(strict_types=1);
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use RobotCouncil\Access\Ability;
+use RobotCouncil\Access\Role;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\FleetEventType;
@@ -30,6 +30,7 @@ use RobotCouncil\Models\TaskTransition;
 use RobotCouncil\Support\AgentSessions;
 use RobotCouncil\Support\Outcome;
 use RobotCouncil\Support\ProjectId;
+use RobotCouncil\Support\RoleRequests;
 use RobotCouncil\Support\SessionPresence;
 use RobotCouncil\Support\TaskList;
 use RobotCouncil\Support\Tasks;
@@ -928,16 +929,19 @@ it("admits a claim on another developer's task when a coordinator created it", f
     expect(Task::query()->findOrFail($task)->claimed_by)->toBe($this->session->getKey());
 });
 
-it('leaves a coordinator-created task claimable after the ability is revoked', function (): void {
+it('leaves a coordinator-created task claimable after the session is demoted', function (): void {
     [$coordinatorSession, $coordinatorToken] = coordinator($this);
 
     $task = fileTask($this, $coordinatorToken);
 
-    // Revoked on the installation, which rewrites the tokens already in flight
-    Artisan::call('robot-council:revoke-ability', [
-        'installation' => $coordinatorSession->installation_id,
-        'ability' => Ability::CoordinatorDirect->value,
-    ]);
+    // **Demoted through the role, which is the only way a coordinator stops being one.**
+    // `robot-council/core#231` retired `robot-council:revoke-ability`, which this used to call;
+    // it had already stopped reaching a running session when `robot-council/core#222` moved
+    // abilities onto the role. `impose()` re-mints the tokens in the same transaction, so the
+    // credential in flight genuinely loses `coordinator:direct` here rather than nominally.
+    expect($this->service(RoleRequests::class)->impose($coordinatorSession, Role::Build, 'test-administrator'))
+        ->toBeTrue()
+        ->and($coordinatorSession->refresh()->role)->toBe(Role::Build);
 
     // What was open to the fleet stays open. The alternative is a task that silently becomes
     // unclaimable by everyone it was filed for, weeks after it was written.
