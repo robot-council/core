@@ -41,9 +41,10 @@ final class GitHubWebhookController
         // set to `application/x-www-form-urlencoded` posts the JSON as a `payload` field
         $raw = $request->getContent();
 
+        // Read by hand rather than with `parse_str()`, which honors `max_input_vars` and warns past
+        // it -- a warning the framework turns into a 500 rather than a refusal
         if (str_starts_with((string) $request->headers->get('Content-Type'), 'application/x-www-form-urlencoded')) {
-            parse_str($raw, $form);
-            $raw = \is_string($form['payload'] ?? null) ? $form['payload'] : '';
+            $raw = preg_match('/(?:^|&)payload=([^&]*)/', $raw, $field) === 1 ? urldecode($field[1]) : '';
         }
 
         $payload = json_decode($raw, true);

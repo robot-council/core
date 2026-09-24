@@ -206,15 +206,24 @@ final class Tasks
      * @param  int  $taskId  The task.
      * @param  bool  $completed  True to finish it, false to release it.
      * @param  string  $why  The reason, in words the feed shows.
+     * @param  array<string, string>  $still  Columns the task must still hold, which is what matched
+     *                                        it -- its issue, or its branch. Re-checked in the write,
+     *                                        because a coordinator can re-place the task between the
+     *                                        read that found it and this, and the new lane must not
+     *                                        be finished by the previous one's pull request.
      * @return bool True when it moved.
      */
-    public function finishFromGitHub(int $taskId, bool $completed, string $why): bool
+    public function finishFromGitHub(int $taskId, bool $completed, string $why, array $still = []): bool
     {
-        return DB::transaction(function () use ($taskId, $completed, $why): bool {
+        return DB::transaction(function () use ($taskId, $completed, $why, $still): bool {
             $to = $completed ? TaskStatus::Done : TaskStatus::Pending;
+
+            // Who held it, for the event, read under the lock the update takes anyway
+            $claimant = Task::query()->whereKey($taskId)->lockForUpdate()->value('claimed_by');
 
             $changed = Task::query()
                 ->whereKey($taskId)
+                ->where($still)
                 ->whereIn('status', TaskStatus::values(TaskStatus::held()))
                 ->update($completed
                     ? ['status' => $to->value, 'updated_at' => Carbon::now()]
@@ -236,7 +245,7 @@ final class Tasks
                 $completed ? FleetEventType::TaskCompleted : FleetEventType::TaskReleased,
                 null,
                 sprintf('Task #%d %s: %s.', $taskId, $completed ? 'completed' : 'released', $why),
-                ['task_id' => $taskId, 'to' => $to->value, 'source' => 'github']
+                ['task_id' => $taskId, 'to' => $to->value, 'source' => 'github', 'released_from' => $claimant]
             );
 
             return true;

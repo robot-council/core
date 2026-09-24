@@ -125,6 +125,16 @@ final class GitHubState
     /**
      * An `issues` delivery.
      *
+     * **A lane is freed from the state that ends up stored, not from whether this report won.**
+     * GitHub does not promise order, so the `closed` delivery can arrive after a later `labeled`
+     * one: it loses the newer-wins write, and the row still says `closed`. Acting only when this
+     * report became the row would leave that task held for good. So a `closed` delivery frees the
+     * lane whenever the stored issue is closed afterwards -- and a `closed` arriving after a later
+     * `reopened` still frees nobody, because the stored issue is then open.
+     *
+     * A deleted or transferred issue is stored as closed, since it is no longer an open ticket here,
+     * and frees no lane: its work did not finish.
+     *
      * @param  array<array-key, mixed>  $payload  The delivery.
      * @return string What came of it.
      */
@@ -132,16 +142,31 @@ final class GitHubState
     {
         $repository = self::repository($payload);
         $issue = self::object($payload, 'issue');
+        $action = $payload['action'] ?? null;
+        $isPull = isset($issue['pull_request']);
 
-        if (! $this->store($repository, $issue, isset($issue['pull_request']))) {
+        if (\in_array($action, ['deleted', 'transferred'], true)) {
+            $issue['state'] = 'closed';
+        }
+
+        $this->store($repository, $issue, $isPull);
+
+        if ($action !== 'closed' || $isPull || $this->stored($repository, self::number($issue))?->isOpen() !== false) {
             return 'applied';
         }
 
-        if (($payload['action'] ?? null) === 'closed' && ! isset($issue['pull_request'])) {
-            $reference = $repository.'#'.self::number($issue);
+        $reference = $repository.'#'.self::number($issue);
 
-            foreach ($this->heldTasks(fn ($query) => $query->where('issue', $reference)) as $task) {
-                $this->tasks->finishFromGitHub($task->id, completed: true, why: 'its issue closed on GitHub');
+        // Compared without case, because GitHub resolves `Robot-Council/core` and `robot-council/core`
+        // to one repository while `WorkIdentity` keeps whatever case a task was filed with. `lower()`
+        // exists on every engine the package supports; the PHP check pins the whole reference.
+        $tasks = $this->heldTasks(fn ($query) => $query->whereRaw('lower(issue) = ?', [mb_strtolower($reference)]))
+            ->filter(static fn (Task $task): bool => \is_string($task->issue) && strcasecmp($task->issue, $reference) === 0);
+
+        foreach ($tasks as $task) {
+            // Filtered to a string above; checked again because the analyzer cannot see into the filter
+            if (\is_string($task->issue)) {
+                $this->tasks->finishFromGitHub($task->id, completed: true, why: 'its issue closed on GitHub', still: ['issue' => $task->issue]);
             }
         }
 
@@ -151,6 +176,10 @@ final class GitHubState
     /**
      * A `pull_request` delivery.
      *
+     * Freed, like an issue, from the state stored after the write: a merged `closed` that arrives
+     * after a later `edited` still completes the task. Only a `closed` delivery frees anyone -- a
+     * push to a lane's branch is `synchronize`, and releasing the lane on it would take its work.
+     *
      * @param  array<array-key, mixed>  $payload  The delivery.
      * @return string What came of it.
      */
@@ -159,34 +188,56 @@ final class GitHubState
         $repository = self::repository($payload);
         $pull = self::object($payload, 'pull_request');
 
-        if (! $this->store($repository, $pull, true) || ($payload['action'] ?? null) !== 'closed') {
+        $this->store($repository, $pull, true);
+
+        if (($payload['action'] ?? null) !== 'closed') {
             return 'applied';
         }
 
-        $branch = self::headRef($pull, $repository);
+        $stored = $this->stored($repository, self::number($pull));
 
-        if ($branch === null) {
+        if (! $stored instanceof GitHubItem || $stored->isOpen() || $stored->head_ref === null) {
             return 'applied';
         }
 
-        $merged = ($pull['merged'] ?? false) === true;
+        $branch = $stored->head_ref;
+        $merged = $stored->merged;
 
-        // Matched on the branch the lane reported, within the task's own repository -- which is the
-        // half of `issue` before the `#`. Compared in PHP rather than with `LIKE`, where `_` in a
+        // Matched on the branch the lane reported, exactly -- git branch names are case-sensitive,
+        // and the column is not byte-compared on MySQL, so the PHP check is what decides -- within
+        // the task's own repository, the half of `issue` before the `#`, compared without case as
+        // GitHub compares repository names. In PHP rather than with `LIKE`, where `_` in a
         // repository name is a wildcard. A task that names no issue names no repository, so no pull
         // request can be said to be its.
+        $prefix = $repository.'#';
+
         $tasks = $this->heldTasks(fn ($query) => $query->where('branch', $branch))
-            ->filter(static fn (Task $task): bool => \is_string($task->issue) && str_starts_with($task->issue, $repository.'#'));
+            ->filter(static fn (Task $task): bool => $task->branch === $branch
+                && \is_string($task->issue)
+                && strncasecmp($task->issue, $prefix, \strlen($prefix)) === 0);
 
         foreach ($tasks as $task) {
             $this->tasks->finishFromGitHub(
                 $task->id,
                 completed: $merged,
-                why: $merged ? 'its pull request merged on GitHub' : 'its pull request closed on GitHub without merging'
+                why: $merged ? 'its pull request merged on GitHub' : 'its pull request closed on GitHub without merging',
+                still: ['branch' => $branch]
             );
         }
 
         return 'applied';
+    }
+
+    /**
+     * What is stored for an issue or pull request, after this delivery's write.
+     *
+     * @param  string  $repository  Its repository.
+     * @param  int  $number  Its number.
+     * @return GitHubItem|null The row.
+     */
+    private function stored(string $repository, int $number): ?GitHubItem
+    {
+        return GitHubItem::query()->where('repository', $repository)->where('number', $number)->first();
     }
 
     /**
@@ -216,6 +267,10 @@ final class GitHubState
             'blocker_number' => self::number($blocking),
         ];
 
+        // **Unordered, and a known gap.** An edge carries no timestamp of its own, so a
+        // `blocked_by_removed` delivered before the older `blocked_by_added` leaves the edge in
+        // place. Tracked in #341; until then a stale edge is cleared by removing and
+        // re-adding it on GitHub.
         if (str_ends_with($action, '_added')) {
             DB::table('robot_council_github_blockers')->insertOrIgnore($edge);
         } else {
@@ -249,7 +304,18 @@ final class GitHubState
 
         // Newer-or-equal wins. Equal, because two deliveries of one change carry one timestamp
         // and the second is harmless; strictly newer would drop a real second change made within
-        // the same second GitHub stamped.
+        // the same second GitHub stamped. **Two different changes in one second cannot be ordered
+        // from the payload at all** -- GitHub stamps whole seconds -- so the one that arrives last
+        // wins, and a close and a reopen in the same second can end either way. Accepted: nothing in
+        // a delivery could decide it, and the next change to the issue corrects it.
+        // A pull request reported in issue shape -- the issues endpoint and `issues` deliveries both
+        // send one, with a `pull_request` key and no `head` -- says nothing about its branch, so it
+        // leaves the stored one alone rather than erasing it. Measured by the import running the
+        // issues file after the pulls file, which otherwise nulled every open pull request's branch.
+        if ($isPull && ! isset($object['head'])) {
+            unset($row['head_ref']);
+        }
+
         $current = GitHubItem::query()
             ->where('repository', $repository)
             ->where('number', $row['number'])
@@ -312,6 +378,9 @@ final class GitHubState
         }
 
         $body = \is_string($object['body'] ?? null) ? $object['body'] : '';
+
+        // Without fenced code first: a checkbox quoted in a code block is not one GitHub renders
+        $body = (string) preg_replace('/^[ \t]*(```|~~~).*?^[ \t]*\1[^\n]*$/ms', '', $body);
 
         // `- [ ]`, `* [x]` and `+ [X]` at the start of a line, which is what GitHub renders as a
         // task-list checkbox. Counted, and the body itself is not kept.

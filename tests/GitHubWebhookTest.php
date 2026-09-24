@@ -92,7 +92,7 @@ function issueDelivery(string $action, int $number, string $state, string $updat
             'state' => $state,
             'title' => 'Issue '.$number,
             'labels' => [['name' => 'afk'], ['name' => 'fleet-facing']],
-            'body' => "## Acceptance criteria\n\n- [x] one\n- [ ] two\n  * [X] nested\n",
+            'body' => "## Acceptance criteria\n\n- [x] one\n- [ ] two\n  * [X] nested\n\n```markdown\n- [ ] quoted, not a checkbox\n```\n",
             'updated_at' => $updatedAt,
             'repository_url' => 'https://api.github.com/repos/'.$repository,
         ],
@@ -235,6 +235,29 @@ it('does not exist until a usable secret is configured', function (?string $secr
     expect(webhookRows())->toBe([0, 0, 0]);
 })->with(['unset' => [null], 'empty' => [''], 'fifteen characters' => [str_repeat('s', 15)]]);
 
+it('exists with a secret of exactly sixteen characters', function (): void {
+    $secret = str_repeat('s', 16);
+    $this->app?->make('config')->set('robot-council.github.webhook_secret', $secret);
+    $body = json_encode(issueDelivery('opened', 1, 'open'), JSON_THROW_ON_ERROR);
+
+    $this->call('POST', route('robot-council.github.webhook'), [], [], [], [
+        'CONTENT_TYPE' => 'application/json',
+        'HTTP_X_GITHUB_EVENT' => 'issues',
+        'HTTP_X_GITHUB_DELIVERY' => 'd-16',
+        'HTTP_X_HUB_SIGNATURE_256' => 'sha256='.hash_hmac('sha256', $body, $secret),
+    ], $body)->assertOk();
+});
+
+it('refuses a delivery id or event name outside what GitHub sends, and keeps nothing', function (string $delivery, string $event): void {
+    deliver($this, $event, issueDelivery('opened', 1, 'open'), delivery: $delivery)->assertUnprocessable();
+
+    expect(webhookRows())->toBe([0, 0, 0]);
+})->with([
+    'a delivery id with a space' => ['not an id', 'issues'],
+    'a delivery id past 64 characters' => [str_repeat('a', 65), 'issues'],
+    'an event name in capitals' => ['d-1', 'Issues'],
+]);
+
 it('limits deliveries before verifying them, so an unsigned flood is limited too', function (): void {
     $this->rebootWith('robot-council.rate_limits.github_webhook_per_minute', 2);
     $this->app?->make('config')->set('robot-council.github.webhook_secret', WEBHOOK_SECRET);
@@ -294,6 +317,33 @@ it('applies a replayed delivery id once', function (): void {
 
     expect(taskStatus($taskId))->toBe(TaskStatus::InProgress)
         ->and(FleetEvent::query()->where('type', FleetEventType::TaskCompleted->value)->count())->toBe(1);
+});
+
+it('frees the lane from a close that arrives after a later edit, since the issue ends closed', function (): void {
+    $taskId = laneWorkingOn($this);
+
+    // Labeled at 12:05 while closed, delivered first; the 12:00 close then loses the newer-wins write
+    $labeled = issueDelivery('labeled', 12, 'closed', '2026-09-24T12:05:00Z');
+
+    deliver($this, 'issues', $labeled)->assertOk();
+
+    expect(taskStatus($taskId))->toBe(TaskStatus::InProgress);
+
+    deliver($this, 'issues', issueDelivery('closed', 12, 'closed', '2026-09-24T12:00:00Z'))->assertOk();
+
+    expect(taskStatus($taskId))->toBe(TaskStatus::Done);
+});
+
+it('completes the task from a merge that arrives after a later edit of the pull request', function (): void {
+    $taskId = laneWorkingOn($this);
+
+    $edited = pullDelivery('edited', 40, 'feature/lane-board', merged: true);
+    $edited['pull_request'] = [...pullOf($edited), 'state' => 'closed', 'updated_at' => '2026-09-24T12:05:00Z'];
+
+    deliver($this, 'pull_request', $edited)->assertOk();
+    deliver($this, 'pull_request', pullDelivery('closed', 40, 'feature/lane-board', merged: true))->assertOk();
+
+    expect(taskStatus($taskId))->toBe(TaskStatus::Done);
 });
 
 it('frees nobody from a close that arrives after a later reopen', function (): void {
@@ -380,10 +430,14 @@ it('releases the task when its pull request closes without merging', function ()
 
     $task = Task::query()->findOrFail($taskId);
 
-    expect($task->status)->toBe(TaskStatus::Pending)
+    $event = FleetEvent::query()->where('type', FleetEventType::TaskReleased->value)->sole();
+
+    expect($event->agent_session_id)->toBeNull()
+        ->and($event->body)->toBe(sprintf('Task #%d released: its pull request closed on GitHub without merging.', $taskId))
+        ->and($event->meta)->toMatchArray(['task_id' => $taskId, 'to' => 'pending', 'source' => 'github', 'released_from' => $this->session->getKey()])
+        ->and($task->status)->toBe(TaskStatus::Pending)
         ->and($task->claimed_by)->toBeNull()
         ->and($task->branch)->toBeNull()
-        // The issue is what the task is for, and it is still open
         ->and($task->issue)->toBe('robot-council/core#12');
 });
 
@@ -399,6 +453,88 @@ it('frees no lane for a pull request from a fork, or from another repository, on
 
     expect(taskStatus($taskId))->toBe(TaskStatus::InProgress);
 })->with(['a fork', 'another repository']);
+
+it('frees nobody on a pull request that is opened, pushed to, or edited', function (string $action): void {
+    $taskId = laneWorkingOn($this);
+
+    deliver($this, 'pull_request', pullDelivery($action, 40, 'feature/lane-board'))->assertOk();
+
+    $task = Task::query()->findOrFail($taskId);
+
+    expect($task->status)->toBe(TaskStatus::InProgress)
+        ->and($task->branch)->toBe('feature/lane-board');
+})->with(['opened', 'synchronize', 'edited', 'reopened']);
+
+it('frees nobody when an already-closed pull request is edited, though a lane now uses its branch', function (): void {
+    // The old pull request closed unmerged before any lane took the branch name...
+    deliver($this, 'pull_request', pullDelivery('closed', 40, 'feature/lane-board'))->assertOk();
+
+    // ...a lane then works on a branch of the same name...
+    $taskId = laneWorkingOn($this);
+
+    // ...and somebody labels the old one. Only a `closed` delivery frees a lane.
+    $labeled = pullDelivery('labeled', 40, 'feature/lane-board');
+    $labeled['pull_request'] = [...pullOf($labeled), 'state' => 'closed', 'updated_at' => '2026-09-24T12:05:00Z'];
+
+    deliver($this, 'pull_request', $labeled)->assertOk();
+
+    expect(taskStatus($taskId))->toBe(TaskStatus::InProgress);
+});
+
+it('frees nobody when an issues delivery closes a pull request', function (): void {
+    $taskId = laneWorkingOn($this);
+
+    $payload = issueDelivery('closed', 12, 'closed');
+    $payload['issue'] = [...issueOf($payload), 'pull_request' => ['merged_at' => null]];
+
+    deliver($this, 'issues', $payload)->assertOk();
+
+    expect(taskStatus($taskId))->toBe(TaskStatus::InProgress);
+});
+
+it('frees nobody when the same number closes in another repository', function (): void {
+    $taskId = laneWorkingOn($this);
+
+    deliver($this, 'issues', issueDelivery('closed', 12, 'closed', repository: 'robot-council/cli'))->assertOk();
+
+    expect(taskStatus($taskId))->toBe(TaskStatus::InProgress);
+});
+
+it('matches an issue whatever case its repository was written in, as GitHub does', function (): void {
+    $taskId = laneWorkingOn($this, issue: 'Robot-Council/Core#12');
+
+    deliver($this, 'issues', issueDelivery('closed', 12, 'closed'))->assertOk();
+
+    expect(taskStatus($taskId))->toBe(TaskStatus::Done);
+});
+
+it('matches a branch exactly, since git branch names are case-sensitive', function (): void {
+    $taskId = laneWorkingOn($this, branch: 'feature/Lane-Board');
+
+    deliver($this, 'pull_request', pullDelivery('closed', 40, 'feature/lane-board', merged: true))->assertOk();
+
+    expect(taskStatus($taskId))->toBe(TaskStatus::InProgress);
+});
+
+it('does not finish a task that no longer holds what matched it', function (): void {
+    $taskId = laneWorkingOn($this);
+
+    // The window the review found: a coordinator re-places the task, clearing its branch, between
+    // the read that matched it and the write
+    Task::query()->whereKey($taskId)->update(['branch' => null]);
+
+    expect($this->service(Tasks::class)->finishFromGitHub($taskId, completed: true, why: 'test', still: ['branch' => 'feature/lane-board']))->toBeFalse()
+        ->and(taskStatus($taskId))->toBe(TaskStatus::InProgress);
+});
+
+it('stores a deleted or transferred issue as closed and frees nobody', function (string $action): void {
+    $taskId = laneWorkingOn($this);
+
+    deliver($this, 'issues', issueDelivery($action, 12, 'open'))->assertOk();
+
+    expect(GitHubItem::query()->where('number', 12)->value('state'))->toBe('closed')
+        ->and(taskStatus($taskId))->toBe(TaskStatus::InProgress);
+})->with(['deleted', 'transferred']);
 
 it('leaves a task nobody holds alone when its issue closes', function (): void {
     $tasks = $this->service(Tasks::class);
@@ -438,11 +574,29 @@ it("imports an operator's `gh api --slurp` file, moving no lane and keeping what
     file_put_contents($file, json_encode([[issueOf(issueDelivery('opened', 13, 'open')), $closedTwelve], [$pull]], JSON_THROW_ON_ERROR));
 
     expect(Artisan::call('robot-council:github-import', ['file' => $file]))->toBe(0)
-        ->and(Artisan::output())->toContain('Stored 2 item(s); 0 refused; 1 already newer.');
-
-    expect(GitHubItem::query()->where('number', 12)->value('state'))->toBe('open')
+        ->and(Artisan::output())->toContain('Stored 2 item(s); 0 refused; 1 already newer.')
+        ->and(GitHubItem::query()->where('number', 12)->value('state'))->toBe('open')
         ->and(GitHubItem::query()->where('number', 40)->value('head_ref'))->toBe('feature/x')
         ->and(taskStatus($taskId))->toBe(TaskStatus::InProgress);
+});
+
+it("keeps a pull request's branch when the issues file is imported after the pulls file", function (): void {
+    $directory = $this->temporaryDirectory('github-import');
+    $pull = pullOf(pullDelivery('opened', 40, 'feature/x'));
+
+    // The same pull request in the issues endpoint's shape: a `pull_request` key and no `head`
+    $asIssue = [
+        'number' => 40, 'state' => 'open', 'title' => 'Pull request 40', 'labels' => [], 'body' => null,
+        'updated_at' => '2026-09-24T12:00:00Z', 'repository_url' => 'https://api.github.com/repos/robot-council/core',
+        'pull_request' => ['merged_at' => null],
+    ];
+
+    file_put_contents($directory.'/pulls.json', json_encode([$pull], JSON_THROW_ON_ERROR));
+    file_put_contents($directory.'/issues.json', json_encode([$asIssue], JSON_THROW_ON_ERROR));
+
+    expect(Artisan::call('robot-council:github-import', ['file' => $directory.'/pulls.json']))->toBe(0)
+        ->and(Artisan::call('robot-council:github-import', ['file' => $directory.'/issues.json']))->toBe(0)
+        ->and(GitHubItem::query()->where('number', 40)->value('head_ref'))->toBe('feature/x');
 });
 
 it('fails an import it cannot read, and one with a refused item', function (): void {
