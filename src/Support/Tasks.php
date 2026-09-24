@@ -12,6 +12,7 @@ use InvalidArgumentException;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
 use RobotCouncil\Models\FleetEventType;
+use RobotCouncil\Models\LaneHold;
 use RobotCouncil\Models\Placement;
 use RobotCouncil\Models\PlacementRule;
 use RobotCouncil\Models\Seat;
@@ -195,6 +196,13 @@ final class Tasks
                 if ($uncovered !== []) {
                     throw new PlacementRefused($uncovered);
                 }
+            }
+
+            // A lane given work is no longer idle on purpose, so its hold goes in the same
+            // transaction (#334). After the task row and before the feed sentinel, which is the
+            // package's lock order; the session row is already held from `stillWorkable()`.
+            if ($transition->takesTheClaim() && $holder instanceof AgentSession) {
+                LaneHold::query()->whereKey($holder->getKey())->delete();
             }
 
             $this->events->record(
