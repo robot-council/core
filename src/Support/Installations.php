@@ -185,7 +185,7 @@ final class Installations
                 // `agent_sessions`, then the feed sentinel, then `personal_access_tokens`, and
                 // recording the event below the deletes would hold token rows while reaching for
                 // the sentinel -- the inversion the documented order exists to prevent.
-                $this->record($installation, FleetEventType::InstallationRevoked, 'was revoked', [], $actor);
+                $this->record($installation, FleetEventType::InstallationRevoked, 'was revoked', $actor);
             }
 
             $deleted = Tokens::deleted($installation->tokens()->delete());
@@ -206,17 +206,22 @@ final class Installations
      * are charset-limited at the edge by `MachineIdentity` and together cannot approach
      * `FleetEvent::MAX_BODY`.
      *
+     * **It takes no `meta`, and used to.** The caller that passed any was
+     * `setAbility()`, which named the ability that moved; `robot-council/core#231` retired it, and
+     * the one remaining caller passes nothing. Mutation testing is what found this: removing the
+     * spread left every test green, because no surviving path could put anything in it. Deleted
+     * rather than annotated -- a parameter one private call site always passes empty is dead code,
+     * not an unkillable mutant.
+     *
      * @param  Installation  $installation  The installation that changed.
      * @param  FleetEventType  $type  What changed.
      * @param  string  $happened  What happened to it, as a predicate.
-     * @param  array<string, mixed>  $meta  Anything beyond the installation's own id.
      * @param  string|null  $actor  The developer responsible, when a signed-in one is.
      */
     private function record(
         Installation $installation,
         FleetEventType $type,
         string $happened,
-        array $meta,
         ?string $actor
     ): void {
         $this->events->record(
@@ -226,7 +231,7 @@ final class Installations
             // console, rather than by a process the fleet knows about
             null,
             sprintf('%s on %s %s.', $installation->harness, $installation->machine_label, $happened),
-            ['installation_id' => $installation->id, ...$meta],
+            ['installation_id' => $installation->id],
 
             // Both, and they are different people: the event is ABOUT this installation's owner
             // and was DONE by the admin. Before #115 only the admin was recorded, in the column
