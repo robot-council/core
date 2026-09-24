@@ -24,6 +24,7 @@ declare(strict_types=1);
 
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Access\Role;
 use RobotCouncil\Models\AgentSession;
@@ -94,8 +95,11 @@ it('tells a session the fleet cannot direct when the coordinator has only ENROLL
 it('stops saying the fleet can direct once the coordinator ends', function (): void {
     // The flap, asserted rather than left as a remark. The value is now transient by construction,
     // which is what makes a client that states it once at startup able to be permanently wrong.
-    $receiver = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
-
+    //
+    // **It goes through `SessionPresence::revoke()` rather than writing `gone` to the row**, which
+    // is what keeps it from being a slower spelling of the `gone` dataset row below: the real path
+    // deletes the session's tokens as well, and this asserts the answer moves on the path an
+    // administrator actually takes.
     [$coordinator] = $this->startCoordinatorSession($this->approveInstallation(
         $this->enrollDeveloper(77, 'coordinator'),
         machineLabel: 'coordinator-machine'
@@ -129,9 +133,19 @@ it('does not count a session that has gone, nor one swept stale', function (stri
     'stale' => AgentSessionStatus::Stale->value,
 ]);
 
-it('does not count a session whose role does not carry the ability', function (string $role): void {
+it('counts a session by its role, whatever its installation was granted', function (string $role, bool $counts): void {
     // The role is what decides now, so a session in one that does not carry `coordinator:direct`
-    // is not a coordinator however its installation was configured.
+    // is not a coordinator however its installation was configured -- and one that does carry it
+    // is, on the same installation.
+    //
+    // **The `true` row is what makes the `false` rows mean anything**, and an earlier draft of this
+    // test had only the `false` ones. Every reason this fixture might stop being countable -- 77
+    // dropped from the access list, a start that left the row `stale`, an `expires_at` default
+    // moving into the past -- turns a `false`-only dataset green while testing nothing.
+    //
+    // `build` is not a row here: `Support\AgentSessions::start()` writes it unconditionally, so
+    // `update(['role' => 'build'])` writes the value already there. On MySQL that update reports
+    // **0** rows changed, and no implementation can tell that row from the `ci` one.
     $installation = $this->approveInstallation(
         $this->enrollDeveloper(77, 'coordinator'),
         [Ability::CoordinatorDirect->value],
@@ -140,13 +154,75 @@ it('does not count a session whose role does not carry the ability', function (s
 
     [$session] = $this->startAgentSession($installation);
 
+    // Asserted, because everything below rests on the start having produced a countable row that
+    // only the role keeps out.
+    expect($session->role)->toBe(Role::Build)
+        ->and($session->status)->toBe(AgentSessionStatus::Active);
+
     AgentSession::query()->whereKey($session->getKey())->update(['role' => $role]);
 
-    expect(app(FleetAbilities::class)->anyLiveSessionHolds(Ability::CoordinatorDirect))->toBeFalse();
+    expect(app(FleetAbilities::class)->anyLiveSessionHolds(Ability::CoordinatorDirect))->toBe($counts);
 })->with([
-    'build' => Role::Build->value,
-    'ci' => Role::Ci->value,
+    'ci does not' => [Role::Ci->value, false],
+    'coordinator does' => [Role::Coordinator->value, true],
 ]);
+
+it('pages past the chunk size, and the only admitted holder is on the last page', function (): void {
+    // **The walk is chunked, and nothing else in this file makes it take a second page.** Every
+    // other fixture here has one or two sessions, so `lazyById()` returns one short page and the
+    // paging code never runs -- which left two defects invisible at once:
+    //
+    // 1. `select(['id', 'user_id'])` must keep `id`. `lazyById()` reads the key off the last
+    //    hydrated model, and throws `The lazyById operation was aborted because the [id] column is
+    //    not present in the query result` when it is missing -- but only after a page comes back
+    //    FULL, so a small fleet never sees it. Measured: dropping `id` from that list passes every
+    //    other test in this file.
+    // 2. A walk that stopped after the first page would answer from a subset.
+    //
+    // **The fixture is built so both fail rather than one.** The `CHUNK` sessions on the first page
+    // all belong to a developer who has been off-boarded, and the one admitted coordinator is the
+    // highest id there is. So a walk that stops early collects only unadmitted holders and answers
+    // `false`, and a walk that cannot page raises.
+    $this->setAccessLists(developers: [4242, 77, 99]);
+
+    $offboarded = $this->approveInstallation($this->enrollDeveloper(99, 'offboarded'), machineLabel: 'quiet-machine');
+
+    [$seed] = $this->startCoordinatorSession($offboarded);
+
+    // Copies of a real row rather than rows built by hand, so nothing here can drift from what the
+    // store actually writes. The query builder, because a model save would put the casts back in
+    // the way -- and `id` is dropped so each copy takes the next one.
+    $row = (array) DB::table('robot_council_agent_sessions')->where('id', $seed->getKey())->sole();
+    unset($row['id']);
+
+    DB::table('robot_council_agent_sessions')->insert(array_fill(0, FleetAbilities::CHUNK - 1, $row));
+
+    // The admitted coordinator, started last so its id is the highest and it lands on page two.
+    [$admitted] = $this->startCoordinatorSession($this->approveInstallation(
+        $this->enrollDeveloper(77, 'coordinator'),
+        machineLabel: 'coordinator-machine'
+    ));
+
+    $this->setAccessLists(developers: [4242, 77]);
+
+    // **The fixture is asserted before the subject is**, because every claim above is a claim about
+    // row counts: one full page of unadmitted holders, then one more row, and the admitted one last.
+    $matching = AgentSession::query()
+        ->where('role', Role::Coordinator->value)
+        ->where('status', AgentSessionStatus::Active->value);
+
+    expect((clone $matching)->count())->toBe(FleetAbilities::CHUNK + 1)
+        ->and((clone $matching)->max('id'))->toBe($admitted->getKey())
+        ->and((clone $matching)->where('user_id', $admitted->user_id)->count())->toBe(1)
+        ->and(app(FleetAbilities::class)->anyLiveSessionHolds(Ability::CoordinatorDirect))->toBeTrue();
+
+    // The other direction, so the `true` above is the walk reaching the last page rather than the
+    // allowlist admitting anybody it is handed: with the admitted coordinator gone, the same
+    // `CHUNK` rows answer `false`.
+    $this->service(SessionPresence::class)->revoke($admitted);
+
+    expect(app(FleetAbilities::class)->anyLiveSessionHolds(Ability::CoordinatorDirect))->toBeFalse();
+});
 
 it('answers false for an ability no role carries at all', function (): void {
     // `sessions:start` is the installation credential's own and is in no preset, so the roles the
@@ -171,8 +247,7 @@ it('tells a session the fleet cannot direct when nothing holds the ability', fun
 
     $this->machine($token)
         ->getJson(route('robot-council.agent.session'))
-        ->assertOk()
-        ->assertJson(['fleet_can_direct' => false]);
+        ->assertJsonPath('fleet_can_direct', false);
 });
 
 it('does not count a coordinator whose installation is revoked, nor one whose installation expired', function (): void {
@@ -248,6 +323,18 @@ it('reads the roles the enum defines, not whatever string the row happens to hol
             Role::cases()
         ))->each->toBeLessThanOrEqual(ROLE_COLUMN_MAX);
 
+    // **And on the one engine that can be asked, the constant is checked against the schema.** The
+    // two assertions above keep a future EDITOR honest about the strings; they cannot notice the
+    // column being narrowed underneath them, which is the failure that put `SQLSTATE[22001]` in the
+    // `postgres` job in the first place. Postgres reports a width and SQLite does not, so this runs
+    // where it can answer and is skipped, visibly, where it cannot.
+    if (! notPostgres()) {
+        $role = collect(Schema::getColumns('robot_council_agent_sessions'))->firstWhere('name', 'role');
+
+        expect(stringValue(arrayValue($role)['type'] ?? null))
+            ->toBe('character varying('.ROLE_COLUMN_MAX.')');
+    }
+
     $receiver = $this->approveInstallation($this->developer, [Ability::TasksCreate->value]);
 
     [$session] = $this->startAgentSession($this->approveInstallation(
@@ -267,9 +354,19 @@ it('reads the roles the enum defines, not whatever string the row happens to hol
         ->assertJsonPath('fleet_can_direct', false);
 })->with([
     'a misspelling' => 'coordinatr',
-    'the wrong case' => 'COORDINATOR',
     'an ability name in the role column' => 'coordinator:dir',
     'empty' => '',
+
+    // **`'COORDINATOR'` is deliberately NOT a row here, and the reason is worth the paragraph.**
+    // The match happens in SQL, and nothing in this package case-folds -- so whether an uppercase
+    // role matches is the COLLATION's answer, not this code's. Measured 2026-09-23 on MySQL 9.4.0
+    // under Testbench's default `utf8mb4_unicode_ci`: it matches, `anyLiveSessionHolds()` returns
+    // true, and the row fails. It passes on SQLite and Postgres, which compare case-sensitively.
+    //
+    // Keeping it would pin an engine property as though it were a code property, and it would go
+    // green in CI forever because there is no `mysql` job. `robot-council/core#245` is whether
+    // `role` belongs in the byte-exact collation list `2026_09_22_000002` maintains, which is where
+    // the question actually lives.
 ]);
 
 it('keeps the query and the row-level answer agreeing about what is usable', function (): void {

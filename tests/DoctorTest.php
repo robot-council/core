@@ -344,7 +344,7 @@ it('reports whether anything on the fleet can post a directive, passing either w
         ->and($running->detail)->toContain('At least one session is coordinating right now');
 });
 
-it('says fleet coordination is undetermined when it cannot read the sessions', function (): void {
+it('says fleet coordination is undetermined when it cannot read the tables it asks about', function (): void {
     $this->migrateUsersTableWithPackageColumns();
 
     // The same probe the migration check uses, and for the same reason: pointing the default
@@ -365,7 +365,13 @@ it('says fleet coordination is undetermined when it cannot read the sessions', f
         $unknown = diagnosis('fleet coordination');
 
         expect($unknown->status)->toBe(DiagnosisStatus::Undetermined)
-            ->and($unknown->detail)->toContain('php artisan migrate');
+            ->and($unknown->detail)->toContain('php artisan migrate')
+
+            // **The message names what it could not read, and that is pinned rather than assumed.**
+            // The probe empties every table, so nothing here distinguishes sessions from
+            // installations -- and `php artisan migrate` alone is satisfied by the old wording,
+            // which named the installations table this question no longer asks about.
+            ->and($unknown->detail)->toContain('agent sessions');
     } finally {
         config()->set('database.default', $default);
 
