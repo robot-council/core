@@ -3,8 +3,8 @@
 declare(strict_types=1);
 
 /**
- * The shipped stylesheet's themes: which two exist, which is served when, and whether the colour
- * pairs the dashboard renders are legible.
+ * The shipped stylesheet's themes: which two exist, which is served when, whether the colour
+ * pairs the dashboard renders are legible, and the type scale the views draw their sizes from.
  *
  * Asserted against the built artifact rather than against `resources/css/dashboard.css`, because
  * the source is a statement of intent and the artifact is what a browser receives. A daisyUI
@@ -275,9 +275,19 @@ it('leaves the shell unthemed, so the dark theme can be reached at all', functio
  * fails the second, which is what stops an unmeasured step shipping the way #197 did.
  */
 const DIMMED_STEPS = [
-    'opacity-60' => 0.6,
-    'opacity-70' => 0.7,
+    'opacity-80' => 0.8,
+    'opacity-90' => 0.9,
 ];
+
+/**
+ * The bar dimmed text has to clear: WCAG's AAA ratio for normal text.
+ *
+ * `.claude/rules/accessibility.md` (#397) makes AAA the target for every dashboard surface. Dimmed
+ * text is small by construction -- captions, cells, badges -- so the large-text bar never applies,
+ * and #310 moved the steps from 60 and 70 to 80 and 90 to reach this: 70 measured 5.94:1 on a
+ * hovered row and 60 measured 4.52:1 on the page, both under it.
+ */
+const DIMMED_BAR = 7.0;
 
 /**
  * One channel, linear sRGB to the gamma-encoded value a browser composites with.
@@ -373,6 +383,41 @@ function dimmedContrastRatio(string $foreground, string $background, float $alph
     return $text > $behind ? $text / $behind : $behind / $text;
 }
 
+/**
+ * Every ratio dimmed text at one alpha reaches, on every surface the dashboard paints it on.
+ *
+ * Both themes; the page (`base-200`) and a card (`base-100`); and a hovered or focused menu row over
+ * each, which daisyUI paints as `base-content` at alpha 0.1 over the surface, lifting the background
+ * toward the text. Keyed by a label, so a failure says which surface it was.
+ *
+ * `currentcolor` in a daisyUI rule is `base-content` wherever the dashboard dims text, because
+ * nothing dimmed sits inside a coloured component.
+ *
+ * @param  float  $alpha  The opacity, 0-1.
+ * @return array<string, float> Each surface's ratio.
+ */
+function dimmedRatiosEverywhere(float $alpha): array
+{
+    $ratios = [];
+
+    foreach (['light' => ':where(:root)', 'dark' => '[data-theme=dark]'] as $theme => $selector) {
+        $tokens = themeTokens($selector);
+        $content = linearRgb($tokens['color-base-content']);
+
+        foreach (['color-base-100', 'color-base-200'] as $surface) {
+            $ratios[sprintf('%s theme on %s', $theme, $surface)] = dimmedContrastRatio($tokens['color-base-content'], $tokens[$surface], $alpha);
+
+            $hover = overLinear($content, linearRgb($tokens[$surface]), 0.1);
+            $text = relativeLuminance(overLinear($content, $hover, $alpha)) + 0.05;
+            $behind = relativeLuminance($hover) + 0.05;
+
+            $ratios[sprintf('%s theme on a hovered row over %s', $theme, $surface)] = $text > $behind ? $text / $behind : $behind / $text;
+        }
+    }
+
+    return $ratios;
+}
+
 it('composites an opacity the way a browser does, not the way linear light would', function (): void {
     // The instrument's control, before anything reads it. Black at 70% over white paints `#4D4D4D`
     // -- checkable against any colour picker -- which is 8.52:1. A linear composite reports 3.00:1
@@ -411,12 +456,25 @@ it('keeps every dimmed step the views use above the bar, in both themes', functi
         foreach (['color-base-100', 'color-base-200'] as $surface) {
             $ratio = dimmedContrastRatio($tokens['color-base-content'], $tokens[$surface], $alpha);
 
-            // AA for normal text. None of these usages is large text: they are table cells, badges
-            // and captions, so the 3.0 bar does not apply -- which is what made #197 a defect
-            // rather than a preference, since the failing step passed 3.0 comfortably.
+            // AAA for normal text, per the accessibility rule. None of these usages is large text:
+            // they are table cells, badges and captions, so neither large-text bar applies -- which
+            // is what made #197 a defect rather than a preference.
             expect($ratio)->toBeGreaterThanOrEqual(
-                4.5,
-                sprintf('%s theme, %s on %s: %.2f:1 against a 4.5:1 bar', $theme, $class, $surface, $ratio)
+                DIMMED_BAR,
+                sprintf('%s theme, %s on %s: %.2f:1 against a %.1f:1 bar', $theme, $class, $surface, $ratio, DIMMED_BAR)
+            );
+        }
+    }
+
+    // **And on a hovered row, for every step rather than only the ones a menu holds today.** The
+    // hovered-menu test below reads the steps out of the rendered menu, which holds only
+    // `opacity-90`, so without this the lower step's closest case, 7.69:1 on a hovered row in the
+    // dark theme, would be a figure nothing computes.
+    foreach (DIMMED_STEPS as $class => $alpha) {
+        foreach (dimmedRatiosEverywhere($alpha) as $where => $ratio) {
+            expect($ratio)->toBeGreaterThanOrEqual(
+                DIMMED_BAR,
+                sprintf('%s, %s: %.2f:1 against a %.1f:1 bar', $class, $where, $ratio, DIMMED_BAR)
             );
         }
     }
@@ -425,6 +483,98 @@ it('keeps every dimmed step the views use above the bar, in both themes', functi
     ['dark, as an explicit data-theme', '[data-theme=dark]'],
     ['dark, as a system preference', ':root:not([data-theme])'],
 ]);
+
+it('lifts every text daisyUI or the preflight dims below the bar, for everything a view uses', function (): void {
+    $css = stylesheet();
+
+    // **Dimming the views never wrote.** daisyUI draws a table's header, a stat's title and
+    // description and a form label at `color-mix(..., 60%, transparent)`, and Tailwind's preflight
+    // draws a placeholder at 50%. The step tests read `opacity-*` out of the views and cannot see
+    // any of it, which is how #413's first AAA revision said dimmed text met 7:1 while every table
+    // header measured 4.52:1. Read out of the artifact, so a component a daisyUI upgrade starts
+    // dimming is found without anyone listing it.
+    preg_match_all(
+        '/([^{}]*)\{(?:[^{}]*;)?color:color-mix\(in oklab, ?(?:var\(--color-base-content\)|currentcolor) (\d+)%, ?transparent\)[^{}]*\}/i',
+        $css,
+        $rules,
+        PREG_SET_ORDER | PREG_OFFSET_CAPTURE
+    );
+
+    // One key per selector in a rule's list: its first class, or `::placeholder`. A naive split
+    // cuts `:where(thead,tfoot)` in two, which can only drop a fragment with no class, never invent one
+    $keys = static function (string $selectors): array {
+        $found = [];
+
+        foreach (explode(',', $selectors) as $selector) {
+            if (str_contains($selector, '::placeholder')) {
+                $found[] = '::placeholder';
+            } elseif (preg_match('/\.([a-z][a-z0-9-]*)/', $selector, $class) === 1) {
+                $found[] = $class[1];
+            }
+        }
+
+        return $found;
+    };
+
+    $failing = [];
+    $overridden = [];
+
+    foreach ($rules as [, [$selectors, $offset], [$percent]]) {
+        // A disabled control's text is exempt: SC 1.4.3 and 1.4.6 both exclude text that is part
+        // of an inactive component, and daisyUI dims exactly those -- a disabled button at 10%, a
+        // disabled input at 40%, a disabled menu row at 20%. Lifting them would make an unusable
+        // control look usable, which is the opposite of what the dimming says.
+        if (preg_match('/disabled/i', $selectors) === 1) {
+            continue;
+        }
+
+        $worst = INF;
+
+        foreach (dimmedRatiosEverywhere((int) $percent / 100) as $ratio) {
+            $worst = min($worst, $ratio);
+        }
+
+        $passes = $worst >= DIMMED_BAR;
+        $enclosing = blocksEnclosing($css, $offset);
+
+        // An override is the package's own rule, directly in `utilities` -- where it beats
+        // daisyUI's sublayers and the preflight's `base`, as the size lifts do -- and it passes
+        $ours = ($enclosing[0] ?? null) === '@layer utilities'
+            && array_filter($enclosing, static fn (string $block): bool => str_starts_with($block, '@layer daisyui')) === [];
+
+        foreach ($keys(trim($selectors)) as $key) {
+            if ($ours && $passes) {
+                $overridden[$key] = true;
+            } elseif (! $passes) {
+                $failing[$key] = true;
+            }
+        }
+    }
+
+    // The controls: what daisyUI and the preflight dim today. A detector missing one has stopped
+    // reading the artifact rather than found it clean
+    expect($failing)->toHaveKeys(['table', 'stat-title', 'stat-desc', 'label', '::placeholder']);
+
+    $views = '';
+
+    foreach (bladeTemplatesIn(__DIR__.'/../resources/views') as $view) {
+        $views .= sourceWithoutComments($view)."\n";
+    }
+
+    // Only what a view can render: a class a view writes, and a placeholder where a view sets one
+    $rendered = array_values(array_filter(
+        array_keys($failing),
+        static fn (string $key): bool => $key === '::placeholder'
+            ? str_contains($views, 'placeholder=')
+            : preg_match('/(?<![\w-])'.preg_quote($key, '/').'(?![\w-])/', $views) === 1,
+    ));
+
+    expect($rendered)->toContain('table', 'stat-title', 'label', '::placeholder');
+
+    $unlifted = array_values(array_filter($rendered, static fn (string $key): bool => ! isset($overridden[$key])));
+
+    expect($unlifted)->toBeEmpty(implode(', ', $unlifted));
+});
 
 it('measures every dimmed step the views actually use', function (): void {
     // **The half that keeps the test above honest.** Measuring a fixed list proves those two steps
@@ -513,22 +663,306 @@ it('keeps dimmed text legible on the surface a hovered menu row paints', functio
     // having failed rather than the page being clean.
     expect($steps)->not->toBeEmpty();
 
-    $tokens = themeTokens(':where(:root)');
-    $content = linearRgb($tokens['color-base-content']);
+    // Both themes. The dark theme's hovered row is the closer call at AAA: `opacity-80` there
+    // measures 7.69:1, where the light theme's worst is 7.93:1.
+    foreach (['light' => ':where(:root)', 'dark' => '[data-theme=dark]'] as $theme => $selector) {
+        $tokens = themeTokens($selector);
+        $content = linearRgb($tokens['color-base-content']);
 
-    foreach (array_keys($steps) as $step) {
-        foreach (['color-base-100', 'color-base-200'] as $under) {
-            $hover = overLinear($content, linearRgb($tokens[$under]), 0.1);
+        foreach (array_keys($steps) as $step) {
+            foreach (['color-base-100', 'color-base-200'] as $under) {
+                $hover = overLinear($content, linearRgb($tokens[$under]), 0.1);
 
-            $text = relativeLuminance(overLinear($content, $hover, $step / 100)) + 0.05;
-            $behind = relativeLuminance($hover) + 0.05;
+                $text = relativeLuminance(overLinear($content, $hover, $step / 100)) + 0.05;
+                $behind = relativeLuminance($hover) + 0.05;
 
-            $ratio = $text > $behind ? $text / $behind : $behind / $text;
+                $ratio = $text > $behind ? $text / $behind : $behind / $text;
 
-            expect($ratio)->toBeGreaterThanOrEqual(
-                4.5,
-                sprintf('opacity-%d on a hovered menu row over %s: %.2f:1 against a 4.5:1 bar', $step, $under, $ratio)
-            );
+                expect($ratio)->toBeGreaterThanOrEqual(
+                    DIMMED_BAR,
+                    sprintf('%s theme, opacity-%d on a hovered menu row over %s: %.2f:1 against a %.1f:1 bar', $theme, $step, $under, $ratio, DIMMED_BAR)
+                );
+            }
         }
+    }
+});
+
+/**
+ * The type scale #310 chose: each step's name, mapped to its size as the minified artifact writes it.
+ */
+const TYPE_SCALE = [
+    'text-body' => '1rem',
+    'text-meta' => '.875rem',
+    'text-table' => '.875rem',
+];
+
+/**
+ * The floor, in rem: the `meta` step, below which nothing a view renders is set.
+ */
+const TYPE_FLOOR_REM = 0.875;
+
+/**
+ * Off-scale sizes a view may still carry, each mapped to the reason it has to.
+ *
+ * Empty, and meant to stay that way. A view names a step of the scale, because any other size in a
+ * view is a size the scale cannot move.
+ *
+ * @var array<string, string>
+ */
+const OFF_SCALE_SIZES_ALLOWED_IN_VIEWS = [];
+
+/**
+ * Every way a source sets a text size without naming a step of the scale.
+ *
+ * - A Tailwind size at or below `body`: `text-xs`, `text-sm`, `text-base`. A variant counts --
+ *   `sm:text-xs` is reported as its `text-xs` -- and `text-xs-foo` does not.
+ * - An arbitrary size: `text-[13px]`, `text-[length:...]`, `text-(length:--x)`, or the arbitrary
+ *   property `[font-size:...]`. An arbitrary COLOR, `text-[#fff]`, is not a size and is not reported.
+ * - An inline style setting `font-size` or the `font` shorthand.
+ * - `<small>`, which the browser's own stylesheet draws at `smaller`.
+ *
+ * Comments are NOT stripped: Tailwind's scanner reads them, so a class named in a Blade comment
+ * reaches the artifact (#230), and a view explaining which size it no longer uses should say so
+ * without spelling the class.
+ *
+ * @param  string  $source  A template's raw source.
+ * @return list<string> What was found, in order.
+ */
+function offScaleSizesIn(string $source): array
+{
+    preg_match_all(
+        '/(?<![\w-])text-(?:xs|sm|base)(?![\w-])'
+        .'|(?<![\w-])text-\[(?:length:[^\]]*|[\d.]+[a-z%]*)\]'
+        .'|(?<![\w-])text-\(length:[^)]*\)'
+        .'|\[font-size:[^\]]*\]'
+        .'|\bstyle\s*=\s*["\'][^"\']*\bfont(?:-size)?\s*:'
+        .'|<small\b/i',
+        $source,
+        $found
+    );
+
+    return $found[0];
+}
+
+/**
+ * The blocks enclosing an offset in the stylesheet, outermost first.
+ *
+ * Each is the header text before its `{` -- `@layer utilities`, `@media (...)`, a selector -- read
+ * after the last `;` so that `@layer components;@layer utilities{` reads as `@layer utilities`. The
+ * minified artifact carries no brace inside a string or a comment, which the controls in the test
+ * that uses this establish rather than assume: a daisyUI rule must come back nested deeper than a
+ * Tailwind utility, or the reading is wrong.
+ *
+ * @param  string  $css  The stylesheet.
+ * @param  int  $offset  A byte offset into it.
+ * @return list<string> The enclosing headers, outermost first.
+ */
+function blocksEnclosing(string $css, int $offset): array
+{
+    preg_match_all('/[{}]/', substr($css, 0, $offset), $braces, PREG_OFFSET_CAPTURE);
+
+    $stack = [];
+    $previous = -1;
+
+    foreach ($braces[0] as [$brace, $at]) {
+        if ($brace === '{') {
+            $header = substr($css, $previous + 1, $at - $previous - 1);
+            $semicolon = strrpos($header, ';');
+
+            $stack[] = trim($semicolon === false ? $header : substr($header, $semicolon + 1));
+        } else {
+            array_pop($stack);
+        }
+
+        $previous = $at;
+    }
+
+    return $stack;
+}
+
+/**
+ * The rules that apply the scale to daisyUI's own sizes: each `:where()` rule setting a value from
+ * a step's token, with its byte offset in the artifact.
+ *
+ * @return list<array{selectors: string, offset: int}>
+ */
+function scaleLiftRules(): array
+{
+    preg_match_all(
+        '/:where\(([^{}]*)\)\{[^{}]*var\(--text-(?:body|meta|table)[^{}]*\}/',
+        stylesheet(),
+        $found,
+        PREG_SET_ORDER | PREG_OFFSET_CAPTURE
+    );
+
+    return array_map(
+        static fn (array $rule): array => ['selectors' => $rule[1][0], 'offset' => $rule[0][1]],
+        $found
+    );
+}
+
+it('states the type scale once, at the sizes it chose', function (): void {
+    // The theme layer's one `:root,:host` rule, which is where `@theme static` emits. Read through
+    // `themeTokens()`, which refuses a fragment matching more than one rule, so a second emission
+    // holding different sizes fails here instead of one of them being read at random
+    $tokens = themeTokens(':root,:host');
+
+    foreach (TYPE_SCALE as $step => $size) {
+        expect($tokens[$step] ?? null)->toBe($size, sprintf('--%s', $step))
+            ->and($tokens[$step.'--line-height'] ?? null)->not->toBeNull(sprintf('--%s--line-height', $step));
+    }
+
+    // And whatever draws each step reads its tokens rather than a size of its own, so the token is
+    // the one place a step changes. `table` has no utility; the rule lifting daisyUI's table is
+    // what consumes it, line-height included
+    expect(stylesheet())
+        ->toContain('.text-body{font-size:var(--text-body);line-height:var(--tw-leading,var(--text-body--line-height))}')
+        ->toContain('.text-meta{font-size:var(--text-meta);line-height:var(--tw-leading,var(--text-meta--line-height))}')
+        ->toContain('{font-size:var(--text-table);line-height:var(--text-table--line-height)}');
+});
+
+it('names a step of the scale in every view, never another size', function (): void {
+    // The instrument first, on sources it must and must not report, so an empty result below is a
+    // clean tree rather than a pattern that stopped matching
+    expect(offScaleSizesIn('<p class="mt-1 text-xs opacity-70">'))->toBe(['text-xs'])
+        ->and(offScaleSizesIn('<p class="sm:text-sm">'))->toBe(['text-sm'])
+        ->and(offScaleSizesIn('<h2 class="card-title text-base">'))->toBe(['text-base'])
+        ->and(offScaleSizesIn('<p class="text-[13px] text-[length:var(--x)] text-(length:--y)">'))
+        ->toBe(['text-[13px]', 'text-[length:var(--x)]', 'text-(length:--y)'])
+        ->and(offScaleSizesIn('<p class="[font-size:11px]">'))->toBe(['[font-size:11px]'])
+        ->and(offScaleSizesIn('<p style="color: red; font-size: 11px">'))->toHaveCount(1)
+        ->and(offScaleSizesIn("<p style='font: 11px sans-serif'>"))->toHaveCount(1)
+        ->and(offScaleSizesIn('<small>fine print</small>'))->toBe(['<small'])
+        ->and(offScaleSizesIn('<p class="text-meta text-xl text-xs-wide text-[#fff]" style="color: red">'))->toBeEmpty();
+
+    $found = [];
+    $read = 0;
+
+    foreach (bladeTemplatesIn(__DIR__.'/../resources/views') as $view) {
+        $read++;
+
+        foreach (offScaleSizesIn((string) file_get_contents($view)) as $size) {
+            if (! array_key_exists($size, OFF_SCALE_SIZES_ALLOWED_IN_VIEWS)) {
+                $found[] = sprintf('%s: %s', basename($view), $size);
+            }
+        }
+    }
+
+    // A walk that read nothing would report nothing
+    expect($read)->toBeGreaterThan(10)
+        ->and($found)->toBeEmpty(implode(', ', $found));
+});
+
+it('lifts every size daisyUI draws below the floor, for every component a view uses', function (): void {
+    $css = stylesheet();
+
+    // **Every property daisyUI feeds into a font size, read out of the artifact.** A component that
+    // sizes its text through a custom property -- `--fontsize` for a button, `--card-fs` for a card
+    // body, `--font-size-min` for an input -- is invisible to a check reading only `font-size`, and
+    // that is how `input-sm` shipped at 0.75rem past the first version of this test. Derived rather
+    // than listed, so a property a daisyUI upgrade introduces is read without anyone adding it.
+    preg_match_all('/font-size:([^;}]*)/', $css, $declarations);
+    preg_match_all('/var\(--([a-z0-9-]+)/', implode(';', $declarations[1]), $fed);
+
+    $properties = array_values(array_unique(array_filter(
+        $fed[1],
+        static fn (string $property): bool => ! str_starts_with($property, 'text-') && ! str_starts_with($property, 'tw-'),
+    )));
+
+    // The control: the four daisyUI draws with today. Missing one means the derivation stopped
+    // reading the artifact rather than that the property went away
+    expect($properties)->toContain('fontsize', 'card-fs', 'font-size', 'font-size-min');
+
+    $sized = implode('|', array_map(
+        static fn (string $property): string => preg_quote('--'.$property, '/'),
+        $properties,
+    ));
+
+    // The classes the scale's own rules cover, read out of the artifact rather than listed here
+    $lifted = [];
+
+    foreach (scaleLiftRules() as $rule) {
+        preg_match_all('/\.([a-z][a-z0-9-]*)/', $rule['selectors'], $classes);
+
+        $lifted = [...$lifted, ...$classes[1]];
+    }
+
+    expect($lifted)->toContain('btn-xs', 'btn-sm', 'badge-sm', 'stat-title', 'stat-desc', 'table', 'card-body', 'input-sm');
+
+    // Every rule in the artifact that sets a rem size below the floor, keyed by the first class of
+    // EACH selector in its list -- `.btn-xs{--fontsize:.6875rem}` is `btn-xs`. Each, not the list's
+    // first: daisyUI shares one rule between components, `.badge-sm,.kbd-sm{...}`, and reading only
+    // the first reported a view using `kbd-sm` as clean because `badge-sm` is lifted
+    preg_match_all('/([^{}]*)\{([^{}]*)\}/', $css, $all, PREG_SET_ORDER);
+
+    $small = [];
+
+    foreach ($all as [, $selectors, $body]) {
+        preg_match_all('/(?:^|;)(?:font-size|'.$sized.'):(\d*\.?\d+)rem/', $body, $sizes);
+
+        if (array_filter($sizes[1], static fn (string $size): bool => (float) $size < TYPE_FLOOR_REM) === []) {
+            continue;
+        }
+
+        // A naive split, which cuts `:not(thead,tfoot)` in two. That can only ADD candidates -- a
+        // class inside a `:not()` read as a selector of its own -- so its error is a loud failure,
+        // never a quiet pass
+        foreach (explode(',', $selectors) as $selector) {
+            if (preg_match('/\.([a-z][a-z0-9-]*)/', $selector, $class) === 1) {
+                $small[$class[1]] = true;
+            }
+        }
+    }
+
+    // The controls, one per path: daisyUI draws `btn-xs` at 0.6875rem through `--fontsize` and
+    // `input-sm` at 0.75rem through `--font-size-min`, so a detector missing either has stopped
+    // reading that path rather than found it clean
+    expect($small)->toHaveKeys(['btn-xs', 'input-sm']);
+
+    $views = '';
+
+    foreach (bladeTemplatesIn(__DIR__.'/../resources/views') as $view) {
+        $views .= sourceWithoutComments($view)."\n";
+    }
+
+    // Only a component a view names can render, and the artifact carries more than the views use:
+    // daisyUI emits some rules wholesale -- the card size modifiers are here with no view naming
+    // one -- so the candidates are narrowed to classes a view actually writes
+    $unlifted = array_values(array_filter(
+        array_keys($small),
+        static fn (string $class): bool => preg_match('/(?<![\w-])'.preg_quote($class, '/').'(?![\w-])/', $views) === 1
+            && ! in_array($class, $lifted, true),
+    ));
+
+    expect($unlifted)->toBeEmpty(implode(', ', $unlifted));
+});
+
+it('keeps the scale where it beats daisyUI and loses to a utility', function (): void {
+    $css = stylesheet();
+
+    // The reader's controls, first. A Tailwind utility sits directly in `utilities`, and a daisyUI
+    // component in a sublayer of it, so a reader that could not tell those apart would pass the
+    // assertion below wherever the rules went
+    $utility = strpos($css, '.text-meta{');
+    $daisy = strpos($css, '.btn-xs{--fontsize:.6875rem');
+
+    expect($utility)->toBeInt()
+        ->and($daisy)->toBeInt()
+        ->and(blocksEnclosing($css, (int) $utility))->toBe(['@layer utilities'])
+        ->and(blocksEnclosing($css, (int) $daisy))->toHaveCount(2)
+        ->and(blocksEnclosing($css, (int) $daisy)[0])->toBe('@layer utilities')
+        ->and(blocksEnclosing($css, (int) $daisy)[1])->toStartWith('@layer daisyui');
+
+    // **Directly inside `utilities`, and nowhere else, is what makes the lift work.** daisyUI nests
+    // its components in sublayers of `utilities`, and a rule unlayered within a layer beats every
+    // sublayer of it. In `@layer components` the lift would lose to daisyUI outright; inside a
+    // daisyUI sublayer it would depend on source order. Either way the text would render at
+    // daisyUI's size with every other assertion here still passing.
+    $rules = scaleLiftRules();
+
+    expect($rules)->not->toBeEmpty();
+
+    foreach ($rules as $rule) {
+        expect(blocksEnclosing($css, $rule['offset']))->toBe(['@layer utilities'], $rule['selectors']);
     }
 });

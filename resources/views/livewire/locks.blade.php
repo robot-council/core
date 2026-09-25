@@ -31,14 +31,14 @@
         {{-- Narrowed to one holder, which is where a session's link lands. Said in words for the
              reason the Agents page says its own narrowing. --}}
         @if ($holder !== null)
-            <div class="flex flex-wrap items-center gap-2 text-sm">
+            <div class="flex flex-wrap items-center gap-2 text-meta">
                 <span>Showing locks held by session #{{ $holder }}.</span>
                 <button type="button" wire:click="showEveryHolder" class="btn btn-xs btn-outline">Show all</button>
             </div>
         @endif
 
         @if ($locks['locks'] === [])
-            <p class="py-6 text-center opacity-60">
+            <p class="py-6 text-center opacity-80">
                 @if ($holder !== null)
                     Session #{{ $holder }} holds no locks in this list.
                 @else
@@ -47,7 +47,7 @@
             </p>
         @else
             <div class="overflow-x-auto">
-                <table class="table table-sm">
+                <table class="table">
                     <thead>
                         <tr>
                             <th>Lock</th>
@@ -69,13 +69,13 @@
                                     @if ($lock['holder'])
                                         <a href="{{ route('robot-council.agents', ['session' => $lock['holder']['session_id']]) }}" class="link">{{ $lock['holder']['github_login'] ?? 'an unknown account' }}</a>
                                     @else
-                                        <span class="opacity-60">nobody</span>
+                                        <span class="opacity-80">nobody</span>
                                     @endif
 
                                     {{-- Who had it last, which is what tells a reader whether a
                                          lock is being handed round or has sat with one holder --}}
                                     @if ($lock['previous_holder'])
-                                        <div class="text-xs opacity-60">
+                                        <div class="text-meta opacity-80">
                                             after {{ $lock['previous_holder']['github_login'] ?? 'an unknown account' }}
                                         </div>
                                     @endif
@@ -98,11 +98,11 @@
                                      that was a defect rather than a reason: nothing could
                                      reach the dark theme at all. A released lock is the
                                      ordinary case and is not marked. --}}
-                                <td class="whitespace-nowrap text-xs">
+                                <td class="whitespace-nowrap text-meta">
                                     @if ($lock['lapsed'])
                                         <span class="badge badge-sm badge-warning">{{ $lock['lease'] }}</span>
                                     @else
-                                        <span class="opacity-70">{{ $lock['lease'] }}</span>
+                                        <span class="opacity-90">{{ $lock['lease'] }}</span>
                                     @endif
                                 </td>
                             </tr>

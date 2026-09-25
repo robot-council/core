@@ -31,14 +31,14 @@
              with the way back beside it, because a list of one otherwise reads as a fleet of
              one. The counts on the scope buttons stay the whole fleet's. --}}
         @if ($session !== null)
-            <div class="flex flex-wrap items-center gap-2 text-sm">
+            <div class="flex flex-wrap items-center gap-2 text-meta">
                 <span>Showing one session, #{{ $session }}.</span>
                 <button type="button" wire:click="showEverySession" class="btn btn-xs btn-outline">Show all</button>
             </div>
         @endif
 
         @if ($sessions['sessions'] === [])
-            <p class="py-6 text-center opacity-60">
+            <p class="py-6 text-center opacity-80">
                 @if ($session !== null)
                     No session #{{ $session }} in this list.
                 @else
@@ -47,7 +47,7 @@
             </p>
         @else
             <div class="overflow-x-auto">
-                <table class="table table-sm">
+                <table class="table">
                     <thead>
                         <tr>
                             <th>Developer</th>
@@ -66,12 +66,12 @@
 
                                 <td>
                                     <div>{{ $agent['machine_label'] ?? 'an unknown machine' }}</div>
-                                    <div class="text-xs opacity-60">{{ $agent['harness'] ?? '' }}</div>
+                                    <div class="text-meta opacity-80">{{ $agent['harness'] ?? '' }}</div>
 
                                     {{-- The operating system the bridge reported (#351), and
                                          nothing for an older bridge that reported none --}}
                                     @if (($agent['os_family'] ?? null) !== null)
-                                        <div class="text-xs opacity-60">{{ $agent['os_family'] }}{{ ($agent['arch'] ?? null) !== null ? ' '.$agent['arch'] : '' }}</div>
+                                        <div class="text-meta opacity-80">{{ $agent['os_family'] }}{{ ($agent['arch'] ?? null) !== null ? ' '.$agent['arch'] : '' }}</div>
                                     @endif
                                 </td>
 
@@ -92,7 +92,7 @@
                                      one field the split exists for the least visible of the
                                      two. Absent is still shown as absent, and both are
                                      agent-supplied and escaped. --}}
-                                <td class="text-xs">
+                                <td class="text-meta">
                                     @php($where = $agent['repository'] ?? null)
 
                                     @if ($where !== null)
@@ -100,9 +100,9 @@
                                     @endif
 
                                     @if (($agent['work_location'] ?? null) !== null)
-                                        {{-- Dimmer than the line above it, and above the 4.5:1
-                                             bar the dashboard theme test holds dimmed text to
-                                             (#197).
+                                        {{-- Dimmer than the line above it, and above the 7:1
+                                             AAA bar the dashboard theme test holds dimmed text
+                                             to (#197, raised by #310).
 
                                              An earlier draft of this very comment used the
                                              ordinary English word for a stage in a sequence and
@@ -111,11 +111,11 @@
                                              and which `npm run check` caught. Tailwind scans
                                              this file whole and cannot tell a sentence from an
                                              attribute. --}}
-                                        <div class="opacity-60">{{ $agent['work_location'] }}</div>
+                                        <div class="opacity-80">{{ $agent['work_location'] }}</div>
                                     @endif
 
                                     @if ($where === null && ($agent['work_location'] ?? null) === null)
-                                        <span class="opacity-60">none</span>
+                                        <span class="opacity-80">none</span>
                                     @endif
                                 </td>
 
@@ -135,7 +135,7 @@
                                     <span class="badge badge-sm">{{ $agent['status'] }}</span>
                                 </td>
 
-                                <td class="whitespace-nowrap text-xs opacity-70">
+                                <td class="whitespace-nowrap text-meta opacity-90">
                                     {{ $agent['last_seen'] }}
                                 </td>
 
@@ -143,7 +143,7 @@
                                      kept: what this process is blocking. The id is the row's own
                                      key, assigned by the server, and it reaches the URL only
                                      through `route()` with a literal name. --}}
-                                <td class="whitespace-nowrap text-xs">
+                                <td class="whitespace-nowrap text-meta">
                                     <a href="{{ route('robot-council.locks', ['holder' => $agent['id']]) }}" class="link">Locks held</a>
                                 </td>
                             </tr>

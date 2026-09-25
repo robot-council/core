@@ -34,13 +34,13 @@
             </div>
         </div>
 
-        <p class="text-sm opacity-70">
+        <p class="text-meta opacity-90">
             What each machine may do, and which of its sessions are alive. Changes take effect on
             the next request, not on the next renewal.
         </p>
 
         @if ($installations === [])
-            <p class="py-6 text-center opacity-60">
+            <p class="py-6 text-center opacity-80">
                 {{ $installationScope === \RobotCouncil\Support\Scope::Live && $page['retired'] > 0
                     ? 'No machine is currently usable. Choose All to see the revoked and expired ones.'
                     : 'No machine has enrolled yet.' }}
@@ -56,7 +56,7 @@
                                     {{ $installation['harness'] }} on {{ $installation['machine_label'] }}
                                 </div>
 
-                                <div class="text-xs opacity-70">
+                                <div class="text-meta opacity-90">
                                     approved for {{ $installation['github_login'] ?? 'an unknown account' }}
                                 </div>
                             </div>
@@ -84,7 +84,7 @@
                             <ul class="mt-3 space-y-1">
                                 @foreach ($installation['sessions']['shown'] as $session)
                                     <li wire:key="admin-session-{{ $session['id'] }}"
-                                        class="flex flex-wrap items-center gap-2 text-xs">
+                                        class="flex flex-wrap items-center gap-2 text-meta">
                                         <span class="badge badge-sm">{{ $session['status'] }}</span>
 
                                         {{-- The role, which is the whole of what this session may
@@ -104,15 +104,15 @@
                                         @php($where = $session['repository'] ?? null)
 
                                         @if ($where !== null)
-                                            <span class="opacity-70">{{ $where }}</span>
+                                            <span class="opacity-90">{{ $where }}</span>
                                         @endif
 
                                         @if (($session['work_location'] ?? null) !== null)
-                                            <span class="opacity-60">{{ $session['work_location'] }}</span>
+                                            <span class="opacity-80">{{ $session['work_location'] }}</span>
                                         @endif
 
                                         @if ($where === null && ($session['work_location'] ?? null) === null)
-                                            <span class="opacity-60">no project</span>
+                                            <span class="opacity-80">no project</span>
                                         @endif
 
                                         {{-- **What it ASKED to be, presented as information and
@@ -176,7 +176,7 @@
                              length. A list truncated at its limit looks exactly like a complete
                              one, and the number that would show otherwise is the one not printed. --}}
                         @if ($installation['sessions']['hidden'] > 0 || $installation['sessions']['gone'] > 0)
-                            <p class="mt-2 text-xs opacity-60">
+                            <p class="mt-2 text-meta opacity-80">
                                 @if ($installation['sessions']['hidden'] > 0)
                                     {{ $installation['sessions']['hidden'] }} more live session(s) not shown.
                                 @endif

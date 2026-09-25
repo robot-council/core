@@ -84,4 +84,118 @@
     --color-primary-content: oklch(21% 0.05 270);
 }
 
+/*
+ * The type scale, and the only place it is stated (#310).
+ *
+ * Three named steps. A view names the step it means -- `text-body` or `text-meta` -- rather than a
+ * Tailwind size, so changing a step is one edit here and no edit in any view:
+ *
+ *   - `body` is running text: what a card says, and what a paragraph with no size of its own is.
+ *   - `meta` is everything secondary to it -- timestamps, the harness under a machine, the line
+ *     under a feed event, a panel's one-line description, and the text inside a small control.
+ *     It is **the floor**: nothing the package's views render is set smaller. It was `text-xs`,
+ *     0.75rem, at 28 sites, most of them at `opacity-60` or `opacity-70` as well.
+ *   - `table` is what a table cell says. It is its own step, at the same size as `meta` today,
+ *     because a table is read in rows rather than as an aside and may reasonably move apart from it.
+ *
+ * `@theme` in Tailwind's `--text-*` namespace, so each step generates a `text-<step>` utility with
+ * its line-height companion. `static`, so all three are emitted whether or not a view names the
+ * utility: `table` is consumed only by the rule below, and `DashboardThemeTest` reads all three
+ * out of the built artifact. Tailwind's own `--text-xs` and `--text-sm` are left alone
+ * rather than redefined, so `text-sm` keeps meaning what the Tailwind documentation says it means.
+ */
+@theme static {
+    --text-body: 1rem;
+    --text-body--line-height: 1.5;
+    --text-meta: 0.875rem;
+    --text-meta--line-height: calc(1.25 / 0.875);
+    --text-table: 0.875rem;
+    --text-table--line-height: calc(1.25 / 0.875);
+}
+
+/*
+ * Where daisyUI sets a size of its own, the scale is applied to it here rather than at every use.
+ *
+ * daisyUI draws a card's body at 0.875rem, a table at 0.875rem and a `table-sm` row at 0.75rem,
+ * `btn-sm` text at 0.75rem and `btn-xs` at 0.6875rem, `badge-sm` at 0.75rem and `badge-xs` at
+ * 0.625rem, a stat's title and description at 0.75rem, and an `input-sm` at 0.75rem. Every one of
+ * those but the first two is below the floor, and the first two are what make `body` a step at all
+ * rather than a name.
+ *
+ * **Several of those sizes arrive through a custom property rather than `font-size`**, so the lift
+ * has to set the property the component reads: `--fontsize` for a button, `--card-fs` for a card
+ * body, and `--font-size-min` for an input, which daisyUI draws at `max(--font-size,
+ * --font-size-min)`. Setting `font-size` on an `input-sm` would be overridden by that rule.
+ *
+ * **Only the text changes.** A control's height and padding are daisyUI's still, because control
+ * affordance is its own ticket; a 0.875rem label fits the 1.5rem box `btn-xs` draws. `badge-sm` is
+ * the tight one: its 1.25rem box leaves 1.125rem inside the border, and the 0.875rem label is
+ * centered in it by daisyUI's flex layout with little room to spare. It is left there rather than
+ * resized, for the same reason.
+ *
+ * **No view uses `table-sm` any more**, so a table takes daisyUI's default cell padding. The class
+ * shrank the text and the padding together, and #310 named both as part of why the dashboard read
+ * small; with the text on the `table` step, the padding was all it had left to do. The `table-sm`
+ * and `table-xs` selectors stay below so that a view re-adding one still meets the floor.
+ *
+ * **In the utilities layer, and inside `:where()`, and the two together decide who wins.** daisyUI
+ * 5 emits its components in sublayers nested INSIDE `utilities`, and a rule unlayered within a
+ * layer beats every sublayer of it whatever the specificity -- so these beat daisyUI's sizes.
+ * Tailwind's own utilities sit at that same level, and Tailwind emits these AFTER them, so on
+ * source order alone these would also beat a `text-*` utility written on the same element.
+ * `:where()` takes their specificity to zero, so that utility's single class wins instead, as a
+ * utility should. Written unlayered, these would beat it regardless.
+ */
+@layer utilities {
+    :where(.card-body) {
+        --card-fs: var(--text-body);
+    }
+
+    :where(.table, .table thead, .table tfoot, .table-sm tr, .table-xs tr) {
+        font-size: var(--text-table);
+        line-height: var(--text-table--line-height);
+    }
+
+    :where(.btn-xs, .btn-sm) {
+        --fontsize: var(--text-meta);
+    }
+
+    :where(.badge-xs, .badge-sm, .stat-title, .stat-desc) {
+        font-size: var(--text-meta);
+    }
+
+    :where(.input-xs, .input-sm) {
+        --font-size-min: var(--text-meta);
+    }
+
+    /*
+     * Text daisyUI and Tailwind's preflight dim on their own, lifted to the dashboard's lower
+     * dimming step.
+     *
+     * daisyUI draws a table's header and footer, a stat's title and description, and a form label
+     * at `color-mix(in oklab, <text> 60%, transparent)`, and the preflight draws a placeholder at
+     * 50%. Mixing with `transparent` leaves the text colour at that alpha, so these paint exactly
+     * what `opacity-60` painted: 4.52:1 on the light page, under the 7:1 AAA bar
+     * `.claude/rules/accessibility.md` sets. At 80% they paint what `opacity-80` paints, which
+     * `DashboardThemeTest` measures at 7.69:1 or better on every surface in both themes.
+     *
+     * The same layer placement as the size lifts above, for the same reason: unlayered inside
+     * `utilities` beats daisyUI's sublayers and the preflight's `base`, and `:where()` still lets
+     * a colour utility on the element win. A pseudo-element cannot go inside `:where()`, so the
+     * placeholder has a rule of its own; its specificity is one element, which a utility's class
+     * still beats.
+     */
+    :where(.table thead, .table tfoot, .stat-title, .stat-desc) {
+        color: color-mix(in oklab, var(--color-base-content) 80%, transparent);
+    }
+
+    :where(.label) {
+        color: color-mix(in oklab, currentcolor 80%, transparent);
+    }
+
+    ::placeholder {
+        color: color-mix(in oklab, currentcolor 80%, transparent);
+    }
+}
+
 @source "../views";
