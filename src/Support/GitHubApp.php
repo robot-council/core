@@ -66,8 +66,13 @@ final class GitHubApp
 
     /**
      * The shape of an installation token GitHub issues, and of nothing else the cache might return.
+     *
+     * Wider than the `ghs_` and 36 alphanumerics GitHub once issued: measured on 2026-09-25, a token
+     * minted for this App was 383 characters carrying two `.` and one `-`, and the narrower pattern
+     * refused every one as unparseable. It still admits nothing that could end a header -- no
+     * whitespace, no line break -- and the length is bounded rather than trusted.
      */
-    public const string TOKEN = '/^[A-Za-z0-9_]{1,255}$/D';
+    public const string TOKEN = '/^[A-Za-z0-9_.\-]{1,2048}$/D';
 
     /**
      * @param  GitHubAppKey  $key  The App's id and key, and the JWT they sign.

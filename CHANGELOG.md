@@ -2,6 +2,13 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.6.12 — Current Token Shape (2026-09-25)
+
+The backlog fetch now accepts installation tokens in the shape GitHub issues today, so the lane board's meters read counts.
+
+### What's fixed
+- Accept installation tokens in the shape GitHub issues now [#396](https://github.com/robot-council/core/pull/396)
+
 ## v0.6.11 — Visible Filters (2026-09-25)
 
 Every dashboard filter and pager now has a visible border at rest, and the Queue and Administration mark the selected filter again.
