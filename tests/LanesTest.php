@@ -215,6 +215,13 @@ it('costs the same queries however many lanes it lists', function (): void {
     $addWorkingLanes = function (string ...$locations) use ($key): void {
         foreach ($locations as $location) {
             $lane = boardLane($this, $location);
+
+            // Known to the fleet and open, which #320 requires of a placement that names a ticket
+            GitHubItem::query()->insert([
+                'repository' => 'robot-council/core', 'number' => 100 + ord($location), 'is_pull_request' => false, 'state' => 'open',
+                'title' => 'Issue', 'labels' => '[]', 'github_updated_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+            ]);
+
             $task = $this->service(Tasks::class)->create($this->coordinatorSession, ['title' => 'Work', 'issue' => 'robot-council/core#'.(100 + ord($location))], true);
             $this->service(Tasks::class)->transition($task->id, TaskTransition::Reassign, $this->coordinatorSession, true, $lane, directive: 'Take this.');
         }
@@ -265,10 +272,13 @@ it('renders a parked lane and a held one as party and reason', function (): void
 it('marks a hand-back, and says when a lane holds more than one task', function (): void {
     $lane = boardLane($this, 'a');
 
-    foreach ([true, false] as $handBack) {
-        $task = $this->service(Tasks::class)->create($this->coordinatorSession, ['title' => 'Work'], true);
-        $this->service(Tasks::class)->transition($task->id, TaskTransition::Reassign, $this->coordinatorSession, true, $lane, directive: 'Take this.', handBack: $handBack);
-    }
+    $first = $this->service(Tasks::class)->create($this->coordinatorSession, ['title' => 'Work'], true);
+    $this->service(Tasks::class)->transition($first->id, TaskTransition::Reassign, $this->coordinatorSession, true, $lane, directive: 'Take this.', handBack: true);
+
+    // The second by the lane's own claim: since #320 a coordinator cannot place work on a lane that
+    // holds some, but nothing stops a lane claiming more itself, which is the case the marker is for
+    $second = $this->service(Tasks::class)->create($this->coordinatorSession, ['title' => 'More work'], true);
+    $this->service(Tasks::class)->transition($second->id, TaskTransition::Claim, $lane, false);
 
     $html = Livewire::actingAs($this->developer)->test(Lanes::class)->html();
 
