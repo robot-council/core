@@ -9,13 +9,15 @@
         <div class="flex flex-wrap items-center justify-between gap-3">
             <h2 class="card-title">Queue</h2>
 
-            <div class="flex flex-wrap gap-1">
+            <div class="flex flex-wrap gap-1" role="group" aria-label="Filter by status">
                 <button type="button" wire:click="showStatus('')"
-                    class="btn btn-xs {{ $status === '' ? 'btn-active' : 'btn-ghost' }}">All</button>
+                    aria-pressed="{{ $shownStatus === '' ? 'true' : 'false' }}"
+                    class="btn btn-xs {{ $shownStatus === '' ? 'btn-primary' : 'btn-outline' }}">All</button>
 
                 @foreach ($statuses as $option)
                     <button type="button" wire:click="showStatus('{{ \RobotCouncil\Support\WireArgument::of($option) }}')"
-                        class="btn btn-xs {{ $status === $option->value ? 'btn-active' : 'btn-ghost' }}">
+                        aria-pressed="{{ $shownStatus === $option->value ? 'true' : 'false' }}"
+                        class="btn btn-xs {{ $shownStatus === $option->value ? 'btn-primary' : 'btn-outline' }}">
                         {{ $option->value }}
                     </button>
                 @endforeach
@@ -93,13 +95,13 @@
         @if ($afterId !== null || $hasMore)
             <div class="flex items-center justify-end gap-2 pt-2">
                 @if ($afterId !== null)
-                    <button type="button" wire:click="showFirst" class="btn btn-sm btn-ghost">First page</button>
+                    <button type="button" wire:click="showFirst" class="btn btn-sm btn-outline">First page</button>
                 @endif
 
                 @if ($hasMore && $cursor)
                     <button type="button"
                         wire:click="showNext({{ \RobotCouncil\Support\WireArgument::of($cursor['priority']) }}, {{ \RobotCouncil\Support\WireArgument::of($cursor['id']) }})"
-                        class="btn btn-sm">Next page</button>
+                        class="btn btn-sm btn-outline">Next page</button>
                 @endif
             </div>
         @endif

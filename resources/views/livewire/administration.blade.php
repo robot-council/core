@@ -19,14 +19,16 @@
             {{-- A revoked or expired installation is behind a scope rather than sorted below a
                  live one. Sorting would put a mutable column in the ordering, and a cursor over
                  one of those skips rows silently -- which is the defect #83 records. --}}
-            <div class="flex gap-1">
+            <div class="flex gap-1" role="group" aria-label="Filter by scope">
                 <button type="button" wire:click="showScope('{{ \RobotCouncil\Support\WireArgument::of(\RobotCouncil\Support\Scope::Live) }}')"
-                    class="btn btn-xs {{ $scope === \RobotCouncil\Support\Scope::Live ? 'btn-primary' : 'btn-ghost' }}">
+                    aria-pressed="{{ $installationScope === \RobotCouncil\Support\Scope::Live ? 'true' : 'false' }}"
+                    class="btn btn-xs {{ $installationScope === \RobotCouncil\Support\Scope::Live ? 'btn-primary' : 'btn-outline' }}">
                     Usable ({{ $page['live'] }})
                 </button>
 
                 <button type="button" wire:click="showScope('{{ \RobotCouncil\Support\WireArgument::of(\RobotCouncil\Support\Scope::All) }}')"
-                    class="btn btn-xs {{ $scope === \RobotCouncil\Support\Scope::All ? 'btn-primary' : 'btn-ghost' }}">
+                    aria-pressed="{{ $installationScope === \RobotCouncil\Support\Scope::All ? 'true' : 'false' }}"
+                    class="btn btn-xs {{ $installationScope === \RobotCouncil\Support\Scope::All ? 'btn-primary' : 'btn-outline' }}">
                     All ({{ $page['live'] + $page['retired'] }})
                 </button>
             </div>
@@ -39,7 +41,7 @@
 
         @if ($installations === [])
             <p class="py-6 text-center opacity-60">
-                {{ $scope === \RobotCouncil\Support\Scope::Live && $page['retired'] > 0
+                {{ $installationScope === \RobotCouncil\Support\Scope::Live && $page['retired'] > 0
                     ? 'No machine is currently usable. Choose All to see the revoked and expired ones.'
                     : 'No machine has enrolled yet.' }}
             </p>
@@ -195,12 +197,12 @@
         @if ($after !== null || $page['more'])
             <div class="flex items-center justify-end gap-2 pt-2">
                 @if ($after !== null)
-                    <button type="button" wire:click="showFirst" class="btn btn-sm btn-ghost">Newest</button>
+                    <button type="button" wire:click="showFirst" class="btn btn-sm btn-outline">Newest</button>
                 @endif
 
                 @if ($page['more'] && $page['cursor'] !== null)
                     <button type="button" wire:click="showNext({{ \RobotCouncil\Support\WireArgument::of($page['cursor']) }})"
-                        class="btn btn-sm">Older</button>
+                        class="btn btn-sm btn-outline">Older</button>
                 @endif
             </div>
         @endif

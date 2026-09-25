@@ -172,6 +172,12 @@ final class TaskBoard extends Component
             'cursor' => $this->cursorFor($rows),
             'hasMore' => $hasMore,
             'statuses' => TaskStatus::cases(),
+
+            // The status actually shown, as the filter buttons compare it: an empty string for
+            // every status. Not the `status` property, which is null for "every status" and holds
+            // whatever the client sent, so comparing it to `''` never matched and a status that is
+            // not one widened the list while marking no filter selected (#309).
+            'shownStatus' => $this->selectedStatus()->value ?? '',
         ]);
     }
 

@@ -12,14 +12,16 @@
 
             {{-- The scope, and what each one holds. A count beside the button is what stops a
                  narrowed list reading as an empty fleet. --}}
-            <div class="flex gap-1">
+            <div class="flex gap-1" role="group" aria-label="Filter by scope">
                 <button type="button" wire:click="show('{{ \RobotCouncil\Support\WireArgument::of(\RobotCouncil\Support\Scope::Live) }}')"
-                    class="btn btn-xs {{ $sessionScope === \RobotCouncil\Support\Scope::Live ? 'btn-primary' : 'btn-ghost' }}">
+                    aria-pressed="{{ $sessionScope === \RobotCouncil\Support\Scope::Live ? 'true' : 'false' }}"
+                    class="btn btn-xs {{ $sessionScope === \RobotCouncil\Support\Scope::Live ? 'btn-primary' : 'btn-outline' }}">
                     Live ({{ $sessions['live'] }})
                 </button>
 
                 <button type="button" wire:click="show('{{ \RobotCouncil\Support\WireArgument::of(\RobotCouncil\Support\Scope::All) }}')"
-                    class="btn btn-xs {{ $sessionScope === \RobotCouncil\Support\Scope::All ? 'btn-primary' : 'btn-ghost' }}">
+                    aria-pressed="{{ $sessionScope === \RobotCouncil\Support\Scope::All ? 'true' : 'false' }}"
+                    class="btn btn-xs {{ $sessionScope === \RobotCouncil\Support\Scope::All ? 'btn-primary' : 'btn-outline' }}">
                     All ({{ $sessions['live'] + $sessions['gone'] }})
                 </button>
             </div>
@@ -31,7 +33,7 @@
         @if ($session !== null)
             <div class="flex flex-wrap items-center gap-2 text-sm">
                 <span>Showing one session, #{{ $session }}.</span>
-                <button type="button" wire:click="showEverySession" class="btn btn-xs btn-ghost">Show all</button>
+                <button type="button" wire:click="showEverySession" class="btn btn-xs btn-outline">Show all</button>
             </div>
         @endif
 
@@ -156,12 +158,12 @@
         @if ($after !== null || $sessions['more'])
             <div class="flex items-center justify-end gap-2 pt-2">
                 @if ($after !== null)
-                    <button type="button" wire:click="showFirst" class="btn btn-sm btn-ghost">Newest</button>
+                    <button type="button" wire:click="showFirst" class="btn btn-sm btn-outline">Newest</button>
                 @endif
 
                 @if ($sessions['more'] && $sessions['cursor'] !== null)
                     <button type="button" wire:click="showNext({{ \RobotCouncil\Support\WireArgument::of($sessions['cursor']) }})"
-                        class="btn btn-sm">Older</button>
+                        class="btn btn-sm btn-outline">Older</button>
                 @endif
             </div>
         @endif

@@ -284,7 +284,13 @@ final class Administration extends Component
 
         return view($template, [
             'page' => $page,
-            'scope' => Scope::orDefault($this->scope, Scope::Live),
+
+            // Not `scope`, which is the public property's name. Livewire hands the view every
+            // public property AFTER `render()` returns (`Utils::generateBladeView()` calls
+            // `->with($properties)` on the view this builds), so a key named after one is
+            // overwritten by the raw string -- and `'all' === Scope::All` is false, which left
+            // neither scope button marked selected and hid the "Choose All" hint (#309).
+            'installationScope' => Scope::orDefault($this->scope, Scope::Live),
             'installations' => $page['installations'],
 
             // Every role, for the same reason: a control per case, so a fourth role is offered the
