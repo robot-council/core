@@ -276,12 +276,53 @@ it('writes a directive the package composes to the placed lane, carrying none of
 
     // Each key asserted on its own: a JSON round trip is not promised to keep key order, and a
     // whole-array `toBe` would fail on order rather than on content
-    expect($directive->body)->toBe(sprintf('Task #%d was placed on session #%d as a hand-back. Its instructions are a placement.instruction event addressed to that session; read them with events_read.', $task, $lane->id))
+    $instruction = FleetEvent::query()->where('type', FleetEventType::PlacementInstruction->value)->sole();
+
+    expect($directive->body)->toBe(sprintf(
+        'Task #%d was placed on session #%d as a hand-back. Its instructions are event #%d, a placement.instruction addressed to that session: read the feed from after=%d to see them.',
+        $task,
+        $lane->id,
+        $instruction->id,
+        $instruction->id - 1
+    ))
         ->and($directive->body)->not->toContain('secret')
         ->and($directive->meta['targets'] ?? null)->toBe([$lane->getKey()])
         ->and($directive->meta['task_id'] ?? null)->toBe($task)
         ->and($directive->meta['hand_back'] ?? null)->toBeTrue()
-        ->and(array_keys($directive->meta ?? []))->toEqualCanonicalizing(['targets', 'task_id', 'hand_back']);
+        ->and($directive->meta['instruction_id'] ?? null)->toBe($instruction->id)
+        ->and(array_keys($directive->meta ?? []))->toEqualCanonicalizing(['targets', 'task_id', 'hand_back', 'instruction_id'])
+        // Written first, so the id it names is already behind the directive in the feed
+        ->and($instruction->id)->toBeLessThan($directive->id);
+});
+
+it('says nothing of a hand-back in a placement that is not one', function (): void {
+    $task = placementTask($this);
+    [$lane] = $this->startAgentSession($this->installation);
+
+    placeTask($this, $task, $lane)->assertOk();
+
+    $directive = FleetEvent::query()->where('type', FleetEventType::Directive->value)->sole();
+
+    expect($directive->body)->toStartWith(sprintf('Task #%d was placed on session #%d. Its', $task, $lane->id))
+        ->and($directive->meta['hand_back'] ?? null)->toBeFalse();
+});
+
+it('lets the lane read its instruction back from the id the directive names, after its cursor has moved past it', function (): void {
+    $task = placementTask($this);
+    [$lane] = $this->startAgentSession($this->installation);
+
+    placeTask($this, $task, $lane, ['directive' => 'Branch off main.'])->assertOk();
+
+    $feed = $this->service(FleetFeed::class);
+
+    // The bridge's own poll reads the page and moves the stored cursor past both events
+    $feed->after($lane, 0, 200);
+
+    $named = intValue(FleetEvent::query()->where('type', FleetEventType::Directive->value)->sole()->meta['instruction_id'] ?? 0);
+
+    $page = collect($feed->after($lane, $named - 1, 200)['events'])->pluck('body', 'type')->all();
+
+    expect($page[FleetEventType::PlacementInstruction->value] ?? null)->toBe('Branch off main.');
 });
 
 it("gives the coordinator's words to the lane alone, marked as a coordinator's, in the same step", function (): void {

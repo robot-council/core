@@ -15,10 +15,13 @@ use RobotCouncil\Models\FleetEventType;
 /**
  * Reads the change feed for one agent session, applying the visibility rule decided in #29.
  *
- * **Narration is the only restricted kind.** An agent reads narration from its own developer's
- * sessions, from any session that held `coordinator:direct` when it posted, and from any session
- * that addressed it by name or through a task it holds (#315). State changes and
- * directives reach everyone, because they describe the fleet rather than one agent's opinion of it.
+ * **Narration is the restricted kind that matters most, and not the only one.** An agent reads
+ * narration from its own developer's sessions, from any session that held `coordinator:direct` when
+ * it posted, and from any session that addressed it by name or through a task it holds (#315).
+ * `lane.quiet` and `lane.condition` reach only their addressees, and `placement.instruction` its
+ * addressee and its poster's developer -- the one coordinator post the coordinator flag does not
+ * broadcast (#331). State changes and directives reach everyone, because they describe the fleet
+ * rather than one agent's opinion of it.
  *
  * The reason the rule is worth this much care: task, event, and directive content is untrusted
  * input to an agent that may have shell access. Narrowing whose words reach whom is what keeps one

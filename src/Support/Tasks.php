@@ -225,32 +225,39 @@ final class Tasks
             //
             // **Two events, split by who may read them (#331).** The directive, which is what wakes
             // an idle lane and reaches every agent, says only what the package composes: the task,
-            // the lane, and whether it is a hand-back. The coordinator's own words go to the lane
-            // alone as a `placement.instruction` -- they may name an issue another developer's agent
-            // may not read, and a directive broadcast them to the whole fleet and to Slack.
+            // the lane, whether it is a hand-back, and which event holds the instructions. The
+            // coordinator's own words go as a `placement.instruction`, readable by the lane and the
+            // coordinator's own developer -- they may name an issue another developer's agent may
+            // not read. Slack still mirrors it while `slack.mirror_restricted` is on, its default.
+            //
+            // **The instruction is written first, so the directive can name it.** A lane whose
+            // bridge has already read past it (its feed cursor moves on every poll) reads it back
+            // with `after` one below that id; a bare "go and read the feed" would resume past it.
             if ($transition->takesADirective() && $holder instanceof AgentSession && $directive !== null) {
-                $this->events->record(
-                    FleetEventType::Directive,
-                    $actor,
-                    sprintf(
-                        'Task #%d was placed on session #%d%s. Its instructions are a placement.instruction event addressed to that session; read them with events_read.',
-                        $taskId,
-                        $holder->id,
-                        $handBack ? ' as a hand-back' : ''
-                    ),
-                    ['targets' => [$holder->getKey()], 'task_id' => $taskId, 'hand_back' => $handBack],
-                    $asCoordinator
-                );
-
-                $this->events->record(
+                $instruction = $this->events->record(
                     FleetEventType::PlacementInstruction,
                     $actor,
                     $directive,
                     // `to` so a reader can tell it is the addressee without asking the service,
                     // as a narration's `to` does (#324)
-                    ['task_id' => $taskId, 'hand_back' => $handBack, 'to' => [$holder->getKey()]],
+                    ['task_id' => $taskId, 'hand_back' => $handBack, 'to' => [$holder->id]],
                     $asCoordinator,
                     addressees: [$holder]
+                );
+
+                $this->events->record(
+                    FleetEventType::Directive,
+                    $actor,
+                    sprintf(
+                        'Task #%d was placed on session #%d%s. Its instructions are event #%d, a placement.instruction addressed to that session: read the feed from after=%d to see them.',
+                        $taskId,
+                        $holder->id,
+                        $handBack ? ' as a hand-back' : '',
+                        $instruction->id,
+                        $instruction->id - 1
+                    ),
+                    ['targets' => [$holder->id], 'task_id' => $taskId, 'hand_back' => $handBack, 'instruction_id' => $instruction->id],
+                    $asCoordinator
                 );
             }
 
