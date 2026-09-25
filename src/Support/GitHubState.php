@@ -48,6 +48,11 @@ final class GitHubState
     public const int PRUNE_BATCH = 500;
 
     /**
+     * How an edge's stamp is stored: UTC digits, which is what a `dateTime` column holds.
+     */
+    private const string STAMP_FORMAT = 'Y-m-d H:i:s';
+
+    /**
      * The most labels an item may carry here. GitHub allows far fewer on a real issue.
      */
     public const int MAX_LABELS = 100;
@@ -76,8 +81,9 @@ final class GitHubState
      * @param  string  $deliveryId  The `X-GitHub-Delivery` header.
      * @param  string  $event  The `X-GitHub-Event` header.
      * @param  array<array-key, mixed>  $payload  The decoded body.
-     * @return string `applied`, `duplicate` for an id already seen, or `ignored` for an event the
-     *                fleet does not use.
+     * @return string `applied`, `duplicate` for an id already seen, `stale` for an edge change
+     *                older than what is stored (#341), or `ignored` for an event the fleet does not
+     *                use.
      *
      * @throws InvalidArgumentException When the delivery carries something GitHub would not send.
      */
@@ -338,14 +344,53 @@ final class GitHubState
             'blocker_number' => self::number($blocking),
         ];
 
-        // **Unordered, and a known gap.** An edge carries no timestamp of its own, so a
-        // `blocked_by_removed` delivered before the older `blocked_by_added` leaves the edge in
-        // place. Tracked in #341; until then a stale edge is cleared by removing and
-        // re-adding it on GitHub.
+        // **Ordered by the issues' own clocks (#341).** GitHub does not promise delivery order, so
+        // an edge is stamped with the later of the two issues' `updated_at`, a removal leaves a
+        // tombstone with its stamp, and a change strictly older than what is stored is ignored.
+        // `updated_at` never goes backward, so a later change carries a stamp at least as late
+        // whichever issue GitHub bumped -- measured, `blocking_added` moved the blocking issue's
+        // and did not move the blocked one's. On a tie, or with no stamp to compare, the last
+        // delivery received wins, which is how every edge behaved before.
+        //
+        // **Two deliveries for the same edge committing at once are not ordered by this**:
+        // `lockForUpdate()` on a row that does not exist locks nothing on Postgres. It needs two
+        // changes to one edge inside one transaction's span, and the next change settles it.
+        $stamp = self::latest($blocked, $blocking);
+        $live = self::stampIn(DB::table('robot_council_github_blockers')->where($edge)->lockForUpdate()->value('stamped_at'));
+        $removed = self::stampIn(DB::table('robot_council_github_blocker_removals')->where($edge)->lockForUpdate()->value('stamped_at'));
+
         if (str_ends_with($action, '_added')) {
-            DB::table('robot_council_github_blockers')->insertOrIgnore($edge);
-        } else {
-            DB::table('robot_council_github_blockers')->where($edge)->delete();
+            if (self::older($stamp, $removed)) {
+                return 'stale';
+            }
+
+            // Never moved backward by a replayed older add, which would let a removal between
+            // the two stamps take an edge that was added after it
+            $keep = self::older($stamp, $live) ? $live : $stamp;
+
+            DB::table('robot_council_github_blocker_removals')->where($edge)->delete();
+            DB::table('robot_council_github_blockers')->upsert(
+                [[...$edge, 'stamped_at' => $keep?->format(self::STAMP_FORMAT)]],
+                ['repository', 'number', 'blocker_repository', 'blocker_number'],
+                ['stamped_at']
+            );
+
+            return 'applied';
+        }
+
+        if (self::older($stamp, $live)) {
+            return 'stale';
+        }
+
+        DB::table('robot_council_github_blockers')->where($edge)->delete();
+
+        // A removal with no stamp has nothing an add could be compared against
+        if ($stamp instanceof Carbon && ! self::older($stamp, $removed)) {
+            DB::table('robot_council_github_blocker_removals')->upsert(
+                [[...$edge, 'stamped_at' => $stamp->format(self::STAMP_FORMAT), 'received_at' => PresenceClock::now()]],
+                ['repository', 'number', 'blocker_repository', 'blocker_number'],
+                ['stamped_at', 'received_at']
+            );
         }
 
         return 'applied';
@@ -553,6 +598,67 @@ final class GitHubState
         if ($expired !== []) {
             DB::table('robot_council_github_deliveries')->whereIn('delivery_id', $expired)->delete();
         }
+
+        // A tombstone outlives nothing it could still order: past the redelivery window, no
+        // delivery older than the removal can arrive
+        DB::table('robot_council_github_blocker_removals')
+            ->where('received_at', '<', PresenceClock::now()->subDays(self::DELIVERY_RETENTION_DAYS))
+            ->limit(self::PRUNE_BATCH)
+            ->delete();
+    }
+
+    /**
+     * The later of the objects' `updated_at`, or null where none carries one GitHub would send.
+     *
+     * @param  array<array-key, mixed>  ...$objects  The issue objects.
+     * @return Carbon|null The stamp, in UTC.
+     */
+    private static function latest(array ...$objects): ?Carbon
+    {
+        $latest = null;
+
+        foreach ($objects as $object) {
+            $at = self::stampIn($object['updated_at'] ?? null, iso: true);
+
+            if ($at instanceof Carbon && (! $latest instanceof Carbon || $at->greaterThan($latest))) {
+                $latest = $at;
+            }
+        }
+
+        return $latest;
+    }
+
+    /**
+     * A stamp read back from a column, or from a delivery's ISO 8601 time.
+     *
+     * @param  mixed  $value  The stored digits, or the delivery's string.
+     * @param  bool  $iso  Whether it came from a delivery rather than a column.
+     * @return Carbon|null The instant, in UTC, or null where there is none.
+     */
+    private static function stampIn(mixed $value, bool $iso = false): ?Carbon
+    {
+        if (! \is_string($value) || $value === '') {
+            return null;
+        }
+
+        try {
+            // A column holds UTC digits with no zone; a delivery's string names its own
+            return $iso ? Carbon::parse($value)->utc() : Carbon::parse($value, 'UTC');
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Whether a change is strictly older than what is stored -- false where either has no stamp.
+     *
+     * @param  Carbon|null  $change  The delivery's stamp.
+     * @param  Carbon|null  $stored  The stored one.
+     * @return bool True when the change must be ignored.
+     */
+    private static function older(?Carbon $change, ?Carbon $stored): bool
+    {
+        return $change instanceof Carbon && $stored instanceof Carbon && $change->lessThan($stored);
     }
 
     /**

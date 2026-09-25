@@ -391,12 +391,98 @@ it('records and removes a blocked_by edge across repositories', function (): voi
     deliver($this, 'issue_dependencies', ['action' => 'blocked_by_added', ...$edge])->assertOk();
 
     expect(DB::table('robot_council_github_blockers')->get()->map(fn ($row): array => (array) $row)->all())->toBe([[
-        'repository' => 'robot-council/core', 'number' => 318, 'blocker_repository' => 'robot-council/cli', 'blocker_number' => 9,
+        'repository' => 'robot-council/core', 'number' => 318, 'blocker_repository' => 'robot-council/cli', 'blocker_number' => 9, 'stamped_at' => null,
     ]]);
 
     deliver($this, 'issue_dependencies', ['action' => 'blocked_by_removed', ...$edge])->assertOk();
 
     expect(DB::table('robot_council_github_blockers')->count())->toBe(0);
+});
+
+/**
+ * An `issue_dependencies` delivery for #318 blocked by cli#9, each issue last changed when given.
+ *
+ * @param  string  $action  `blocked_by_added` or `blocked_by_removed`.
+ * @param  string  $blocked  The blocked issue's `updated_at`.
+ * @param  string  $blocking  The blocking issue's `updated_at`.
+ * @return array<string, mixed> The payload.
+ */
+function edgeDelivery(string $action, string $blocked, string $blocking): array
+{
+    return [
+        'action' => $action,
+        'blocked_issue' => ['number' => 318, 'repository_url' => 'https://api.github.com/repos/robot-council/core', 'updated_at' => $blocked],
+        'blocking_issue' => ['number' => 9, 'repository_url' => 'https://api.github.com/repos/robot-council/cli', 'updated_at' => $blocking],
+        'repository' => ['full_name' => 'robot-council/core'],
+    ];
+}
+
+it('leaves no edge when a removal arrives before the older add', function (): void {
+    // The blocked issue's clock never moves, as measured; the blocking issue's does
+    deliver($this, 'issue_dependencies', edgeDelivery('blocked_by_removed', '2026-09-24T10:00:00Z', '2026-09-24T12:05:00Z'))->assertOk();
+
+    deliver($this, 'issue_dependencies', edgeDelivery('blocked_by_added', '2026-09-24T10:00:00Z', '2026-09-24T12:00:00Z'))
+        ->assertOk()
+        ->assertJson(['outcome' => 'stale']);
+
+    expect(DB::table('robot_council_github_blockers')->count())->toBe(0);
+});
+
+it('ignores an add older than a removal it follows, and records one newer', function (): void {
+    deliver($this, 'issue_dependencies', edgeDelivery('blocked_by_added', '2026-09-24T12:00:00Z', '2026-09-24T12:00:00Z'))->assertOk();
+    deliver($this, 'issue_dependencies', edgeDelivery('blocked_by_removed', '2026-09-24T12:10:00Z', '2026-09-24T12:00:00Z'))->assertOk();
+
+    // A replay of the first add, after the removal
+    deliver($this, 'issue_dependencies', edgeDelivery('blocked_by_added', '2026-09-24T12:00:00Z', '2026-09-24T12:00:00Z'))
+        ->assertJson(['outcome' => 'stale']);
+
+    expect(DB::table('robot_council_github_blockers')->count())->toBe(0);
+
+    // Added again, later
+    deliver($this, 'issue_dependencies', edgeDelivery('blocked_by_added', '2026-09-24T12:10:00Z', '2026-09-24T12:20:00Z'))
+        ->assertJson(['outcome' => 'applied']);
+
+    expect(DB::table('robot_council_github_blockers')->value('stamped_at'))->toBe('2026-09-24 12:20:00')
+        ->and(DB::table('robot_council_github_blocker_removals')->count())->toBe(0);
+});
+
+it('keeps an edge a removal older than it arrives after', function (): void {
+    deliver($this, 'issue_dependencies', edgeDelivery('blocked_by_added', '2026-09-24T12:00:00Z', '2026-09-24T12:30:00Z'))->assertOk();
+
+    deliver($this, 'issue_dependencies', edgeDelivery('blocked_by_removed', '2026-09-24T12:00:00Z', '2026-09-24T12:15:00Z'))
+        ->assertJson(['outcome' => 'stale']);
+
+    expect(DB::table('robot_council_github_blockers')->count())->toBe(1);
+});
+
+it('never moves an edge stamp backward on a replayed older add', function (): void {
+    deliver($this, 'issue_dependencies', edgeDelivery('blocked_by_added', '2026-09-24T12:00:00Z', '2026-09-24T12:30:00Z'))->assertOk();
+    deliver($this, 'issue_dependencies', edgeDelivery('blocked_by_added', '2026-09-24T12:00:00Z', '2026-09-24T12:00:00Z'))->assertOk();
+
+    // A removal between the two stamps is older than the edge, so it cannot take it
+    deliver($this, 'issue_dependencies', edgeDelivery('blocked_by_removed', '2026-09-24T12:00:00Z', '2026-09-24T12:15:00Z'))
+        ->assertJson(['outcome' => 'stale']);
+
+    expect(DB::table('robot_council_github_blockers')->value('stamped_at'))->toBe('2026-09-24 12:30:00');
+});
+
+it('lets the last delivery win on a tie, as before', function (): void {
+    deliver($this, 'issue_dependencies', edgeDelivery('blocked_by_removed', '2026-09-24T12:00:00Z', '2026-09-24T12:00:00Z'))->assertOk();
+    deliver($this, 'issue_dependencies', edgeDelivery('blocked_by_added', '2026-09-24T12:00:00Z', '2026-09-24T12:00:00Z'))
+        ->assertJson(['outcome' => 'applied']);
+
+    expect(DB::table('robot_council_github_blockers')->count())->toBe(1);
+});
+
+it('prunes a tombstone once no delivery it could order can still arrive', function (): void {
+    deliver($this, 'issue_dependencies', edgeDelivery('blocked_by_removed', '2026-09-24T12:00:00Z', '2026-09-24T12:00:00Z'))->assertOk();
+
+    expect(DB::table('robot_council_github_blocker_removals')->count())->toBe(1);
+
+    Carbon::setTestNow(Carbon::now()->addDays(GitHubState::DELIVERY_RETENTION_DAYS + 1));
+    deliver($this, 'issues', issueDelivery('opened', 1, 'open'))->assertOk();
+
+    expect(DB::table('robot_council_github_blocker_removals')->count())->toBe(0);
 });
 
 // --- What it does to the lanes ------------------------------------------------------------------
