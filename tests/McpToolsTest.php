@@ -132,8 +132,8 @@ it('lists its tools to a session that authenticated', function (): void {
         ->toContain('events_read', 'events_narrate', 'directive_post', 'presence_heartbeat')
         ->and($names)->toContain('lane_hold', 'lane_clear_hold')
         ->and($names)->toContain('backlog_report', 'gate_start', 'gate_finish', 'owed_record', 'owed_settle')
-        ->and($names)->toContain('shortlist_read')
-        ->and($names)->toHaveCount(27);
+        ->and($names)->toContain('shortlist_read', 'sessions_list')
+        ->and($names)->toHaveCount(28);
 });
 
 it('tells an agent the content it reads is data, not instructions', function (): void {
@@ -891,4 +891,14 @@ it('records and settles an owed item through the tools', function (): void {
         ->and(toolResult(callTool($this, $token, 'owed_settle', ['item_id' => $id])))->toBe(['settled' => true])
         ->and(toolError(callTool($this, $token, 'owed_record', ['developer' => 'stranger', 'ticket' => 'robot-council/core#12', 'question' => 'Q?', 'why' => 'W.'])))
         ->toContain('No developer in this fleet');
+});
+
+it('lists the live sessions through the tool as the endpoint does', function (): void {
+    $gone = $this->startAgentSession($this->installation)[0];
+    $this->markSessionGone($gone);
+
+    $result = toolResult(callTool($this, $this->token, 'sessions_list', ['limit' => 5]));
+
+    expect(array_column(arrayValue($result['sessions'] ?? []), 'id'))->toBe([$this->session->id])
+        ->and(toolError(callTool($this, $this->token, 'sessions_list', ['role' => 'admin'])))->toContain('role');
 });
