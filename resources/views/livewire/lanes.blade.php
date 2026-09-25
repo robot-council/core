@@ -23,12 +23,28 @@
                 <div wire:key="meter-{{ $repository }}" class="card bg-base-100 shadow-sm">
                     <div class="card-body p-4">
                         <div class="text-xs opacity-70">{{ $repository }} open issues</div>
-                        {{-- Unreadable is a dash and says so, never a number: #339 records the
-                             counts, and until then none has been measured --}}
+                        {{-- Unreadable is a dash and says so, never a number: no count reported,
+                             or one older than `backlog.stale_after_minutes` (#339) --}}
                         @if ($meter['count'] === null)
                             <div class="text-xl" data-meter="unreadable">&mdash; <span class="text-sm opacity-70">count unreadable</span></div>
                         @else
                             <div class="text-xl" data-meter="read">{{ $meter['count'] }}</div>
+                            {{-- The direction in words and a sign, not only a colour: the theme's
+                                 success colour measures 1.96:1 on a card in the light theme, so
+                                 only "up" -- the bad direction -- is coloured, with the measured
+                                 error colour --}}
+                            <div class="text-xs" data-meter-delta>
+                                @if ($meter['delta'] === null)
+                                    <span class="opacity-70">no baseline today</span>
+                                @elseif ($meter['delta'] > 0)
+                                    <span class="font-semibold text-error">up {{ $meter['delta'] }}</span>
+                                @elseif ($meter['delta'] < 0)
+                                    <span>down {{ abs($meter['delta']) }}</span>
+                                @else
+                                    <span class="opacity-70">flat</span>
+                                @endif
+                                <span class="opacity-70">&middot; read {{ \Carbon\CarbonInterval::seconds($meter['age_seconds'] ?? 0)->cascade()->forHumans(short: true) }} ago</span>
+                            </div>
                         @endif
                     </div>
                 </div>

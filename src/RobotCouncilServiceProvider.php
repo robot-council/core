@@ -32,6 +32,7 @@ use RobotCouncil\Console\PruneTasksCommand;
 use RobotCouncil\Console\RevokeInstallationCommand;
 use RobotCouncil\Console\RevokeSessionCommand;
 use RobotCouncil\Console\SweepSessionsCommand;
+use RobotCouncil\Console\TakeBacklogBaselineCommand;
 use RobotCouncil\Http\Controllers\DashboardStylesheetController;
 use RobotCouncil\Http\Controllers\PrefixRootController;
 use RobotCouncil\Http\Middleware\DenyFraming;
@@ -151,6 +152,7 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
                 PruneSessionsCommand::class,
                 PruneTasksCommand::class,
                 SweepSessionsCommand::class,
+                TakeBacklogBaselineCommand::class,
             ]);
     }
 
@@ -669,12 +671,13 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
         $pruneTasks = $config->get('robot-council.schedule.prune_tasks', true) === true;
         $pruneLocks = $config->get('robot-council.schedule.prune_locks', true) === true;
         $pruneSessions = $config->get('robot-council.schedule.prune_sessions', true) === true;
+        $backlog = $config->get('robot-council.schedule.backlog_baseline', true) === true;
 
-        if (! $prune && ! $sweep && ! $pruneEvents && ! $pruneTasks && ! $pruneLocks && ! $pruneSessions) {
+        if (! $prune && ! $sweep && ! $pruneEvents && ! $pruneTasks && ! $pruneLocks && ! $pruneSessions && ! $backlog) {
             return;
         }
 
-        $this->app->booted(static function () use ($prune, $sweep, $pruneEvents, $pruneTasks, $pruneLocks, $pruneSessions): void {
+        $this->app->booted(static function () use ($prune, $sweep, $pruneEvents, $pruneTasks, $pruneLocks, $pruneSessions, $backlog): void {
             if ($prune) {
                 Schedule::command(PruneDeviceCodesCommand::class)->hourly();
             }
@@ -704,6 +707,10 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
             // pruned -- which is what keeps its guard from holding it back for another night.
             if ($pruneSessions) {
                 Schedule::command(PruneSessionsCommand::class)->dailyAt('03:40');
+            }
+
+            if ($backlog) {
+                Schedule::command(TakeBacklogBaselineCommand::class)->everyFiveMinutes();
             }
         });
     }

@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Route;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Http\Controllers\AgentHeartbeatController;
 use RobotCouncil\Http\Controllers\AgentSessionController;
+use RobotCouncil\Http\Controllers\BacklogReadingController;
 use RobotCouncil\Http\Controllers\CreateTaskController;
 use RobotCouncil\Http\Controllers\DeveloperSettingsController;
 use RobotCouncil\Http\Controllers\DeviceCodeController;
@@ -110,6 +111,11 @@ Route::middleware(['throttle:'.RobotCouncilServiceProvider::AGENT_LIMITER, Ensur
             ->name('events.store');
 
         // The one ability enrollment can never ask for, granted only by an admin afterwards
+        // A session's count of a repository's open issues, for the backlog meters (#339)
+        Route::post('backlog/readings', BacklogReadingController::class)
+            ->middleware(RequireAbility::class.':'.Ability::EventsPost->value)
+            ->name('backlog.readings');
+
         // A gate's own run (#336). Behind `tasks:claim`; the store checks the session is a gate
         Route::post('gates/run', [GateRunController::class, 'store'])
             ->middleware(RequireAbility::class.':'.Ability::TasksClaim->value)

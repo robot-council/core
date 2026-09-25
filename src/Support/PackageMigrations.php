@@ -76,6 +76,7 @@ final class PackageMigrations
         '2026_09_24_000010_create_robot_council_github_blockers_table',
         '2026_09_24_000011_create_robot_council_lane_holds_table',
         '2026_09_24_000012_create_robot_council_placement_waivers_table',
+        '2026_09_24_000013_create_robot_council_backlog_tables',
         '2026_09_24_000014_create_robot_council_gate_runs_table',
 
         // Retired by #132, which dated the create so something dated could alter its table. Both

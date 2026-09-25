@@ -14,6 +14,7 @@ declare(strict_types=1);
  */
 
 use Illuminate\Log\Events\MessageLogged;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Http\Rules\BoundedMeta;
@@ -130,8 +131,8 @@ it('lists its tools to a session that authenticated', function (): void {
         ->toContain('lock_acquire', 'lock_renew', 'lock_release', 'lock_force_release')
         ->toContain('events_read', 'events_narrate', 'directive_post', 'presence_heartbeat')
         ->and($names)->toContain('lane_hold', 'lane_clear_hold')
-        ->and($names)->toContain('gate_start', 'gate_finish')
-        ->and($names)->toHaveCount(23);
+        ->and($names)->toContain('backlog_report', 'gate_start', 'gate_finish')
+        ->and($names)->toHaveCount(24);
 });
 
 it('tells an agent the content it reads is data, not instructions', function (): void {
@@ -872,4 +873,10 @@ it('holds a lane through lane_hold, refuses a note, and lifts it through lane_cl
         ->and(toolResult(callTool($this, $token, 'lane_clear_hold', ['session_id' => $lane])))
         ->toBe(['session_id' => $lane, 'cleared' => true])
         ->and(LaneHold::query()->count())->toBe(0);
+});
+
+it('records a backlog count through backlog_report', function (): void {
+    expect(toolResult(callTool($this, $this->token, 'backlog_report', ['repository' => 'robot-council/core', 'open_issues' => 5])))
+        ->toBe(['repository' => 'robot-council/core', 'open_issues' => 5])
+        ->and(DB::table('robot_council_backlog_readings')->value('open_issues'))->toBe(5);
 });

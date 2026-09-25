@@ -251,6 +251,10 @@ return [
         'prune_tasks' => true,
         'prune_locks' => true,
         'prune_sessions' => true,
+
+        // Every five minutes, and idempotent: takes each repository's baseline once local time
+        // passes 08:00 in `dashboard.timezone` (#339)
+        'backlog_baseline' => true,
     ],
 
     /*
@@ -302,9 +306,23 @@ return [
     'dashboard' => [
         'poll_seconds' => (int) env('ROBOT_COUNCIL_DASHBOARD_POLL_SECONDS', 5),
 
-        // The timezone the lane board's stamps are shown in (#317). An IANA name; anything else
-        // falls back to UTC rather than failing the page.
+        // The timezone the lane board's stamps are shown in and the backlog baseline is taken in
+        // (#317, #339). An IANA name; anything else falls back to UTC rather than failing.
         'timezone' => env('ROBOT_COUNCIL_DASHBOARD_TIMEZONE', 'UTC'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Backlog
+    |--------------------------------------------------------------------------
+    |
+    | Open-issue counts sessions report for the lane board's meters (#339). A count
+    | older than this reads as unreadable, never as the last number seen.
+    |
+    */
+
+    'backlog' => [
+        'stale_after_minutes' => (int) env('ROBOT_COUNCIL_BACKLOG_STALE_AFTER_MINUTES', 60),
     ],
 
     /*
