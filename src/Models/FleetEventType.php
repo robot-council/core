@@ -208,6 +208,18 @@ enum FleetEventType: string
     case LaneCondition = 'lane.condition';
 
     /**
+     * A coordinator's own words to the lane it placed work on (#331).
+     *
+     * **Restricted, addressed to the lane, and excluded from the coordinator broadcast.** The
+     * placement's `task.reassigned` and its package-composed directive reach every agent; what the
+     * coordinator typed reaches only the lane and the coordinator's own developer, because it may
+     * name a task another developer's agent may not read. It still carries `coordinator_direct`
+     * truthfully, so the lane can tell a coordinator's instruction from anybody's -- which is why
+     * `Support\FleetFeed` must not serve it through the branch that broadcasts coordinator posts.
+     */
+    case PlacementInstruction = 'placement.instruction';
+
+    /**
      * Whether an event of this type is only visible to some readers.
      *
      * **Marking an `installation.*` type restricted is now safe, and it was not before #115.**
@@ -237,11 +249,41 @@ enum FleetEventType: string
      * `lane.condition` (#319) is the same shape -- no user, always addressed -- and restricted for
      * the same reason.
      *
-     * @return bool True for narration, which #29 restricts, and for `lane.quiet` and `lane.condition`.
+     * `placement.instruction` (#331) names the coordinator's developer in `user_id` and is always
+     * addressed to the lane, so those two are its readers -- see `staysAddressed()`.
+     *
+     * @return bool True for narration, which #29 restricts, and for `lane.quiet`, `lane.condition`
+     *              and `placement.instruction`.
      */
     public function isRestricted(): bool
     {
-        return in_array($this, [self::Narration, self::LaneQuiet, self::LaneCondition], true);
+        return in_array($this, [self::Narration, self::LaneQuiet, self::LaneCondition, self::PlacementInstruction], true);
+    }
+
+    /**
+     * Whether posting with `coordinator:direct` fails to widen this type's audience.
+     *
+     * Coordinator narration reaches every reader (#29). A placement instruction is posted with the
+     * flag set, truthfully, and must still reach only its addressees and its own developer (#331).
+     *
+     * @return bool True for a type the coordinator flag does not broadcast.
+     */
+    public function staysAddressed(): bool
+    {
+        return $this === self::PlacementInstruction;
+    }
+
+    /**
+     * The restricted types the coordinator flag does not broadcast, as stored.
+     *
+     * @return list<string> Their values.
+     */
+    public static function addressedOnlyValues(): array
+    {
+        return array_values(array_map(
+            static fn (self $type): string => $type->value,
+            array_filter(self::cases(), static fn (self $type): bool => $type->staysAddressed())
+        ));
     }
 
     /**

@@ -579,7 +579,13 @@ back as `after_priority` and `after_id`; it is `null` on the last page.
 as well as the held statuses, so a coordinator can put unclaimed work in a particular session's
 hands. It **requires** a `directive` -- what to tell that session -- which is written to the change
 feed in the same transaction as the placement, so neither commits without the other; a request
-without one is refused with 422. `hand_back: true` marks the placement as a gate returning a pull
+without one is refused with 422. **Those words reach no other developer's agent** (#331): they are
+recorded as a restricted `placement.instruction` addressed to the lane, readable by the lane and by
+the coordinator's own developer's sessions, and carrying `coordinator_direct` truthfully. The
+fleet-wide `directive` that wakes the lane says only which task was placed on which session, whether
+it is a hand-back, and the id of the instruction event, with the `after` that reads it back. Two
+readers still see the words: the dashboard's change feed, which shows every event to a signed-in
+developer, and Slack while `slack.mirror_restricted` is on, its default. `hand_back: true` marks the placement as a gate returning a pull
 request to the lane that made it. **`expect: "pending"` makes a placement insist the task is still
 unclaimed:** if a lane claimed it meanwhile, the placement writes nothing and answers 409, so the
 coordinator re-reads rather than taking the task from that lane. Without it, a placement moves a
@@ -743,7 +749,9 @@ when the session that posted it belongs to the same developer, or held `coordina
 posted. That is a security boundary rather than a preference: task and event content is untrusted
 input to an agent that may have shell access, so narrowing whose words reach whom is what stops one
 developer's agent putting instructions in front of another's. Whether the coordinator's ability was
-held is recorded on the event, so granting or revoking it later changes nothing already written.
+held is recorded on the event, so granting or revoking it later changes nothing already written. A
+placement's instruction is the one coordinator post that does not reach every agent: it reaches its
+lane and the coordinator's own developer's sessions only.
 
 **A narration can be addressed, and the sessions it names read it whatever developer they belong
 to.** Pass `to` with up to 50 session ids, or `to_tasks` with up to 50 task ids; a task names the

@@ -31,6 +31,8 @@ use RobotCouncil\Models\TaskStatus;
 use RobotCouncil\Models\TaskTransition;
 use RobotCouncil\Support\AgentSessions;
 use RobotCouncil\Support\BranchName;
+use RobotCouncil\Support\FleetEvents;
+use RobotCouncil\Support\FleetFeed;
 use RobotCouncil\Support\IssueReference;
 use RobotCouncil\Support\Outcome;
 use RobotCouncil\Support\TaskList;
@@ -263,21 +265,126 @@ it('places an unclaimed task on a named lane, which a reassignment could not do 
         ->and($row->hand_back)->toBeFalse();
 });
 
-it('writes the directive to the placed lane in the same step, naming the task', function (): void {
+it('writes a directive the package composes to the placed lane, carrying none of the coordinator words', function (): void {
     $task = placementTask($this);
 
     [$lane] = $this->startAgentSession($this->installation);
 
-    placeTask($this, $task, $lane, ['directive' => 'Build the lane board from #316.'])->assertOk();
+    placeTask($this, $task, $lane, ['directive' => 'Build the lane board from restricted-org/secret#316.', 'hand_back' => true])->assertOk();
 
     $directive = FleetEvent::query()->where('type', FleetEventType::Directive->value)->sole();
 
     // Each key asserted on its own: a JSON round trip is not promised to keep key order, and a
     // whole-array `toBe` would fail on order rather than on content
-    expect($directive->body)->toBe('Build the lane board from #316.')
+    $instruction = FleetEvent::query()->where('type', FleetEventType::PlacementInstruction->value)->sole();
+
+    expect($directive->body)->toBe(sprintf(
+        'Task #%d was placed on session #%d as a hand-back. Its instructions are event #%d, a placement.instruction addressed to that session: read the feed from after=%d to see them.',
+        $task,
+        $lane->id,
+        $instruction->id,
+        $instruction->id - 1
+    ))
+        ->and($directive->body)->not->toContain('secret')
         ->and($directive->meta['targets'] ?? null)->toBe([$lane->getKey()])
         ->and($directive->meta['task_id'] ?? null)->toBe($task)
-        ->and(array_keys($directive->meta ?? []))->toEqualCanonicalizing(['targets', 'task_id']);
+        ->and($directive->meta['hand_back'] ?? null)->toBeTrue()
+        ->and($directive->meta['instruction_id'] ?? null)->toBe($instruction->id)
+        ->and(array_keys($directive->meta ?? []))->toEqualCanonicalizing(['targets', 'task_id', 'hand_back', 'instruction_id'])
+        // Written first, so the id it names is already behind the directive in the feed
+        ->and($instruction->id)->toBeLessThan($directive->id);
+});
+
+it('says nothing of a hand-back in a placement that is not one', function (): void {
+    $task = placementTask($this);
+    [$lane] = $this->startAgentSession($this->installation);
+
+    placeTask($this, $task, $lane)->assertOk();
+
+    $directive = FleetEvent::query()->where('type', FleetEventType::Directive->value)->sole();
+
+    expect($directive->body)->toStartWith(sprintf('Task #%d was placed on session #%d. Its', $task, $lane->id))
+        ->and($directive->meta['hand_back'] ?? null)->toBeFalse();
+});
+
+it('lets the lane read its instruction back from the id the directive names, after its cursor has moved past it', function (): void {
+    $task = placementTask($this);
+    [$lane] = $this->startAgentSession($this->installation);
+
+    placeTask($this, $task, $lane, ['directive' => 'Branch off main.'])->assertOk();
+
+    $feed = $this->service(FleetFeed::class);
+
+    // The bridge's own poll reads the page and moves the stored cursor past both events
+    $feed->after($lane, 0, 200);
+
+    $named = intValue(FleetEvent::query()->where('type', FleetEventType::Directive->value)->sole()->meta['instruction_id'] ?? 0);
+
+    $page = collect($feed->after($lane, $named - 1, 200)['events'])->pluck('body', 'type')->all();
+
+    expect($page[FleetEventType::PlacementInstruction->value] ?? null)->toBe('Branch off main.');
+});
+
+it("gives the coordinator's words to the lane alone, marked as a coordinator's, in the same step", function (): void {
+    $this->setAccessLists(developers: [4242, 77, 55]);
+
+    $task = placementTask($this);
+    [$lane] = $this->startAgentSession($this->installation);
+    [$coordinator] = placementCoordinator($this);
+
+    // Another developer's session, and another session of the lane's own developer: neither is
+    // addressed, and neither is the coordinator's developer
+    [$stranger] = $this->startAgentSession($this->approveInstallation($this->enrollDeveloper(55, login: 'stranger'), machineLabel: 'far-box'));
+
+    // A second session of the coordinator's own developer, which reads it as that developer's event
+    [$colleague] = $this->startAgentSession($coordinator->installation);
+
+    placeTask($this, $task, $lane, ['directive' => 'Build the lane board from restricted-org/secret#316.'])->assertOk();
+
+    $instruction = FleetEvent::query()->where('type', FleetEventType::PlacementInstruction->value)->sole();
+
+    expect($instruction->body)->toBe('Build the lane board from restricted-org/secret#316.')
+        ->and($instruction->meta['task_id'] ?? null)->toBe($task)
+        ->and($instruction->meta['to'] ?? null)->toBe([$lane->getKey()]);
+
+    $seen = fn (AgentSession $reader): array => array_values(array_filter(
+        $this->service(FleetFeed::class)->after($reader, 0, 200)['events'],
+        static fn (array $event): bool => $event['type'] === FleetEventType::PlacementInstruction->value
+    ));
+
+    expect($seen($lane))->toHaveCount(1)
+        ->and(arrayValue($seen($lane)[0]['actor'] ?? [])['coordinator_direct'] ?? null)->toBeTrue()
+        ->and($seen($colleague))->toHaveCount(1)
+        ->and($seen($stranger))->toBeEmpty()
+        ->and($seen($this->session))->toBeEmpty();
+
+    // The control: a coordinator's ordinary narration does reach the stranger, so the empty read
+    // above is the new type's reach and not a reader that sees nothing
+    $this->service(FleetEvents::class)->record(FleetEventType::Narration, $coordinator, 'Fleet note.', [], true);
+
+    expect(collect($this->service(FleetFeed::class)->after($stranger, 0, 200)['events'])->pluck('type')->all())
+        ->toContain(FleetEventType::Narration->value);
+});
+
+it('rolls the placement and its directive back when the instruction cannot be written', function (): void {
+    $task = placementTask($this);
+    [$lane] = $this->startAgentSession($this->installation);
+    [$coordinator] = placementCoordinator($this);
+
+    // Past the event body's bound, which the endpoint would refuse and a host calling the store
+    // directly would not be; the composed directive is short, so only the instruction's write fails
+    expect(fn () => $this->service(Tasks::class)->transition(
+        $task,
+        TaskTransition::Reassign,
+        $coordinator,
+        true,
+        $lane,
+        directive: str_repeat('x', FleetEvent::MAX_BODY + 1)
+    ))->toThrow(InvalidArgumentException::class);
+
+    expect(Task::query()->findOrFail($task)->status)->toBe(TaskStatus::Pending)
+        ->and(Task::query()->findOrFail($task)->claimed_by)->toBeNull()
+        ->and(FleetEvent::query()->whereIn('type', [FleetEventType::Directive->value, FleetEventType::TaskReassigned->value, FleetEventType::PlacementInstruction->value])->count())->toBe(0);
 });
 
 it('refuses a placement with no directive, at the edge and in the store', function (array $body): void {
