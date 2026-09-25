@@ -18,31 +18,42 @@ return new class extends Migration
 {
     /**
      * Add the columns.
+     *
+     * **Each guarded on its own existence.** MySQL adds them in two statements outside any
+     * transaction, so a deploy killed between them leaves one; a guard on the first alone would
+     * then return early on every re-run and never add the second.
      */
     public function up(): void
     {
-        if (! Schema::hasTable('robot_council_agent_sessions') || Schema::hasColumn('robot_council_agent_sessions', 'os_family')) {
+        if (! Schema::hasTable('robot_council_agent_sessions')) {
             return;
         }
 
-        Schema::table('robot_council_agent_sessions', function (Blueprint $table): void {
-            // The longest `PHP_OS_FAMILY` value is seven characters
-            $table->string('os_family', 16)->nullable();
-            $table->string('arch', 32)->nullable();
-        });
+        foreach (['os_family' => 16, 'arch' => 32] as $column => $length) {
+            if (! Schema::hasColumn('robot_council_agent_sessions', $column)) {
+                // `PHP_OS_FAMILY`'s longest value is seven characters; `arch` is `Platform::MAX_ARCH`
+                Schema::table('robot_council_agent_sessions', function (Blueprint $table) use ($column, $length): void {
+                    $table->string($column, $length)->nullable();
+                });
+            }
+        }
     }
 
     /**
-     * Drop them.
+     * Drop them, each only where it exists, for the same reason.
      */
     public function down(): void
     {
-        if (! Schema::hasTable('robot_council_agent_sessions') || ! Schema::hasColumn('robot_council_agent_sessions', 'os_family')) {
+        if (! Schema::hasTable('robot_council_agent_sessions')) {
             return;
         }
 
-        Schema::table('robot_council_agent_sessions', function (Blueprint $table): void {
-            $table->dropColumn(['os_family', 'arch']);
-        });
+        foreach (['os_family', 'arch'] as $column) {
+            if (Schema::hasColumn('robot_council_agent_sessions', $column)) {
+                Schema::table('robot_council_agent_sessions', function (Blueprint $table) use ($column): void {
+                    $table->dropColumn($column);
+                });
+            }
+        }
     }
 };

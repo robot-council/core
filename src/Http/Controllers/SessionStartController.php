@@ -51,7 +51,7 @@ final class SessionStartController
 
             // Reported by the bridge, never typed in (#351). Optional, so an older bridge starts a
             // session as it always has; an OS family outside PHP's own set is refused, not stored
-            'platform' => ['sometimes', 'nullable', 'array:os_family,arch'],
+            'platform' => ['sometimes', 'nullable', 'array:os_family,arch', 'min:1'],
             'platform.os_family' => ['required_with:platform', 'string', Rule::in(Platform::OS_FAMILIES)],
             'platform.arch' => ['sometimes', 'nullable', 'string', 'max:'.Platform::MAX_ARCH, 'regex:'.Platform::ARCH],
         ]);
