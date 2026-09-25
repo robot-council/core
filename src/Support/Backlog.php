@@ -91,28 +91,42 @@ final class Backlog
         $today = $now->setTimezone($this->timezone())->format('Y-m-d');
         $meters = [];
 
+        if ($repositories === []) {
+            return [];
+        }
+
+        // Two queries for every repository at once, rather than two each: the fresh readings --
+        // only the latest per repository is used, found in PHP -- and today's baselines. A reading
+        // outside the fresh window is never loaded, which is also what makes it unreadable.
+        $latest = [];
+
+        $readings = DB::table('robot_council_backlog_readings')
+            ->whereIn('repository', $repositories)
+            ->whereBetween('read_at', [$fresh, $now])
+            ->orderBy('read_at')
+            ->orderBy('id')
+            ->get(['repository', 'open_issues', 'read_at']);
+
+        foreach ($readings as $reading) {
+            if (\is_string($reading->repository) && \is_string($reading->read_at) && is_numeric($reading->open_issues)) {
+                $latest[$reading->repository] = [(int) $reading->open_issues, CarbonImmutable::parse($reading->read_at, 'UTC')];
+            }
+        }
+
+        $baselines = DB::table('robot_council_backlog_baselines')
+            ->whereIn('repository', $repositories)
+            ->where('day', $today)
+            ->pluck('open_issues', 'repository')
+            ->all();
+
         foreach ($repositories as $repository) {
-            $latest = DB::table('robot_council_backlog_readings')
-                ->where('repository', $repository)
-                ->where('read_at', '<=', $now)
-                ->orderByDesc('read_at')
-                ->orderByDesc('id')
-                ->first(['open_issues', 'read_at']);
-
-            $readAt = \is_object($latest) && \is_string($latest->read_at ?? null) ? CarbonImmutable::parse($latest->read_at, 'UTC') : null;
-            $count = $readAt instanceof CarbonImmutable && $readAt->greaterThanOrEqualTo($fresh) && is_numeric($latest->open_issues ?? null)
-                ? (int) $latest->open_issues
-                : null;
-
-            $baseline = DB::table('robot_council_backlog_baselines')
-                ->where('repository', $repository)
-                ->where('day', $today)
-                ->value('open_issues');
+            [$count, $readAt] = $latest[$repository] ?? [null, null];
+            $baseline = $baselines[$repository] ?? null;
 
             $meters[$repository] = [
                 'count' => $count,
                 'delta' => $count !== null && is_numeric($baseline) ? $count - (int) $baseline : null,
-                'age_seconds' => $count !== null ? (int) $readAt->diffInSeconds($now, true) : null,
+                'age_seconds' => $readAt instanceof CarbonImmutable ? (int) $readAt->diffInSeconds($now, true) : null,
             ];
         }
 

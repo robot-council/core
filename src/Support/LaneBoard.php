@@ -54,10 +54,12 @@ final class LaneBoard
     /**
      * @param  Seats  $seats  The seat store, for `Parked`.
      * @param  AgentLogins  $logins  Resolves host user keys to GitHub logins.
+     * @param  Backlog  $backlog  The backlog counts, for the meters.
      */
     public function __construct(
         private readonly Seats $seats,
-        private readonly AgentLogins $logins
+        private readonly AgentLogins $logins,
+        private readonly Backlog $backlog
     ) {}
 
     /**
@@ -66,7 +68,7 @@ final class LaneBoard
      * @return array{
      *     lanes: array<string, list<LaneRow>>,
      *     pull_requests: array<string, list<array{number: int, reference: string, title: string, state: string}>>,
-     *     meters: array<string, array{count: int|null, delta: int|null}>,
+     *     meters: array<string, array{count: int|null, delta: int|null, age_seconds: int|null}>,
      *     counts: array<string, int>,
      *     truncated: bool,
      *     last_change: Carbon|null,
@@ -357,24 +359,20 @@ final class LaneBoard
     }
 
     /**
-     * Each repository's backlog meter.
+     * Each repository's backlog meter, from the counts sessions report (#339).
      *
-     * **Unreadable until #339 records counts, and unreadable is a dash, never a number.** A meter
-     * that showed the last number it had, or zero, would say something nobody measured.
+     * **Unreadable is a dash, never a number.** An absent count, and one older than
+     * `backlog.stale_after_minutes`, both arrive here as a null count; a meter that showed the last
+     * number it had, or zero, would say something nobody measured.
      *
      * @param  list<string|int>  $repositories  The repositories on the board.
-     * @return array<string, array{count: int|null, delta: int|null}> By repository.
+     * @return array<string, array{count: int|null, delta: int|null, age_seconds: int|null}> By repository.
      */
     private function meters(array $repositories): array
     {
-        $meters = [];
-
-        foreach ($repositories as $repository) {
-            if (\is_string($repository) && $repository !== '') {
-                $meters[$repository] = ['count' => null, 'delta' => null];
-            }
-        }
-
-        return $meters;
+        return $this->backlog->meters(
+            array_values(array_filter($repositories, static fn (mixed $repository): bool => \is_string($repository) && $repository !== '')),
+            Carbon::now()
+        );
     }
 }
