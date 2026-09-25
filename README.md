@@ -438,9 +438,10 @@ enforced at placement yet; that is `robot-council/core#320`.
 ## GitHub
 
 Core learns about issues and pull requests from **GitHub's webhook**, and reads nothing from
-GitHub itself: when GitHub is unreachable, events simply stop arriving and no coordination decision
-waits on it. From each delivery it stores the issue's or pull request's state, and it frees the lane
-working on it:
+GitHub that decides anything: when GitHub is unreachable, events simply stop arriving and no
+coordination decision waits on it. The one read it makes is the lane board's open-issue counts,
+which decide nothing -- see [Backlog counts](#backlog-counts-a-github-app). From each delivery it
+stores the issue's or pull request's state, and it frees the lane working on it:
 
 - **An issue closing** completes the task naming it as `owner/name#N`.
 - **A pull request merging** completes the task whose lane reported that pull request's branch, in
@@ -478,6 +479,83 @@ stored is ignored, since GitHub does not promise order.
 
 Deliveries are rate-limited per source address by `robot-council.rate_limits.github_webhook_per_minute`
 (600), and the limiter runs before the signature check.
+
+### Backlog counts: a GitHub App
+
+The lane board shows each repository's open issues -- pull requests excluded -- against the count at
+08:00 in `robot-council.dashboard.timezone`. **Core fetches those counts itself, every five minutes,
+through a GitHub App** the deployment holds the key for. It is the one thing core reads from GitHub,
+and it is a display: when a fetch fails the meter reads `count unreadable`, and nothing that frees a
+lane, places work, or changes a task depends on it. Those still learn from the webhook alone.
+
+**Registering the App** (once, by whoever owns it):
+
+1. On GitHub, *Settings* > *Developer settings* > *GitHub Apps* > *New GitHub App*, under the
+   organization or account that should own it.
+2. **Permissions:** *Repository permissions* > *Issues*: **Read-only**. GitHub adds *Metadata*:
+   read-only itself. Grant nothing else.
+3. **Webhook:** untick *Active*. The App needs no webhook; the fleet's webhook above is separate and
+   stays as it is.
+4. **Where can this GitHub App be installed?** *Only on this account* works when every repository
+   on the board belongs to the owning account. To install it on more than one organization or
+   account it has to be **public**. Public means anyone can install it on their own account; that
+   gives them nothing from this deployment, which only ever asks about the owners of repositories
+   on its own board.
+5. Create it, note the **App ID** on its settings page (a number, not the client ID), and generate a
+   **private key**, which downloads a `.pem` file.
+
+**Installing it**, once per organization or account whose repositories appear on the board: from
+the App's page, *Install App*, choose the owner, and choose **Only select repositories**, naming the
+ones the fleet works in. **Prefer that to *All repositories*.** A developer on the allowlist can name
+any repository as a session's repository, and the board then shows that repository's open-issue
+count to every allowlisted developer -- so an installation covering a whole organization lets its
+private repositories' counts reach people who cannot see those repositories. A repository the
+installation leaves out reads `count unreadable`. **An owner without an installation gets no count
+request**, and its repositories read `count unreadable` too. Installing needs that owner's admin.
+
+**Configuring the deployment:**
+
+| Variable | Value |
+| --- | --- |
+| `ROBOT_COUNCIL_GITHUB_APP_ID` | the App ID |
+| `ROBOT_COUNCIL_GITHUB_APP_PRIVATE_KEY` | the private key, **base64-encoded onto one line**: `base64 < key.pem \| tr -d '\n'` |
+
+The key is base64-encoded because most environment editors mangle a multi-line value. A PEM pasted
+whole is accepted too, including one whose newlines are written as `\n`, in either the PKCS#1
+(`BEGIN RSA PRIVATE KEY`) form GitHub downloads or PKCS#8. With neither variable set, nothing is
+fetched and no request is made: the meters read what sessions report through `backlog_report`, as
+before. With only one set, or a key that does not parse, no request is made either, each board
+repository records `key unusable`, and doctor's `github app` check fails.
+
+The fetch is `robot-council:backlog-fetch`, scheduled every five minutes by
+`robot-council.schedule.backlog_fetch` (on by default; it does nothing while the App is unset). It
+is the last of the package's scheduled entries and runs in the background without overlapping
+itself, so a slow GitHub cannot hold back the coordination checks; the overlap lock uses the host's
+cache and expires after ten minutes. Each run looks up the App's installation on each owner
+(`GET /users/{owner}/installation`, once per owner per run), uses one installation token per
+installation -- cached, encrypted with the application key, in the host's configured cache until
+five minutes before it expires -- and asks GitHub's search for `repo:OWNER/NAME is:issue is:open`,
+one request per repository and at most 25 a run. **A failed fetch stores no reading, never a
+zero**: a 401, 403, 404, 422, timeout, or unparseable answer leaves that repository's meter reading
+`count unreadable` once its last reading is older than `robot-council.backlog.stale_after_minutes`
+(60), logs a warning naming the repository and the status, and the run goes on to the next. An
+installation whose token cannot be minted -- a suspended one, say -- is asked once a run, not once
+per repository. A missing installation is logged when it begins, not every run. A rate limit, or a
+second request in a row that got no answer, ends the run; the repositories it did not reach are
+tried first next time. On a host whose cache store is `array`, every run mints a new token, which
+works and costs one request per installation.
+
+**A host running Laravel Telescope with its HTTP client watcher** records every outgoing request
+and its response. The response to minting an installation token carries the token in its `token`
+field, so add `'token'` to `Telescope::hideResponseParameters()` in the host's
+`TelescopeServiceProvider`, or the token is stored in Telescope's tables in the clear.
+
+`php artisan robot-council:doctor` reports two checks: **`github app`**, whether the App is configured
+and its key parses, and **`backlog fetch`**, per owner on the board whether it has an installation and
+per repository how its latest fetch went. A refusal, a missing installation, or an unusable key
+fails it; GitHub not answering, a rate limit, an incomplete search, or a failure outside GitHub
+leaves it undetermined, since those pass on their own. Neither check asks GitHub anything, and
+neither prints a credential.
 
 ## Waiting on a developer
 

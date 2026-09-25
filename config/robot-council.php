@@ -171,14 +171,33 @@ return [
     | GitHub
     |--------------------------------------------------------------------------
     |
-    | The webhook that tells the fleet when an issue or pull request changes (#318). Core reads
-    | nothing from GitHub; GitHub posts to `{prefix}/api/github/webhook`, signed with this secret.
-    | Until a secret of at least 16 characters is set, that route answers 404.
+    | The webhook that tells the fleet when an issue or pull request changes (#318). GitHub posts
+    | to `{prefix}/api/github/webhook`, signed with this secret. Until a secret of at least 16
+    | characters is set, that route answers 404.
+    |
+    | Core reads nothing from GitHub that decides anything, with one bounded exception (#383): the
+    | lane board's open-issue counts, fetched every five minutes through a GitHub App with Issues
+    | read-only. A count is a display for people and decides nothing, and when GitHub cannot be
+    | reached the meter reads unreadable. Everything that frees a lane, places work, or changes a
+    | task still learns from the webhook alone.
+    |
+    | `app.id` is the App's numeric id. `app.private_key` is the PEM GitHub generated for it,
+    | base64-encoded onto one line (`base64 < key.pem | tr -d '\n'`), because most environment
+    | editors mangle a multi-line value; a PEM pasted whole is accepted too, in either the PKCS#1
+    | (`BEGIN RSA PRIVATE KEY`) form GitHub issues or PKCS#8. With neither set, nothing is fetched
+    | and no request is made: the meters read only what sessions report. With only one set, or a
+    | key that does not parse, no request is made either -- nothing can be signed -- but each board
+    | repository records `key unusable` and `robot-council:doctor` fails its `github app` check.
     |
     */
 
     'github' => [
         'webhook_secret' => env('ROBOT_COUNCIL_GITHUB_WEBHOOK_SECRET'),
+
+        'app' => [
+            'id' => env('ROBOT_COUNCIL_GITHUB_APP_ID'),
+            'private_key' => env('ROBOT_COUNCIL_GITHUB_APP_PRIVATE_KEY'),
+        ],
     ],
 
     'presence' => [
@@ -265,6 +284,10 @@ return [
         // Every five minutes, and idempotent: takes each repository's baseline once local time
         // passes 08:00 in `dashboard.timezone` (#339)
         'backlog_baseline' => true,
+
+        // Every five minutes: fetches each board repository's open-issue count through the GitHub
+        // App (#383). Does nothing, and makes no request, while `github.app` is unset.
+        'backlog_fetch' => true,
 
         // Every five minutes: tells the coordinators about a build lane that has authored nothing
         // for an hour, once per quiet stretch (#332)
@@ -353,8 +376,9 @@ return [
     | Backlog
     |--------------------------------------------------------------------------
     |
-    | Open-issue counts sessions report for the lane board's meters (#339). A count
-    | older than this reads as unreadable, never as the last number seen.
+    | Open-issue counts for the lane board's meters, reported by sessions (#339) or
+    | fetched through the GitHub App above (#383). A count older than this reads as
+    | unreadable, never as the last number seen.
     |
     */
 

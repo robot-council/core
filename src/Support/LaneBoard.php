@@ -189,6 +189,22 @@ final class LaneBoard
     }
 
     /**
+     * The repositories the board shows, under the names it shows them by.
+     *
+     * The same rows the board renders, so the backlog fetch (#383) asks about exactly the
+     * repositories that have a meter, spelled as the meter reads them.
+     *
+     * @return list<string> The repositories, in the board's order.
+     */
+    public function repositories(): array
+    {
+        return array_values(array_filter(
+            array_map(strval(...), array_keys($this->lanes()[0])),
+            static fn (string $repository): bool => $repository !== ''
+        ));
+    }
+
+    /**
      * Counts by state.
      *
      * @param  array<string, list<LaneRow>>  $rows  The lanes, grouped.
@@ -382,7 +398,7 @@ final class LaneBoard
     }
 
     /**
-     * Each repository's backlog meter, from the counts sessions report (#339).
+     * Each repository's backlog meter, from the counts sessions report (#339) and core fetches (#383).
      *
      * **Unreadable is a dash, never a number.** An absent count, and one older than
      * `backlog.stale_after_minutes`, both arrive here as a null count; a meter that showed the last

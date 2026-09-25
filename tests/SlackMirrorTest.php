@@ -253,7 +253,7 @@ it('bounds a malformed Retry-After rather than trusting it', function (string $h
     'negative' => ['-5', 1],
 ]);
 
-it('reads nothing from Slack', function (): void {
+it('reads nothing from Slack, and talks HTTP from the Slack job and the GitHub App alone', function (): void {
     // The expression first, against a fixture it MUST match. Without this the silence below says
     // nothing: the package writes its own call as `Http::asJson()->post(...)`, so an expression
     // anchored on `Http::get(` could never have seen a read even if one were added.
@@ -280,17 +280,32 @@ it('reads nothing from Slack', function (): void {
 
         $callers[] = $file->getFilename();
 
-        // Any read verb anywhere in a file that talks HTTP at all, whatever it is chained to
-        expect($source)->not->toMatch($readVerb);
+        // Any read verb anywhere in a file that talks HTTP at all, whatever it is chained to --
+        // except the GitHub App's, whose reads are the bounded exception #383 made to #318
+        if ($file->getFilename() !== 'GitHubApp.php') {
+            expect($source)->not->toMatch($readVerb);
+        }
     }
 
-    // Exactly one file talks HTTP, and it issues exactly one call
-    expect($callers)->toBe(['MirrorEventToSlack.php']);
+    sort($callers);
+
+    // Exactly two files talk HTTP, and a third of any kind fails here: the Slack mirror, which
+    // posts, and the GitHub App, which reads display-only counts (#383)
+    expect($callers)->toBe(['GitHubApp.php', 'MirrorEventToSlack.php']);
 
     $job = (string) file_get_contents(__DIR__.'/../src/Jobs/MirrorEventToSlack.php');
 
     expect(preg_match_all('/\bHttp::/i', $job))->toBe(1)
         ->and($job)->toContain('->post(');
+
+    // The GitHub App builds every request from one place, against GitHub's API and no other host,
+    // so nothing it reads can come from Slack
+    $github = (string) file_get_contents(__DIR__.'/../src/Support/GitHubApp.php');
+
+    expect(preg_match_all('/\bHttp::/i', $github))->toBe(1)
+        ->and($github)->toContain('Http::baseUrl(self::API)')
+        ->and(preg_match_all('#https?://#i', $github))->toBe(1)
+        ->and($github)->toContain("'https://api.github.com'");
 });
 
 it('queues the mirror only after the transaction commits', function (): void {

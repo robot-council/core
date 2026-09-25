@@ -57,6 +57,7 @@ final class Doctor
      * @param  Allowlist  $allowlist  Read rather than re-parsed, so this cannot disagree with the
      *                                thing it is checking.
      * @param  FleetAbilities  $fleet  What this fleet can do, for the coordination check.
+     * @param  GitHubAppDiagnosis  $githubApp  The two backlog-fetch checks (#383).
      * @param  string|null  $migrationDirectory  Where this package's migrations live. Null means
      *                                           the real one, which is every case but a test: the
      *                                           two migration checks are otherwise only testable
@@ -68,6 +69,7 @@ final class Doctor
         private readonly Repository $config,
         private readonly Allowlist $allowlist,
         private readonly FleetAbilities $fleet,
+        private readonly GitHubAppDiagnosis $githubApp,
         private readonly ?string $migrationDirectory = null
     ) {}
 
@@ -136,6 +138,8 @@ final class Doctor
             'slack queue connection' => $this->slackConnection(...),
             'application timezone' => $this->timezone(...),
             'slack webhook' => $this->slackWebhook(...),
+            'github app' => $this->githubApp->app(...),
+            'backlog fetch' => $this->githubApp->fetch(...),
         ];
     }
 
