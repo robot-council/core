@@ -30,11 +30,13 @@ beforeEach(function (): void {
  * The session's watcher column, as the row holds it.
  *
  * @param  int  $id  The session.
- * @return mixed The value.
+ * @return string|null The value, or null when the watcher never reported.
  */
-function watcherSeenAt(int $id): mixed
+function watcherSeenAt(int $id): ?string
 {
-    return DB::table('robot_council_agent_sessions')->where('id', $id)->value('watcher_seen_at');
+    $value = DB::table('robot_council_agent_sessions')->where('id', $id)->value('watcher_seen_at');
+
+    return \is_string($value) ? $value : null;
 }
 
 it('records the watcher heartbeat apart from the session contact, and an agent request does not refresh it', function (): void {
@@ -48,13 +50,13 @@ it('records the watcher heartbeat apart from the session contact, and an agent r
         ->assertOk()
         ->assertExactJson(['session_id' => $this->session->id, 'watching' => true]);
 
-    expect(Carbon::parse((string) watcherSeenAt($this->session->id))->format('Y-m-d H:i:s'))->toBe('2026-09-24 12:00:00');
+    expect(Carbon::parse(watcherSeenAt($this->session->id) ?? 'invalid')->format('Y-m-d H:i:s'))->toBe('2026-09-24 12:00:00');
 
     // And later agent requests leave it where the watcher put it
     Carbon::setTestNow('2026-09-24 12:05:00');
     $this->machine($this->token)->postJson(route('robot-council.agent.heartbeat'))->assertOk();
 
-    expect(Carbon::parse((string) watcherSeenAt($this->session->id))->format('H:i:s'))->toBe('12:00:00');
+    expect(Carbon::parse(watcherSeenAt($this->session->id) ?? 'invalid')->format('H:i:s'))->toBe('12:00:00');
 });
 
 it('reads a watcher that never reported as absent, and a reporting one by its age', function (?string $seenAt, string $state, ?int $age): void {
