@@ -14,6 +14,8 @@ use RobotCouncil\Models\AgentSessionStatus;
 use RobotCouncil\Models\FleetEventType;
 use RobotCouncil\Models\LaneHold;
 use RobotCouncil\Models\Placement;
+use RobotCouncil\Models\PlacementRule;
+use RobotCouncil\Models\Seat;
 use RobotCouncil\Models\Task;
 use RobotCouncil\Models\TaskStatus;
 use RobotCouncil\Models\TaskTransition;
@@ -49,7 +51,10 @@ final class Tasks
      */
     public function __construct(
         private readonly FleetEvents $events,
-        private readonly Credentials $credentials
+        private readonly Credentials $credentials,
+        private readonly PlacementRules $rules,
+        private readonly Seats $seats,
+        private readonly PlacementWaivers $waivers
     ) {}
 
     /**
@@ -112,6 +117,7 @@ final class Tasks
      *
      * @throws InvalidArgumentException When a reassignment names nobody or says nothing, a branch is
      *                                  unusable, or `expect` is given where it cannot apply.
+     * @throws PlacementRefused When a placement breaks an invariant no waiver covers (#320).
      */
     public function transition(
         int $taskId,
@@ -167,10 +173,29 @@ final class Tasks
                 return Outcome::Conflict;
             }
 
+            // #320: the invariants a placement must hold, assessed before the write -- whether a
+            // placement is new depends on the status the task had -- and enforced after it, so a
+            // placement that loses its race never spends a waiver it did not use
+            $broken = $transition === TaskTransition::Reassign && $holder instanceof AgentSession
+                ? $this->placementRefusals($taskId, $holder, $handBack)
+                : [];
+
             $changed = $this->write($taskId, $transition, $actor, $asCoordinator, $holder, $result, $handBack, $branch, $expect);
 
             if ($changed !== 1) {
                 return $this->diagnose($taskId, $transition, $actor, $asCoordinator, $holder, $expect);
+            }
+
+            if ($broken !== []) {
+                $seat = $this->seats->of($holder);
+                $uncovered = $seat instanceof Seat ? $this->waivers->spend($seat->id, $broken, $taskId) : $broken;
+
+                // Thrown rather than returned, so the placement's write rolls back with everything
+                // else in this transaction -- including any waiver spent on a rule that still
+                // refused alongside another
+                if ($uncovered !== []) {
+                    throw new PlacementRefused($uncovered);
+                }
             }
 
             // A lane given work is no longer idle on purpose, so its hold goes in the same
@@ -459,6 +484,28 @@ final class Tasks
         $current = AgentSession::query()->whereKey($session->getKey())->lockForUpdate()->first();
 
         return $current instanceof AgentSession && ! $current->hasGone();
+    }
+
+    /**
+     * The invariants a placement on this lane would break, read under the task's lock.
+     *
+     * An empty list for a task that is missing or not in a status a reassignment starts from:
+     * the write then changes nothing, and the diagnosis says why, which is the more useful answer.
+     *
+     * @param  int  $taskId  The task.
+     * @param  AgentSession  $lane  The session it would be placed on.
+     * @param  bool  $handBack  Whether it returns a gate's pull request.
+     * @return list<PlacementRule> The rules it breaks.
+     */
+    private function placementRefusals(int $taskId, AgentSession $lane, bool $handBack): array
+    {
+        $task = Task::query()->whereKey($taskId)->lockForUpdate()->first();
+
+        if (! $task instanceof Task || ! \in_array($task->status, TaskTransition::Reassign->startsFrom(), true)) {
+            return [];
+        }
+
+        return $this->rules->refusals($task, $lane, $handBack, Carbon::now());
     }
 
     /**

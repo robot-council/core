@@ -10,11 +10,15 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
 use RobotCouncil\Access\CurrentDeveloper;
+use RobotCouncil\Models\PlacementRule;
+use RobotCouncil\Models\Seat;
 use RobotCouncil\Support\DeveloperSettings;
 use RobotCouncil\Support\Outcome;
+use RobotCouncil\Support\PlacementWaivers;
 use RobotCouncil\Support\Seats;
 use RuntimeException;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
+use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
 
 /**
  * A developer's own seats, assignment hours and days off (#322).
@@ -172,6 +176,33 @@ final class SeatSettings extends Component
     }
 
     /**
+     * Waive one placement refusal for the next placement on a seat (#320).
+     *
+     * The rule arrives as a string from rendered markup, so it goes through the enum rather than
+     * being trusted: a Livewire action is an ordinary POST a client can shape however it likes.
+     *
+     * @param  int  $seatId  The seat.
+     * @param  string  $rule  The rule, as the page rendered it.
+     */
+    public function waive(int $seatId, string $rule): void
+    {
+        $this->report($this->service(PlacementWaivers::class)->grant($this->developer(), $seatId, $this->rule($rule)));
+    }
+
+    /**
+     * Withdraw a waiver no placement has used yet.
+     *
+     * @param  int  $seatId  The seat.
+     * @param  string  $rule  The rule, as the page rendered it.
+     */
+    public function withdrawWaiver(int $seatId, string $rule): void
+    {
+        $this->service(PlacementWaivers::class)->withdraw($this->developer(), $seatId, $this->rule($rule));
+
+        $this->notice = null;
+    }
+
+    /**
      * Render the page.
      *
      * @param  Seats  $seats  The seat store.
@@ -187,11 +218,32 @@ final class SeatSettings extends Component
         /** @var view-string $template */
         $template = 'robot-council::livewire.seat-settings';
 
+        $mine = $seats->forDeveloper($developer);
+        $waivers = $this->service(PlacementWaivers::class);
+
         return view($template, [
-            'seats' => $seats->forDeveloper($developer),
+            'seats' => $mine,
+            'rules' => PlacementRule::cases(),
+            'waived' => array_combine(
+                array_map(static fn (Seat $seat): int => $seat->id, $mine),
+                array_map(static fn (Seat $seat): array => $waivers->waivedOn($seat->id), $mine)
+            ),
             'hours' => $settings->hours($developer),
             'holidays' => $settings->holidays($developer),
         ]);
+    }
+
+    /**
+     * A placement rule from a rendered control, or a 422.
+     *
+     * @param  string  $rule  The rule's value.
+     * @return PlacementRule The rule.
+     *
+     * @throws UnprocessableEntityHttpException When it is not one.
+     */
+    private function rule(string $rule): PlacementRule
+    {
+        return PlacementRule::tryFrom($rule) ?? throw new UnprocessableEntityHttpException(sprintf('Rules are: %s.', implode(', ', PlacementRule::values())));
     }
 
     /**

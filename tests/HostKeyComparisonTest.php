@@ -69,6 +69,7 @@ function hostKeyColumns(): array
         ['robot_council_seats', 'parked_by'],
         ['robot_council_assignment_hours', 'user_id'],
         ['robot_council_holidays', 'user_id'],
+        ['robot_council_placement_waivers', 'granted_by'],
     ];
 }
 

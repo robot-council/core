@@ -713,11 +713,18 @@ it('registers no route that reaches a settings writer other than the read and th
 // --- Migrations -----------------------------------------------------------------------------------
 
 it('rolls the three tables back and forward again', function (): void {
+    // **The waivers table first, as `migrate:rollback` would**: it holds a foreign key to the seats
+    // table (#320), and Postgres refuses to drop a table another still references -- measured in
+    // the `postgres` job as `SQLSTATE[2BP01]` once #320 landed. SQLite enforces no foreign key in
+    // this suite, so only that job could see it.
     $files = [
+        'robot_council_placement_waivers' => '2026_09_24_000012_create_robot_council_placement_waivers_table.php',
         'robot_council_holidays' => '2026_09_24_000007_create_robot_council_holidays_table.php',
         'robot_council_assignment_hours' => '2026_09_24_000006_create_robot_council_assignment_hours_table.php',
         'robot_council_seats' => '2026_09_24_000005_create_robot_council_seats_table.php',
     ];
+
+    $migrations = [];
 
     foreach ($files as $table => $file) {
         $migration = require __DIR__.'/../database/migrations/'.$file;
@@ -726,9 +733,18 @@ it('rolls the three tables back and forward again', function (): void {
             throw new RuntimeException(sprintf('%s did not return a migration.', $file));
         }
 
+        $migrations[$table] = $migration;
+    }
+
+    // Down in rollback order, all of them, then up in migration order -- as the migrator runs them.
+    // One table at a time would recreate the waivers table, foreign key and all, before the seats
+    // table's turn to be dropped.
+    foreach ($migrations as $table => $migration) {
         $migration->down();
         expect(Schema::hasTable($table))->toBeFalse();
+    }
 
+    foreach (array_reverse($migrations, true) as $table => $migration) {
         // Twice, on a schema that already has it: a no-op rather than an error
         $migration->up();
         $migration->up();
