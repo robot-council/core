@@ -2,6 +2,13 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.6.1 — Measuring Edge Order (2026-09-25)
+
+A removal of a `blocked_by` edge that finds nothing stored is now logged, which measures how often GitHub delivers edge changes out of order.
+
+### What's fixed
+- Log a `blocked_by` removal that finds no stored edge [#363](https://github.com/robot-council/core/pull/363)
+
 ## v0.6.0 — The Lane Board (2026-09-25)
 
 The lane board: the fleet now sees and tells the coordinator what each lane is doing, what it is waiting on, and what GitHub says has finished.
