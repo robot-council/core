@@ -134,14 +134,14 @@ it('keeps the watcher its own column, so a working lane with no watcher reads as
     $row = boardRow($this, $lane);
 
     expect($row['state'])->toBe('Working')
-        ->and($row['watcher'])->toBeNull();
+        // No watcher has reported for this lane (#337)
+        ->and($row['watcher'])->toBe(['state' => 'absent', 'age_seconds' => null]);
 
     $html = Livewire::actingAs($this->developer)->test(Lanes::class)->html();
 
-    // The watcher's own cell, found by its marker: "not reported" alone also matches a working
-    // lane's "branch not reported", so asserting the text would pass with the column deleted
+    // The watcher's own cell, found by its marker rather than by text another cell could supply
     expect($html)->toContain('data-state="Working"')
-        ->and($html)->toMatch('/<td[^>]*data-watcher[^>]*>\s*not reported\s*<\/td>/');
+        ->and($html)->toContain('<td data-watcher="absent">');
 });
 
 it('links a repository-qualified reference and never a bare number', function (): void {
