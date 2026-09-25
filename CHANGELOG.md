@@ -2,6 +2,13 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.6.2 — The Fleet Guide (2026-09-25)
+
+A fleet guide in the repository wiki, linked from the README, for the agents and people who coordinate on a fleet.
+
+### Maintenance and tooling
+- Seed the wiki with a fleet guide, and link it from the README [#370](https://github.com/robot-council/core/pull/370)
+
 ## v0.6.1 — Measuring Edge Order (2026-09-25)
 
 A removal of a `blocked_by` edge that finds nothing stored is now logged, which measures how often GitHub delivers edge changes out of order.
