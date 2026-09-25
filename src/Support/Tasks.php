@@ -184,11 +184,22 @@ final class Tasks
             // #320: the invariants a placement must hold, assessed before the write -- whether a
             // placement is new depends on the status the task had -- and enforced after it, so a
             // placement that loses its race never spends a waiver it did not use
-            $broken = $transition === TaskTransition::Reassign && $holder instanceof AgentSession
-                ? $this->placementRefusals($taskId, $holder, $handBack)
+            //
+            // The task is read under its lock here, once, and the same read answers two questions of
+            // #409's: which label the previous holder gave it, for the event, and whether this is a
+            // re-placement onto the lane already holding it, which keeps that label
+            $before = $transition === TaskTransition::Reassign && $holder instanceof AgentSession
+                ? Task::query()->whereKey($taskId)->lockForUpdate()->first()
+                : null;
+
+            // A `$before` exists only where `$holder` does, which the analyzer follows
+            $broken = $before instanceof Task
+                ? $this->placementRefusals($before, $holder, $handBack)
                 : [];
 
-            $changed = $this->write($taskId, $transition, $actor, $asCoordinator, $holder, $result, $handBack, $branch, $expect, $subLabel);
+            $sameHolder = $before instanceof Task && $before->claimed_by === $holder->getKey();
+
+            $changed = $this->write($taskId, $transition, $actor, $asCoordinator, $holder, $result, $handBack, $branch, $expect, $subLabel, $sameHolder);
 
             if ($changed !== 1) {
                 return $this->diagnose($taskId, $transition, $actor, $asCoordinator, $holder, $expect);
@@ -206,12 +217,21 @@ final class Tasks
                 }
             }
 
-            // The sub-label the event carries (#409), read AFTER the write, whose row lock it reads
-            // under -- a query on the task before the deciding write would put a read ahead of it
-            // that nothing needs. A new holder has none, since the write cleared it. **A release
-            // clears it here rather than in the write**, so the feed can still say which subagent's
-            // ticket went back: the label is read, then removed, inside the same transaction.
-            $label = $transition->takesTheClaim() ? null : Task::query()->whereKey($taskId)->value('sub_label');
+            // The sub-label the event carries (#409): the label the task had as this happened.
+            //
+            // - A reassignment reports the one it had before the write -- the previous holder's, read
+            //   under the lock above -- which the write cleared unless the holder is unchanged.
+            // - A claim starts only from `pending`, and every way to `pending` clears the label, so
+            //   there is none to report and nothing to read.
+            // - Anything else reads it AFTER the write, under the row lock the write took: a query
+            //   on the task ahead of the deciding write would be a read nothing needs. **A release
+            //   clears it here rather than in the write**, so the feed can still say whose ticket
+            //   went back: read, then removed, inside the same transaction.
+            $label = match (true) {
+                $transition === TaskTransition::Reassign => $before?->sub_label,
+                $transition->takesTheClaim() => null,
+                default => Task::query()->whereKey($taskId)->value('sub_label'),
+            };
 
             if ($transition->to() === TaskStatus::Pending && $label !== null) {
                 Task::query()->whereKey($taskId)->update(['sub_label' => null]);
@@ -578,21 +598,20 @@ final class Tasks
     }
 
     /**
-     * The invariants a placement on this lane would break, read under the task's lock.
+     * The invariants a placement on this lane would break.
      *
-     * An empty list for a task that is missing or not in a status a reassignment starts from:
-     * the write then changes nothing, and the diagnosis says why, which is the more useful answer.
+     * An empty list for a task not in a status a reassignment starts from -- and the caller passes
+     * none for a missing one: the write then changes nothing, and the diagnosis says why, which is
+     * the more useful answer.
      *
-     * @param  int  $taskId  The task.
+     * @param  Task  $task  The task, read by the caller under its lock.
      * @param  AgentSession  $lane  The session it would be placed on.
      * @param  bool  $handBack  Whether it returns a gate's pull request.
      * @return list<PlacementRule> The rules it breaks.
      */
-    private function placementRefusals(int $taskId, AgentSession $lane, bool $handBack): array
+    private function placementRefusals(Task $task, AgentSession $lane, bool $handBack): array
     {
-        $task = Task::query()->whereKey($taskId)->lockForUpdate()->first();
-
-        if (! $task instanceof Task || ! \in_array($task->status, TaskTransition::Reassign->startsFrom(), true)) {
+        if (! \in_array($task->status, TaskTransition::Reassign->startsFrom(), true)) {
             return [];
         }
 
@@ -612,6 +631,8 @@ final class Tasks
      * @param  string|null  $branch  The branch a start reports, already bounded.
      * @param  TaskStatus|null  $expect  The one status a reassignment insists on, already checked.
      * @param  string|null  $subLabel  The sub-label a start reports, already bounded.
+     * @param  bool  $sameHolder  Whether a reassignment re-places the task on the lane already
+     *                            holding it, which keeps the label that lane gave it.
      * @return int How many rows changed, which is one or none.
      */
     private function write(
@@ -624,7 +645,8 @@ final class Tasks
         bool $handBack,
         ?string $branch,
         ?TaskStatus $expect = null,
-        ?string $subLabel = null
+        ?string $subLabel = null,
+        bool $sameHolder = false
     ): int {
         // `expect` narrows the statuses the write starts from to the one the caller read, in the
         // write's own `where`, so the database decides the race rather than a read before it
@@ -670,7 +692,12 @@ final class Tasks
                 : Placement::Lane->value;
             $values['hand_back'] = $transition === TaskTransition::Reassign && $handBack;
             $values['branch'] = null;
-            $values['sub_label'] = null;
+
+            // The label is the holder's word for which of its subagents works the task, so it goes
+            // only when the holder does. `sameHolder` was read under this row's lock.
+            if (! $sameHolder) {
+                $values['sub_label'] = null;
+            }
         }
 
         if ($branch !== null) {

@@ -75,6 +75,17 @@ final class AgentSession extends Model implements AuthenticatableContract
     use HasApiTokens;
 
     /**
+     * What a model built in memory holds before it is saved (#409).
+     *
+     * The column defaults to one as well, but a host constructing a session itself would otherwise
+     * hold `null` until a reload, and `Support\Capacity` reads this as an integer. Public, since a
+     * subclass may widen a parent's visibility and the package keeps nothing protected.
+     *
+     * @var array<string, mixed>
+     */
+    public $attributes = ['declared_capacity' => 1];
+
+    /**
      * The attribute casts.
      *
      * Public rather than protected, because Pest's `strict()` preset forbids protected methods in

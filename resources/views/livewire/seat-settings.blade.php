@@ -64,12 +64,23 @@
                             {{-- #409: the cap on what a session in this seat declares when it joins.
                                  Only a seat id reaches the `wire:` expressions, through `WireArgument`;
                                  the number is read back by the component as untrusted input. --}}
+                            @php($capacityFailed = $capacitySeat === $seat->id && $capacityError !== null)
+                            @php($seatName = $seat->repository.($seat->work_location !== '' ? ' / '.$seat->work_location : ''))
                             <form wire:submit="setCapacity({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="flex w-full flex-wrap items-end gap-3">
+                                {{-- Each field and button names its seat to a screen reader, since every
+                                     seat on the page has one and "Tickets at once" alone says which of
+                                     them nothing. The error, when there is one, is next to the field it
+                                     is about and is what the field is described by first. --}}
                                 <label class="form-control">
-                                    <span class="label-text">Tickets at once</span>
-                                    <input type="number" min="{{ \RobotCouncil\Support\Capacity::DEFAULT }}" max="{{ \RobotCouncil\Support\Capacity::MAX }}" step="1" inputmode="numeric" wire:model="capacities.{{ \RobotCouncil\Support\WireArgument::of($seat->id) }}" class="input input-bordered input-sm w-24" aria-describedby="seat-{{ $seat->id }}-capacity-help">
+                                    <span class="label-text">Tickets at once<span class="sr-only"> for {{ $seatName }}</span></span>
+                                    <input type="number" min="{{ \RobotCouncil\Support\Capacity::DEFAULT }}" max="{{ \RobotCouncil\Support\Capacity::MAX }}" step="1" inputmode="numeric" wire:model="capacities.{{ \RobotCouncil\Support\WireArgument::of($seat->id) }}" class="input input-bordered input-sm w-24" @if ($capacityFailed) aria-invalid="true" aria-describedby="seat-{{ $seat->id }}-capacity-error seat-{{ $seat->id }}-capacity-help" @else aria-describedby="seat-{{ $seat->id }}-capacity-help" @endif>
                                 </label>
-                                <button type="submit" class="btn btn-sm">Set tickets at once</button>
+                                <button type="submit" class="btn btn-sm">Set tickets at once<span class="sr-only"> for {{ $seatName }}</span></button>
+                                @if ($capacityFailed)
+                                    <p id="seat-{{ $seat->id }}-capacity-error" role="alert" class="font-semibold text-error" data-capacity-error>{{ $capacityError }}</p>
+                                @elseif ($capacitySeat === $seat->id)
+                                    <p role="status" data-capacity-saved>Saved: up to {{ $seat->max_capacity }} {{ $seat->max_capacity === 1 ? 'ticket' : 'tickets' }} at once.</p>
+                                @endif
                                 <p id="seat-{{ $seat->id }}-capacity-help" class="max-w-xl text-meta leading-relaxed opacity-90">
                                     The most tickets one session in this seat may hold at the same time, from
                                     {{ \RobotCouncil\Support\Capacity::DEFAULT }} to {{ \RobotCouncil\Support\Capacity::MAX }}.

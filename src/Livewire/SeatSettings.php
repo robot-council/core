@@ -76,6 +76,21 @@ final class SeatSettings extends Component
     public array $capacities = [];
 
     /**
+     * The seat whose ticket limit the last save was about, or null.
+     *
+     * Locked, like `notice`: the page shows its confirmation or its error next to that seat's field,
+     * and only the server says which seat that is.
+     */
+    #[Locked]
+    public ?int $capacitySeat = null;
+
+    /**
+     * Why the last ticket-limit save was refused, in words, or null when it was saved.
+     */
+    #[Locked]
+    public ?string $capacityError = null;
+
+    /**
      * What the last action did not do, in words, or null when it did what was asked.
      *
      * Locked, so only the server sets it: a client could otherwise put any sentence it liked in
@@ -199,16 +214,26 @@ final class SeatSettings extends Component
      */
     public function setCapacity(int $seatId): void
     {
+        $developer = $this->developer();
         $typed = $this->capacities[$seatId] ?? null;
         $capacity = \is_int($typed) ? $typed : (\is_string($typed) && preg_match('/^[0-9]{1,3}$/D', trim($typed)) === 1 ? (int) trim($typed) : null);
 
+        // Reported beside the field it is about, not in the page's alert, so a reader of that seat
+        // hears the answer where they are (`.claude/rules/accessibility.md`)
+        $this->notice = null;
+        $this->capacitySeat = $seatId;
+
         if ($capacity === null || $capacity < Capacity::DEFAULT || $capacity > Capacity::MAX) {
-            $this->notice = sprintf('A seat takes from %d to %d tickets at once.', Capacity::DEFAULT, Capacity::MAX);
+            $this->capacityError = sprintf('Enter a whole number from %d to %d.', Capacity::DEFAULT, Capacity::MAX);
 
             return;
         }
 
-        $this->report($this->service(Seats::class)->cap($this->developer(), $seatId, $capacity));
+        $this->capacityError = match ($this->service(Seats::class)->cap($developer, $seatId, $capacity)) {
+            Outcome::Applied => null,
+            Outcome::NotFound => 'That seat no longer exists.',
+            Outcome::Conflict, Outcome::Forbidden => "Only a seat's own developer can change how many tickets it takes at once.",
+        };
     }
 
     /**

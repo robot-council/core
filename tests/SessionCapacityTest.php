@@ -182,7 +182,9 @@ it('holds a session to one on a seat whose cap is one, whatever it declared', fu
 
     [$lane, , $joined] = joinWith($this, ['capacity' => 3]);
 
-    expect([$joined['capacity'], $joined['declared_capacity']])->toBe([1, 3]);
+    expect([$joined['capacity'], $joined['declared_capacity']])->toBe([1, 3])
+        // What it declared rides the join event, for a coordinator reading the feed
+        ->and(arrayValue(FleetEvent::query()->where('type', FleetEventType::SessionJoined->value)->where('agent_session_id', $lane->id)->sole()->meta)['declared_capacity'] ?? null)->toBe(3);
 
     placeNew($this, $lane);
 
@@ -214,6 +216,9 @@ it('defaults the store, the columns and the bounds to one', function (): void {
     expect(AgentSession::query()->whereKey($issued->owner->id)->value('declared_capacity'))->toBe(1)
         ->and(Seat::query()->where('work_location', 'y')->value('max_capacity'))->toBe(1)
         ->and(Capacity::DEFAULT)->toBe(1)
+        // And a model built in memory, before anything is saved
+        ->and(new AgentSession()->declared_capacity)->toBe(1)
+        ->and(new Seat()->max_capacity)->toBe(1)
         ->and(Capacity::effective($issued->owner, null))->toBe(1);
 });
 
@@ -243,8 +248,9 @@ it('clamps a declaration past the hard maximum, and refuses one below one at the
 
     [, , $joined] = joinWith($this, ['capacity' => 500]);
 
-    expect(seatAt($this)->max_capacity)->toBe(Capacity::MAX)
-        ->and([$joined['capacity'], $joined['declared_capacity']])->toBe([Capacity::MAX, Capacity::MAX]);
+    // 16 written out, not `Capacity::MAX`, so lowering the bound fails here rather than moving with it
+    expect(seatAt($this)->max_capacity)->toBe(16)
+        ->and([$joined['capacity'], $joined['declared_capacity']])->toBe([16, 16]);
 
     foreach ([0, -3, 'three', 1.5] as $capacity) {
         $this->machine($this->credential)
@@ -255,7 +261,8 @@ it('clamps a declaration past the hard maximum, and refuses one below one at the
 
     // And the store, which a host may call directly, clamps below as well as above
     expect($this->service(AgentSessions::class)->start($this->installation, null, null, null, null, -4)->owner->declared_capacity)->toBe(1)
-        ->and($this->service(AgentSessions::class)->start($this->installation, null, null, null, null, 40)->owner->declared_capacity)->toBe(Capacity::MAX);
+        ->and($this->service(AgentSessions::class)->start($this->installation, null, null, null, null, 40)->owner->declared_capacity)->toBe(16)
+        ->and(Capacity::MAX)->toBe(16);
 });
 
 it('applies a change to the cap to a session already running, in both directions', function (): void {
@@ -294,23 +301,49 @@ it('sets the cap from the seats page, and refuses an entry outside the bound in 
     joinWith($this);
     $seat = seatAt($this);
 
-    Livewire::actingAs($this->developer)->test(SeatSettings::class)
+    $saved = Livewire::actingAs($this->developer)->test(SeatSettings::class)
         ->assertSet('capacities.'.$seat->id, 1)
         ->set('capacities.'.$seat->id, '4')
         ->call('setCapacity', $seat->id)
         ->assertSet('notice', null)
-        ->assertSeeHtml('takes up to 4 tickets at once');
+        ->assertSet('capacityError', null)
+        ->assertSeeHtml('takes up to 4 tickets at once')
+        ->html();
 
-    expect(Seat::query()->whereKey($seat->id)->value('max_capacity'))->toBe(4);
+    // Confirmed in words beside the control, and the field is not marked invalid
+    expect(capacityMarked($saved, 'data-capacity-saved'))->toBe(['Saved: up to 4 tickets at once.'])
+        ->and($saved)->not->toContain('aria-invalid')
+        ->and(Seat::query()->whereKey($seat->id)->value('max_capacity'))->toBe(4);
 
     foreach (['0', '17', '2.5', '', 'many'] as $typed) {
-        Livewire::actingAs($this->developer)->test(SeatSettings::class)
+        $html = Livewire::actingAs($this->developer)->test(SeatSettings::class)
             ->set('capacities.'.$seat->id, $typed)
             ->call('setCapacity', $seat->id)
-            ->assertSet('notice', sprintf('A seat takes from %d to %d tickets at once.', Capacity::DEFAULT, Capacity::MAX));
+            ->assertSet('notice', null)
+            ->assertSet('capacityError', 'Enter a whole number from 1 to 16.')
+            ->html();
+
+        // Next to the field, which is marked invalid and described by the error first
+        $id = sprintf('seat-%d-capacity-error', $seat->id);
+
+        expect(capacityMarked($html, 'data-capacity-error'))->toBe(['Enter a whole number from 1 to 16.'])
+            ->and($html)->toContain(sprintf('id="%s"', $id))
+            ->and($html)->toMatch(sprintf('/<input[^>]*aria-invalid="true"[^>]*aria-describedby="%s seat-%d-capacity-help"/', $id, $seat->id));
     }
 
     expect(Seat::query()->whereKey($seat->id)->value('max_capacity'))->toBe(4);
+});
+
+it("names each seat's ticket-limit field and button for a screen reader", function (): void {
+    joinWith($this, location: 'a');
+    joinWith($this, location: 'b');
+    seatAt($this, 'a');
+
+    $html = Livewire::actingAs($this->developer)->test(SeatSettings::class)->html();
+
+    expect($html)->toContain('Tickets at once<span class="sr-only"> for robot-council/core / a</span>')
+        ->and($html)->toContain('Tickets at once<span class="sr-only"> for robot-council/core / b</span>')
+        ->and($html)->toContain('Set tickets at once<span class="sr-only"> for robot-council/core / a</span>');
 });
 
 it("refuses a cap on another developer's seat through the page, whatever seat id the client sends", function (): void {
@@ -323,7 +356,7 @@ it("refuses a cap on another developer's seat through the page, whatever seat id
     Livewire::actingAs($other)->test(SeatSettings::class)
         ->set('capacities.'.$seat->id, '9')
         ->call('setCapacity', $seat->id)
-        ->assertSet('notice', "Only the developer who parked a seat can lift it, and only a seat's own developer can change it.");
+        ->assertSet('capacityError', "Only a seat's own developer can change how many tickets it takes at once.");
 
     expect(Seat::query()->whereKey($seat->id)->value('max_capacity'))->toBe(1);
 });
@@ -408,7 +441,14 @@ it('shows occupancy against capacity, and every held task with its sub-label', f
         ->toBe([$first => 'wt-one', $second => 'wt-two'])
         ->and(capacityMarked($html, 'data-occupancy'))->toContain('2 / 3')
         ->and(capacityMarked($html, 'data-sub-label'))->toBe(['wt-one', 'wt-two'])
-        ->and(capacityMarked($html, 'data-held-task'))->toHaveCount(2);
+        ->and(capacityMarked($html, 'data-held-task'))->toHaveCount(2)
+        ->and($html)->toContain('<span data-occupancy>2 / 3</span> tickets held')
+        // One held reads in the singular
+        ->and($html)->toContain('<span data-occupancy>0 / 1</span> tickets held');
+
+    $this->service(Tasks::class)->transition($second, TaskTransition::Release, $lane, false);
+
+    expect(Livewire::actingAs($this->developer)->test(Lanes::class)->html())->toContain('<span data-occupancy>1 / 3</span> ticket held');
 });
 
 it('escapes a hostile sub-label on the board', function (string $payload, array $forbidden, ?string $escaped): void {
@@ -446,6 +486,45 @@ it('reports each session capacity and each held task sub-label on the lanes read
 });
 
 // ------------------------------------------------------------------ the sub-label
+
+it('withholds a sub-label from a reader that may not read the task, on the lanes read and sessions_list', function (): void {
+    // Developer 4242's own task, filed without the coordinator's ability, so only their sessions
+    // (and a coordinator) may read it -- the same rule `TaskList` applies to `branch`
+    [$lane, $token] = joinWith($this);
+    $task = $this->service(Tasks::class)->create($lane, ['title' => 'Private'], false);
+    $this->service(Tasks::class)->transition($task->id, TaskTransition::Claim, $lane, false);
+    $this->service(Tasks::class)->transition($task->id, TaskTransition::Start, $lane, false, subLabel: 'subagent-2');
+
+    // A build session of developer 77, who may not read it
+    [, $otherToken] = $this->startAgentSession($this->coordinatorSession->installation);
+
+    // `absent` for a task entry with no `sub_label` key at all, so a key that went missing cannot
+    // pass as the null this test is looking for
+    $label = function (string $reader) use ($lane): mixed {
+        $row = arrayValue(collect(arrayValue($this->machine($reader)->getJson(route('robot-council.lanes.index'))->assertOk()->json('sessions')))->firstWhere('id', $lane->id));
+        $task = arrayValue(arrayValue($row['tasks'])[0] ?? []);
+
+        return \array_key_exists('sub_label', $task) ? $task['sub_label'] : 'absent';
+    };
+
+    $tool = function (string $reader) use ($lane): mixed {
+        $body = arrayValue($this->machine($reader)->postJson('/robot-council/api/mcp', [
+            'jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/call', 'params' => ['name' => 'sessions_list', 'arguments' => []],
+        ])->assertOk()->json('result.structuredContent'));
+        $row = arrayValue(collect(arrayValue($body['sessions'] ?? []))->firstWhere('id', $lane->id));
+
+        $task = arrayValue(arrayValue($row['tasks'])[0] ?? []);
+
+        return \array_key_exists('sub_label', $task) ? $task['sub_label'] : 'absent';
+    };
+
+    // The positive control: the same instruments do return it to a reader who may read the task
+    expect($label($token))->toBe('subagent-2')
+        ->and($tool($token))->toBe('subagent-2')
+        ->and($label($this->coordinatorToken))->toBe('subagent-2')
+        ->and($label($otherToken))->toBeNull()
+        ->and($tool($otherToken))->toBeNull();
+});
 
 it('stores a sub-label from a start and from a report, and carries it in task.* meta', function (): void {
     [$lane, $token] = joinWith($this);
@@ -485,7 +564,7 @@ it('stores a sub-label from a start and from a report, and carries it in task.* 
         ->and(Task::query()->findOrFail($taskId)->sub_label)->toBeNull();
 });
 
-it('clears the sub-label when the task changes hands', function (): void {
+it("clears the sub-label when the task moves to another lane, and records the previous lane's label", function (): void {
     [$lane] = joinWith($this);
     [$other] = joinWith($this, location: 'b');
     [$taskId] = placeNew($this, $lane);
@@ -493,7 +572,45 @@ it('clears the sub-label when the task changes hands', function (): void {
 
     $this->service(Tasks::class)->transition($taskId, TaskTransition::Reassign, $this->coordinatorSession, true, $other, directive: 'Yours now.');
 
-    expect(Task::query()->findOrFail($taskId)->sub_label)->toBeNull();
+    $moved = FleetEvent::query()->where('type', FleetEventType::TaskReassigned->value)->latest('id')->firstOrFail();
+
+    expect(Task::query()->findOrFail($taskId)->sub_label)->toBeNull()
+        ->and(arrayValue($moved->meta))->toMatchArray(['assigned_to' => $other->id, 'sub_label' => 'wt-alpha']);
+});
+
+it('keeps the sub-label when a task is placed again on the lane already holding it', function (): void {
+    [$lane] = joinWith($this);
+    [$taskId] = placeNew($this, $lane);
+    $this->service(Tasks::class)->transition($taskId, TaskTransition::Start, $lane, false, subLabel: 'wt-alpha');
+
+    expect($this->service(Tasks::class)->transition($taskId, TaskTransition::Reassign, $this->coordinatorSession, true, $lane, directive: 'Keep going.'))
+        ->toBe(Outcome::Applied);
+
+    $again = FleetEvent::query()->where('type', FleetEventType::TaskReassigned->value)->latest('id')->firstOrFail();
+
+    expect(Task::query()->findOrFail($taskId)->sub_label)->toBe('wt-alpha')
+        ->and(arrayValue($again->meta)['sub_label'] ?? null)->toBe('wt-alpha');
+});
+
+it('clears the sub-label on a release GitHub drives, carries it in meta, and keeps it on a completion', function (): void {
+    [$lane] = joinWith($this);
+    [$released] = placeNew($this, $lane);
+    $this->service(Tasks::class)->transition($released, TaskTransition::Start, $lane, false, subLabel: 'wt-alpha');
+
+    expect($this->service(Tasks::class)->finishFromGitHub($released, false, 'its pull request closed unmerged'))->toBeTrue();
+
+    $event = FleetEvent::query()->where('type', FleetEventType::TaskReleased->value)->latest('id')->firstOrFail();
+    $row = Task::query()->findOrFail($released);
+
+    expect([$row->status, $row->sub_label])->toBe([TaskStatus::Pending, null])
+        ->and(arrayValue($event->meta))->toMatchArray(['source' => 'github', 'released_from' => $lane->id, 'sub_label' => 'wt-alpha']);
+
+    [$completed] = placeNew($this, $lane);
+    $this->service(Tasks::class)->transition($completed, TaskTransition::Start, $lane, false, subLabel: 'wt-beta');
+
+    expect($this->service(Tasks::class)->finishFromGitHub($completed, true, 'its issue closed'))->toBeTrue()
+        ->and(arrayValue(FleetEvent::query()->where('type', FleetEventType::TaskCompleted->value)->latest('id')->firstOrFail()->meta)['sub_label'] ?? null)->toBe('wt-beta')
+        ->and(Task::query()->findOrFail($completed)->sub_label)->toBe('wt-beta');
 });
 
 it('refuses a sub-label outside its bound at both endpoints, and writes nothing', function (mixed $label): void {

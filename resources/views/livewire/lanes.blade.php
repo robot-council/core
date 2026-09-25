@@ -76,7 +76,7 @@
                                         <div class="text-meta opacity-90">{{ $lane['harness'] }}@if ($lane['is_gate']) &middot; gate @endif</div>
                                         {{-- Occupancy against capacity (#409): the number `lane_free` refuses a
                                              placement on once the two are equal --}}
-                                        <div class="text-meta opacity-90"><span data-occupancy>{{ $lane['holding'] }} / {{ $lane['capacity'] }}</span> tickets held</div>
+                                        <div class="text-meta opacity-90"><span data-occupancy>{{ $lane['holding'] }} / {{ $lane['capacity'] }}</span> {{ $lane['holding'] === 1 ? 'ticket' : 'tickets' }} held</div>
                                     </td>
                                     <td data-state="{{ $lane['state'] }}">{{ $lane['state'] }}</td>
                                     {{-- Its own column, separate from State, from the watcher's own heartbeat (#337) --}}

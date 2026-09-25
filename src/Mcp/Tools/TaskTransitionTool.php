@@ -117,7 +117,7 @@ final class TaskTransitionTool extends Tool
                 ->description('The git branch you are working on for this task, as [A-Za-z0-9._/-], if it already exists. Usually it does not yet: omit it here and call `task_branch` once you have created the branch.');
             $arguments['sub_label'] = $schema->string()
                 ->max(SubLabel::MAX)
-                ->description('If a subagent of yours takes this task up, which one -- such as its worktree -- as [A-Za-z0-9._-] starting with a letter or digit. Display only: it tells your held tasks apart on the lane board and in the feed.');
+                ->description('If a subagent of yours takes this task up, which one, as [A-Za-z0-9._-] starting with a letter or digit. Display only: it tells your held tasks apart on the lane board and in the feed. It is visible to every session in the fleet, so it must not name an issue, a branch or anything confidential -- use something like `subagent-2` or a worktree slot name.');
         }
 
         if ($this->transition->takesAResult()) {

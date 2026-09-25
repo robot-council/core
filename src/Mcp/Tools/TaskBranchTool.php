@@ -50,7 +50,9 @@ final class TaskBranchTool extends Tool
             .'usually does not exist yet. Works while the task is in progress or blocked; a second call '
             .'replaces the first. If you hand tasks you hold to subagents, also pass `sub_label` -- for '
             ."example the subagent's worktree -- so the lane board and the feed can tell your tasks apart; "
-            .'it is display only. Send either or both. Needs `tasks:claim`.';
+            .'it is display only, and it is visible to every session in the fleet, so it must not name an '
+            .'issue, a branch or anything confidential -- use something like `subagent-2` or a worktree '
+            .'slot name. Send either or both. Needs `tasks:claim`.';
     }
 
     /**
@@ -68,7 +70,7 @@ final class TaskBranchTool extends Tool
                 ->description('The branch, as [A-Za-z0-9._/-]. Required unless you send `sub_label`.'),
             'sub_label' => $schema->string()
                 ->max(SubLabel::MAX)
-                ->description('Which of your subagents works this task, such as its worktree, as [A-Za-z0-9._-] starting with a letter or digit. Display only.'),
+                ->description('Which of your subagents works this task, as [A-Za-z0-9._-] starting with a letter or digit. Display only. It is visible to every session in the fleet, so it must not name an issue, a branch or anything confidential -- use something like `subagent-2` or a worktree slot name.'),
         ];
     }
 
@@ -102,9 +104,8 @@ final class TaskBranchTool extends Tool
         $subLabel = $request->get('sub_label');
         $subLabel = \is_string($subLabel) && trim($subLabel) !== '' ? $subLabel : null;
 
-        if ($branch === null && $subLabel === null) {
-            return Response::error('Send a branch, a sub_label, or both.');
-        }
+        // No "neither" case to answer here: `required_without` counts a blank as absent and both
+        // `regex` rules refuse whitespace, so a call naming neither never passes validation
 
         $outcome = $tasks->reportBranch($taskId, $this->session($http), $branch, $subLabel);
 

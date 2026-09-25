@@ -36,6 +36,14 @@ use RobotCouncil\Support\PresenceTimestamp;
 final class Seat extends Model
 {
     /**
+     * What a model built in memory holds before it is saved (#409): a cap of one, as the column
+     * defaults, so a seat built by hand never holds `null` where `Support\Capacity` reads an integer.
+     *
+     * @var array<string, mixed>
+     */
+    public $attributes = ['max_capacity' => 1];
+
+    /**
      * The attribute casts.
      *
      * Public rather than protected, because Pest's `strict()` preset forbids protected methods in

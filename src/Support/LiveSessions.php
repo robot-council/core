@@ -161,9 +161,10 @@ final class LiveSessions
             'id' => $task->id,
             'status' => $task->status->value,
 
-            // The holder's label for it (#409). Not behind `readable`: it is charset-limited, says
-            // nothing about the work, and every `task.*` event already carries it to the fleet
-            'sub_label' => $task->sub_label,
+            // The holder's label for it (#409), behind `readable` as `TaskList` puts `branch`: a
+            // lane may have named the work in it. The `task.*` events still carry it to the whole
+            // fleet, which is why every surface that sets it says it must not name anything private.
+            'sub_label' => $readable ? $task->sub_label : null,
             'readable' => $readable,
             'title' => $readable ? $task->title : null,
             'description' => $readable ? $task->description : null,

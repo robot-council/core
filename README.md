@@ -161,12 +161,15 @@ protocol below is documented for anyone writing their own client.
    work. Ending is idempotent. A start may carry `platform`, with `os_family` (one of PHP's
    `PHP_OS_FAMILY` values) and an optional `arch`, as the bridge reports them; an older bridge
    that sends neither starts a session as before. A start may also carry `capacity`, how many
-   tickets the session will hold at once when it works through subagents: at least 1, and a
-   number past 16 is taken as 16. A session that sends none has a capacity of 1, exactly as before.
+   tickets the session will hold at once when it works through subagents. A number past 16 is
+   taken as 16; 0, a negative number or anything that is not a whole number is refused with 422.
+   A session that sends none has a capacity of 1, exactly as before.
    **What is in effect is the smaller of that and the seat's cap**, which its developer sets on the
    seats page and which is 1 until they do. The start answers both, as `capacity` (in effect) and
    `declared_capacity` (asked for, within 16); `GET {prefix}/api/agent/session` answers the same
    pair, read fresh, so a developer raising the cap reaches a running session without a restart.
+   The `session.joined` event carries the declaration as `meta.declared_capacity`; the capacity in
+   effect is on `GET {prefix}/api/lanes`.
 
 Every response that carries a bearer token names it `token`, every expiry is an `expires_in` in
 seconds, and `abilities` always describes the token beside it. Where a response also names
@@ -705,12 +708,25 @@ second report replaces the first. Any other session is refused with 403, and a t
 status with 409. It moves no status and writes no event; the lane board reads the row.
 
 **A lane that hands tickets to subagents can label each one** (#409). `start`, and the same branch
-report, accept an optional `sub_label` -- which subagent works the task, such as its worktree -- up
-to 64 characters of `[A-Za-z0-9._-]`, starting with a letter or digit; anything else is refused with
-422. The report takes `branch`, `sub_label` or both, and leaves the one it was not sent alone. It
-is display only: the lane board shows it beside the ticket, and every later `task.*` event carries
-it in `meta.sub_label`, a release included. Claims, locks and narration stay the session's, and a
-new holder, a release and the gone-session sweep all clear it.
+report, accept an optional `sub_label` -- which subagent works the task -- up to 64 characters of
+`[A-Za-z0-9._-]`, starting with a letter or digit; anything else is refused with 422. The report
+takes `branch`, `sub_label` or both, and leaves the one it was not sent alone. It is display only.
+**It is visible to every session in the fleet**, so it must not name an issue, a branch or anything
+confidential: use something like `subagent-2` or a worktree slot name.
+
+- **Where it shows.** The lane board, beside the ticket; `GET {prefix}/api/lanes`, only where the
+  reader may read the task, as `branch` is; and `meta.sub_label` on the task's events, which reach
+  everyone.
+- **Which events carry it.** `task.started`, `task.blocked`, `task.completed`, `task.failed`,
+  `task.released` and `task.cancelled` carry the label the task had at that moment, and a release
+  carries the one it is clearing. `task.reassigned` carries the label the task had *before* the
+  placement, so moving a labelled ticket from one lane to another records the previous lane's label.
+  The gone-session sweep's `task.released` and GitHub's `task.completed` or `task.released` carry
+  the label they cleared or kept. `task.claimed` never does: a claim starts from `pending`, and every
+  way to `pending` clears the label. An event about a task with no label has no `sub_label` key.
+- **When it is cleared.** When the task changes hands -- a claim, or a placement onto a different
+  lane -- and on a release, the gone-session sweep, and a release GitHub drives. A placement back onto
+  the lane already holding the task keeps it. Claims, locks and narration stay the session's.
 
 **A placement is refused when it breaks a lane invariant** (#320), before anything is written, with
 422 naming every rule it broke:
@@ -962,6 +978,21 @@ Three things worth knowing before you enable it:
 - **The mirror's rate limit needs a shared cache store.** It is one limit across every worker,
   because Slack's is per webhook. On `CACHE_STORE=array` or `file` it is per process or per machine,
   and on `null` there is no limit at all.
+
+## Upgrading
+
+### To 0.7.0
+
+Two public reads changed shape for #409, which matters only to a host calling them directly:
+
+- **`Support\LaneBoard::read()`**: a `Working` lane's task fields moved from `on_what` itself into
+  `on_what.tasks`, a list with one entry per held task, and `on_what.also_holds` is gone. Each row
+  also gained `holding` and `capacity`.
+- **`Support\LiveSessions`**: its constructor now takes a `Support\Seats` as well as the
+  `AgentLogins`. Resolving it from the container needs no change.
+
+Run `php artisan migrate`: one migration adds the capacity columns and `robot_council_tasks.sub_label`,
+each defaulting so every existing session and seat keeps a capacity of one.
 
 ## Development
 
