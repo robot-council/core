@@ -54,8 +54,12 @@ final class GitHubState
 
     /**
      * @param  Tasks  $tasks  The task store, for freeing a lane.
+     * @param  GateRuns  $gates  The gate runs, ended when their pull request leaves the open set.
      */
-    public function __construct(private readonly Tasks $tasks) {}
+    public function __construct(
+        private readonly Tasks $tasks,
+        private readonly GateRuns $gates
+    ) {}
 
     /**
      * Apply one delivery.
@@ -196,7 +200,14 @@ final class GitHubState
 
         $stored = $this->stored($repository, self::number($pull));
 
-        if (! $stored instanceof GitHubItem || $stored->isOpen() || $stored->head_ref === null) {
+        if (! $stored instanceof GitHubItem || $stored->isOpen()) {
+            return 'applied';
+        }
+
+        // A gate running a pull request that has left the open set is running nothing (#336)
+        $this->gates->endPullRequest($repository, $stored->number);
+
+        if ($stored->head_ref === null) {
             return 'applied';
         }
 

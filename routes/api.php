@@ -25,6 +25,7 @@ use RobotCouncil\Http\Controllers\DeveloperSettingsController;
 use RobotCouncil\Http\Controllers\DeviceCodeController;
 use RobotCouncil\Http\Controllers\DeviceTokenController;
 use RobotCouncil\Http\Controllers\FleetFeedController;
+use RobotCouncil\Http\Controllers\GateRunController;
 use RobotCouncil\Http\Controllers\GitHubWebhookController;
 use RobotCouncil\Http\Controllers\LaneHoldController;
 use RobotCouncil\Http\Controllers\ListTasksController;
@@ -114,6 +115,14 @@ Route::middleware(['throttle:'.RobotCouncilServiceProvider::AGENT_LIMITER, Ensur
         Route::post('backlog/readings', BacklogReadingController::class)
             ->middleware(RequireAbility::class.':'.Ability::EventsPost->value)
             ->name('backlog.readings');
+
+        // A gate's own run (#336). Behind `tasks:claim`; the store checks the session is a gate
+        Route::post('gates/run', [GateRunController::class, 'store'])
+            ->middleware(RequireAbility::class.':'.Ability::TasksClaim->value)
+            ->name('gates.run');
+        Route::delete('gates/run', [GateRunController::class, 'destroy'])
+            ->middleware(RequireAbility::class.':'.Ability::TasksClaim->value)
+            ->name('gates.finish');
 
         Route::post('directives', PostDirectiveController::class)
             ->middleware(RequireAbility::class.':'.Ability::CoordinatorDirect->value)
