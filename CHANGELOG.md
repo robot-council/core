@@ -2,6 +2,13 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.6.11 — Visible Filters (2026-09-25)
+
+Every dashboard filter and pager now has a visible border at rest, and the Queue and Administration mark the selected filter again.
+
+### What's new
+- Give every dashboard filter and pager a visible resting border [#393](https://github.com/robot-council/core/pull/393)
+
 ## v0.6.10 — Backlog Counts (2026-09-25)
 
 The lane board's open-issue meters are now filled by core itself, through a read-only GitHub App the deployment holds the key for.
