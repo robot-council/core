@@ -930,6 +930,38 @@ it('stops a run after two requests in a row get no answer, and not after one', f
     ],
 ]);
 
+it('accepts an installation token in the shape GitHub issues now, and refuses one that could end a header', function (string $token, bool $accepted): void {
+    configureFetchApp();
+    fetchLane($this, $this->installation, 'robot-council/core');
+
+    fakeGitHub(
+        $this,
+        ['robot-council' => 7],
+        ['robot-council/core' => ['issues' => 4, 'pulls' => 0]],
+        null,
+        fn (int $installation) => Http::response(['token' => $token, 'expires_at' => Carbon::now()->addHour()->utc()->format('Y-m-d\\TH:i:s\\Z')], 201)
+    );
+
+    runBacklogFetch();
+
+    $latest = $this->service(BacklogFetches::class)->latest(['robot-council/core'])['robot-council/core'];
+
+    if ($accepted) {
+        expect($latest['outcome'])->toBe(BacklogFetchOutcome::Read)
+            ->and(sentTo('/search/issues')[0]->header('Authorization'))->toBe(['Bearer '.$token]);
+    } else {
+        expect($latest['outcome'])->toBe(BacklogFetchOutcome::Unparseable)
+            ->and(sentTo('/search/issues'))->toBeEmpty();
+    }
+})->with([
+    // The shape measured on 2026-09-25: 383 characters, two dots and a dash
+    'the current shape' => ['ghs_'.str_repeat('a', 200).'.'.str_repeat('B', 100).'-'.str_repeat('9', 40).'.'.str_repeat('z', 36), true],
+    'the older shape' => ['ghs_'.str_repeat('a', 36), true],
+    'a space' => ['ghs_abc def', false],
+    'a line break' => ["ghs_abc\r\nX-Injected: 1", false],
+    'past the bound' => ['ghs_'.str_repeat('a', 2045), false],
+]);
+
 it('mints once a run for an installation GitHub will not mint for, and asks nothing for its repositories', function (): void {
     configureFetchApp();
     fetchLane($this, $this->installation, 'suspended/one');
