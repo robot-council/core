@@ -173,6 +173,21 @@ it('carries the brand primary in both themes', function (): void {
         ->and(themeTokens('[data-theme=dark]')['color-primary'] ?? null)->toBe('oklch(69% .163 270)');
 });
 
+/**
+ * The theme pairs the accessibility rule lets stop at AA, each with the reason it records.
+ *
+ * `.claude/rules/accessibility.md` makes AAA the target and AA the floor, and says a pair that stops
+ * at AA names why. Keyed by the dataset's theme label and the pair's label, so an exception covers
+ * exactly one pair in one theme, and a pair not listed here is held to 7:1.
+ */
+const THEME_AA_EXCEPTIONS = [
+    'light' => [
+        // White on the brand violet measures 4.81:1, and only the violet's lightness moves it: 48%
+        // would measure 7.14:1. Whether the brand darkens for AAA is the operator's decision on #398.
+        'primary button' => 'the brand violet, pending the decision on #398',
+    ],
+];
+
 it('keeps every pair it owns legible in both themes', function (string $theme, string $selector): void {
     $tokens = themeTokens($selector);
 
@@ -189,6 +204,8 @@ it('keeps every pair it owns legible in both themes', function (string $theme, s
         'warning alert' => ['color-warning-content', 'color-warning'],
         'error alert' => ['color-error-content', 'color-error'],
         'error text on a card' => ['color-error', 'color-base-100'],
+        'error text on the page' => ['color-error', 'color-base-200'],
+        'active menu row' => ['color-neutral-content', 'color-neutral'],
     ];
 
     foreach ($pairs as $label => [$foreground, $background]) {
@@ -196,11 +213,15 @@ it('keeps every pair it owns legible in both themes', function (string $theme, s
 
         $ratio = contrastRatio($tokens[$foreground], $tokens[$background]);
 
-        // AA for normal text. The large-text bar of 3.0 is not used: a button label and a
-        // validation message are both normal text, and the theme cannot know which is which.
+        // AAA for normal text, per `.claude/rules/accessibility.md` (#398). The large-text bars are
+        // not used: a button label and a validation message are both 14px, and the theme cannot know
+        // which is which. A pair the rule lets stop at AA is named in THEME_AA_EXCEPTIONS with its
+        // reason, and still has to clear AA.
+        $bar = isset(THEME_AA_EXCEPTIONS[$theme][$label]) ? 4.5 : 7.0;
+
         expect($ratio)->toBeGreaterThanOrEqual(
-            4.5,
-            sprintf('%s theme, %s: %.2f:1 against a 4.5:1 bar', $theme, $label, $ratio)
+            $bar,
+            sprintf('%s theme, %s: %.2f:1 against a %.1f:1 bar', $theme, $label, $ratio, $bar)
         );
     }
 })->with([
@@ -574,6 +595,76 @@ it('lifts every text daisyUI or the preflight dims below the bar, for everything
     $unlifted = array_values(array_filter($rendered, static fn (string $key): bool => ! isset($overridden[$key])));
 
     expect($unlifted)->toBeEmpty(implode(', ', $unlifted));
+});
+
+it('marks a pressed filter and the current page for forced colors, where their fill is lost', function (): void {
+    $css = stylesheet();
+
+    // **Two states the dashboard shows by fill alone** (#398). Under `forced-colors: active` the
+    // browser replaces every author background, so a pressed `btn-primary` and daisyUI's active menu
+    // row read exactly like their neighbours -- measured in headless Chrome with the forced-colors
+    // media feature emulated, before this rule: pressed and unpressed both painted black on a black
+    // canvas with the same white text. The rule paints them with the system's `Highlight`.
+    $at = strpos($css, '.btn[aria-pressed=true],.menu [aria-current=page]{forced-color-adjust:none;');
+
+    expect($at)->toBeInt();
+
+    $rule = substr($css, (int) $at, (int) strpos($css, '}', (int) $at) - (int) $at);
+
+    expect($rule)->toContain('background-color:highlight')
+        ->and($rule)->toContain('color:highlighttext')
+        ->and(blocksEnclosing($css, (int) $at))->toBe(['@layer utilities', '@media (forced-colors:active)']);
+
+    // **And the rule reaches every such state the pages render.** It keys on the ARIA state, so a
+    // toggle built on something other than `.btn`, or a current-page marker outside a `.menu`, would
+    // announce its state and show nothing under forced colors. Read from the rendered pages rather
+    // than the source, where the attribute and the class sit in either order.
+    $this->migrateUsersTableWithPackageColumns();
+    $this->setAccessLists(developers: [4242], admins: [4242]);
+    $this->actingAs($this->enrollDeveloper(4242), 'web');
+
+    $pressed = 0;
+    $current = 0;
+
+    foreach (['dashboard', 'queue', 'agents', 'locks', 'lanes', 'administration'] as $page) {
+        $html = (string) $this->get(route('robot-council.'.$page))->assertOk()->getContent();
+
+        // An empty page parses to an empty document and would find nothing to check
+        if ($html === '') {
+            throw new RuntimeException(sprintf('The %s page rendered nothing.', $page));
+        }
+
+        $document = new DOMDocument;
+        $previous = libxml_use_internal_errors(true);
+        $document->loadHTML($html, LIBXML_NOERROR | LIBXML_NOWARNING);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        $xpath = new DOMXPath($document);
+
+        foreach ($xpath->query('//*[@aria-pressed]') ?: [] as $node) {
+            if ($node instanceof DOMElement) {
+                $pressed++;
+
+                expect(preg_split('/\s+/', $node->getAttribute('class')) ?: [])->toContain('btn');
+            }
+        }
+
+        foreach ($xpath->query('//*[@aria-current="page"]') ?: [] as $node) {
+            if ($node instanceof DOMElement) {
+                $current++;
+
+                $menus = $xpath->query('ancestor::ul[contains(concat(" ", normalize-space(@class), " "), " menu ")]', $node);
+
+                expect($menus instanceof DOMNodeList ? $menus->length : 0)->toBe(1);
+            }
+        }
+    }
+
+    // The controls: the Queue, Agents, Locks and Administration pages each render a filter row, and
+    // every page marks its sidebar entry, so zero of either is a read that saw nothing
+    expect($pressed)->toBeGreaterThanOrEqual(8)
+        ->and($current)->toBeGreaterThanOrEqual(6);
 });
 
 it('measures every dimmed step the views actually use', function (): void {
