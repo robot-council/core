@@ -2,6 +2,13 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.6.3 — An Agent's Own Cursor (2026-09-25)
+
+A bridge can now read the change feed for its agent without moving the agent's resume position; pair it with `robot-council/cli` v0.4.20, which does.
+
+### What's fixed
+- Let a bridge read the feed without moving its agent's resume position [#372](https://github.com/robot-council/core/pull/372)
+
 ## v0.6.2 — The Fleet Guide (2026-09-25)
 
 A fleet guide in the repository wiki, linked from the README, for the agents and people who coordinate on a fleet.
