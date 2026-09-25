@@ -4,7 +4,7 @@ All notable changes to `robot-council` will be documented in this file.
 
 ## v0.6.17 — AAA Contrast (2026-09-25)
 
-The dashboard's text and buttons reach the AAA contrast ratio in both themes, including hovered and pressed buttons, and pressed filters and the current page stay visible under forced colors; the wiki was checked for this release, and only each page's version line changes.
+The dashboard's text and buttons reach the AAA contrast ratio in both themes, including hovered and pressed buttons, and pressed filters and the current page stay visible under forced colors; the wiki was checked for this release, and only Home's version line changes.
 
 ### What's new
 - Raise the dashboard's contrast to the AAA target, and mark state for forced colors [#430](https://github.com/robot-council/core/pull/430)
