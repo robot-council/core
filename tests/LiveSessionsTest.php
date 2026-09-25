@@ -95,7 +95,13 @@ function laneRow(array $page, int $id): array
 
 it('lists every active and stale session with what identifies it, and no gone one', function (): void {
     $stale = otherDevelopersSession($this);
-    $stale->forceFill(['status' => AgentSessionStatus::Stale, 'repository' => 'robot-council/cli', 'work_location' => 'slot-a'])->save();
+    $stale->forceFill([
+        'status' => AgentSessionStatus::Stale,
+        'repository' => 'robot-council/cli',
+        'work_location' => 'slot-a',
+        // Apart from every other timestamp on the row, so the wrong column cannot pass for it
+        'last_seen_at' => Carbon::parse('2026-09-01 08:30:00', 'UTC'),
+    ])->save();
 
     $gone = otherDevelopersSession($this, 56);
     $this->markSessionGone($gone);
@@ -112,7 +118,9 @@ it('lists every active and stale session with what identifies it, and no gone on
             'status' => 'stale',
             'tasks' => [],
         ])
-        ->and(laneRow($page, $stale->id)['last_seen_at'])->toBe($stale->refresh()->last_seen_at->toIso8601String())
+        ->and(laneRow($page, $stale->id)['last_seen_at'])->toBe('2026-09-01T08:30:00+00:00')
+        ->and(laneRow($page, $stale->id)['harness'])->toBe($stale->installation->harness)
+        ->and(laneRow($page, $stale->id)['harness'])->toBeString()->not->toBeEmpty()
         ->and(laneRow($page, $this->coordinatorSession->id)['role'])->toBe('coordinator')
         ->and($page['cursor'])->toBeNull();
 });
@@ -150,10 +158,18 @@ it('lists the tasks each session holds, with words only where the reader may act
         ['id' => $mine, 'status' => 'claimed', 'readable' => true, 'title' => 'My own', 'description' => null],
     ]);
 
-    // A coordinator reads every task's words, as it does in `task_list`
-    expect(laneRow(readLanes($this, $this->coordinatorToken), $other->id)['tasks'])->toBe([
-        ['id' => $theirs->id, 'status' => 'claimed', 'readable' => true, 'title' => 'Their secret', 'description' => 'Do this'],
+    // Work a coordinator opened to the fleet is readable by any build session, as `task_list` has it
+    $opened = $tasks->create($this->coordinatorSession, ['title' => 'For anyone'], withCoordinator: true);
+    $tasks->transition($opened->id, TaskTransition::Claim, $other, asCoordinator: false);
+
+    expect(arrayValue(laneRow(readLanes($this, $this->token), $other->id)['tasks'])[1] ?? null)->toMatchArray([
+        'id' => $opened->id, 'readable' => true, 'title' => 'For anyone',
     ]);
+
+    // A coordinator reads every task's words, as it does in `task_list`
+    expect(arrayValue(laneRow(readLanes($this, $this->coordinatorToken), $other->id)['tasks'])[0] ?? null)->toBe(
+        ['id' => $theirs->id, 'status' => 'claimed', 'readable' => true, 'title' => 'Their secret', 'description' => 'Do this'],
+    );
 });
 
 it('filters by repository and by role, and lists everything when neither is given', function (): void {
@@ -162,6 +178,8 @@ it('filters by repository and by role, and lists everything when neither is give
     $other->forceFill(['repository' => 'robot-council/cli'])->save();
 
     expect(laneIds(readLanes($this, $this->token, ['repository' => 'robot-council/cli'])))->toBe([$other->id])
+        // GitHub compares repository names without case, and so does the filter
+        ->and(laneIds(readLanes($this, $this->token, ['repository' => 'Robot-Council/CLI'])))->toBe([$other->id])
         ->and(laneIds(readLanes($this, $this->token, ['role' => Role::Coordinator->value])))->toBe([$this->coordinatorSession->id])
         ->and(laneIds(readLanes($this, $this->token, ['repository' => 'robot-council/core', 'role' => 'build'])))->toBe([$this->session->id])
         ->and(laneIds(readLanes($this, $this->token)))->toBe([$other->id, $this->coordinatorSession->id, $this->session->id]);

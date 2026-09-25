@@ -69,10 +69,17 @@ final class LiveSessions
 
         // One more than the page, so whether another page exists is known rather than guessed. A
         // cursor offered on a page that happened to be exactly full would lead to an empty one.
+        // Fetching one MORE than one extra changes nothing observable, for the reason
+        // `FleetPresence::sessions()` records; the exact-multiple test pins the other direction.
+        // @pest-mutate-ignore: IncrementInteger
         $sessions = AgentSession::query()
             ->with('installation')
             ->where('status', '<>', AgentSessionStatus::Gone->value)
-            ->when($repository !== null, fn (Builder $query) => $query->where('repository', $repository))
+
+            // Without case, as GitHub compares repository names: a session reports whichever
+            // spelling its checkout has, and the column's comparison differs by engine -- MySQL's
+            // default collation ignores case where SQLite and Postgres do not
+            ->when($repository !== null, fn (Builder $query) => $query->whereRaw('lower(repository) = ?', [mb_strtolower((string) $repository)]))
             ->when($role instanceof Role, fn (Builder $query) => $query->where('role', $role?->value))
             ->when($after !== null, fn (Builder $query) => $query->where('id', '<', $after))
             ->orderByDesc('id')

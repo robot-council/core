@@ -89,7 +89,9 @@ final class ListSessionsTool extends Tool
         return Response::structured($sessions->page(
             $this->session($http),
             $this->allows($http, Ability::CoordinatorDirect),
-            \is_string($repository) ? $repository : null,
+            // An empty string passes every non-implicit rule, and the endpoint reads it as absent
+            // (`ConvertEmptyStringsToNull`), so the tool does the same
+            \is_string($repository) && $repository !== '' ? $repository : null,
             \is_string($role) ? Role::tryFrom($role) : null,
             $limit === null ? LiveSessions::MAX_PAGE : Arguments::integer($limit),
             $after === null ? null : Arguments::integer($after)

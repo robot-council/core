@@ -897,8 +897,19 @@ it('lists the live sessions through the tool as the endpoint does', function ():
     $gone = $this->startAgentSession($this->installation)[0];
     $this->markSessionGone($gone);
 
-    $result = toolResult(callTool($this, $this->token, 'sessions_list', ['limit' => 5]));
+    [$coordinator] = mcpCoordinator($this);
+    $this->session->forceFill(['repository' => 'robot-council/core'])->save();
 
-    expect(array_column(arrayValue($result['sessions'] ?? []), 'id'))->toBe([$this->session->id])
+    $ids = static fn (array $result): array => array_column(arrayValue($result['sessions'] ?? []), 'id');
+    $list = fn (array $arguments): array => toolResult(callTool($this, $this->token, 'sessions_list', $arguments));
+
+    $first = $list(['limit' => 1]);
+
+    expect($ids($first))->toBe([$coordinator->id])
+        ->and($ids($list(['limit' => 1, 'after' => $first['cursor'] ?? null])))->toBe([$this->session->id])
+        ->and($ids($list(['role' => 'coordinator'])))->toBe([$coordinator->id])
+        ->and($ids($list(['repository' => 'robot-council/core'])))->toBe([$this->session->id])
+        // Read as absent, as the endpoint reads `?repository=`
+        ->and($ids($list(['repository' => ''])))->toBe([$coordinator->id, $this->session->id])
         ->and(toolError(callTool($this, $this->token, 'sessions_list', ['role' => 'admin'])))->toContain('role');
 });
