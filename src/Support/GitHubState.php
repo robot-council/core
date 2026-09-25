@@ -354,7 +354,9 @@ final class GitHubState
         //
         // **Two deliveries for the same edge committing at once are not ordered by this**:
         // `lockForUpdate()` on a row that does not exist locks nothing on Postgres. It needs two
-        // changes to one edge inside one transaction's span, and the next change settles it.
+        // changes to one edge inside one transaction's span, and the next change settles it. On
+        // MySQL the same reads take gap locks instead, so two such deliveries can deadlock and one
+        // answers 500; GitHub sends both halves of one edge change, so the survivor carries it.
         $stamp = self::latest($blocked, $blocking);
         $live = self::stampIn(DB::table('robot_council_github_blockers')->where($edge)->lockForUpdate()->value('stamped_at'));
         $removed = self::stampIn(DB::table('robot_council_github_blocker_removals')->where($edge)->lockForUpdate()->value('stamped_at'));
@@ -366,7 +368,7 @@ final class GitHubState
 
             // Never moved backward by a replayed older add, which would let a removal between
             // the two stamps take an edge that was added after it
-            $keep = self::older($stamp, $live) ? $live : $stamp;
+            $keep = ! $stamp instanceof Carbon || self::older($stamp, $live) ? $live : $stamp;
 
             DB::table('robot_council_github_blocker_removals')->where($edge)->delete();
             DB::table('robot_council_github_blockers')->upsert(
@@ -603,6 +605,7 @@ final class GitHubState
         // delivery older than the removal can arrive
         DB::table('robot_council_github_blocker_removals')
             ->where('received_at', '<', PresenceClock::now()->subDays(self::DELIVERY_RETENTION_DAYS))
+            ->orderBy('received_at')
             ->limit(self::PRUNE_BATCH)
             ->delete();
     }
