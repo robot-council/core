@@ -2,6 +2,13 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.6.6 — What a Page Holds (2026-09-25)
+
+`events_read` now says that `limit` caps the events a read returns, and that one read looks at no more than 1,000 event ids.
+
+### Maintenance and tooling
+- Say that `events_read`'s `limit` caps the events returned, not the ids examined [#376](https://github.com/robot-council/core/pull/376)
+
 ## v0.6.5 — When a Session Ends (2026-09-25)
 
 The README now says that ending a session frees its work at the next presence sweep, within about a minute, rather than at once.
