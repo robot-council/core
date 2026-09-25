@@ -43,26 +43,43 @@
  * The light theme, and the default.
  *
  * `daisyui/theme` MERGES with the built-in theme of the same name, so only what differs is written
- * out and the neutrals stay daisyUI's. Both overrides below exist because a contrast check refused
- * the stock value, and every ratio is measured rather than judged by eye:
+ * out and the neutrals stay daisyUI's. Every override below exists because a contrast check refused
+ * the stock value, and every ratio is measured rather than judged by eye. **The bar is 7:1**, the
+ * AAA target `.claude/rules/accessibility.md` sets for normal text (#398); every label these colours
+ * carry is 14px, so the large-text bar never applies. Every value this file introduces for #398 is
+ * inside the sRGB gamut, so the colour a browser paints is the colour that was measured -- an
+ * out-of-gamut value is mapped by the browser and by the test's arithmetic differently. The dark
+ * brand primary and daisyUI's stock warning are marginally outside it; the difference moves no
+ * ratio past a bar:
  *
  *   - `primary` is the brand hue. daisyUI's stock light `primary` is its own violet at
  *     `oklch(45% 0.24 277)`; this is the same family a step lighter and seven degrees round.
  *     Against it, daisyUI's stock `primary-content` measures **3.90:1** and fails AA for normal
- *     text, so the content colour is white, which measures **4.81:1**.
+ *     text, so the content colour is white. #184 put the brand at `57%`, where white measured
+ *     4.81:1: AA, and short of AAA, and only the button's own lightness moves it. The operator
+ *     decided on #398 to darken it one step for AAA: at `48%`, same hue and chroma, white measures
+ *     **7.14:1**. It is inside the sRGB gamut, where `57%` was marginally outside it.
  *   - `error` at its stock `oklch(71% 0.194 13.428)` measures **2.87:1** as text on `base-100`,
- *     which every `text-error` validation message on the enrollment page renders. At `55%` it
- *     measures **5.46:1**, and white on it as an alert background measures the same.
+ *     which every `text-error` message renders. #229's `55%` measured 5.46:1, AA only. At `47%`, with
+ *     the chroma brought inside the gamut, it measures **7.54:1** on a card and **7.12:1** on the page,
+ *     and white on it as an alert background measures 7.54:1.
+ *   - `warning-content` is daisyUI's stock brown at `41%`, which measures 5.24:1 on the stock
+ *     yellow `warning` -- every `badge-warning` label, such as "hand-back" and "revoked". At `32%`
+ *     it measures **7.43:1**; the yellow is untouched.
  */
 @plugin "daisyui/theme" {
     name: "light";
     default: true;
     color-scheme: light;
 
-    --color-primary: oklch(57% 0.237 270);
+    --color-primary: oklch(48% 0.237 270);
     --color-primary-content: oklch(100% 0 0);
-    --color-error: oklch(55% 0.22 13.4);
+    --color-error: oklch(47% 0.18 13.4);
     --color-error-content: oklch(100% 0 0);
+    --color-warning-content: oklch(32% 0.09 45.904);
+
+    /* Which way a primary button's fill moves when hovered or pressed; see `--btn-shade` below */
+    --primary-shade: #000;
 }
 
 /*
@@ -71,9 +88,15 @@
  * `data-theme` on `<html>` still wins.
  *
  * The brand primary is lighter here, which inverts what has to sit on it: daisyUI's stock dark
- * `primary-content` is a near-white that measures **2.54:1** against it and fails AA outright. A
- * dark content colour measures **6.24:1**. The stock `error` needs no change in this theme --
- * measured **5.52:1** as text on the dark `base-100`, because the relationship is inverted there.
+ * `primary-content` is a near-white that measures **2.54:1** against it and fails AA outright. The
+ * dark content colour first chosen measured 6.24:1; at `10%` it measures **7.24:1**, the brand
+ * itself unchanged.
+ *
+ * The stock `error` measured 5.52:1 as text on the dark `base-100`, AA only. Here the relationship
+ * is inverted, so AAA needs it LIGHTER: `78%`, with the chroma the gamut allows at that lightness,
+ * measures **7.48:1** on the card, and the stock dark `error-content` on it as an alert measures
+ * **7.42:1**. `warning-content` moves to `32%` for the same reason as in the light theme, since
+ * the stock warning colours are shared by both.
  */
 @plugin "daisyui/theme" {
     name: "dark";
@@ -81,7 +104,12 @@
     color-scheme: dark;
 
     --color-primary: oklch(69% 0.163 270);
-    --color-primary-content: oklch(21% 0.05 270);
+    --color-primary-content: oklch(10% 0.05 270);
+    --color-error: oklch(78% 0.128 13.428);
+    --color-warning-content: oklch(32% 0.09 45.904);
+
+    /* Lighter here, because the label on it is dark; see `--btn-shade` below */
+    --primary-shade: #fff;
 }
 
 /*
@@ -195,6 +223,61 @@
 
     ::placeholder {
         color: color-mix(in oklab, currentcolor 80%, transparent);
+    }
+
+    /*
+     * A button's fill moves AWAY from its label when hovered, pressed, or held pressed (#398).
+     *
+     * daisyUI mixes 7% black into a button's fill on hover, and 5% while it is pressed or carries
+     * `aria-pressed="true"` -- which every selected filter does, at rest. Against a dark label that
+     * narrows the gap: the dark theme's primary button measures 7.24:1 at rest, 6.35:1 as a selected
+     * filter and 6.02:1 hovered, and a warning button 7.43:1, 6.46:1 and 6.10:1. No darker label
+     * rescues the primary one -- black on its hovered fill is 6.12:1 -- so the fill moves toward
+     * white instead wherever the label is dark: 7.87:1 and 7.74:1 hovered. The light theme's primary
+     * button carries a white label, so its fill still darkens there, which only widens that gap.
+     *
+     * One step, 7%, for every state, where daisyUI uses 7% and 5%: the states still differ from rest,
+     * and one figure is one thing to measure. Disabled buttons are left alone, because a hovered
+     * disabled button must not start looking enabled.
+     */
+    :where(.btn-primary) {
+        --btn-shade: var(--primary-shade);
+    }
+
+    :where(.btn-warning) {
+        --btn-shade: #fff;
+    }
+
+    :where(.btn-primary, .btn-warning):is(:hover, :active, [aria-pressed="true"], [aria-checked="true"], [aria-current]:not([aria-current="false"], [aria-current=""])):not(:disabled, [disabled], .btn-disabled, [aria-disabled="true"]) {
+        --btn-bg: color-mix(in oklab, var(--btn-color), var(--btn-shade) 7%);
+    }
+
+    /*
+     * Two states the dashboard shows by fill, restated for forced colors (#398).
+     *
+     * A pressed filter is `btn-primary` beside `btn-outline` neighbours, and the sidebar's current
+     * page is daisyUI's active-row background. Under `forced-colors: active` -- Windows High
+     * Contrast -- the browser replaces every author background with the system's. The pressed
+     * filter then reads exactly like its neighbours; the current row keeps only a transparent
+     * outline daisyUI adds for forced colours. Each still announces its state (`aria-pressed`,
+     * `aria-current`); what is missing, or thin, is the visible half.
+     *
+     * `forced-color-adjust: none` keeps these rules' colours, and they are the system's own
+     * `Highlight`, `HighlightText` and `CanvasText`, so they follow the user's chosen high-contrast
+     * theme rather than overriding it. It releases EVERY colour on the element, the focus ring's
+     * included, which is why the ring is named here too: left alone it would draw in the brand
+     * violet on the system canvas, 2.85:1 against white in the dark theme. Keyed on the ARIA state
+     * rather than on `btn-primary`, so what is marked is what is announced.
+     */
+    @media (forced-colors: active) {
+        .btn[aria-pressed="true"],
+        .menu [aria-current="page"] {
+            forced-color-adjust: none;
+            background-color: Highlight;
+            border-color: Highlight;
+            color: HighlightText;
+            outline-color: CanvasText;
+        }
     }
 }
 
