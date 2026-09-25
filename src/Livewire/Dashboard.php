@@ -10,6 +10,7 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
 use RobotCouncil\Access\CurrentDeveloper;
+use RobotCouncil\Support\LaneBoard;
 use RobotCouncil\Support\PollInterval;
 
 /**
@@ -59,7 +60,7 @@ final class Dashboard extends Component
      * @param  CurrentDeveloper  $developer  Who is signed in on the package's guard.
      * @return View The totals, and the way into each section.
      */
-    public function render(CurrentDeveloper $developer): View
+    public function render(CurrentDeveloper $developer, LaneBoard $lanes): View
     {
         // Pinned, because whether the analyzer can resolve a package view depends on whether it
         // could boot the application, which differs between a developer's machine and CI
@@ -73,6 +74,9 @@ final class Dashboard extends Component
             // their own page. This decides what is *linked*; `Livewire\Administration` refuses in
             // `mount()` regardless, which is what makes the route safe on its own.
             'isAdmin' => $developer->isAdmin(),
+
+            // The lane board's summary, counted by the same reader the board renders from
+            'laneCounts' => $lanes->counts(),
         ]);
     }
 }

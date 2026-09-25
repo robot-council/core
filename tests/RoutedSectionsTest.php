@@ -78,6 +78,7 @@ it('mounts one panel per route, and only that one', function (string $section, s
     'queue' => ['queue', 'robot-council-task-board'],
     'feed' => ['feed', 'robot-council-change-feed'],
     'administration' => ['administration', 'robot-council-administration'],
+    'lanes' => ['lanes', 'robot-council-lanes'],
 ]);
 
 it('pays for one panel per page', function (string $section, int $queries): void {
@@ -90,7 +91,11 @@ it('pays for one panel per page', function (string $section, int $queries): void
     expect(queriesIssuedBy(fn () => $this->get(route('robot-council.'.$section))->assertOk()))->toBe($queries);
 })->with([
     // The fixture holds one session, one held lock and one task, so no panel reads an empty table
-    'the overview: the gate, the layout, three counts' => ['dashboard', 7],
+    // The overview's lane summary (#317) adds five: the live sessions, their installations, their
+    // held tasks, their holds and their logins. A fixed five, whatever the lane count -- see the
+    // lanes test below
+    'the overview: the gate, the layout, three counts and the lane summary' => ['dashboard', 12],
+    'the lanes: the same five, and the gate and the layout' => ['lanes', 8],
     'presence: sessions, their installations, their logins, the held locks and two summaries' => ['presence', 11],
     'the queue: the tasks, their sessions and their logins' => ['queue', 6],
     'the feed: the events and their logins' => ['feed', 5],

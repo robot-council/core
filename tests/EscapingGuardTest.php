@@ -24,7 +24,7 @@ declare(strict_types=1);
  *
  * @command  vendor/bin/pest --compact tests/EscapingGuardTest.php
  */
-
+use RobotCouncil\Support\TicketLink;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Models\TaskStatus;
 use RobotCouncil\Support\Locks;
@@ -259,6 +259,12 @@ it('reports an interpolation in a URL attribute, and leaves a server-built URL a
     // Every URL the server built is fine, and the package's own pages are made of these
     expect(urlAttributeInterpolations('<form action="{{ route(\'robot-council.enroll.deny\') }}">'))->toBeEmpty();
     expect(urlAttributeInterpolations('<img src="{{ asset(\'x.png\') }}">'))->toBeEmpty();
+
+    // A ticket link is built from a fixed host and a checked reference -- as the whole expression
+    // only, so anything concatenated onto it is still reported
+    expect(urlAttributeInterpolations('<a href="{{ ' . TicketLink::class . '::url($work[\'ticket\']) }}">x</a>'))->toBeEmpty();
+    expect(urlAttributeInterpolations('<a href="{{ ' . TicketLink::class . '::url($a).$b }}">x</a>'))
+        ->toBe(['href="' . TicketLink::class . '::url($a).$b"']);
 
     // Not a URL attribute, so not this check's business -- `rawOutputIn()` covers the escaping
     expect(urlAttributeInterpolations('<p title="{{ $task->title }}">x</p>'))->toBeEmpty();

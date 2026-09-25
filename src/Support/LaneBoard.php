@@ -1,0 +1,346 @@
+<?php
+
+declare(strict_types=1);
+
+namespace RobotCouncil\Support;
+
+use Illuminate\Support\Carbon;
+use RobotCouncil\Access\Role;
+use RobotCouncil\Models\AgentSession;
+use RobotCouncil\Models\AgentSessionStatus;
+use RobotCouncil\Models\GitHubItem;
+use RobotCouncil\Models\LaneHold;
+use RobotCouncil\Models\Placement;
+use RobotCouncil\Models\Seat;
+use RobotCouncil\Models\Task;
+use RobotCouncil\Models\TaskStatus;
+
+/**
+ * The lane board #314 asked for, read from measured state and never typed (#317).
+ *
+ * **Every cell is derived, and a missing field fails toward the honest reading.** A lane's `State`
+ * is one of five and is computed here, never stored: a lane with no task is never `Working`,
+ * whatever anything else says, and a cell whose data has no model yet reads "not reported" rather
+ * than a stand-in -- #317's decision, with the model each such cell waits on named where it is.
+ *
+ * **`Parked` is `Seats::of()`, the rule a placement refuses on (#320)**, so the label and the
+ * refusal cannot disagree.
+ *
+ * @phpstan-type LaneRow array{id: int, repository: string|null, developer: string|null, machine: string, harness: string, slot: string|null, is_gate: bool, state: string, watcher: null, on_what: array<string, mixed>|null, known_since: Carbon}
+ *
+ * The reader is for a developer on the dashboard, who #73 decided sees the whole fleet, so issue
+ * references and branches are shown here though `TaskList` withholds them from agents that may not
+ * claim the task.
+ */
+final class LaneBoard
+{
+    /**
+     * The most lanes the board lists. A fleet has one lane per live checkout, which is tens.
+     */
+    public const int MAX_LANES = 200;
+
+    /**
+     * The most open pull requests listed per repository.
+     */
+    public const int MAX_PULL_REQUESTS = 50;
+
+    /**
+     * The five states a lane can be in, and nothing else renders.
+     *
+     * @var list<string>
+     */
+    public const array STATES = ['Working', 'Idle', 'Parked', 'Blocked', 'not observed'];
+
+    /**
+     * @param  Seats  $seats  The seat store, for `Parked`.
+     * @param  AgentLogins  $logins  Resolves host user keys to GitHub logins.
+     */
+    public function __construct(
+        private readonly Seats $seats,
+        private readonly AgentLogins $logins
+    ) {}
+
+    /**
+     * The board.
+     *
+     * @return array{
+     *     lanes: array<string, list<LaneRow>>,
+     *     pull_requests: array<string, list<array{number: int, reference: string, title: string, state: string}>>,
+     *     meters: array<string, array{count: int|null, delta: int|null}>,
+     *     counts: array<string, int>,
+     *     truncated: bool,
+     *     observed_at: Carbon
+     * }
+     */
+    public function read(): array
+    {
+        [$rows, $truncated] = $this->lanes();
+
+        return [
+            'lanes' => $rows,
+            'pull_requests' => $this->pullRequests(array_keys($rows)),
+            'meters' => $this->meters(array_keys($rows)),
+            'counts' => self::tally($rows),
+            'truncated' => $truncated,
+            'observed_at' => Carbon::now(),
+        ];
+    }
+
+    /**
+     * Every live lane's row, grouped by repository and ordered as #314 orders the board.
+     *
+     * A fixed number of queries however many lanes there are: the seats and the issues are read in
+     * one query each rather than one per lane.
+     *
+     * @return array{array<string, list<LaneRow>>, bool} The rows, and whether the list was cut short.
+     */
+    private function lanes(): array
+    {
+        $sessions = AgentSession::query()
+            ->with('installation')
+            ->where('status', '!=', AgentSessionStatus::Gone->value)
+            ->orderBy('id')
+            ->limit(self::MAX_LANES + 1)
+            ->get();
+
+        $truncated = $sessions->count() > self::MAX_LANES;
+        $sessions = $sessions->take(self::MAX_LANES);
+
+        $ids = $sessions->pluck('id')->all();
+
+        $tasks = Task::query()
+            ->whereIn('claimed_by', $ids)
+            ->whereIn('status', TaskStatus::values(TaskStatus::held()))
+            ->orderBy('id')
+            ->get()
+            ->keyBy('claimed_by');
+
+        $holds = LaneHold::query()->whereIn('agent_session_id', $ids)->get()->keyBy('agent_session_id');
+
+        // Batched, so the board costs the same few queries however many lanes it lists
+        $seats = $this->seats->forSessions($sessions);
+        $issues = $this->issues($tasks->all());
+        $logins = $this->logins->forUsers($sessions->pluck('user_id')->all());
+
+        $rows = [];
+
+        foreach ($sessions as $session) {
+            $task = $tasks->get($session->id);
+            $hold = $holds->get($session->id);
+            $row = $this->row($session, $task instanceof Task ? $task : null, $hold instanceof LaneHold ? $hold : null, $seats[$session->id] ?? null, $issues, $logins);
+            $rows[$row['repository'] ?? ''][] = $row;
+        }
+
+        // Builds before gates; then developer, machine and slot -- #314's order
+        foreach ($rows as $repository => $group) {
+            usort($group, static fn (array $a, array $b): int => [$a['is_gate'], $a['developer'] ?? '', $a['machine'], $a['slot'] ?? '']
+                <=> [$b['is_gate'], $b['developer'] ?? '', $b['machine'], $b['slot'] ?? '']);
+            $rows[$repository] = $group;
+        }
+
+        ksort($rows, SORT_STRING);
+
+        return [$rows, $truncated];
+    }
+
+    /**
+     * How many lanes are in each state, for the overview's summary.
+     *
+     * The same rows the board renders, without the pull-request queues the summary never shows.
+     *
+     * @return array<string, int> Counts by state, every state present.
+     */
+    public function counts(): array
+    {
+        return self::tally($this->lanes()[0]);
+    }
+
+    /**
+     * Counts by state.
+     *
+     * @param  array<string, list<LaneRow>>  $rows  The lanes, grouped.
+     * @return array<string, int> Counts by state, every state present.
+     */
+    private static function tally(array $rows): array
+    {
+        $counts = array_fill_keys(self::STATES, 0);
+
+        foreach ($rows as $group) {
+            foreach ($group as $row) {
+                $counts[$row['state']]++;
+            }
+        }
+
+        return $counts;
+    }
+
+    /**
+     * One lane's row.
+     *
+     * @param  AgentSession  $session  The lane.
+     * @param  Task|null  $task  The task it holds.
+     * @param  LaneHold|null  $hold  Its hold.
+     * @param  Seat|null  $parked  Its seat, which says whether it is parked -- `Seats::of()`'s match.
+     * @param  array<string, GitHubItem>  $issues  Stored issues by lower-cased reference.
+     * @param  array<string, string>  $logins  GitHub logins by host key.
+     * @return LaneRow The row.
+     */
+    private function row(AgentSession $session, ?Task $task, ?LaneHold $hold, ?Seat $parked, array $issues, array $logins): array
+    {
+        $parker = $parked?->parked_by;
+
+        // The state and its `On what` decided together, in #314's order: a lane that is not being
+        // observed says so first, and a lane with a task is working whatever else is true of it
+        [$state, $onWhat] = match (true) {
+            $session->status === AgentSessionStatus::Stale => ['not observed', null],
+            $task instanceof Task => ['Working', $this->working($task, $issues)],
+            $parked?->isParked() === true => ['Parked', ['party' => ($parker === null ? null : ($logins[$parker] ?? null)) ?? 'its developer', 'what' => 'parked this seat']],
+            $hold instanceof LaneHold => ['Blocked', ['party' => $hold->party, 'what' => $hold->reason->reads()]],
+            default => ['Idle', null],
+        };
+
+        return [
+            'id' => $session->id,
+            'repository' => $session->repository,
+            'developer' => $logins[$session->user_id] ?? null,
+            'machine' => $session->installation->machine_label,
+            'harness' => $session->installation->harness,
+            'slot' => $session->work_location,
+            'is_gate' => $session->role === Role::Ci,
+            'state' => $state,
+
+            // Its own column, and not reported until #337 records a watcher apart from the session
+            'watcher' => null,
+
+            'on_what' => $onWhat,
+
+            // How long ago the state was OBSERVED -- the session's last contact -- not how long it
+            // has held, which nothing records honestly
+            'known_since' => $session->last_seen_at,
+        ];
+    }
+
+    /**
+     * What a working lane is on.
+     *
+     * @param  Task  $task  The task it holds.
+     * @param  array<string, GitHubItem>  $issues  Stored issues by lower-cased reference.
+     * @return array<string, mixed> The cell.
+     */
+    private function working(Task $task, array $issues): array
+    {
+        $item = \is_string($task->issue) ? ($issues[mb_strtolower($task->issue)] ?? null) : null;
+
+        $packet = $item instanceof GitHubItem && \in_array('decision-fork', $item->labels, true);
+
+        return [
+            'task_id' => $task->id,
+            'ticket' => $task->issue,
+            'title' => $task->title,
+            'branch' => $task->branch ?? ($packet ? 'packet, no branch expected' : 'branch not reported'),
+            'branch_reported' => $task->branch !== null,
+
+            // A directive sent is not a lane building: take-up is the lane's own `start`
+            'taken_up' => $task->status === TaskStatus::InProgress,
+            'blocked' => $task->status === TaskStatus::Blocked,
+            'hand_back' => $task->hand_back,
+
+            // "Never sent" cannot occur since #316 made placement and directive one write, and
+            // "placed by a developer directly" has no writer; see `Models\Placement`
+            'provenance' => match ($task->placed_by) {
+                Placement::Coordinator => 'placed and told',
+                Placement::Lane => 'chosen by the lane',
+                null => 'not recorded',
+            },
+        ];
+    }
+
+    /**
+     * The stored issues the held tasks name, in one query.
+     *
+     * @param  array<array-key, Task>  $tasks  The held tasks.
+     * @return array<string, GitHubItem> By lower-cased `owner/name#N`.
+     */
+    private function issues(array $tasks): array
+    {
+        $numbers = [];
+
+        foreach ($tasks as $task) {
+            if (\is_string($task->issue)) {
+                $numbers[] = (int) explode('#', $task->issue, 2)[1];
+            }
+        }
+
+        if ($numbers === []) {
+            return [];
+        }
+
+        $issues = [];
+
+        // By number, then matched on the whole reference in PHP, without case as GitHub names repositories
+        foreach (GitHubItem::query()->whereIn('number', array_values(array_unique($numbers)))->where('is_pull_request', false)->get() as $item) {
+            $issues[mb_strtolower($item->reference())] = $item;
+        }
+
+        return $issues;
+    }
+
+    /**
+     * Each repository's open pull requests, from what GitHub has told the fleet (#318).
+     *
+     * `running` -- a gate is on it -- is not reported until #336 records which pull request a gate
+     * is validating, so an open one reads `draft` or `queued`.
+     *
+     * @param  list<string|int>  $repositories  The repositories on the board.
+     * @return array<string, list<array{number: int, reference: string, title: string, state: string}>> By repository.
+     */
+    private function pullRequests(array $repositories): array
+    {
+        $queues = [];
+
+        foreach ($repositories as $repository) {
+            if (! \is_string($repository) || $repository === '') {
+                continue;
+            }
+
+            $queues[$repository] = array_values(GitHubItem::query()
+                ->where('repository', $repository)
+                ->where('is_pull_request', true)
+                ->where('state', 'open')
+                ->orderBy('number')
+                ->limit(self::MAX_PULL_REQUESTS)
+                ->get()
+                ->map(static fn (GitHubItem $pull): array => [
+                    'number' => $pull->number,
+                    'reference' => $pull->reference(),
+                    'title' => $pull->title,
+                    'state' => $pull->draft ? 'draft' : 'queued',
+                ])
+                ->all());
+        }
+
+        return $queues;
+    }
+
+    /**
+     * Each repository's backlog meter.
+     *
+     * **Unreadable until #339 records counts, and unreadable is a dash, never a number.** A meter
+     * that showed the last number it had, or zero, would say something nobody measured.
+     *
+     * @param  list<string|int>  $repositories  The repositories on the board.
+     * @return array<string, array{count: int|null, delta: int|null}> By repository.
+     */
+    private function meters(array $repositories): array
+    {
+        $meters = [];
+
+        foreach ($repositories as $repository) {
+            if (\is_string($repository) && $repository !== '') {
+                $meters[$repository] = ['count' => null, 'delta' => null];
+            }
+        }
+
+        return $meters;
+    }
+}

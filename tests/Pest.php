@@ -483,6 +483,12 @@ function urlAttributeInterpolations(string $template): array
     $routeOrAction = '/^\s*(?:route|action)\s*\(\s*[\'"]/';
     $wholeExpression = '/^\s*(?:route|action)\s*(\((?:[^()]++|(?1))*\))\s*$/';
 
+    // **`TicketLink::url()` is server-built for a third reason: it builds from a fixed scheme and
+    // host.** It returns `https://github.com/` followed by a reference already matched against
+    // `IssueReference::PATTERN`, whose characters need no escaping in a URL, or null. Admitted only as
+    // the whole expression, like `route()`, so `TicketLink::url($x).$y` is still refused (#317).
+    $ticketLink = '/^\s*\\\\?RobotCouncil\\\\Support\\\\TicketLink::url\s*(\((?:[^()]++|(?1))*\))\s*$/';
+
     $offenders = [];
 
     foreach ($matches as $match) {
@@ -508,7 +514,8 @@ function urlAttributeInterpolations(string $template): array
 
             $serverBuilt = preg_match($literalArgumentOnly, $expression) === 1
                 || (preg_match($routeOrAction, $expression) === 1
-                    && preg_match($wholeExpression, $expression) === 1);
+                    && preg_match($wholeExpression, $expression) === 1)
+                || preg_match($ticketLink, $expression) === 1;
 
             // `=== 1` rather than a truthy test, deliberately: `preg_match` returns `false` on a
             // PCRE error -- a backtrack or recursion limit -- and `false === 1` is false, so an
