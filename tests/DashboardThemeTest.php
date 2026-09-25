@@ -383,6 +383,41 @@ function dimmedContrastRatio(string $foreground, string $background, float $alph
     return $text > $behind ? $text / $behind : $behind / $text;
 }
 
+/**
+ * Every ratio dimmed text at one alpha reaches, on every surface the dashboard paints it on.
+ *
+ * Both themes; the page (`base-200`) and a card (`base-100`); and a hovered or focused menu row over
+ * each, which daisyUI paints as `base-content` at alpha 0.1 over the surface, lifting the background
+ * toward the text. Keyed by a label, so a failure says which surface it was.
+ *
+ * `currentcolor` in a daisyUI rule is `base-content` wherever the dashboard dims text, because
+ * nothing dimmed sits inside a coloured component.
+ *
+ * @param  float  $alpha  The opacity, 0-1.
+ * @return array<string, float> Each surface's ratio.
+ */
+function dimmedRatiosEverywhere(float $alpha): array
+{
+    $ratios = [];
+
+    foreach (['light' => ':where(:root)', 'dark' => '[data-theme=dark]'] as $theme => $selector) {
+        $tokens = themeTokens($selector);
+        $content = linearRgb($tokens['color-base-content']);
+
+        foreach (['color-base-100', 'color-base-200'] as $surface) {
+            $ratios[sprintf('%s theme on %s', $theme, $surface)] = dimmedContrastRatio($tokens['color-base-content'], $tokens[$surface], $alpha);
+
+            $hover = overLinear($content, linearRgb($tokens[$surface]), 0.1);
+            $text = relativeLuminance(overLinear($content, $hover, $alpha)) + 0.05;
+            $behind = relativeLuminance($hover) + 0.05;
+
+            $ratios[sprintf('%s theme on a hovered row over %s', $theme, $surface)] = $text > $behind ? $text / $behind : $behind / $text;
+        }
+    }
+
+    return $ratios;
+}
+
 it('composites an opacity the way a browser does, not the way linear light would', function (): void {
     // The instrument's control, before anything reads it. Black at 70% over white paints `#4D4D4D`
     // -- checkable against any colour picker -- which is 8.52:1. A linear composite reports 3.00:1
@@ -430,11 +465,116 @@ it('keeps every dimmed step the views use above the bar, in both themes', functi
             );
         }
     }
+
+    // **And on a hovered row, for every step rather than only the ones a menu holds today.** The
+    // hovered-menu test below reads the steps out of the rendered menu, which holds only
+    // `opacity-90`, so without this the lower step's closest case, 7.69:1 on a hovered row in the
+    // dark theme, would be a figure nothing computes.
+    foreach (DIMMED_STEPS as $class => $alpha) {
+        foreach (dimmedRatiosEverywhere($alpha) as $where => $ratio) {
+            expect($ratio)->toBeGreaterThanOrEqual(
+                DIMMED_BAR,
+                sprintf('%s, %s: %.2f:1 against a %.1f:1 bar', $class, $where, $ratio, DIMMED_BAR)
+            );
+        }
+    }
 })->with([
     ['light', ':where(:root)'],
     ['dark, as an explicit data-theme', '[data-theme=dark]'],
     ['dark, as a system preference', ':root:not([data-theme])'],
 ]);
+
+it('lifts every text daisyUI or the preflight dims below the bar, for everything a view uses', function (): void {
+    $css = stylesheet();
+
+    // **Dimming the views never wrote.** daisyUI draws a table's header, a stat's title and
+    // description and a form label at `color-mix(..., 60%, transparent)`, and Tailwind's preflight
+    // draws a placeholder at 50%. The step tests read `opacity-*` out of the views and cannot see
+    // any of it, which is how #413's first AAA revision said dimmed text met 7:1 while every table
+    // header measured 4.52:1. Read out of the artifact, so a component a daisyUI upgrade starts
+    // dimming is found without anyone listing it.
+    preg_match_all(
+        '/([^{}]*)\{(?:[^{}]*;)?color:color-mix\(in oklab, ?(?:var\(--color-base-content\)|currentcolor) (\d+)%, ?transparent\)[^{}]*\}/i',
+        $css,
+        $rules,
+        PREG_SET_ORDER | PREG_OFFSET_CAPTURE
+    );
+
+    // One key per selector in a rule's list: its first class, or `::placeholder`. A naive split
+    // cuts `:where(thead,tfoot)` in two, which can only drop a fragment with no class, never invent one
+    $keys = static function (string $selectors): array {
+        $found = [];
+
+        foreach (explode(',', $selectors) as $selector) {
+            if (str_contains($selector, '::placeholder')) {
+                $found[] = '::placeholder';
+            } elseif (preg_match('/\.([a-z][a-z0-9-]*)/', $selector, $class) === 1) {
+                $found[] = $class[1];
+            }
+        }
+
+        return $found;
+    };
+
+    $failing = [];
+    $overridden = [];
+
+    foreach ($rules as [, [$selectors, $offset], [$percent]]) {
+        // A disabled control's text is exempt: SC 1.4.3 and 1.4.6 both exclude text that is part
+        // of an inactive component, and daisyUI dims exactly those -- a disabled button at 10%, a
+        // disabled input at 40%, a disabled menu row at 20%. Lifting them would make an unusable
+        // control look usable, which is the opposite of what the dimming says.
+        if (preg_match('/disabled/i', $selectors) === 1) {
+            continue;
+        }
+
+        $worst = INF;
+
+        foreach (dimmedRatiosEverywhere((int) $percent / 100) as $ratio) {
+            $worst = min($worst, $ratio);
+        }
+
+        $passes = $worst >= DIMMED_BAR;
+        $enclosing = blocksEnclosing($css, $offset);
+
+        // An override is the package's own rule, directly in `utilities` -- where it beats
+        // daisyUI's sublayers and the preflight's `base`, as the size lifts do -- and it passes
+        $ours = ($enclosing[0] ?? null) === '@layer utilities'
+            && array_filter($enclosing, static fn (string $block): bool => str_starts_with($block, '@layer daisyui')) === [];
+
+        foreach ($keys(trim($selectors)) as $key) {
+            if ($ours && $passes) {
+                $overridden[$key] = true;
+            } elseif (! $passes) {
+                $failing[$key] = true;
+            }
+        }
+    }
+
+    // The controls: what daisyUI and the preflight dim today. A detector missing one has stopped
+    // reading the artifact rather than found it clean
+    expect($failing)->toHaveKeys(['table', 'stat-title', 'stat-desc', 'label', '::placeholder']);
+
+    $views = '';
+
+    foreach (bladeTemplatesIn(__DIR__.'/../resources/views') as $view) {
+        $views .= sourceWithoutComments($view)."\n";
+    }
+
+    // Only what a view can render: a class a view writes, and a placeholder where a view sets one
+    $rendered = array_values(array_filter(
+        array_keys($failing),
+        static fn (string $key): bool => $key === '::placeholder'
+            ? str_contains($views, 'placeholder=')
+            : preg_match('/(?<![\w-])'.preg_quote($key, '/').'(?![\w-])/', $views) === 1,
+    ));
+
+    expect($rendered)->toContain('table', 'stat-title', 'label', '::placeholder');
+
+    $unlifted = array_values(array_filter($rendered, static fn (string $key): bool => ! isset($overridden[$key])));
+
+    expect($unlifted)->toBeEmpty(implode(', ', $unlifted));
+});
 
 it('measures every dimmed step the views actually use', function (): void {
     // **The half that keeps the test above honest.** Measuring a fixed list proves those two steps

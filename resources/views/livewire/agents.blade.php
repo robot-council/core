@@ -100,9 +100,9 @@
                                     @endif
 
                                     @if (($agent['work_location'] ?? null) !== null)
-                                        {{-- Dimmer than the line above it, and above the 4.5:1
-                                             bar the dashboard theme test holds dimmed text to
-                                             (#197).
+                                        {{-- Dimmer than the line above it, and above the 7:1
+                                             AAA bar the dashboard theme test holds dimmed text
+                                             to (#197, raised by #310).
 
                                              An earlier draft of this very comment used the
                                              ordinary English word for a stage in a sequence and

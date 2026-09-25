@@ -167,6 +167,35 @@
     :where(.input-xs, .input-sm) {
         --font-size-min: var(--text-meta);
     }
+
+    /*
+     * Text daisyUI and Tailwind's preflight dim on their own, lifted to the dashboard's lower
+     * dimming step.
+     *
+     * daisyUI draws a table's header and footer, a stat's title and description, and a form label
+     * at `color-mix(in oklab, <text> 60%, transparent)`, and the preflight draws a placeholder at
+     * 50%. Mixing with `transparent` leaves the text colour at that alpha, so these paint exactly
+     * what `opacity-60` painted: 4.52:1 on the light page, under the 7:1 AAA bar
+     * `.claude/rules/accessibility.md` sets. At 80% they paint what `opacity-80` paints, which
+     * `DashboardThemeTest` measures at 7.69:1 or better on every surface in both themes.
+     *
+     * The same layer placement as the size lifts above, for the same reason: unlayered inside
+     * `utilities` beats daisyUI's sublayers and the preflight's `base`, and `:where()` still lets
+     * a colour utility on the element win. A pseudo-element cannot go inside `:where()`, so the
+     * placeholder has a rule of its own; its specificity is one element, which a utility's class
+     * still beats.
+     */
+    :where(.table thead, .table tfoot, .stat-title, .stat-desc) {
+        color: color-mix(in oklab, var(--color-base-content) 80%, transparent);
+    }
+
+    :where(.label) {
+        color: color-mix(in oklab, currentcolor 80%, transparent);
+    }
+
+    ::placeholder {
+        color: color-mix(in oklab, currentcolor 80%, transparent);
+    }
 }
 
 @source "../views";

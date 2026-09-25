@@ -16,12 +16,14 @@
         <div class="card-body">
             <h2 class="card-title">Sections</h2>
 
-            {{-- These descriptions are dimmed one level less than the placeholders elsewhere, and
-                 the reason is the surface rather than the text. daisyUI paints a hovered or
+            {{-- These descriptions are dimmed one level less than the placeholders elsewhere,
+                 because they sit on a surface that moves. daisyUI paints a hovered or
                  keyboard-focused row with `base-content` at 10%, which lifts the background toward
-                 the text: dimmer than this measures 4.33:1 there in the light theme, against the
-                 4.5:1 this size needs, while at rest on the card it measures 4.64:1 and passes.
-                 A row that only fails while it is being pointed at is still a row that fails. --}}
+                 the text. When the two steps were 60 and 70, the dimmer one measured 4.33:1 there
+                 against the 4.5:1 bar of the time. Since #310 raised them to 80 and 90 for the
+                 7:1 AAA bar, both clear it on a hovered row, so the lighter step here is a margin
+                 rather than a requirement: the dimmer one's closest case is 7.69:1, in the dark
+                 theme. `DashboardThemeTest` measures both steps on this surface. --}}
             <ul class="menu w-full gap-1 p-0">
                 <li>
                     <a href="{{ route('robot-council.agents') }}">
