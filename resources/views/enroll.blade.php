@@ -12,7 +12,7 @@
     assets are declined, because this page mounts no component and is the one page whose entire job
     is a human decision.
 --}}
-@component('robot-council::layouts.dashboard', ['title' => 'Approve a machine', 'livewireAssets' => false])
+@component('robot-council::layouts.dashboard', ['title' => 'Enroll a machine', 'livewireAssets' => false])
     <div class="mx-auto w-full max-w-3xl">
         <header class="mb-6">
             <h1 class="text-xl font-semibold">Approve a machine</h1>

@@ -8,6 +8,7 @@ use Illuminate\Contracts\View\View;
 use InvalidArgumentException;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\Title;
 use Livewire\Component;
 use RobotCouncil\Access\CurrentDeveloper;
 use RobotCouncil\Models\PlacementRule;
@@ -35,6 +36,7 @@ use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
  * can simply not need; the refusal is the conditional update in `Support\Seats`.
  */
 #[Layout('robot-council::layouts.dashboard')]
+#[Title('My seats and hours')]
 final class SeatSettings extends Component
 {
     /**

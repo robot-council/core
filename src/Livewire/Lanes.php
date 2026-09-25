@@ -8,6 +8,7 @@ use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\Title;
 use Livewire\Component;
 use RobotCouncil\Support\AssignmentWindow;
 use RobotCouncil\Support\LaneBoard;
@@ -22,6 +23,7 @@ use RobotCouncil\Support\PollInterval;
  * items reach it as fleet events, not as this page.
  */
 #[Layout('robot-council::layouts.dashboard')]
+#[Title('Lanes')]
 final class Lanes extends Component
 {
     /**
