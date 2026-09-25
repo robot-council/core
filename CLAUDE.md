@@ -351,7 +351,7 @@ Rules (always loaded) — follow them; don't restate them:
 - **Local processes and trees:** `long-running-commands`, `worktrees`.
 - **GitHub:** `github-api-budget`, `filing-defects-across-repos`, `design-decision-forks`.
 - **Prose:** `impersonal-voice-in-github-artifacts`, `no-emoji-in-durable-records`, `american-english-and-dictionary-overrides`.
-- **Dashboard surfaces:** `accessibility` (WCAG 2.2 AAA as the target and AA as the floor, with the COGA and Low Vision guidance; applies to every view this package renders).
+- **Dashboard surfaces:** `accessibility` (every view this package renders).
 
 Skills (activate when working in that area):
 
