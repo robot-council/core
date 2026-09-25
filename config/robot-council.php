@@ -263,6 +263,25 @@ return [
         // Every five minutes: tells the coordinators about a build lane that has authored nothing
         // for an hour, once per quiet stretch (#332)
         'quiet_lanes' => true,
+
+        // Every five minutes: raises the lane conditions of #319 to the coordinators, once each
+        'lane_conditions' => true,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Lane conditions
+    |--------------------------------------------------------------------------
+    |
+    | The windows after which a lane condition is raised to the coordinators
+    | (#319), in minutes.
+    |
+    */
+
+    'lane_conditions' => [
+        'free_after_minutes' => (int) env('ROBOT_COUNCIL_LANE_FREE_AFTER_MINUTES', 30),
+        'take_up_within_minutes' => (int) env('ROBOT_COUNCIL_TAKE_UP_WITHIN_MINUTES', 15),
+        'gate_pickup_within_minutes' => (int) env('ROBOT_COUNCIL_GATE_PICKUP_WITHIN_MINUTES', 30),
     ],
 
     /*

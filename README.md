@@ -487,6 +487,22 @@ coordinator's. Each entry lists its blind spots: a `hitl` label, a title naming 
 human, every acceptance criterion ticked while still open, and the file paths its body mentions,
 which are unverified and are never compared between tickets.
 
+## Lane conditions
+
+The coordinator's to-do items reach it as fleet events rather than a page (#314). A `lane.condition`
+event, restricted and addressed to the live coordinators, is raised for:
+
+| `meta.condition` | when |
+| --- | --- |
+| `lane_free` | a build lane holding nothing, not parked and not held has been free past `lane_conditions.free_after_minutes` (30) |
+| `not_taken_up` | a coordinator's placement is still unstarted past `take_up_within_minutes` (15) -- a hand-back owed says so |
+| `working_unobserved` | a lane holding work goes `stale` or `gone`, raised on that transition itself |
+| `pull_request_unpicked` | a ready pull request no gate is on, unchanged past `gate_pickup_within_minutes` (30) |
+| `merge_behind` | a pull request merged, naming the live sessions in its repository now behind |
+
+Each is raised once and cleared when it stops holding; if it recurs it is raised again. The scheduled
+ones are checked every five minutes; `robot-council.schedule.lane_conditions` turns that off.
+
 ## Quiet lanes
 
 Every five minutes the scheduler checks each build lane for anything it has **authored**: a

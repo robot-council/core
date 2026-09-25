@@ -199,6 +199,15 @@ enum FleetEventType: string
     case LaneQuiet = 'lane.quiet';
 
     /**
+     * A lane condition the coordinator should act on (#319): a lane free with no stated hold, a
+     * placement not taken up, a working lane whose session stopped answering, a ready pull request
+     * no gate picked up, or a merge that left sessions behind. `meta.condition` names which.
+     *
+     * Restricted and addressed to the coordinators, like `lane.quiet`, for the same reason.
+     */
+    case LaneCondition = 'lane.condition';
+
+    /**
      * Whether an event of this type is only visible to some readers.
      *
      * **Marking an `installation.*` type restricted is now safe, and it was not before #115.**
@@ -225,11 +234,14 @@ enum FleetEventType: string
      * carries a null `user_id` and is always addressed, so the addressees -- the coordinators -- are
      * its only readers, which is exactly what #332 asks for (#323's decision).
      *
-     * @return bool True for narration, which #29 restricts, and for `lane.quiet`.
+     * `lane.condition` (#319) is the same shape -- no user, always addressed -- and restricted for
+     * the same reason.
+     *
+     * @return bool True for narration, which #29 restricts, and for `lane.quiet` and `lane.condition`.
      */
     public function isRestricted(): bool
     {
-        return $this === self::Narration || $this === self::LaneQuiet;
+        return in_array($this, [self::Narration, self::LaneQuiet, self::LaneCondition], true);
     }
 
     /**
