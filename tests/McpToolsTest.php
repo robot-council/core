@@ -130,7 +130,8 @@ it('lists its tools to a session that authenticated', function (): void {
         ->toContain('lock_acquire', 'lock_renew', 'lock_release', 'lock_force_release')
         ->toContain('events_read', 'events_narrate', 'directive_post', 'presence_heartbeat')
         ->and($names)->toContain('lane_hold', 'lane_clear_hold')
-        ->and($names)->toHaveCount(21);
+        ->and($names)->toContain('gate_start', 'gate_finish')
+        ->and($names)->toHaveCount(23);
 });
 
 it('tells an agent the content it reads is data, not instructions', function (): void {

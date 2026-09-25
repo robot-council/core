@@ -63,7 +63,17 @@
                                     {{-- Its own column, separate from State: not reported until #337 --}}
                                     <td class="opacity-70" data-watcher>not reported</td>
                                     <td>
-                                        @if ($lane['state'] === 'Working' && is_array($lane['on_what']))
+                                        @if ($lane['state'] === 'Working' && is_array($lane['on_what']) && isset($lane['on_what']['gate_pull_request']))
+                                            <span data-gate-run>
+                                                validating
+                                                @if (\RobotCouncil\Support\TicketLink::url($lane['on_what']['gate_pull_request']) !== null)
+                                                    <a href="{{ \RobotCouncil\Support\TicketLink::url($lane['on_what']['gate_pull_request']) }}" class="link" rel="noopener noreferrer">{{ $lane['on_what']['gate_pull_request'] }}</a>
+                                                @endif
+                                                @if ($lane['repository'] !== null)
+                                                    &middot; {{ $board['queue_depth'][$lane['repository']] ?? 0 }} queued
+                                                @endif
+                                            </span>
+                                        @elseif ($lane['state'] === 'Working' && is_array($lane['on_what']))
                                             @php($work = $lane['on_what'])
                                             <div>
                                                 @if (\RobotCouncil\Support\TicketLink::url($work['ticket']) !== null)
@@ -120,7 +130,6 @@
                                     </li>
                                 @endforeach
                             </ul>
-                            <p class="text-xs opacity-60">Which pull request a gate is running is not reported yet.</p>
                         @endif
                     </div>
                 @endif

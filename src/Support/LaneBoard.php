@@ -54,10 +54,12 @@ final class LaneBoard
     /**
      * @param  Seats  $seats  The seat store, for `Parked`.
      * @param  AgentLogins  $logins  Resolves host user keys to GitHub logins.
+     * @param  GateRuns  $gates  What each gate is validating (#336).
      */
     public function __construct(
         private readonly Seats $seats,
-        private readonly AgentLogins $logins
+        private readonly AgentLogins $logins,
+        private readonly GateRuns $gates
     ) {}
 
     /**
@@ -66,6 +68,7 @@ final class LaneBoard
      * @return array{
      *     lanes: array<string, list<LaneRow>>,
      *     pull_requests: array<string, list<array{number: int, reference: string, title: string, state: string}>>,
+     *     queue_depth: array<string, int>,
      *     meters: array<string, array{count: int|null, delta: int|null}>,
      *     counts: array<string, int>,
      *     truncated: bool,
@@ -86,9 +89,17 @@ final class LaneBoard
             Seat::query()->max('updated_at'),
         ], \is_string(...));
 
+        $pulls = $this->pullRequests(array_keys($rows));
+
         return [
             'lanes' => $rows,
-            'pull_requests' => $this->pullRequests(array_keys($rows)),
+            'pull_requests' => $pulls,
+
+            // A repository's queue depth: open, not a draft, and no gate on it (#336)
+            'queue_depth' => array_map(
+                static fn (array $queue): int => \count(array_filter($queue, static fn (array $pull): bool => $pull['state'] === 'queued')),
+                $pulls
+            ),
             'meters' => $this->meters(array_keys($rows)),
             'counts' => self::tally($rows),
             'truncated' => $truncated,
@@ -134,13 +145,14 @@ final class LaneBoard
         $seats = $this->seats->forSessions($sessions);
         $issues = $this->issues($tasks->flatten()->all());
         $logins = $this->logins->forUsers($sessions->pluck('user_id')->all());
+        $runs = $this->gates->running(array_values(array_map(static fn (mixed $id): int => is_numeric($id) ? (int) $id : 0, $ids)));
 
         $rows = [];
 
         foreach ($sessions as $session) {
             $held = array_values($tasks->get($session->id)?->all() ?? []);
             $hold = $holds->get($session->id);
-            $row = $this->row($session, $held, $hold instanceof LaneHold ? $hold : null, $seats[$session->id] ?? null, $issues, $logins);
+            $row = $this->row($session, $held, $hold instanceof LaneHold ? $hold : null, $seats[$session->id] ?? null, $issues, $logins, $runs[$session->id] ?? null);
             $rows[$row['repository'] ?? ''][] = $row;
         }
 
@@ -196,9 +208,10 @@ final class LaneBoard
      * @param  Seat|null  $parked  Its seat, which says whether it is parked -- `Seats::of()`'s match.
      * @param  array<string, GitHubItem>  $issues  Stored issues by lower-cased reference.
      * @param  array<string, string>  $logins  GitHub logins by host key.
+     * @param  string|null  $run  The pull request a gate is validating, `owner/name#N`.
      * @return LaneRow The row.
      */
-    private function row(AgentSession $session, array $held, ?LaneHold $hold, ?Seat $parked, array $issues, array $logins): array
+    private function row(AgentSession $session, array $held, ?LaneHold $hold, ?Seat $parked, array $issues, array $logins, ?string $run): array
     {
         $task = $held[0] ?? null;
 
@@ -209,6 +222,8 @@ final class LaneBoard
         [$state, $onWhat] = match (true) {
             $session->status === AgentSessionStatus::Stale => ['not observed', null],
             $task instanceof Task => ['Working', [...$this->working($task, $issues), 'also_holds' => \count($held) - 1]],
+            // A gate's work is a pull request rather than a task: it is working while it runs one
+            $run !== null => ['Working', ['gate_pull_request' => $run]],
             $parked?->isParked() === true => ['Parked', ['party' => ($parker === null ? null : ($logins[$parker] ?? null)) ?? 'its developer', 'what' => 'parked this seat']],
             $hold instanceof LaneHold => ['Blocked', ['party' => $hold->party, 'what' => $hold->reason->reads()]],
             default => ['Idle', null],
@@ -303,8 +318,7 @@ final class LaneBoard
     /**
      * Each repository's open pull requests, from what GitHub has told the fleet (#318).
      *
-     * `running` -- a gate is on it -- is not reported until #336 records which pull request a gate
-     * is validating, so an open one reads `draft` or `queued`.
+     * `running` when a gate reported it is validating it (#336), and otherwise `draft` or `queued`.
      *
      * @param  list<string|int>  $repositories  The repositories on the board.
      * @return array<string, list<array{number: int, reference: string, title: string, state: string}>> By repository.
@@ -328,6 +342,9 @@ final class LaneBoard
             return [];
         }
 
+        // Which open pull requests a gate is on, compared without case like the repositories
+        $running = array_map(mb_strtolower(...), array_values($this->gates->running()));
+
         // One query for every repository, rather than one each
         $placeholders = implode(', ', array_fill(0, \count($shown), '?'));
 
@@ -349,7 +366,7 @@ final class LaneBoard
                 'number' => $pull->number,
                 'reference' => $pull->reference(),
                 'title' => $pull->title,
-                'state' => $pull->draft ? 'draft' : 'queued',
+                'state' => \in_array(mb_strtolower($pull->reference()), $running, true) ? 'running' : ($pull->draft ? 'draft' : 'queued'),
             ];
         }
 
