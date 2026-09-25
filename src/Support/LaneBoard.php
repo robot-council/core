@@ -20,13 +20,13 @@ use RobotCouncil\Models\TaskStatus;
  *
  * **Every cell is derived, and a missing field fails toward the honest reading.** A lane's `State`
  * is one of five and is computed here, never stored: a lane with no task is never `Working`,
- * whatever anything else says, and a cell whose data has no model yet reads "not reported" rather
- * than a stand-in -- #317's decision, with the model each such cell waits on named where it is.
+ * whatever anything else says. A value nobody measured renders as unmeasured -- an unread backlog
+ * count is a dash, a watcher that never reported is `absent` -- never as a stand-in.
  *
  * **`Parked` is `Seats::of()`, the rule a placement refuses on (#320)**, so the label and the
  * refusal cannot disagree.
  *
- * @phpstan-type LaneRow array{id: int, repository: string|null, developer: string|null, machine: string, harness: string, slot: string|null, is_gate: bool, state: string, watcher: null, on_what: array<string, mixed>|null, known_since: Carbon}
+ * @phpstan-type LaneRow array{id: int, repository: string|null, developer: string|null, machine: string, harness: string, slot: string|null, is_gate: bool, state: string, watcher: array{state: string, age_seconds: int|null}, on_what: array<string, mixed>|null, known_since: Carbon}
  *
  * The reader is for a developer on the dashboard, who #73 decided sees the whole fleet, so issue
  * references and branches are shown here though `TaskList` withholds them from agents that may not
@@ -57,13 +57,15 @@ final class LaneBoard
      * @param  GateRuns  $gates  What each gate is validating (#336).
      * @param  Backlog  $backlog  The backlog counts, for the meters.
      * @param  OwedItems  $owed  What the fleet waits on developers for (#335).
+     * @param  Watchers  $watchers  Each lane's watcher, read from its own heartbeat (#337).
      */
     public function __construct(
         private readonly Seats $seats,
         private readonly AgentLogins $logins,
         private readonly GateRuns $gates,
         private readonly Backlog $backlog,
-        private readonly OwedItems $owed
+        private readonly OwedItems $owed,
+        private readonly Watchers $watchers
     ) {}
 
     /**
@@ -245,8 +247,8 @@ final class LaneBoard
             'is_gate' => $session->role === Role::Ci,
             'state' => $state,
 
-            // Its own column, and not reported until #337 records a watcher apart from the session
-            'watcher' => null,
+            // Its own column, from the watcher's heartbeat rather than the session's contact (#337)
+            'watcher' => $this->watchers->reading($session->getAttributes()['watcher_seen_at'] ?? null, Carbon::now()),
 
             'on_what' => $onWhat,
 

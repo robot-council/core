@@ -176,6 +176,10 @@ return [
     ],
 
     'presence' => [
+        // How long the bridge watcher's own heartbeat counts as alive on the lane board (#337).
+        // Past it the watcher reads as stale, and past fifteen minutes as unknown.
+        'watcher_stale_after_seconds' => (int) env('ROBOT_COUNCIL_WATCHER_STALE_AFTER_SECONDS', 90),
+
         'stale_after_minutes' => (int) env('ROBOT_COUNCIL_PRESENCE_STALE_AFTER_MINUTES', 5),
         'gone_after_minutes' => (int) env('ROBOT_COUNCIL_PRESENCE_GONE_AFTER_MINUTES', 30),
 

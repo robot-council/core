@@ -39,6 +39,7 @@ use RobotCouncil\Http\Controllers\SessionEndController;
 use RobotCouncil\Http\Controllers\SessionRenewController;
 use RobotCouncil\Http\Controllers\SessionStartController;
 use RobotCouncil\Http\Controllers\TransitionTaskController;
+use RobotCouncil\Http\Controllers\WatcherHeartbeatController;
 use RobotCouncil\Http\Middleware\EnsureAgentSession;
 use RobotCouncil\Http\Middleware\EnsureInstallation;
 use RobotCouncil\Http\Middleware\RequireAbility;
@@ -94,6 +95,9 @@ Route::middleware(['throttle:'.RobotCouncilServiceProvider::AGENT_LIMITER, Ensur
         // Contact is recorded for every route in this group, so this one is for a process that has
         // nothing else to send rather than the only thing that keeps a session alive
         Route::post('agent/heartbeat', AgentHeartbeatController::class)->name('agent.heartbeat');
+
+        // The bridge watcher's own heartbeat, recorded apart from the session's contact (#337)
+        Route::post('agent/watcher', WatcherHeartbeatController::class)->name('agent.watcher');
 
         // **No ability, because asking is not doing**, and its own limiter on top of the group's:
         // a denied session re-asking in a loop fills an administrator's queue, which is a flood
