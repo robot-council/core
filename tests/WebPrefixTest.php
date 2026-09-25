@@ -150,6 +150,7 @@ it('mounts every web route at the application root when the prefix is empty', fu
         'enroll.deny' => 'enroll/deny',
         'enroll.show' => 'enroll',
         'feed' => 'dashboard/feed',
+        'lanes' => 'dashboard/lanes',
         'presence' => 'dashboard/presence',
         'queue' => 'dashboard/queue',
         'seats' => 'dashboard/seats',

@@ -25,6 +25,7 @@ use RobotCouncil\Livewire\Administration;
 use RobotCouncil\Livewire\ChangeFeed;
 use RobotCouncil\Livewire\Dashboard;
 use RobotCouncil\Livewire\FleetPresence;
+use RobotCouncil\Livewire\Lanes;
 use RobotCouncil\Livewire\SeatSettings;
 use RobotCouncil\Livewire\TaskBoard;
 use RobotCouncil\RobotCouncilServiceProvider;
@@ -88,6 +89,7 @@ Route::middleware([EnsureAllowlistedDeveloper::class, DenyFraming::class])->grou
     // same directive and needs no modifier; `theDirectiveIsMissingKeepAlive()` is what it reads, so
     // `.keep-alive` would opt OUT of it and nothing here should carry that one.
     Route::get('dashboard/presence', FleetPresence::class)->name('presence');
+    Route::get('dashboard/lanes', Lanes::class)->name('lanes');
     Route::get('dashboard/queue', TaskBoard::class)->name('queue');
     Route::get('dashboard/feed', ChangeFeed::class)->name('feed');
     Route::get('dashboard/administration', Administration::class)->name('administration');

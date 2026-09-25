@@ -337,13 +337,14 @@ package's route files then, and the server is registered inside that same guard.
 
 ## The dashboard
 
-A signed-in developer reaches the fleet's state through six pages, each behind the same access
+A signed-in developer reaches the fleet's state through seven pages, each behind the same access
 list and framing refusal as the verification page:
 
 | path | shows |
 | --- | --- |
 | `{prefix}/dashboard` | the fleet's totals, and the way in to the rest |
 | `{prefix}/dashboard/presence` | the agents and the locks they hold |
+| `{prefix}/dashboard/lanes` | the lane board: each lane's state and what it is on, pull requests by repository, and backlog meters |
 | `{prefix}/dashboard/queue` | the task board |
 | `{prefix}/dashboard/feed` | the change feed |
 | `{prefix}/dashboard/seats` | the signed-in developer's own seats, assignment hours and days off |
@@ -358,13 +359,20 @@ The pages are Livewire components and refresh by polling every
 `robot-council.dashboard.poll_seconds` seconds, defaulting to 5 and bounded to 1..3600. There is no
 broadcasting: a change an agent commits is visible within one interval and no sooner.
 
+**The lane board is rendered from measured state, never typed.** A lane's `State` is one of
+`Working`, `Idle`, `Parked`, `Blocked` and `not observed`, derived each time -- a lane holding no task
+is never `Working` -- and `Parked` is the same rule a placement refuses on. A cell whose data has no
+source yet reads "not reported" rather than a stand-in: the watcher, which pull request a gate is
+running, and what the fleet waits on each developer for. A backlog count nobody has measured renders
+as a dash, never a number. Stamps are shown in `robot-council.dashboard.timezone` (UTC by default).
+
 **`{prefix}` itself answers a 302 to the dashboard**, so the prefix the package is mounted under
 does not lead nowhere while the site root leads somewhere. Like the stylesheet below it, that route
 sits outside the `web` middleware group and outside the access list: it reads nothing and decides
 nothing, so a visitor being sent elsewhere has no session written for them. It is documented here
 rather than in the table above because the two sentences around that table -- the access list, the
 framing refusal, and a host's own gate in `robot-council.routes.web_middleware` -- are true of those
-six pages and not of this redirect.
+seven pages and not of this redirect.
 
 **It is not registered when the prefix resolves to `/`**, whether the host configured an empty
 string or a bare slash. That path belongs to the host, and a host serving the console at its root

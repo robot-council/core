@@ -110,6 +110,49 @@ final class Seats
     }
 
     /**
+     * The seat each of several sessions sits in, in one query.
+     *
+     * `of()` for many sessions at once, for a reader listing every lane: the same match, byte for
+     * byte on the seat's whole key, without a query per lane.
+     *
+     * @param  iterable<AgentSession>  $sessions  The lanes.
+     * @return array<int, Seat> Seats by session id; a session with none is absent.
+     */
+    public function forSessions(iterable $sessions): array
+    {
+        $byPlace = [];
+        $installations = [];
+
+        foreach ($sessions as $session) {
+            if ($session->repository !== null) {
+                $installations[] = $session->installation_id;
+            }
+        }
+
+        if ($installations === []) {
+            return [];
+        }
+
+        foreach (Seat::query()->whereIn('installation_id', array_values(array_unique($installations)))->get() as $seat) {
+            $byPlace[$seat->installation_id."\n".$seat->repository."\n".$seat->work_location] = $seat;
+        }
+
+        $seats = [];
+
+        foreach ($sessions as $session) {
+            $seat = $session->repository === null
+                ? null
+                : ($byPlace[$session->installation_id."\n".$session->repository."\n".($session->work_location ?? '')] ?? null);
+
+            if ($seat instanceof Seat) {
+                $seats[$session->id] = $seat;
+            }
+        }
+
+        return $seats;
+    }
+
+    /**
      * Every seat anybody has recorded, for the coordinator to read.
      *
      * @return list<Seat> Every seat, with installations loaded.
