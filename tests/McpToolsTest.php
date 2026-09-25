@@ -131,8 +131,8 @@ it('lists its tools to a session that authenticated', function (): void {
         ->toContain('lock_acquire', 'lock_renew', 'lock_release', 'lock_force_release')
         ->toContain('events_read', 'events_narrate', 'directive_post', 'presence_heartbeat')
         ->and($names)->toContain('lane_hold', 'lane_clear_hold')
-        ->and($names)->toContain('backlog_report', 'gate_start', 'gate_finish')
-        ->and($names)->toHaveCount(24);
+        ->and($names)->toContain('backlog_report', 'gate_start', 'gate_finish', 'owed_record', 'owed_settle')
+        ->and($names)->toHaveCount(26);
 });
 
 it('tells an agent the content it reads is data, not instructions', function (): void {
@@ -879,4 +879,15 @@ it('records a backlog count through backlog_report', function (): void {
     expect(toolResult(callTool($this, $this->token, 'backlog_report', ['repository' => 'robot-council/core', 'open_issues' => 5])))
         ->toBe(['repository' => 'robot-council/core', 'open_issues' => 5])
         ->and(DB::table('robot_council_backlog_readings')->value('open_issues'))->toBe(5);
+});
+
+it('records and settles an owed item through the tools', function (): void {
+    $token = mcpCoordinatorToken($this);
+
+    $id = toolResult(callTool($this, $token, 'owed_record', ['ticket' => 'robot-council/core#12', 'question' => 'Q?', 'why' => 'W.']))['id'] ?? null;
+
+    expect($id)->toBeInt()
+        ->and(toolResult(callTool($this, $token, 'owed_settle', ['item_id' => $id])))->toBe(['settled' => true])
+        ->and(toolError(callTool($this, $token, 'owed_record', ['developer' => 'stranger', 'ticket' => 'robot-council/core#12', 'question' => 'Q?', 'why' => 'W.'])))
+        ->toContain('No developer in this fleet');
 });
