@@ -246,6 +246,15 @@ it('sends the retired presence page to the agents, permanently', function (): vo
         ->assertRedirect(route('robot-council.agents'));
 });
 
+it('still resolves the retired presence component, as the agents list', function (): void {
+    // A host that embedded the combined panel before #308 gets the agents half rather than a
+    // component-not-found error on upgrade
+    Livewire::test('robot-council-fleet-presence')
+        ->assertSee('box-first')
+        ->assertSee('box-second')
+        ->assertDontSee('lock-first');
+});
+
 it('sends the retired presence page to the agents under whatever prefix the host chose', function (): void {
     // **The case `Route::redirect()` gets wrong.** Its destination is a literal path the group
     // prefix is never applied to, so it answers a relative `dashboard/agents`, which a browser

@@ -326,6 +326,9 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
         Livewire::component('robot-council-agents', Agents::class);
         Livewire::component('robot-council-change-feed', ChangeFeed::class);
         Livewire::component('robot-council-fleet-totals', FleetTotals::class);
+        // The combined presence panel's name, kept for a host that embedded it before #308: it
+        // now mounts the agents half rather than failing to resolve.
+        Livewire::component('robot-council-fleet-presence', Agents::class);
         Livewire::component('robot-council-lanes', Lanes::class);
         Livewire::component('robot-council-locks', LocksPage::class);
         Livewire::component('robot-council-seat-settings', SeatSettings::class);

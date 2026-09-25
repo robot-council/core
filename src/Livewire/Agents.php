@@ -63,8 +63,9 @@ final class Agents extends Component
      * The one session to list, or null for every session in scope.
      *
      * What a lock's holder links to. Typed as an int, so the only thing it can carry into the query
-     * is a number: measured on Livewire v4.4.5, a query value that is not one -- a word, a number
-     * past `PHP_INT_MAX` -- hydrates as null and the page lists everything. An id no row carries,
+     * is a number: measured on Livewire v4.4.5, a word or a number past `PHP_INT_MAX` hydrates as
+     * null and the page lists everything. The assignment coerces, so `true` or `1.5` narrows to
+     * session #1, which the banner names -- no scope widens either way. An id no row carries,
      * zero and negatives included, lists nothing and says so, rather than listing everything and
      * leaving the reader to wonder which row they were sent to.
      */
