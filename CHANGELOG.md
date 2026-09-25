@@ -2,6 +2,13 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.6.7 — Mirroring Restricted Events (2026-09-25)
+
+`slack.mirror_restricted` is now read from `ROBOT_COUNCIL_SLACK_MIRROR_RESTRICTED`, with the old narration-only name still honored when it is unset.
+
+### What's new
+- Read `slack.mirror_restricted` from a variable named for every restricted type [#377](https://github.com/robot-council/core/pull/377)
+
 ## v0.6.6 — What a Page Holds (2026-09-25)
 
 `events_read` now says that `limit` caps the events a read returns, and that one read looks at no more than 1,000 event ids.
