@@ -15,6 +15,7 @@ declare(strict_types=1);
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Testing\TestResponse;
 use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\FleetEventType;
@@ -397,6 +398,28 @@ it('records and removes a blocked_by edge across repositories', function (): voi
     deliver($this, 'issue_dependencies', ['action' => 'blocked_by_removed', ...$edge])->assertOk();
 
     expect(DB::table('robot_council_github_blockers')->count())->toBe(0);
+});
+
+it('logs a blocked_by removal that finds no stored edge, and nothing for one that does', function (): void {
+    $edge = [
+        'blocked_issue' => ['number' => 318, 'repository_url' => 'https://api.github.com/repos/robot-council/core'],
+        'blocking_issue' => ['number' => 9, 'repository_url' => 'https://api.github.com/repos/robot-council/cli'],
+        'repository' => ['full_name' => 'robot-council/core'],
+    ];
+
+    $log = Log::spy();
+
+    // Stored, then removed: the ordinary case, which is not worth a line
+    deliver($this, 'issue_dependencies', ['action' => 'blocked_by_added', ...$edge])->assertOk();
+    deliver($this, 'issue_dependencies', ['action' => 'blocked_by_removed', ...$edge])->assertOk();
+
+    $log->shouldNotHaveReceived('notice');
+
+    // A removal with nothing to remove: the trace of one delivered ahead of its add
+    deliver($this, 'issue_dependencies', ['action' => 'blocked_by_removed', ...$edge])->assertOk();
+
+    $log->shouldHaveReceived('notice')->once()->withArgs(static fn (string $message, array $context): bool => str_contains($message, 'found no stored edge')
+        && $context === ['repository' => 'robot-council/core', 'number' => 318, 'blocker_repository' => 'robot-council/cli', 'blocker_number' => 9]);
 });
 
 // --- What it does to the lanes ------------------------------------------------------------------
