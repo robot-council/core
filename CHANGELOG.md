@@ -2,6 +2,13 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.6.8 — Page Titles (2026-09-25)
+
+Each console page now carries its own title, and the fleet's name is configurable through `robot-council.dashboard.name`.
+
+### What's new
+- Give each page its own title, and make the fleet's name configurable [#379](https://github.com/robot-council/core/pull/379)
+
 ## v0.6.7 — Mirroring Restricted Events (2026-09-25)
 
 `slack.mirror_restricted` is now read from `ROBOT_COUNCIL_SLACK_MIRROR_RESTRICTED`, with the old narration-only name still honored when it is unset.
