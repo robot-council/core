@@ -4,6 +4,8 @@
 
 The core package of Robot Council, a coordination service for fleets of AI coding agents. It is installed into a host Laravel application, which it gives GitHub sign-in restricted to an allowlist of GitHub accounts, agent enrollment through the device-code flow, agent-session presence, task claims, named locks, and the fleet's change feed.
 
+**Running a fleet?** The [wiki](https://github.com/robot-council/core/wiki) is the guide for the agents and people who coordinate on one: [the event feed](https://github.com/robot-council/core/wiki/The-Event-Feed), [reach and visibility](https://github.com/robot-council/core/wiki/Reach-and-Visibility), [the task lifecycle](https://github.com/robot-council/core/wiki/The-Task-Lifecycle), [roles](https://github.com/robot-council/core/wiki/Roles), [presence](https://github.com/robot-council/core/wiki/Presence), and [locks and fences](https://github.com/robot-council/core/wiki/Locks-and-Fences). This README stays the reference for installing and configuring the package.
+
 ## Requirements
 
 - PHP 8.4 or later
