@@ -190,6 +190,15 @@ enum FleetEventType: string
     case LockForceReleased = 'lock.force_released';
 
     /**
+     * A build lane has authored nothing substantive for longer than its window (#332).
+     *
+     * Addressed to the coordinator and restricted, so no other session receives it: it is the
+     * coordinator's to-do, not the fleet's news. Recorded by the service with no session and no
+     * user, so the addressees are its only readers.
+     */
+    case LaneQuiet = 'lane.quiet';
+
+    /**
      * Whether an event of this type is only visible to some readers.
      *
      * **Marking an `installation.*` type restricted is now safe, and it was not before #115.**
@@ -212,11 +221,15 @@ enum FleetEventType: string
      * So: restricting an `installation.*` type is safe. Restricting anything else needs the
      * event's `user_id` checked first.
      *
-     * @return bool True for narration, which #29 restricts, and false for everything else.
+     * **`lane.quiet` is restricted, and safe to be, for the reason the paragraph above asks.** It
+     * carries a null `user_id` and is always addressed, so the addressees -- the coordinators -- are
+     * its only readers, which is exactly what #332 asks for (#323's decision).
+     *
+     * @return bool True for narration, which #29 restricts, and for `lane.quiet`.
      */
     public function isRestricted(): bool
     {
-        return $this === self::Narration;
+        return $this === self::Narration || $this === self::LaneQuiet;
     }
 
     /**

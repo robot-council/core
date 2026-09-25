@@ -21,6 +21,7 @@ use Livewire\Livewire;
 use RobotCouncil\Access\Allowlist;
 use RobotCouncil\Access\ApiGuards;
 use RobotCouncil\Access\Guard;
+use RobotCouncil\Console\CheckQuietLanesCommand;
 use RobotCouncil\Console\DoctorCommand;
 use RobotCouncil\Console\ImportGitHubItemsCommand;
 use RobotCouncil\Console\InstallCommand;
@@ -153,6 +154,7 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
                 PruneTasksCommand::class,
                 SweepSessionsCommand::class,
                 TakeBacklogBaselineCommand::class,
+                CheckQuietLanesCommand::class,
             ]);
     }
 
@@ -672,12 +674,13 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
         $pruneLocks = $config->get('robot-council.schedule.prune_locks', true) === true;
         $pruneSessions = $config->get('robot-council.schedule.prune_sessions', true) === true;
         $backlog = $config->get('robot-council.schedule.backlog_baseline', true) === true;
+        $quiet = $config->get('robot-council.schedule.quiet_lanes', true) === true;
 
-        if (! $prune && ! $sweep && ! $pruneEvents && ! $pruneTasks && ! $pruneLocks && ! $pruneSessions && ! $backlog) {
+        if (! $prune && ! $sweep && ! $pruneEvents && ! $pruneTasks && ! $pruneLocks && ! $pruneSessions && ! $backlog && ! $quiet) {
             return;
         }
 
-        $this->app->booted(static function () use ($prune, $sweep, $pruneEvents, $pruneTasks, $pruneLocks, $pruneSessions, $backlog): void {
+        $this->app->booted(static function () use ($prune, $sweep, $pruneEvents, $pruneTasks, $pruneLocks, $pruneSessions, $backlog, $quiet): void {
             if ($prune) {
                 Schedule::command(PruneDeviceCodesCommand::class)->hourly();
             }
@@ -711,6 +714,10 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
 
             if ($backlog) {
                 Schedule::command(TakeBacklogBaselineCommand::class)->everyFiveMinutes();
+            }
+
+            if ($quiet) {
+                Schedule::command(CheckQuietLanesCommand::class)->everyFiveMinutes();
             }
         });
     }

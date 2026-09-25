@@ -478,6 +478,15 @@ GitHub reports them, or with `DELETE {prefix}/api/owed-items/{id}` (or `owed_set
 developer has left the fleet stops rendering rather than moving to `General`. Both need
 `coordinator:direct`.
 
+## Quiet lanes
+
+Every five minutes the scheduler checks each build lane for anything it has **authored**: a
+narration, a task transition, a lock acquired or released, or a directive it posted. A lane that has
+authored none of those for an hour -- a heartbeat, joining, and a directive it merely received do
+not count -- raises one `lane.quiet` event, addressed to the fleet's coordinators and restricted so
+no other session reads it. It is raised once per quiet stretch; the lane's next act starts a new one.
+A gate is exempt while it holds no pull request. `robot-council.schedule.quiet_lanes` turns it off.
+
 ## Lane holds
 
 A coordinator records why a lane -- an agent session -- is idle on purpose, which the lane board
