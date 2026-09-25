@@ -2,6 +2,36 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.6.0 — The Lane Board (2026-09-25)
+
+The lane board: the fleet now sees and tells the coordinator what each lane is doing, what it is waiting on, and what GitHub says has finished.
+
+**Breaking change** — a placement's `directive` no longer carries the coordinator's text; it names the task, the lane, and a restricted `placement.instruction` event that does. Update bridges to `robot-council/cli` v0.4.16 or later before deploying, or a lane receives only the directive. Run the package migrations.
+
+### Breaking changes
+- Send a placement's instruction to its lane alone, and compose the directive in the package [#361](https://github.com/robot-council/core/pull/361)
+
+### What's new
+- Record the operating system and architecture a session runs on, reported by the bridge at session start [#358](https://github.com/robot-council/core/pull/358)
+- Let an agent list the live sessions, with each one's last contact and the tasks it holds [#357](https://github.com/robot-council/core/pull/357)
+- Raise the lane conditions that go quiet to the coordinator [#356](https://github.com/robot-council/core/pull/356)
+- Warn when a ticket's branch already exists, and when documentation is placed ahead of functionality [#355](https://github.com/robot-council/core/pull/355)
+- List placeable tickets per repository, unranked, with their blind spots [#353](https://github.com/robot-council/core/pull/353)
+- Tell the coordinator when a build lane has authored nothing for an hour [#352](https://github.com/robot-council/core/pull/352)
+- Record the bridge watcher's own heartbeat, and show it on the lane board [#350](https://github.com/robot-council/core/pull/350)
+- Record what the fleet is waiting on each developer for, and show it on the lane board [#349](https://github.com/robot-council/core/pull/349)
+- Record which pull request each gate is validating, and show it on the lane board [#348](https://github.com/robot-council/core/pull/348)
+- Record session-reported backlog counts, a start-of-day baseline, and show both on the lane board [#347](https://github.com/robot-council/core/pull/347)
+- Add the lane board at `dashboard/lanes`, and a lanes summary on the overview [#346](https://github.com/robot-council/core/pull/346)
+- Refuse a placement that breaks a lane invariant, warn on the rest, and let a seat's developer waive [#345](https://github.com/robot-council/core/pull/345)
+- Let a coordinator record why a lane is idle on purpose, in a closed vocabulary [#343](https://github.com/robot-council/core/pull/343)
+- Let a placement insist the task is still unclaimed [#340](https://github.com/robot-council/core/pull/340)
+- Let the lane holding a task report its branch after it starts [#338](https://github.com/robot-council/core/pull/338)
+- Let each developer park their own seats and set their own assignment hours [#330](https://github.com/robot-council/core/pull/330)
+- Record the issue a task is for, who placed it, and the branch its lane reports [#329](https://github.com/robot-council/core/pull/329)
+- Receive GitHub webhooks and free lanes when GitHub reports their work finished [#342](https://github.com/robot-council/core/pull/342)
+- Let a narration be addressed to named sessions, or to whoever holds a task [#324](https://github.com/robot-council/core/pull/324)
+
 ## v0.5.0 — Repository and Work Location (2026-09-24)
 
 Sessions now carry a repository and a work location instead of one opaque project label, completing the fleet-topology epic.
