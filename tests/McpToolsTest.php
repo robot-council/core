@@ -822,7 +822,7 @@ it('records the branch of a started task through task_branch', function (): void
 
     $result = toolResult(callTool($this, $this->token, 'task_branch', ['task_id' => $taskId, 'branch' => 'feature/lane-board']));
 
-    expect($result)->toBe(['task_id' => $taskId, 'branch' => 'feature/lane-board', 'applied' => true])
+    expect($result)->toBe(['task_id' => $taskId, 'branch' => 'feature/lane-board', 'sub_label' => null, 'applied' => true])
         ->and(Task::query()->findOrFail($taskId)->branch)->toBe('feature/lane-board');
 });
 

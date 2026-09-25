@@ -24,6 +24,7 @@ use RobotCouncil\Support\BranchName;
 use RobotCouncil\Support\Outcome;
 use RobotCouncil\Support\PlacementRefused;
 use RobotCouncil\Support\PlacementRules;
+use RobotCouncil\Support\SubLabel;
 use RobotCouncil\Support\TaskList;
 use RobotCouncil\Support\Tasks;
 
@@ -114,6 +115,9 @@ final class TaskTransitionTool extends Tool
             $arguments['branch'] = $schema->string()
                 ->max(BranchName::MAX)
                 ->description('The git branch you are working on for this task, as [A-Za-z0-9._/-], if it already exists. Usually it does not yet: omit it here and call `task_branch` once you have created the branch.');
+            $arguments['sub_label'] = $schema->string()
+                ->max(SubLabel::MAX)
+                ->description('If a subagent of yours takes this task up, which one -- such as its worktree -- as [A-Za-z0-9._-] starting with a letter or digit. Display only: it tells your held tasks apart on the lane board and in the feed.');
         }
 
         if ($this->transition->takesAResult()) {
@@ -169,6 +173,9 @@ final class TaskTransitionTool extends Tool
             'branch' => $this->transition->takesABranch()
                 ? ['sometimes', 'nullable', 'string', 'max:'.BranchName::MAX, 'regex:'.BranchName::PATTERN]
                 : ['prohibited'],
+            'sub_label' => $this->transition->takesABranch()
+                ? ['sometimes', 'nullable', 'string', 'max:'.SubLabel::MAX, 'regex:'.SubLabel::PATTERN]
+                : ['prohibited'],
         ]);
 
         $assignee = null;
@@ -186,6 +193,7 @@ final class TaskTransitionTool extends Tool
 
         $directive = $request->get('directive');
         $branch = $request->get('branch');
+        $subLabel = $request->get('sub_label');
 
         try {
             $outcome = $tasks->transition(
@@ -205,7 +213,8 @@ final class TaskTransitionTool extends Tool
                 // `TrimStrings` would otherwise hand the store a blank branch, which it refuses with an
                 // exception the agent reads as an internal error
                 \is_string($branch) && trim($branch) !== '' ? $branch : null,
-                \is_string($request->get('expect')) ? TaskStatus::tryFrom($request->get('expect')) : null
+                \is_string($request->get('expect')) ? TaskStatus::tryFrom($request->get('expect')) : null,
+                \is_string($subLabel) && trim($subLabel) !== '' ? $subLabel : null
             );
         } catch (PlacementRefused $placementRefused) {
             // Every rule the placement broke, in words, as an error: the model must not read a

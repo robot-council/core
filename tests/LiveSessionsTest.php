@@ -153,9 +153,9 @@ it('lists the tasks each session holds, with words only where the reader may act
     $asBuild = readLanes($this, $this->token);
 
     expect(laneRow($asBuild, $other->id)['tasks'])->toBe([
-        ['id' => $theirs->id, 'status' => 'claimed', 'readable' => false, 'title' => null, 'description' => null],
+        ['id' => $theirs->id, 'status' => 'claimed', 'sub_label' => null, 'readable' => false, 'title' => null, 'description' => null],
     ])->and(laneRow($asBuild, $this->session->id)['tasks'])->toBe([
-        ['id' => $mine, 'status' => 'claimed', 'readable' => true, 'title' => 'My own', 'description' => null],
+        ['id' => $mine, 'status' => 'claimed', 'sub_label' => null, 'readable' => true, 'title' => 'My own', 'description' => null],
     ]);
 
     // Work a coordinator opened to the fleet is readable by any build session, as `task_list` has it
@@ -168,7 +168,7 @@ it('lists the tasks each session holds, with words only where the reader may act
 
     // A coordinator reads every task's words, as it does in `task_list`
     expect(arrayValue(laneRow(readLanes($this, $this->coordinatorToken), $other->id)['tasks'])[0] ?? null)->toBe(
-        ['id' => $theirs->id, 'status' => 'claimed', 'readable' => true, 'title' => 'Their secret', 'description' => 'Do this'],
+        ['id' => $theirs->id, 'status' => 'claimed', 'sub_label' => null, 'readable' => true, 'title' => 'Their secret', 'description' => 'Do this'],
     );
 });
 

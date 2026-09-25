@@ -37,6 +37,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $project_id
  * @property string|null $issue
  * @property string|null $branch
+ * @property string|null $sub_label
  * @property Placement|null $placed_by
  * @property bool $hand_back
  * @property Carbon|null $created_at
@@ -58,8 +59,9 @@ use Illuminate\Support\Carbon;
     'created_with_coordinator',
     'project_id',
 
-    // Named at creation. `branch`, `placed_by` and `hand_back` are deliberately absent: each is a
-    // fact about how the task came to be held, so only a transition's conditional update writes them
+    // Named at creation. `branch`, `sub_label`, `placed_by` and `hand_back` are deliberately absent:
+    // each is a fact about how the task came to be held, so only a conditional update naming the
+    // holder writes them
     'issue',
 ])]
 #[Table(name: 'robot_council_tasks')]

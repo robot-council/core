@@ -38,8 +38,12 @@ final class LiveSessions
 
     /**
      * @param  AgentLogins  $logins  Resolves the GitHub account behind a session.
+     * @param  Seats  $seats  The seat store, whose cap bounds each session's capacity.
      */
-    public function __construct(private readonly AgentLogins $logins) {}
+    public function __construct(
+        private readonly AgentLogins $logins,
+        private readonly Seats $seats
+    ) {}
 
     /**
      * One page of the sessions that have not gone, newest first.
@@ -109,6 +113,9 @@ final class LiveSessions
             $held[(int) $task->claimed_by][] = $task;
         }
 
+        // One query for the page's seats, which cap each session's capacity (#409)
+        $seats = $this->seats->forSessions($sessions);
+
         return [
             'sessions' => array_values($sessions->map(fn (AgentSession $session): array => [
                 'id' => $session->id,
@@ -128,6 +135,10 @@ final class LiveSessions
                 // conditional update in the package until the next sweep
                 'status' => $session->status->value,
                 'last_seen_at' => $session->last_seen_at->toIso8601String(),
+
+                // How many tasks a coordinator may place on it now (#409): what it declared, capped
+                // by its seat -- the number `lane_free` refuses on once `tasks` is that long
+                'capacity' => Capacity::effective($session, $seats[$session->id] ?? null),
                 'tasks' => array_map(
                     fn (Task $task): array => $this->task($task, $asCoordinator || $task->isClaimableBy($reader)),
                     $held[$session->id] ?? []
@@ -149,6 +160,10 @@ final class LiveSessions
         return [
             'id' => $task->id,
             'status' => $task->status->value,
+
+            // The holder's label for it (#409). Not behind `readable`: it is charset-limited, says
+            // nothing about the work, and every `task.*` event already carries it to the fleet
+            'sub_label' => $task->sub_label,
             'readable' => $readable,
             'title' => $readable ? $task->title : null,
             'description' => $readable ? $task->description : null,

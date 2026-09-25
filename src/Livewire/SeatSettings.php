@@ -13,6 +13,7 @@ use Livewire\Component;
 use RobotCouncil\Access\CurrentDeveloper;
 use RobotCouncil\Models\PlacementRule;
 use RobotCouncil\Models\Seat;
+use RobotCouncil\Support\Capacity;
 use RobotCouncil\Support\DeveloperSettings;
 use RobotCouncil\Support\Outcome;
 use RobotCouncil\Support\PlacementWaivers;
@@ -22,7 +23,7 @@ use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
 
 /**
- * A developer's own seats, assignment hours and days off (#322).
+ * A developer's own seats, their capacity (#409), assignment hours and days off (#322).
  *
  * **The developer is read off the package's web guard on every entry point, and never from the
  * request.** Nothing a client sends names whose settings change: an action carries a seat id or a
@@ -63,6 +64,16 @@ final class SeatSettings extends Component
      * A day off being added, `YYYY-MM-DD`.
      */
     public string $holiday = '';
+
+    /**
+     * Each seat's capacity as the form holds it, by seat id (#409).
+     *
+     * Client-writable, like every other field here, so `setCapacity()` reads it as untrusted and the
+     * store refuses a seat that is not this developer's.
+     *
+     * @var array<int|string, mixed>
+     */
+    public array $capacities = [];
 
     /**
      * What the last action did not do, in words, or null when it did what was asked.
@@ -178,6 +189,29 @@ final class SeatSettings extends Component
     }
 
     /**
+     * Cap how many tickets a session in this seat may hold at once, from what the form holds (#409).
+     *
+     * **Refused here when out of range, though the store clamps.** A developer who typed 50 should
+     * be told the bound rather than find 16 stored, and a blank or a fraction is not a number of
+     * tickets at all.
+     *
+     * @param  int  $seatId  The seat.
+     */
+    public function setCapacity(int $seatId): void
+    {
+        $typed = $this->capacities[$seatId] ?? null;
+        $capacity = \is_int($typed) ? $typed : (\is_string($typed) && preg_match('/^[0-9]{1,3}$/D', trim($typed)) === 1 ? (int) trim($typed) : null);
+
+        if ($capacity === null || $capacity < Capacity::DEFAULT || $capacity > Capacity::MAX) {
+            $this->notice = sprintf('A seat takes from %d to %d tickets at once.', Capacity::DEFAULT, Capacity::MAX);
+
+            return;
+        }
+
+        $this->report($this->service(Seats::class)->cap($this->developer(), $seatId, $capacity));
+    }
+
+    /**
      * Waive one placement refusal for the next placement on a seat (#320).
      *
      * The rule arrives as a string from rendered markup, so it goes through the enum rather than
@@ -222,6 +256,12 @@ final class SeatSettings extends Component
 
         $mine = $seats->forDeveloper($developer);
         $waivers = $this->service(PlacementWaivers::class);
+
+        // Each seat's field starts at what is stored, and a seat that appeared since the last render
+        // gets one; a value the developer is part-way through typing is left alone
+        foreach ($mine as $seat) {
+            $this->capacities[$seat->id] ??= $seat->max_capacity;
+        }
 
         return view($template, [
             'seats' => $mine,

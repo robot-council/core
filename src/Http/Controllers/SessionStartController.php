@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use RobotCouncil\Http\Principal;
 use RobotCouncil\Support\AgentSessions;
+use RobotCouncil\Support\Capacity;
 use RobotCouncil\Support\Credentials;
 use RobotCouncil\Support\Platform;
 use RobotCouncil\Support\WorkIdentity;
@@ -26,9 +27,10 @@ final class SessionStartController
      * @param  Request  $request  The incoming request.
      * @param  AgentSessions  $sessions  The session store.
      * @param  Credentials  $credentials  The configured lifetimes.
+     * @param  Capacity  $capacity  What the session may be given, against its seat's cap.
      * @return JsonResponse The session's ID and its token.
      */
-    public function __invoke(Request $request, AgentSessions $sessions, Credentials $credentials): JsonResponse
+    public function __invoke(Request $request, AgentSessions $sessions, Credentials $credentials, Capacity $capacity): JsonResponse
     {
         $installation = Principal::installation($request);
 
@@ -54,6 +56,12 @@ final class SessionStartController
             'platform' => ['sometimes', 'nullable', 'array:os_family,arch', 'min:1'],
             'platform.os_family' => ['required_with:platform', 'string', Rule::in(Platform::OS_FAMILIES)],
             'platform.arch' => ['sometimes', 'nullable', 'string', 'max:'.Platform::MAX_ARCH, 'regex:'.Platform::ARCH],
+
+            // How many tickets it will hold at once, for a harness that works through subagents
+            // (#409). Optional, so an older bridge joins at one as before. Below one is refused, as
+            // no capacity rather than a small one; above `Capacity::MAX` is accepted and clamped by
+            // the store, the way the seat's cap is -- both mean "as many as this lane will take".
+            'capacity' => ['sometimes', 'nullable', 'integer', 'min:'.Capacity::DEFAULT],
         ]);
 
         $projectId = $request->filled('project_id') ? $request->string('project_id')->value() : null;
@@ -84,7 +92,8 @@ final class SessionStartController
             $repository,
             $workLocation,
             \is_string($osFamily) ? $osFamily : null,
-            \is_string($arch) ? $arch : null
+            \is_string($arch) ? $arch : null,
+            $request->filled('capacity') ? $request->integer('capacity') : Capacity::DEFAULT
         );
 
         return new JsonResponse([
@@ -103,6 +112,12 @@ final class SessionStartController
             // rate limit. A helper that does want history sends a lower cursor, and zero still
             // means everything.
             'feed_cursor' => $issued->feedCursor,
+
+            // What a coordinator may place on it now, and what it asked for (#409). A `capacity`
+            // below `declared_capacity` is the developer's seat cap -- one until they raise it on
+            // their seats page -- and a declaration past `Capacity::MAX` reads back as that bound.
+            'capacity' => $capacity->of($issued->owner),
+            'declared_capacity' => $issued->owner->declared_capacity,
         ], Response::HTTP_CREATED);
     }
 }

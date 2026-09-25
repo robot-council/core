@@ -44,6 +44,7 @@ use RobotCouncil\Support\PresenceTimestamp;
  * @property string|null $work_location
  * @property string|null $os_family
  * @property string|null $arch
+ * @property int $declared_capacity
  * @property Role|null $requested_role
  * @property Carbon|null $requested_at
  * @property int $feed_cursor
@@ -61,6 +62,7 @@ use RobotCouncil\Support\PresenceTimestamp;
     'work_location',
     'os_family',
     'arch',
+    'declared_capacity',
     'requested_role',
     'requested_at',
 ])]
@@ -85,6 +87,7 @@ final class AgentSession extends Model implements AuthenticatableContract
         return [
             'installation_id' => 'integer',
             'feed_cursor' => 'integer',
+            'declared_capacity' => 'integer',
             'status' => AgentSessionStatus::class,
             // Cast like `status`, and carrying the same exposure: Laravel resolves an enum cast
             // through `from()`, so a row holding a name the enum no longer has raises a

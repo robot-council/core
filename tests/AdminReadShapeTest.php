@@ -192,6 +192,8 @@ it('pins the key set of the session every agent reads about itself', function ()
         'requested_role',
         'repository',
         'work_location',
+        'capacity',
+        'declared_capacity',
         'feed_cursor',
         'abilities',
         'fleet_can_direct',

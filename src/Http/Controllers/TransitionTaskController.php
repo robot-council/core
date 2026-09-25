@@ -22,6 +22,7 @@ use RobotCouncil\Support\BranchName;
 use RobotCouncil\Support\Outcome;
 use RobotCouncil\Support\PlacementRefused;
 use RobotCouncil\Support\PlacementRules;
+use RobotCouncil\Support\SubLabel;
 use RobotCouncil\Support\TaskList;
 use RobotCouncil\Support\Tasks;
 use Symfony\Component\HttpFoundation\Response;
@@ -90,7 +91,8 @@ final class TransitionTaskController
                 $this->directive($request, $move),
                 $move === TaskTransition::Reassign && $request->boolean('hand_back'),
                 $this->branch($request, $move),
-                $this->expect($request, $move)
+                $this->expect($request, $move),
+                $this->subLabel($request, $move)
             );
         } catch (PlacementRefused $placementRefused) {
             // Every rule the placement broke, not only the first, so a coordinator can fix them all
@@ -214,6 +216,26 @@ final class TransitionTaskController
         ]);
 
         return $request->filled('branch') ? $request->string('branch')->value() : null;
+    }
+
+    /**
+     * Which of the lane's subagents a start says took the task up (#409).
+     *
+     * @param  Request  $request  The incoming request.
+     * @param  TaskTransition  $move  The transition being attempted.
+     * @return string|null The sub-label, where this transition may carry one and one was named.
+     */
+    private function subLabel(Request $request, TaskTransition $move): ?string
+    {
+        if (! $move->takesABranch()) {
+            return null;
+        }
+
+        $request->validate([
+            'sub_label' => ['sometimes', 'nullable', 'string', 'max:'.SubLabel::MAX, 'regex:'.SubLabel::PATTERN],
+        ]);
+
+        return $request->filled('sub_label') ? $request->string('sub_label')->value() : null;
     }
 
     /**

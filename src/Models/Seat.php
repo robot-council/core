@@ -29,6 +29,7 @@ use RobotCouncil\Support\PresenceTimestamp;
  * @property string|null $parked_by
  * @property Carbon|null $parked_at
  * @property bool $hours_exempt
+ * @property int $max_capacity
  * @property-read Installation $installation
  */
 #[Table(name: 'robot_council_seats')]
@@ -50,6 +51,7 @@ final class Seat extends Model
             // so a host off UTC does not read it back shifted by its offset (#149)
             'parked_at' => PresenceTimestamp::class,
             'hours_exempt' => 'boolean',
+            'max_capacity' => 'integer',
         ];
     }
 

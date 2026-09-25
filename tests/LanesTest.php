@@ -184,13 +184,13 @@ it('shows take-up apart from placement, the branch, and where the placement came
     $task = $this->service(Tasks::class)->create($this->coordinatorSession, ['title' => 'Work'], true);
     $this->service(Tasks::class)->transition($task->id, TaskTransition::Reassign, $this->coordinatorSession, true, $lane, directive: 'Take this.');
 
-    $placed = boardRow($this, $lane)['on_what'];
+    $placed = arrayValue(arrayValue(arrayValue(boardRow($this, $lane)['on_what'])['tasks'] ?? [])[0] ?? []);
 
     expect($placed)->toMatchArray(['taken_up' => false, 'branch' => 'branch not reported', 'provenance' => 'placed and told', 'hand_back' => false]);
 
     $this->service(Tasks::class)->transition($task->id, TaskTransition::Start, $lane, false, branch: 'feature/lanes');
 
-    expect(boardRow($this, $lane)['on_what'])->toMatchArray(['taken_up' => true, 'branch' => 'feature/lanes']);
+    expect(arrayValue(arrayValue(arrayValue(boardRow($this, $lane)['on_what'])['tasks'] ?? [])[0] ?? []))->toMatchArray(['taken_up' => true, 'branch' => 'feature/lanes']);
 });
 
 it('escapes a hostile machine label on the board', function (string $payload, array $forbidden, ?string $escaped): void {
@@ -270,7 +270,7 @@ it('renders a parked lane and a held one as party and reason', function (): void
     expect($cells)->toBe(['octodev — parked this seat', 'robot-council/core#9 — that ticket to land']);
 });
 
-it('marks a hand-back, and says when a lane holds more than one task', function (): void {
+it('marks a hand-back, and lists every task a lane holds against its capacity', function (): void {
     $lane = boardLane($this, 'a');
 
     $first = $this->service(Tasks::class)->create($this->coordinatorSession, ['title' => 'Work'], true);
@@ -283,9 +283,15 @@ it('marks a hand-back, and says when a lane holds more than one task', function 
 
     $html = Livewire::actingAs($this->developer)->test(Lanes::class)->html();
 
+    // Both listed rather than one and a count (#409), and the occupancy says the lane holds more
+    // than a coordinator could have placed on it: its capacity is the default of one
+    $row = boardRow($this, $lane);
+
     expect(markedText($html, 'data-hand-back'))->toBe(['hand-back'])
-        ->and(markedText($html, 'data-also-holds'))->toBe(['and 1 more held'])
-        ->and(boardRow($this, $lane)['on_what'])->toMatchArray(['also_holds' => 1]);
+        ->and(markedText($html, 'data-held-task'))->toHaveCount(2)
+        ->and(markedText($html, 'data-occupancy'))->toContain('2 / 1')
+        ->and(array_column(arrayValue(arrayValue($row['on_what'])['tasks'] ?? []), 'task_id'))->toBe([$first->id, $second->id])
+        ->and([$row['holding'], $row['capacity']])->toBe([2, 1]);
 });
 
 it("lists a repository's open pull requests whatever case the lane reported it in", function (): void {

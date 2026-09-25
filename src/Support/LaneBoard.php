@@ -26,7 +26,7 @@ use RobotCouncil\Models\TaskStatus;
  * **`Parked` is `Seats::of()`, the rule a placement refuses on (#320)**, so the label and the
  * refusal cannot disagree.
  *
- * @phpstan-type LaneRow array{id: int, repository: string|null, developer: string|null, machine: string, harness: string, slot: string|null, is_gate: bool, state: string, watcher: array{state: string, age_seconds: int|null}, on_what: array<string, mixed>|null, known_since: Carbon}
+ * @phpstan-type LaneRow array{id: int, repository: string|null, developer: string|null, machine: string, harness: string, slot: string|null, is_gate: bool, state: string, watcher: array{state: string, age_seconds: int|null}, holding: int, capacity: int, on_what: array<string, mixed>|null, known_since: Carbon}
  *
  * The reader is for a developer on the dashboard, who #73 decided sees the whole fleet, so issue
  * references and branches are shown here though `TaskList` withholds them from agents that may not
@@ -229,7 +229,8 @@ final class LaneBoard
      * @param  AgentSession  $session  The lane.
      * @param  list<Task>  $held  The tasks it holds, oldest first.
      * @param  LaneHold|null  $hold  Its hold.
-     * @param  Seat|null  $parked  Its seat, which says whether it is parked -- `Seats::of()`'s match.
+     * @param  Seat|null  $parked  Its seat, which says whether it is parked and caps its capacity --
+     *                             `Seats::of()`'s match.
      * @param  array<string, GitHubItem>  $issues  Stored issues by lower-cased reference.
      * @param  array<string, string>  $logins  GitHub logins by host key.
      * @param  string|null  $run  The pull request a gate is validating, `owner/name#N`.
@@ -245,7 +246,9 @@ final class LaneBoard
         // observed says so first, and a lane with a task is working whatever else is true of it
         [$state, $onWhat] = match (true) {
             $session->status === AgentSessionStatus::Stale => ['not observed', null],
-            $task instanceof Task => ['Working', [...$this->working($task, $issues), 'also_holds' => \count($held) - 1]],
+            // Every held task, oldest first: a lane with subagents holds several at once (#409),
+            // and a list that showed one and counted the rest could not tell them apart
+            $task instanceof Task => ['Working', ['tasks' => array_map(fn (Task $each): array => $this->working($each, $issues), $held)]],
             // A gate's work is a pull request rather than a task: it is working while it runs one
             $run !== null => ['Working', ['gate_pull_request' => $run]],
             $parked?->isParked() === true => ['Parked', ['party' => ($parker === null ? null : ($logins[$parker] ?? null)) ?? 'its developer', 'what' => 'parked this seat']],
@@ -265,6 +268,11 @@ final class LaneBoard
 
             // Its own column, from the watcher's heartbeat rather than the session's contact (#337)
             'watcher' => $this->watchers->reading($session->getAttributes()['watcher_seen_at'] ?? null, Carbon::now()),
+
+            // Occupancy, read as `holding / capacity` (#409). Capacity is the one `LaneFree` refuses
+            // on, from the same seat the parked label reads, so the board and a refusal agree.
+            'holding' => \count($held),
+            'capacity' => Capacity::effective($session, $parked),
 
             'on_what' => $onWhat,
 
@@ -293,6 +301,9 @@ final class LaneBoard
             'title' => $task->title,
             'branch' => $task->branch ?? ($packet ? 'packet, no branch expected' : 'branch not reported'),
             'branch_reported' => $task->branch !== null,
+
+            // Which of the lane's subagents works it, as the lane reported; display only (#409)
+            'sub_label' => $task->sub_label,
 
             // A directive sent is not a lane building: take-up is the lane's own `start`
             'taken_up' => $task->status === TaskStatus::InProgress,
