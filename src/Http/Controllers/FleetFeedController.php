@@ -6,6 +6,7 @@ namespace RobotCouncil\Http\Controllers;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use RobotCouncil\Http\Principal;
 use RobotCouncil\Support\FleetFeed;
 
@@ -30,6 +31,12 @@ final class FleetFeedController
         $request->validate([
             'after' => ['sometimes', 'integer', 'min:0'],
             'limit' => ['sometimes', 'integer', 'min:1', 'max:'.FleetFeed::MAX_PAGE],
+
+            // A bridge following the feed for its agent passes `false`, so its polls do not move
+            // the position the agent's own no-argument read resumes from (#354). The words as well
+            // as the digits, because a query string is text and Laravel's `boolean` rule refuses
+            // the string `false`
+            'acknowledge' => ['sometimes', Rule::in(['0', '1', 'false', 'true'])],
         ]);
 
         // `null` rather than `integer('after')`, which answers 0 for a missing argument and is
@@ -44,7 +51,8 @@ final class FleetFeedController
         $page = $feed->after(
             Principal::agentSession($request),
             $request->filled('after') ? $request->integer('after') : null,
-            $request->integer('limit', FleetFeed::MAX_PAGE)
+            $request->integer('limit', FleetFeed::MAX_PAGE),
+            $request->boolean('acknowledge', true)
         );
 
         // The cursor is how far the feed was examined, not the last row returned: a page may be
