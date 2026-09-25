@@ -17,6 +17,7 @@ use RobotCouncil\Mcp\Tools\HeartbeatTool;
 use RobotCouncil\Mcp\Tools\LaneHoldTool;
 use RobotCouncil\Mcp\Tools\ListTasksTool;
 use RobotCouncil\Mcp\Tools\LockTool;
+use RobotCouncil\Mcp\Tools\OwedItemTool;
 use RobotCouncil\Mcp\Tools\PostDirectiveTool;
 use RobotCouncil\Mcp\Tools\PostNarrationTool;
 use RobotCouncil\Mcp\Tools\ReadFeedTool;
@@ -93,6 +94,8 @@ final class CouncilServer extends Server
             new PostNarrationTool,
             new PostDirectiveTool,
             new HeartbeatTool,
+            new OwedItemTool,
+            new OwedItemTool(settles: true),
             new BacklogReportTool,
             new GateRunTool,
             new GateRunTool(clears: true),

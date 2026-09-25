@@ -20,8 +20,8 @@ use RobotCouncil\Models\TaskStatus;
  *
  * **Every cell is derived, and a missing field fails toward the honest reading.** A lane's `State`
  * is one of five and is computed here, never stored: a lane with no task is never `Working`,
- * whatever anything else says, and a cell whose data has no model yet reads "not reported" rather
- * than a stand-in -- #317's decision, with the model each such cell waits on named where it is.
+ * whatever anything else says. A value nobody measured renders as unmeasured -- an unread backlog
+ * count is a dash, a watcher that never reported is `absent` -- never as a stand-in.
  *
  * **`Parked` is `Seats::of()`, the rule a placement refuses on (#320)**, so the label and the
  * refusal cannot disagree.
@@ -56,6 +56,7 @@ final class LaneBoard
      * @param  AgentLogins  $logins  Resolves host user keys to GitHub logins.
      * @param  GateRuns  $gates  What each gate is validating (#336).
      * @param  Backlog  $backlog  The backlog counts, for the meters.
+     * @param  OwedItems  $owed  What the fleet waits on developers for (#335).
      * @param  Watchers  $watchers  Each lane's watcher, read from its own heartbeat (#337).
      */
     public function __construct(
@@ -63,6 +64,7 @@ final class LaneBoard
         private readonly AgentLogins $logins,
         private readonly GateRuns $gates,
         private readonly Backlog $backlog,
+        private readonly OwedItems $owed,
         private readonly Watchers $watchers
     ) {}
 
@@ -75,6 +77,7 @@ final class LaneBoard
      *     queue_depth: array<string, int>,
      *     meters: array<string, array{count: int|null, delta: int|null, age_seconds: int|null}>,
      *     counts: array<string, int>,
+     *     waiting: list<array{developer: string|null, items: list<array{id: int, ticket: string, question: string, why: string, recorded_at: Carbon}>}>,
      *     truncated: bool,
      *     last_change: Carbon|null,
      *     observed_at: Carbon
@@ -106,6 +109,7 @@ final class LaneBoard
             ),
             'meters' => $this->meters(array_keys($rows)),
             'counts' => self::tally($rows),
+            'waiting' => $this->owed->open(),
             'truncated' => $truncated,
             'last_change' => $changes === [] ? null : Carbon::parse(max($changes)),
             'observed_at' => Carbon::now(),

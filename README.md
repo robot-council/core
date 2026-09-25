@@ -361,8 +361,7 @@ broadcasting: a change an agent commits is visible within one interval and no so
 
 **The lane board is rendered from measured state, never typed.** A lane's `State` is one of
 `Working`, `Idle`, `Parked`, `Blocked` and `not observed`, derived each time -- a lane holding no task
-is never `Working` -- and `Parked` is the same rule a placement refuses on. A cell whose data has no
-source yet reads "not reported" rather than a stand-in: what the fleet waits on each developer for.
+is never `Working` -- and `Parked` is the same rule a placement refuses on.
 **`Watcher` is read from the bridge watcher's own heartbeat**, `POST {prefix}/api/agent/watcher`,
 which no other request refreshes: `absent` until it reports, `alive` within
 `presence.watcher_stale_after_seconds` (90), `stale` with its age after that, and `unknown, re-read`
@@ -468,6 +467,16 @@ stored is ignored, since GitHub does not promise order.
 
 Deliveries are rate-limited per source address by `robot-council.rate_limits.github_webhook_per_minute`
 (600), and the limiter runs before the signature check.
+
+## Waiting on a developer
+
+A coordinator records what the fleet is waiting on a developer for -- the ticket it is about, the
+question and why it matters -- with `POST {prefix}/api/owed-items` (or `owed_record`), naming the
+developer by GitHub login or leaving it out for `General`. The lane board lists them `General` first,
+then one section per developer. An item settles when its ticket closes or loses its `hitl` label, as
+GitHub reports them, or with `DELETE {prefix}/api/owed-items/{id}` (or `owed_settle`). An item whose
+developer has left the fleet stops rendering rather than moving to `General`. Both need
+`coordinator:direct`.
 
 ## Lane holds
 
