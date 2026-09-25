@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use RobotCouncil\Access\Role;
 use RobotCouncil\Http\Principal;
+use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Support\RoleRequests;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -59,6 +60,13 @@ final class RequestRoleController
 
         $pending = $requests->request($session, $wanted);
 
+        // **Read the role off the row, not the principal.** Sanctum loaded the session before the
+        // store's transaction took its lock, so an administrator's decision landing in between
+        // would otherwise be reported as never having happened. A row pruned meanwhile falls back
+        // to what the principal held, which is all that is left to say.
+        $row = AgentSession::query()->whereKey($session->getKey())->first();
+        $held = $row instanceof AgentSession ? $row->role : $session->role;
+
         return new JsonResponse([
             'session_id' => $session->getKey(),
 
@@ -66,12 +74,12 @@ final class RequestRoleController
             // session already holds that role -- which withdraws anything pending -- or has gone.
             // Either way nothing is waiting for an administrator, and saying so is what stops a
             // client retrying forever.
-            'pending' => $pending instanceof Role,
-            'requested_role' => $pending?->value,
+            'pending' => $pending,
+            'requested_role' => $pending ? $wanted->value : null,
 
             // **What it holds NOW, which the request did not change.** Returned beside the request
             // so a client cannot read a 2xx as the change having happened.
-            'role' => $session->role->value,
-        ], $pending instanceof Role ? Response::HTTP_ACCEPTED : Response::HTTP_OK);
+            'role' => $held->value,
+        ], $pending ? Response::HTTP_ACCEPTED : Response::HTTP_OK);
     }
 }

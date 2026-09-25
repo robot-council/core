@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RobotCouncil\Support;
 
 use Illuminate\Support\Facades\DB;
+use LogicException;
 use RobotCouncil\Access\Role;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
@@ -54,30 +55,35 @@ final class RoleRequests
      * failure, so the request is cleared and the feed records a withdrawal, which is not a denial:
      * nobody refused anything.
      *
-     * **The return describes the row once this returns, not the request that was made**, so a
-     * caller reporting it cannot tell a session that a request is gone while one still waits.
+     * **True always means `$role` is what the row now holds pending, and false that nothing is**,
+     * which is what lets a caller describe the row from the return alone.
      *
      * @param  AgentSession  $session  The session asking.
      * @param  Role  $role  What it wants to be.
-     * @return Role|null The role now pending for an administrator, or null when nothing is: the
-     *                   session holds the role it asked for, or it is not live.
+     * @return bool True when `$role` is now pending, false when nothing is: the session already
+     *              holds that role, which withdraws anything pending, or it is not live.
+     *
+     * @throws LogicException When a withdrawal's write changed no row, which the lock makes
+     *                        unreachable on one connection; see `withdraw()`.
      */
-    public function request(AgentSession $session, Role $role): ?Role
+    public function request(AgentSession $session, Role $role): bool
     {
-        return DB::transaction(function () use ($session, $role): ?Role {
+        return DB::transaction(function () use ($session, $role): bool {
             $current = $this->locked($session);
 
             // A session that has gone has nothing an administrator can decide, whatever its row
             // still holds -- `settle()` and `deny()` both refuse it -- so nothing is pending for it.
             if (! $current instanceof AgentSession || $current->hasGone()) {
-                return null;
+                return false;
             }
 
             // Asking to be what it already is is not a request. Answering it as one would put a
             // row in an administrator's queue whose approval changes nothing -- and it is how a
             // session takes back a request it no longer wants.
             if ($current->role === $role) {
-                return $this->withdraw($current);
+                $this->withdraw($current);
+
+                return false;
             }
 
             // **Already pending is not a new request, and saying so here is what keeps the three
@@ -88,7 +94,7 @@ final class RoleRequests
             // Without this the endpoint would answer `pending: false` on one engine while a request
             // WAS pending, which is the state the field exists to let a client tell apart.
             if ($current->requested_role === $role) {
-                return $role;
+                return true;
             }
 
             $changed = AgentSession::query()
@@ -100,7 +106,7 @@ final class RoleRequests
                 ]);
 
             if ($changed !== 1) {
-                return null;
+                return false;
             }
 
             // Recorded after the row, so the feed cannot describe a request that failed to write.
@@ -114,7 +120,7 @@ final class RoleRequests
                 null
             );
 
-            return $role;
+            return true;
         });
     }
 
@@ -249,33 +255,41 @@ final class RoleRequests
     /**
      * Take back a live session's pending request, leaving its role as it is.
      *
+     * **It throws rather than returning when the write changed nothing**, because no answer
+     * `request()` can give would be true then: false says nothing is pending while the request
+     * still is, and true says the role the session asked for -- its current one -- is pending.
+     * Throwing rolls the transaction back, so the caller is told the call failed rather than told
+     * something the row contradicts.
+     *
      * @param  AgentSession  $session  The session, already locked and live.
-     * @return Role|null Null once nothing is pending, which is every path but the unreachable one.
+     *
+     * @throws LogicException When the write changed no row.
      */
-    private function withdraw(AgentSession $session): ?Role
+    private function withdraw(AgentSession $session): void
     {
         $withdrawn = $session->requested_role;
 
         // Check whether anything is pending at all. Nothing to take back writes nothing and
         // records nothing, so asking for the current role stays free of feed noise.
         if (! $withdrawn instanceof Role) {
-            return null;
+            return;
         }
 
-        // Clear the request only while the row still holds the one that was read, so the update
-        // cannot take back a different request than the one this decided about.
+        // No `requested_role` or `status` predicate: the row is locked and both were read above,
+        // which is the reasoning `approve()` gives for dropping two permanent mutation survivors.
         $changed = AgentSession::query()
             ->whereKey($session->getKey())
-            ->where('requested_role', $withdrawn->value)
-            ->where('status', '!=', AgentSessionStatus::Gone->value)
             ->update(['requested_role' => null, 'requested_at' => null]);
 
-        // Unreachable on one connection, as in `deny()`: the row is held by `locked()` and was read
-        // live with this request pending, so nothing can change either in between. A write that did
-        // not happen leaves the request where it was, and the return says so.
+        // Unreachable on one connection: the row is held by `locked()` and was read live with a
+        // request pending, so the write always clears it. Kept because a second connection could
+        // on an engine that does not serialize writers, and no test can reach it.
         // @pest-mutate-ignore
         if ($changed !== 1) {
-            return $withdrawn;
+            throw new LogicException(sprintf(
+                'Withdrawing the role request of session %d changed no row.',
+                $session->id
+            ));
         }
 
         // Record the withdrawal after the row, as its own type: a denial names an administrator
@@ -287,8 +301,6 @@ final class RoleRequests
             ['withdrawn' => $withdrawn->value, 'stays' => $session->role->value],
             null
         );
-
-        return null;
     }
 
     /**
