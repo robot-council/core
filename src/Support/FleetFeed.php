@@ -86,7 +86,7 @@ final class FleetFeed
      *
      * @param  AgentSession  $reader  The session doing the reading.
      * @param  int|null  $after  The last event ID the reader has seen, or null to resume.
-     * @param  int  $limit  How many events to examine.
+     * @param  int  $limit  The most visible events to return; how far a read looks is `EXAMINE_CAP`.
      * @param  bool  $acknowledge  Whether a supplied `after` moves the stored position.
      * @return array{events: list<array<string, mixed>>, cursor: int} The visible events and where
      *                                                                to read from next.

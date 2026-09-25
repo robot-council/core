@@ -27,6 +27,7 @@ use RobotCouncil\Models\Lock;
 use RobotCouncil\Models\Placement;
 use RobotCouncil\Models\Task;
 use RobotCouncil\Models\TaskStatus;
+use RobotCouncil\Support\FleetFeed;
 use RobotCouncil\Tests\TestCase;
 
 /**
@@ -913,4 +914,29 @@ it('lists the live sessions through the tool as the endpoint does', function ():
         // Read as absent, as the endpoint reads `?repository=`
         ->and($ids($list(['repository' => ''])))->toBe([$coordinator->id, $this->session->id])
         ->and(toolError(callTool($this, $this->token, 'sessions_list', ['role' => 'admin'])))->toContain('role');
+});
+
+it('says what events_read limit caps, with the bounds the feed actually uses', function (): void {
+    // Paged, as the tool list is: `events_read` is not on the first page
+    $tools = [];
+    $cursor = null;
+
+    do {
+        $response = $this->machine($this->token)->postJson(MCP_URL, [
+            'jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/list', 'params' => $cursor === null ? [] : ['cursor' => $cursor],
+        ])->assertOk();
+
+        $tools = [...$tools, ...arrayValue($response->json('result.tools'))];
+        $cursor = $response->json('result.nextCursor');
+    } while (\is_string($cursor));
+
+    $read = arrayValue(collect($tools)->firstWhere('name', 'events_read'));
+
+    $limit = stringValue(data_get($read, 'inputSchema.properties.limit.description'));
+
+    // Read from the constants, so the text cannot drift from them again
+    expect($limit)->toContain('return')
+        ->toContain((string) FleetFeed::MAX_PAGE)
+        ->toContain((string) FleetFeed::EXAMINE_CAP)
+        ->not->toContain('examine,');
 });
