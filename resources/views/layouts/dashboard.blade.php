@@ -58,12 +58,12 @@
 
                 <div class="min-w-0 grow">
                     <p class="truncate font-semibold">{{ \RobotCouncil\Support\DashboardName::value() }}</p>
-                    <p class="truncate text-meta opacity-70">Fleet coordination</p>
+                    <p class="truncate text-meta opacity-90">Fleet coordination</p>
                 </div>
 
                 <div class="flex shrink-0 items-center gap-2">
                     @if ($developerLogin !== null)
-                        <span class="hidden max-w-40 truncate text-meta opacity-70 sm:inline">{{ $developerLogin }}</span>
+                        <span class="hidden max-w-40 truncate text-meta opacity-90 sm:inline">{{ $developerLogin }}</span>
                     @endif
 
                     {{--
@@ -90,7 +90,7 @@
             <nav class="min-h-full w-64 bg-base-100 lg:border-r lg:border-base-300"
                 aria-labelledby="robot-council-menu-heading">
                 <h2 id="robot-council-menu-heading"
-                    class="px-4 pt-4 text-meta font-semibold uppercase tracking-wide opacity-60">Menu</h2>
+                    class="px-4 pt-4 text-meta font-semibold uppercase tracking-wide opacity-80">Menu</h2>
 
                 {{--
                     The console's sections are children of the page they belong to rather than peers

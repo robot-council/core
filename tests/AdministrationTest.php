@@ -100,12 +100,12 @@ it("shows where each of an installation's sessions is working", function (): voi
 
     // **`assertSee('ci')` here would pass with the whole cell deleted.** Livewire's `assertSee` is
     // a raw substring search over the page's HTML with no tag stripping, and this panel's own
-    // standing paragraph carries `class="text-meta opacity-70"` -- which contains `ci`. The rendered
+    // standing paragraph carries `class="text-meta opacity-90"` -- which contains `ci`. The rendered
     // fragment is what discriminates.
     Livewire::actingAs($this->admin)
         ->test(Administration::class)
-        ->assertSeeHtml('<span class="opacity-70">robot-council/core</span>')
-        ->assertSeeHtml('<span class="opacity-60">ci</span>');
+        ->assertSeeHtml('<span class="opacity-90">robot-council/core</span>')
+        ->assertSeeHtml('<span class="opacity-80">ci</span>');
 });
 
 it('shows a session that named only a work location, rather than calling it no project', function (): void {
@@ -118,7 +118,7 @@ it('shows a session that named only a work location, rather than calling it no p
 
     Livewire::actingAs($this->admin)
         ->test(Administration::class)
-        ->assertSeeHtml('<span class="opacity-60">primary</span>')
+        ->assertSeeHtml('<span class="opacity-80">primary</span>')
         ->assertDontSeeHtml('no project');
 });
 

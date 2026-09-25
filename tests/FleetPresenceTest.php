@@ -79,7 +79,7 @@ it('shows where a session is working, as a repository and the checkout within it
 
     Livewire::test(AgentsPage::class)
         ->assertSee('UAMS-Web/uams-statamic')
-        ->assertSeeHtml('<div class="opacity-60">ci</div>');
+        ->assertSeeHtml('<div class="opacity-80">ci</div>');
 });
 
 it('shows a session that named only a work location, rather than calling it none', function (): void {
@@ -97,8 +97,8 @@ it('shows a session that named only a work location, rather than calling it none
     ])->save();
 
     Livewire::test(AgentsPage::class)
-        ->assertSeeHtml('<div class="opacity-60">primary</div>')
-        ->assertDontSeeHtml('<span class="opacity-60">none</span>');
+        ->assertSeeHtml('<div class="opacity-80">primary</div>')
+        ->assertDontSeeHtml('<span class="opacity-80">none</span>');
 });
 
 it('keeps saying none for a session that named nothing at all', function (): void {
@@ -110,7 +110,7 @@ it('keeps saying none for a session that named nothing at all', function (): voi
     ])->save();
 
     Livewire::test(AgentsPage::class)
-        ->assertSeeHtml('<span class="opacity-60">none</span>');
+        ->assertSeeHtml('<span class="opacity-80">none</span>');
 });
 
 it('renders a hostile repository as text', function (): void {
@@ -323,8 +323,8 @@ it('tells two worktrees on one machine and harness apart', function (): void {
         ->and(array_unique(array_map(stringValue(...), array_column($rows, 'harness'))))->toHaveCount(1);
 
     Livewire::test(AgentsPage::class)
-        ->assertSeeHtml('<div class="opacity-60">a</div>')
-        ->assertSeeHtml('<div class="opacity-60">ci</div>');
+        ->assertSeeHtml('<div class="opacity-80">a</div>')
+        ->assertSeeHtml('<div class="opacity-80">ci</div>');
 });
 
 // **The hostile-repository guard this file used to hold twice now lives once, above.** It was a

@@ -13,7 +13,7 @@
         <h2 class="card-title">Change feed</h2>
 
         @if ($events === [])
-            <p class="py-6 text-center opacity-60">
+            <p class="py-6 text-center opacity-80">
                 {{ $before === null ? 'Nothing has happened yet.' : 'Nothing older than this.' }}
             </p>
         @else
@@ -27,7 +27,7 @@
                         <div class="min-w-0 grow">
                             <p class="break-words">{{ $event['body'] }}</p>
 
-                            <p class="mt-1 text-meta opacity-60">
+                            <p class="mt-1 text-meta opacity-80">
                                 @if ($event['actor']['github_login'] !== null)
                                     {{ $event['actor']['github_login'] }}
                                 @elseif ($event['actor']['session_id'] !== null)

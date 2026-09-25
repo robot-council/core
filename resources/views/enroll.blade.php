@@ -16,7 +16,7 @@
     <div class="mx-auto w-full max-w-3xl">
         <header class="mb-6">
             <h1 class="text-xl font-semibold">Approve a machine</h1>
-            <p class="mt-1 text-meta opacity-70">A machine has asked to enroll with robot-council. Approve it only if you started it yourself.</p>
+            <p class="mt-1 text-meta opacity-90">A machine has asked to enroll with robot-council. Approve it only if you started it yourself.</p>
         </header>
 
         @if (session('status'))
@@ -69,7 +69,7 @@
                     @endif
 
                     <h2 class="card-title mt-4 text-body">What the machine says about itself</h2>
-                    <p class="text-meta opacity-70">Whoever asked for this code supplied the harness and the machine label below. They are claims, not facts, and nothing has checked them.</p>
+                    <p class="text-meta opacity-90">Whoever asked for this code supplied the harness and the machine label below. They are claims, not facts, and nothing has checked them.</p>
 
                     <dl class="mt-2 grid grid-cols-[max-content_1fr] gap-x-5 gap-y-1 text-meta">
                         <dt class="font-semibold">Harness</dt>
@@ -102,7 +102,7 @@
                                  developer gets, and a consent surface that describes a mechanism the server
                                  stopped using is worse than no list at all. Posting directives is not in it
                                  and cannot be asked for. --}}
-                            <p class="mt-2 text-meta opacity-70">
+                            <p class="mt-2 text-meta opacity-90">
                                 Approving lets this machine's agents create and claim tasks, take
                                 locks, and post narration, whatever the list above says. Directing
                                 other developers' agents is not included and cannot be requested.
@@ -123,7 +123,7 @@
                         <dd class="break-words"><code>{{ $approverIp ?? 'an address the server could not read' }}</code></dd>
                     </dl>
 
-                    <p class="text-meta opacity-70">A request you did not just start, or one from an address that is not yours, is what an attempt to borrow your approval looks like.</p>
+                    <p class="text-meta opacity-90">A request you did not just start, or one from an address that is not yours, is what an attempt to borrow your approval looks like.</p>
 
                     @unless ($code->isDecided())
                         @if ($superseded->isNotEmpty())

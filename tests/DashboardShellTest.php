@@ -94,7 +94,7 @@ it('serves a stylesheet that carries the utilities the pages use, and not the on
     // whose controls change authorization and the last one anybody should have to squint at.
     $used = [
         // the shell
-        'max-w-7xl', 'opacity-70', 'shadow-sm', 'antialiased', 'bg-base-200',
+        'max-w-7xl', 'opacity-90', 'shadow-sm', 'antialiased', 'bg-base-200',
 
         // the sidebar and header #183 added. `menu-active` is what marks the page being shown, so
         // a build that dropped it would render every entry identically with nothing reporting it.

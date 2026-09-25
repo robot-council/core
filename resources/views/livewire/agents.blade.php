@@ -38,7 +38,7 @@
         @endif
 
         @if ($sessions['sessions'] === [])
-            <p class="py-6 text-center opacity-60">
+            <p class="py-6 text-center opacity-80">
                 @if ($session !== null)
                     No session #{{ $session }} in this list.
                 @else
@@ -66,12 +66,12 @@
 
                                 <td>
                                     <div>{{ $agent['machine_label'] ?? 'an unknown machine' }}</div>
-                                    <div class="text-meta opacity-60">{{ $agent['harness'] ?? '' }}</div>
+                                    <div class="text-meta opacity-80">{{ $agent['harness'] ?? '' }}</div>
 
                                     {{-- The operating system the bridge reported (#351), and
                                          nothing for an older bridge that reported none --}}
                                     @if (($agent['os_family'] ?? null) !== null)
-                                        <div class="text-meta opacity-60">{{ $agent['os_family'] }}{{ ($agent['arch'] ?? null) !== null ? ' '.$agent['arch'] : '' }}</div>
+                                        <div class="text-meta opacity-80">{{ $agent['os_family'] }}{{ ($agent['arch'] ?? null) !== null ? ' '.$agent['arch'] : '' }}</div>
                                     @endif
                                 </td>
 
@@ -111,11 +111,11 @@
                                              and which `npm run check` caught. Tailwind scans
                                              this file whole and cannot tell a sentence from an
                                              attribute. --}}
-                                        <div class="opacity-60">{{ $agent['work_location'] }}</div>
+                                        <div class="opacity-80">{{ $agent['work_location'] }}</div>
                                     @endif
 
                                     @if ($where === null && ($agent['work_location'] ?? null) === null)
-                                        <span class="opacity-60">none</span>
+                                        <span class="opacity-80">none</span>
                                     @endif
                                 </td>
 
@@ -135,7 +135,7 @@
                                     <span class="badge badge-sm">{{ $agent['status'] }}</span>
                                 </td>
 
-                                <td class="whitespace-nowrap text-meta opacity-70">
+                                <td class="whitespace-nowrap text-meta opacity-90">
                                     {{ $agent['last_seen'] }}
                                 </td>
 

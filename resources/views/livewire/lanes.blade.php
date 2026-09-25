@@ -11,7 +11,7 @@
 <div wire:poll.{{ \RobotCouncil\Support\WireArgument::of($pollSeconds) }}s class="flex flex-col gap-6">
     <div class="flex flex-wrap items-baseline justify-between gap-2">
         <h1 class="text-2xl font-semibold">Lanes</h1>
-        <span class="text-meta opacity-70" data-last-change>
+        <span class="text-meta opacity-90" data-last-change>
             Last change {{ $board['last_change']?->copy()->setTimezone($timezone)->format('Y-m-d H:i T') ?? 'none recorded' }}
             &middot; read {{ $board['observed_at']->copy()->setTimezone($timezone)->format('H:i T') }}
         </span>
@@ -22,11 +22,11 @@
             @foreach ($board['meters'] as $repository => $meter)
                 <div wire:key="meter-{{ $repository }}" class="card bg-base-100 shadow-sm">
                     <div class="card-body p-4">
-                        <div class="text-meta opacity-70">{{ $repository }} open issues</div>
+                        <div class="text-meta opacity-90">{{ $repository }} open issues</div>
                         {{-- Unreadable is a dash and says so, never a number: no count reported,
                              or one older than `backlog.stale_after_minutes` (#339) --}}
                         @if ($meter['count'] === null)
-                            <div class="text-xl" data-meter="unreadable">&mdash; <span class="text-meta opacity-70">count unreadable</span></div>
+                            <div class="text-xl" data-meter="unreadable">&mdash; <span class="text-meta opacity-90">count unreadable</span></div>
                         @else
                             <div class="text-xl" data-meter="read">{{ $meter['count'] }}</div>
                             {{-- The direction in words and a sign, not only a colour: the theme's
@@ -35,15 +35,15 @@
                                  error colour --}}
                             <div class="text-meta" data-meter-delta>
                                 @if ($meter['delta'] === null)
-                                    <span class="opacity-70">no baseline today</span>
+                                    <span class="opacity-90">no baseline today</span>
                                 @elseif ($meter['delta'] > 0)
                                     <span class="font-semibold text-error">up {{ $meter['delta'] }}</span>
                                 @elseif ($meter['delta'] < 0)
                                     <span>down {{ abs($meter['delta']) }}</span>
                                 @else
-                                    <span class="opacity-70">flat</span>
+                                    <span class="opacity-90">flat</span>
                                 @endif
-                                <span class="opacity-70">&middot; read {{ \Carbon\CarbonInterval::seconds($meter['age_seconds'] ?? 0)->cascade()->forHumans(short: true) }} ago</span>
+                                <span class="opacity-90">&middot; read {{ \Carbon\CarbonInterval::seconds($meter['age_seconds'] ?? 0)->cascade()->forHumans(short: true) }} ago</span>
                             </div>
                         @endif
                     </div>
@@ -73,23 +73,23 @@
                                 <tr wire:key="lane-{{ $lane['id'] }}" @class(['bg-base-200' => $lane['is_gate']])>
                                     <td>
                                         <div class="font-medium">{{ $lane['developer'] ?? 'unknown developer' }} &middot; {{ $lane['machine'] }}@if ($lane['slot'] !== null) / {{ $lane['slot'] }}@endif</div>
-                                        <div class="text-meta opacity-70">{{ $lane['harness'] }}@if ($lane['is_gate']) &middot; gate @endif</div>
+                                        <div class="text-meta opacity-90">{{ $lane['harness'] }}@if ($lane['is_gate']) &middot; gate @endif</div>
                                     </td>
                                     <td data-state="{{ $lane['state'] }}">{{ $lane['state'] }}</td>
                                     {{-- Its own column, separate from State, from the watcher's own heartbeat (#337) --}}
                                     <td data-watcher="{{ $lane['watcher']['state'] }}">
                                         @switch ($lane['watcher']['state'])
                                             @case('alive')
-                                                alive <span class="text-meta opacity-70">{{ $lane['watcher']['age_seconds'] }}s ago</span>
+                                                alive <span class="text-meta opacity-90">{{ $lane['watcher']['age_seconds'] }}s ago</span>
                                                 @break
                                             @case('stale')
                                                 <span class="font-semibold text-error">stale {{ $lane['watcher']['age_seconds'] }}s</span>
                                                 @break
                                             @case('unknown')
-                                                <span class="opacity-70">unknown, re-read</span>
+                                                <span class="opacity-90">unknown, re-read</span>
                                                 @break
                                             @default
-                                                <span class="opacity-70">absent</span>
+                                                <span class="opacity-90">absent</span>
                                         @endswitch
                                     </td>
                                     <td>
@@ -120,7 +120,7 @@
                                                     <span class="badge badge-sm" data-also-holds>and {{ $work['also_holds'] }} more held</span>
                                                 @endif
                                             </div>
-                                            <div class="text-meta opacity-70">
+                                            <div class="text-meta opacity-90">
                                                 {{ $work['branch'] }}
                                                 &middot; {{ $work['taken_up'] ? 'taken up' : ($work['blocked'] ? 'taken up, blocked' : 'placed, not taken up') }}
                                                 &middot; {{ $work['provenance'] }}
@@ -135,10 +135,10 @@
                                             &mdash; {{ $lane['on_what']['what'] }}
                                             </span>
                                         @else
-                                            <span class="opacity-60">&mdash;</span>
+                                            <span class="opacity-80">&mdash;</span>
                                         @endif
                                     </td>
-                                    <td class="text-meta opacity-70">{{ $lane['known_since']?->diffForHumans() ?? 'never' }}</td>
+                                    <td class="text-meta opacity-90">{{ $lane['known_since']?->diffForHumans() ?? 'never' }}</td>
                                 </tr>
                             @endforeach
                         </tbody>
@@ -149,7 +149,7 @@
                     <div class="mt-2">
                         <h3 class="font-medium">Pull requests</h3>
                         @if (($board['pull_requests'][$repository] ?? []) === [])
-                            <p class="text-meta opacity-60">None open, as far as GitHub has told the fleet.</p>
+                            <p class="text-meta opacity-80">None open, as far as GitHub has told the fleet.</p>
                         @else
                             <ul class="text-meta">
                                 @foreach ($board['pull_requests'][$repository] as $pull)
@@ -166,11 +166,11 @@
             </div>
         </div>
     @empty
-        <p class="py-6 text-center opacity-60">No lane is live.</p>
+        <p class="py-6 text-center opacity-80">No lane is live.</p>
     @endforelse
 
     @if ($board['truncated'])
-        <p class="text-meta opacity-70">Only the first {{ \RobotCouncil\Support\LaneBoard::MAX_LANES }} lanes are shown.</p>
+        <p class="text-meta opacity-90">Only the first {{ \RobotCouncil\Support\LaneBoard::MAX_LANES }} lanes are shown.</p>
     @endif
 
     <div class="card bg-base-100 shadow-sm">
@@ -190,18 +190,18 @@
                                     <a href="{{ \RobotCouncil\Support\TicketLink::url($item['ticket']) }}" class="link" rel="noopener noreferrer">{{ $item['ticket'] }}</a>
                                 @endif
                                 &mdash; {{ $item['question'] }}
-                                <span class="opacity-70">{{ $item['why'] }} &middot; waiting {{ $item['recorded_at']->diffForHumans(syntax: \Carbon\CarbonInterface::DIFF_ABSOLUTE) }}</span>
+                                <span class="opacity-90">{{ $item['why'] }} &middot; waiting {{ $item['recorded_at']->diffForHumans(syntax: \Carbon\CarbonInterface::DIFF_ABSOLUTE) }}</span>
                             </li>
                         @endforeach
                     </ul>
                 </div>
             @empty
-                <p class="text-meta opacity-60">Nothing is waiting on a developer.</p>
+                <p class="text-meta opacity-80">Nothing is waiting on a developer.</p>
             @endforelse
         </div>
     </div>
 
-    <p class="text-meta opacity-60">
+    <p class="text-meta opacity-80">
         Rendered from measured state, not edited by hand. Liveness comes from observed presence, not from
         any declared roster.
     </p>

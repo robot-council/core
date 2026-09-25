@@ -106,18 +106,18 @@ it('shows the OS family on the Agents list, and nothing for a bridge that report
     $this->service(AgentSessions::class)->start($this->installation, null, null, 'Darwin', 'arm64');
     $this->actingAs($this->developer, 'web');
 
-    Livewire::test(Agents::class)->assertSeeHtml('<div class="text-meta opacity-60">Darwin arm64</div>');
+    Livewire::test(Agents::class)->assertSeeHtml('<div class="text-meta opacity-80">Darwin arm64</div>');
 
     AgentSession::query()->update(['os_family' => 'Linux', 'arch' => null]);
 
-    Livewire::test(Agents::class)->assertSeeHtml('<div class="text-meta opacity-60">Linux</div>');
+    Livewire::test(Agents::class)->assertSeeHtml('<div class="text-meta opacity-80">Linux</div>');
 
     AgentSession::query()->update(['os_family' => null, 'arch' => null]);
 
     // No line at all, not an empty one
     Livewire::test(Agents::class)
         ->assertDontSeeHtml('Linux')
-        ->assertDontSeeHtml('<div class="text-meta opacity-60"></div>');
+        ->assertDontSeeHtml('<div class="text-meta opacity-80"></div>');
 });
 
 it('filters the agent read by OS family', function (): void {

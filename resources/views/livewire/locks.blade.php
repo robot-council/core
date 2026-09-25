@@ -38,7 +38,7 @@
         @endif
 
         @if ($locks['locks'] === [])
-            <p class="py-6 text-center opacity-60">
+            <p class="py-6 text-center opacity-80">
                 @if ($holder !== null)
                     Session #{{ $holder }} holds no locks in this list.
                 @else
@@ -69,13 +69,13 @@
                                     @if ($lock['holder'])
                                         <a href="{{ route('robot-council.agents', ['session' => $lock['holder']['session_id']]) }}" class="link">{{ $lock['holder']['github_login'] ?? 'an unknown account' }}</a>
                                     @else
-                                        <span class="opacity-60">nobody</span>
+                                        <span class="opacity-80">nobody</span>
                                     @endif
 
                                     {{-- Who had it last, which is what tells a reader whether a
                                          lock is being handed round or has sat with one holder --}}
                                     @if ($lock['previous_holder'])
-                                        <div class="text-meta opacity-60">
+                                        <div class="text-meta opacity-80">
                                             after {{ $lock['previous_holder']['github_login'] ?? 'an unknown account' }}
                                         </div>
                                     @endif
@@ -102,7 +102,7 @@
                                     @if ($lock['lapsed'])
                                         <span class="badge badge-sm badge-warning">{{ $lock['lease'] }}</span>
                                     @else
-                                        <span class="opacity-70">{{ $lock['lease'] }}</span>
+                                        <span class="opacity-90">{{ $lock['lease'] }}</span>
                                     @endif
                                 </td>
                             </tr>

@@ -17,14 +17,14 @@
         <div class="card-body">
             <h2 class="card-title">My seats</h2>
 
-            <p class="text-meta opacity-70">
+            <p class="text-meta opacity-90">
                 A seat is one of your machines working in one repository. A parked seat takes no new
                 work until you lift it, and only you can lift it -- time never does. An exempt seat
                 ignores your assignment hours.
             </p>
 
             @if ($seats === [])
-                <p class="py-6 text-center opacity-60">
+                <p class="py-6 text-center opacity-80">
                     None of your sessions has reported a repository yet. Seats appear here once one does.
                 </p>
             @else
@@ -35,7 +35,7 @@
                                 <div class="font-medium">
                                     {{ $seat->repository }}@if ($seat->work_location !== '') / {{ $seat->work_location }}@endif
                                 </div>
-                                <div class="text-meta opacity-70">
+                                <div class="text-meta opacity-90">
                                     {{ $seat->installation->harness }} on {{ $seat->installation->machine_label }}
                                     @if ($seat->parked_at !== null)
                                         &middot; parked {{ $seat->parked_at->diffForHumans() }}
@@ -61,7 +61,7 @@
                             {{-- #320: a waiver lets exactly one placement through one refusal on this
                                  seat. Only the seat's developer can grant it; a coordinator cannot. --}}
                             <details class="w-full text-meta">
-                                <summary class="cursor-pointer opacity-70">
+                                <summary class="cursor-pointer opacity-90">
                                     Waive a placement refusal
                                     @if ($waived[$seat->id] !== [])
                                         ({{ count($waived[$seat->id]) }} waived for the next placement)
@@ -92,7 +92,7 @@
         <div class="card-body">
             <h2 class="card-title">Assignment hours</h2>
 
-            <p class="text-meta opacity-70">
+            <p class="text-meta opacity-90">
                 When your seats take new placements, on your own clock. Work already placed, gate
                 queues and hand-backs are never held to these.
                 @if ($hours === null)
@@ -134,7 +134,7 @@
         <div class="card-body">
             <h2 class="card-title">Days off</h2>
 
-            <p class="text-meta opacity-70">
+            <p class="text-meta opacity-90">
                 Your own holidays, as dates on your clock. They apply once you have set assignment
                 hours, since a date needs a timezone to say when it starts.
             </p>

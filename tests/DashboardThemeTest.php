@@ -275,9 +275,19 @@ it('leaves the shell unthemed, so the dark theme can be reached at all', functio
  * fails the second, which is what stops an unmeasured step shipping the way #197 did.
  */
 const DIMMED_STEPS = [
-    'opacity-60' => 0.6,
-    'opacity-70' => 0.7,
+    'opacity-80' => 0.8,
+    'opacity-90' => 0.9,
 ];
+
+/**
+ * The bar dimmed text has to clear: WCAG's AAA ratio for normal text.
+ *
+ * `.claude/rules/accessibility.md` (#397) makes AAA the target for every dashboard surface. Dimmed
+ * text is small by construction -- captions, cells, badges -- so the large-text bar never applies,
+ * and #310 moved the steps from 60 and 70 to 80 and 90 to reach this: 70 measured 5.94:1 on a
+ * hovered row and 60 measured 4.52:1 on the page, both under it.
+ */
+const DIMMED_BAR = 7.0;
 
 /**
  * One channel, linear sRGB to the gamma-encoded value a browser composites with.
@@ -411,12 +421,12 @@ it('keeps every dimmed step the views use above the bar, in both themes', functi
         foreach (['color-base-100', 'color-base-200'] as $surface) {
             $ratio = dimmedContrastRatio($tokens['color-base-content'], $tokens[$surface], $alpha);
 
-            // AA for normal text. None of these usages is large text: they are table cells, badges
-            // and captions, so the 3.0 bar does not apply -- which is what made #197 a defect
-            // rather than a preference, since the failing step passed 3.0 comfortably.
+            // AAA for normal text, per the accessibility rule. None of these usages is large text:
+            // they are table cells, badges and captions, so neither large-text bar applies -- which
+            // is what made #197 a defect rather than a preference.
             expect($ratio)->toBeGreaterThanOrEqual(
-                4.5,
-                sprintf('%s theme, %s on %s: %.2f:1 against a 4.5:1 bar', $theme, $class, $surface, $ratio)
+                DIMMED_BAR,
+                sprintf('%s theme, %s on %s: %.2f:1 against a %.1f:1 bar', $theme, $class, $surface, $ratio, DIMMED_BAR)
             );
         }
     }
@@ -513,22 +523,26 @@ it('keeps dimmed text legible on the surface a hovered menu row paints', functio
     // having failed rather than the page being clean.
     expect($steps)->not->toBeEmpty();
 
-    $tokens = themeTokens(':where(:root)');
-    $content = linearRgb($tokens['color-base-content']);
+    // Both themes. The dark theme's hovered row is the closer call at AAA: `opacity-80` there
+    // measures 7.69:1, where the light theme's worst is 7.93:1.
+    foreach (['light' => ':where(:root)', 'dark' => '[data-theme=dark]'] as $theme => $selector) {
+        $tokens = themeTokens($selector);
+        $content = linearRgb($tokens['color-base-content']);
 
-    foreach (array_keys($steps) as $step) {
-        foreach (['color-base-100', 'color-base-200'] as $under) {
-            $hover = overLinear($content, linearRgb($tokens[$under]), 0.1);
+        foreach (array_keys($steps) as $step) {
+            foreach (['color-base-100', 'color-base-200'] as $under) {
+                $hover = overLinear($content, linearRgb($tokens[$under]), 0.1);
 
-            $text = relativeLuminance(overLinear($content, $hover, $step / 100)) + 0.05;
-            $behind = relativeLuminance($hover) + 0.05;
+                $text = relativeLuminance(overLinear($content, $hover, $step / 100)) + 0.05;
+                $behind = relativeLuminance($hover) + 0.05;
 
-            $ratio = $text > $behind ? $text / $behind : $behind / $text;
+                $ratio = $text > $behind ? $text / $behind : $behind / $text;
 
-            expect($ratio)->toBeGreaterThanOrEqual(
-                4.5,
-                sprintf('opacity-%d on a hovered menu row over %s: %.2f:1 against a 4.5:1 bar', $step, $under, $ratio)
-            );
+                expect($ratio)->toBeGreaterThanOrEqual(
+                    DIMMED_BAR,
+                    sprintf('%s theme, opacity-%d on a hovered menu row over %s: %.2f:1 against a %.1f:1 bar', $theme, $step, $under, $ratio, DIMMED_BAR)
+                );
+            }
         }
     }
 });

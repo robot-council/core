@@ -25,7 +25,7 @@
         </div>
 
         @if ($tasks === [])
-            <p class="py-6 text-center opacity-60">
+            <p class="py-6 text-center opacity-80">
                 {{ $afterId === null ? 'Nothing in the queue.' : 'Nothing further -- this is past the end of the queue.' }}
             </p>
         @else
@@ -48,7 +48,7 @@
                                     <div class="font-medium">{{ $task['title'] }}</div>
 
                                     @if ($task['project_id'])
-                                        <div class="text-meta opacity-60">{{ $task['project_id'] }}</div>
+                                        <div class="text-meta opacity-80">{{ $task['project_id'] }}</div>
                                     @endif
                                 </td>
 
@@ -66,7 +66,7 @@
                                             <span class="badge badge-sm badge-outline">coordinator</span>
                                         @endif
                                     @else
-                                        <span class="opacity-60">a session since deleted</span>
+                                        <span class="opacity-80">a session since deleted</span>
                                     @endif
                                 </td>
 
@@ -74,11 +74,11 @@
                                     @if ($task['claimed_by'])
                                         {{ $task['claimed_by']['github_login'] ?? 'an unknown account' }}
                                     @else
-                                        <span class="opacity-60">nobody</span>
+                                        <span class="opacity-80">nobody</span>
                                     @endif
                                 </td>
 
-                                <td class="whitespace-nowrap text-meta opacity-70">
+                                <td class="whitespace-nowrap text-meta opacity-90">
                                     {{ $task['age'] }}
                                 </td>
                             </tr>
