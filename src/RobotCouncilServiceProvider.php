@@ -21,6 +21,7 @@ use Livewire\Livewire;
 use RobotCouncil\Access\Allowlist;
 use RobotCouncil\Access\ApiGuards;
 use RobotCouncil\Access\Guard;
+use RobotCouncil\Console\CheckLaneConditionsCommand;
 use RobotCouncil\Console\CheckQuietLanesCommand;
 use RobotCouncil\Console\DoctorCommand;
 use RobotCouncil\Console\ImportGitHubItemsCommand;
@@ -155,6 +156,7 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
                 SweepSessionsCommand::class,
                 TakeBacklogBaselineCommand::class,
                 CheckQuietLanesCommand::class,
+                CheckLaneConditionsCommand::class,
             ]);
     }
 
@@ -675,12 +677,13 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
         $pruneSessions = $config->get('robot-council.schedule.prune_sessions', true) === true;
         $backlog = $config->get('robot-council.schedule.backlog_baseline', true) === true;
         $quiet = $config->get('robot-council.schedule.quiet_lanes', true) === true;
+        $conditions = $config->get('robot-council.schedule.lane_conditions', true) === true;
 
-        if (! $prune && ! $sweep && ! $pruneEvents && ! $pruneTasks && ! $pruneLocks && ! $pruneSessions && ! $backlog && ! $quiet) {
+        if (! $prune && ! $sweep && ! $pruneEvents && ! $pruneTasks && ! $pruneLocks && ! $pruneSessions && ! $backlog && ! $quiet && ! $conditions) {
             return;
         }
 
-        $this->app->booted(static function () use ($prune, $sweep, $pruneEvents, $pruneTasks, $pruneLocks, $pruneSessions, $backlog, $quiet): void {
+        $this->app->booted(static function () use ($prune, $sweep, $pruneEvents, $pruneTasks, $pruneLocks, $pruneSessions, $backlog, $quiet, $conditions): void {
             if ($prune) {
                 Schedule::command(PruneDeviceCodesCommand::class)->hourly();
             }
@@ -718,6 +721,10 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
 
             if ($quiet) {
                 Schedule::command(CheckQuietLanesCommand::class)->everyFiveMinutes();
+            }
+
+            if ($conditions) {
+                Schedule::command(CheckLaneConditionsCommand::class)->everyFiveMinutes();
             }
         });
     }

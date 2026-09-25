@@ -236,6 +236,22 @@ final class FleetEvents
     }
 
     /**
+     * Take the feed's writer lock now, for a writer that must decide something under it before it
+     * records.
+     *
+     * The lock order puts the sentinel before the tables that follow it, so a writer that reads or
+     * inserts one of those and then records has to hold the feed first -- otherwise it holds that
+     * row and waits on the sentinel while a recorder holds the sentinel and waits on the row.
+     * Taking it twice in one transaction is harmless: `record()` then re-locks a row it holds.
+     *
+     * @throws RuntimeException When the sentinel row is missing.
+     */
+    public function hold(): void
+    {
+        $this->holdTheFeed();
+    }
+
+    /**
      * Take the feed's writer lock for the rest of the transaction.
      *
      * Taken **before** the insert, which is the whole point: an ID drawn before the lock is an ID

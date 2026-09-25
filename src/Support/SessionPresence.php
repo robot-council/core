@@ -72,12 +72,14 @@ final class SessionPresence
      * @param  FleetEvents  $events  The change feed.
      * @param  SessionReleases  $releases  What runs at the end of every sweep.
      * @param  Dispatcher  $dispatcher  The application's event dispatcher.
+     * @param  LaneConditions  $conditions  Raises the coordinator's lane conditions (#319).
      */
     public function __construct(
         private readonly Credentials $credentials,
         private readonly FleetEvents $events,
         private readonly SessionReleases $releases,
-        private readonly Dispatcher $dispatcher
+        private readonly Dispatcher $dispatcher,
+        private readonly LaneConditions $conditions
     ) {}
 
     /**
@@ -276,6 +278,10 @@ final class SessionPresence
                 ['installation_id' => $session->installation_id, 'quiet_since' => $quietSince->toIso8601String()]
             );
 
+            // A lane holding work that stopped answering is the coordinator's to know at once, on
+            // this transition rather than on the next scheduled check (#319)
+            $this->conditions->sessionUnobserved($session, AgentSessionStatus::Stale);
+
             return true;
         });
     }
@@ -353,6 +359,10 @@ final class SessionPresence
                 // "by whom" matters most, and the feed could not say it before.
                 actor: $actor
             );
+
+            // Before the release the gone-session listener makes, so the coordinator is told which
+            // work the lane was holding when it ended (#319)
+            $this->conditions->sessionUnobserved($session, AgentSessionStatus::Gone);
 
             $deleted = Tokens::deleted($session->tokens()->delete());
 
