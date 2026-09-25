@@ -208,8 +208,7 @@ it('costs the same queries however many lanes it lists', function (): void {
 
     // Lanes that each hold a task naming an issue and sit in a recorded seat, so every per-lane
     // lookup the board makes is exercised
-    /** @param list<string> $locations */
-    $addWorkingLanes = function (array $locations) use ($key): void {
+    $addWorkingLanes = function (string ...$locations) use ($key): void {
         foreach ($locations as $location) {
             $lane = boardLane($this, $location);
             $task = $this->service(Tasks::class)->create($this->coordinatorSession, ['title' => 'Work', 'issue' => 'robot-council/core#'.(100 + ord($location))], true);
@@ -219,10 +218,10 @@ it('costs the same queries however many lanes it lists', function (): void {
         $this->service(Seats::class)->forDeveloper($key);
     };
 
-    $addWorkingLanes(['a', 'b']);
+    $addWorkingLanes('a', 'b');
     $two = queriesIssuedBy(fn (): array => $this->service(LaneBoard::class)->read());
 
-    $addWorkingLanes(['c', 'd', 'e', 'f']);
+    $addWorkingLanes('c', 'd', 'e', 'f');
     $six = queriesIssuedBy(fn (): array => $this->service(LaneBoard::class)->read());
 
     expect(DB::table('robot_council_seats')->count())->toBe(6)
