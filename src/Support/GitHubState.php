@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use RobotCouncil\Models\GitHubItem;
 use RobotCouncil\Models\Task;
@@ -338,14 +339,17 @@ final class GitHubState
             'blocker_number' => self::number($blocking),
         ];
 
-        // **Unordered, and a known gap.** An edge carries no timestamp of its own, so a
-        // `blocked_by_removed` delivered before the older `blocked_by_added` leaves the edge in
-        // place. Tracked in #341; until then a stale edge is cleared by removing and
-        // re-adding it on GitHub.
+        // **Unordered, and accepted as that (#341).** Nothing in a delivery orders it -- measured,
+        // adding or removing an edge moves neither issue's `updated_at` -- so a `blocked_by_removed`
+        // delivered before the older `blocked_by_added` leaves the edge in place, and the last
+        // delivery received wins. A stale edge fails closed: a placement names the blocker and a
+        // waiver covers it, and removing and re-adding the edge on GitHub clears it.
         if (str_ends_with($action, '_added')) {
             DB::table('robot_council_github_blockers')->insertOrIgnore($edge);
-        } else {
-            DB::table('robot_council_github_blockers')->where($edge)->delete();
+        } elseif (DB::table('robot_council_github_blockers')->where($edge)->delete() === 0) {
+            // The one trace a removal ahead of its add leaves. Logged so the rate is measured
+            // rather than guessed: it is what decides whether reading GitHub is ever worth it
+            Log::notice('robot-council: a blocked_by removal found no stored edge; if its add arrives later, the edge will be stale.', $edge);
         }
 
         return 'applied';
