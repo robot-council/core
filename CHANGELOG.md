@@ -2,6 +2,13 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.6.14 — Withdrawn Role Requests (2026-09-25)
+
+Asking for the role a session already holds now withdraws its other pending request, and the feed records the withdrawal.
+
+### What's fixed
+- Withdraw a pending role request when a session asks for the role it already holds [#423](https://github.com/robot-council/core/pull/423)
+
 ## v0.6.13 — Slot Names (2026-09-25)
 
 Core's worktree slots are renamed to robot-council-core-a and robot-council-core-b, and the worktree rule names them.
