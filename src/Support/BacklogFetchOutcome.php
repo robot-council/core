@@ -52,4 +52,22 @@ enum BacklogFetchOutcome: string
      * The App's key or id could not be used to sign a request.
      */
     case KeyUnusable = 'key unusable';
+
+    /**
+     * Something other than GitHub failed while fetching: the cache store, the database, or a bug.
+     * Logged with the exception's class alone.
+     */
+    case Error = 'error';
+
+    /**
+     * Whether this outcome can pass without anyone doing anything: GitHub not answering, a rate
+     * limit, an incomplete search, or a failure outside GitHub. Doctor reports these as
+     * undetermined rather than failed.
+     *
+     * @return bool Whether it is transient.
+     */
+    public function transient(): bool
+    {
+        return \in_array($this, [self::Unreachable, self::RateLimited, self::Incomplete, self::Error], true);
+    }
 }

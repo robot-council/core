@@ -727,18 +727,28 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
                 Schedule::command(TakeBacklogBaselineCommand::class)->everyFiveMinutes();
             }
 
-            // Scheduled whether or not a GitHub App is configured: the command makes no request
-            // without one, and a host that adds the App later then needs no schedule change (#383)
-            if ($fetch) {
-                Schedule::command(FetchBacklogCommand::class)->everyFiveMinutes();
-            }
-
             if ($quiet) {
                 Schedule::command(CheckQuietLanesCommand::class)->everyFiveMinutes();
             }
 
             if ($conditions) {
                 Schedule::command(CheckLaneConditionsCommand::class)->everyFiveMinutes();
+            }
+
+            // Scheduled whether or not a GitHub App is configured: the command makes no request
+            // without one, and a host that adds the App later then needs no schedule change (#383).
+            //
+            // **Last, in the background, and never overlapping itself.** It waits on GitHub -- up
+            // to a ten-second timeout per request -- and the scheduler runs a foreground event to
+            // completion before starting the next, so ahead of the coordination checks above it
+            // would hold them back for as long as GitHub is slow. The overlap lock expires after
+            // ten minutes, not the framework's default day, so a run killed mid-fetch costs two
+            // runs rather than a day of counts.
+            if ($fetch) {
+                Schedule::command(FetchBacklogCommand::class)
+                    ->everyFiveMinutes()
+                    ->withoutOverlapping(10)
+                    ->runInBackground();
             }
         });
     }

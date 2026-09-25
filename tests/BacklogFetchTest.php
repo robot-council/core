@@ -6,8 +6,9 @@ declare(strict_types=1);
  * Core fetching each board repository's open-issue count through a GitHub App (#383).
  *
  * Every test here fakes GitHub with `Http::fake()` and refuses anything else with
- * `Http::preventStrayRequests()`, so a request the fixture does not model fails the test rather than
- * leaving the machine. The fixture models search's qualifiers rather than answering one number, so
+ * `Http::preventStrayRequests()`: the fake answers only the three endpoints it models, on
+ * `api.github.com`, and returns nothing for any other request, which the framework then refuses as
+ * stray -- so a request the fixture does not model fails the test rather than leaving the machine. The fixture models search's qualifiers rather than answering one number, so
  * the pull-request exclusion is a property of the query the package sends, not of the fake.
  *
  * @command  vendor/bin/pest --compact tests/BacklogFetchTest.php
@@ -17,6 +18,8 @@ use Illuminate\Console\Scheduling\Event as ScheduledEvent;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Contracts\Encryption\StringEncrypter;
+use Illuminate\Database\QueryException;
+use Illuminate\Encryption\MissingAppKeyException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Log\Events\MessageLogged;
@@ -27,6 +30,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Livewire\Livewire;
+use Mockery\MockInterface;
 use RobotCouncil\Livewire\Lanes;
 use RobotCouncil\Models\Installation;
 use RobotCouncil\Support\AgentSessions;
@@ -96,6 +100,49 @@ function fetchFixtureKey(): array
 }
 
 /**
+ * The PKCS#1 form of a PKCS#8 RSA key, which is what GitHub's `.pem` download holds.
+ *
+ * OpenSSL 3 exports PKCS#8 only, so the RSA key inside is unwrapped from the DER by hand:
+ * PrivateKeyInfo is a SEQUENCE of a version, an algorithm, and an OCTET STRING whose contents are
+ * the PKCS#1 RSAPrivateKey.
+ *
+ * @param  string  $pkcs8  A `BEGIN PRIVATE KEY` PEM.
+ * @return string A `BEGIN RSA PRIVATE KEY` PEM.
+ */
+function pkcs1Pem(string $pkcs8): string
+{
+    $der = (string) base64_decode((string) preg_replace('/-----[^-]+-----|\s+/', '', $pkcs8), true);
+
+    // Read one DER element's tag, and where its contents start and how long they are
+    $element = static function (string $der, int $at): array {
+        $tag = ord($der[$at]);
+        $length = ord($der[$at + 1]);
+        $start = $at + 2;
+
+        if ($length > 0x7F) {
+            $bytes = $length & 0x7F;
+            $length = (int) hexdec(bin2hex(substr($der, $start, $bytes)));
+            $start += $bytes;
+        }
+
+        return [$tag, $start, $length];
+    };
+
+    [, $inside] = $element($der, 0);
+
+    // Skip the version and the algorithm, then take the OCTET STRING's contents
+    [, $versionStart, $versionLength] = $element($der, $inside);
+    [, $algorithmStart, $algorithmLength] = $element($der, $versionStart + $versionLength);
+    [$tag, $keyStart, $keyLength] = $element($der, $algorithmStart + $algorithmLength);
+
+    if ($tag !== 0x04) {
+        throw new RuntimeException('The fixture key is not the PKCS#8 shape expected.');
+    }
+
+    return "-----BEGIN RSA PRIVATE KEY-----\n".chunk_split(base64_encode(substr($der, $keyStart, $keyLength)), 64, "\n")."-----END RSA PRIVATE KEY-----\n";
+}
+
+/**
  * Run the scheduled command, as the scheduler would, and require it to exit zero.
  */
 function runBacklogFetch(): void
@@ -136,7 +183,8 @@ function gitHubFixtureState(): ArrayObject
 
     $state['installations'] = [];
     $state['repositories'] = [];
-    $state['listing'] = null;
+    $state['lookup'] = null;
+    $state['mint'] = null;
 
     return $state;
 }
@@ -148,54 +196,68 @@ function gitHubFixtureState(): ArrayObject
  * and the count returned is what the query's `is:` qualifiers select, as GitHub's search does.
  *
  * @param  TestCase  $case  The test case, whose fixture state this changes.
- * @param  array<string, int>  $installations  Installation ids by account login.
+ * @param  array<string, int>  $installations  Installation ids by account login, lower-cased.
  * @param  array<string, array{issues: int, pulls: int}|Closure>  $repositories  Counts by repository, or a
  *                                                                               closure answering for it.
- * @param  Closure|null  $listing  Answers `/app/installations` instead of the installations, when given.
+ * @param  Closure|null  $lookup  Answers `/users/{owner}/installation` instead, given the owner.
+ * @param  Closure|null  $mint  Answers `access_tokens` instead, given the installation id.
  */
-function fakeGitHub(TestCase $case, array $installations, array $repositories, ?Closure $listing = null): void
+function fakeGitHub(TestCase $case, array $installations, array $repositories, ?Closure $lookup = null, ?Closure $mint = null): void
 {
     $state = $case->github;
 
     $state['installations'] = $installations;
     $state['repositories'] = $repositories;
-    $state['listing'] = $listing;
+    $state['lookup'] = $lookup;
+    $state['mint'] = $mint;
 }
 
 /**
  * Fake GitHub's three endpoints from a state the test can change.
  *
- * @param  ArrayObject<string, mixed>  $state  What GitHub answers: `installations`, `repositories`, `listing`.
+ * @param  ArrayObject<string, mixed>  $state  What GitHub answers.
  */
 function fakeGitHubFrom(ArrayObject $state): void
 {
     Http::fake(function (Request $request) use ($state) {
+        // Anything but GitHub's API is not modeled: null, which the framework refuses as stray
+        if (parse_url($request->url(), PHP_URL_SCHEME) !== 'https' || parse_url($request->url(), PHP_URL_HOST) !== 'api.github.com') {
+            return null;
+        }
+
         $path = (string) parse_url($request->url(), PHP_URL_PATH);
         parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
 
         $installations = is_array($state['installations']) ? $state['installations'] : [];
         $repositories = is_array($state['repositories']) ? $state['repositories'] : [];
 
-        if ($path === '/app/installations') {
-            if ($state['listing'] instanceof Closure) {
-                return ($state['listing'])();
+        if ($request->method() === 'GET' && preg_match('#^/users/([^/]+)/installation$#', $path, $match) === 1) {
+            $owner = rawurldecode($match[1]);
+
+            if ($state['lookup'] instanceof Closure) {
+                return ($state['lookup'])($owner);
             }
 
-            return Http::response(array_map(
-                static fn (mixed $login, mixed $id): array => ['id' => $id, 'account' => ['login' => $login]],
-                array_keys($installations),
-                array_values($installations)
-            ));
+            // GitHub compares logins without case
+            $id = $installations[mb_strtolower($owner)] ?? null;
+
+            return $id === null
+                ? Http::response(['message' => 'Not Found'], 404)
+                : Http::response(['id' => $id, 'account' => ['login' => $owner]]);
         }
 
-        if (preg_match('#^/app/installations/(\d+)/access_tokens$#', $path, $match) === 1) {
+        if ($request->method() === 'POST' && preg_match('#^/app/installations/(\d+)/access_tokens$#', $path, $match) === 1) {
+            if ($state['mint'] instanceof Closure) {
+                return ($state['mint'])((int) $match[1]);
+            }
+
             return Http::response([
                 'token' => 'ghs_installation'.$match[1].'SENTINEL',
                 'expires_at' => Carbon::now()->addHour()->utc()->format('Y-m-d\TH:i:s\Z'),
             ], 201);
         }
 
-        if ($path === '/search/issues') {
+        if ($request->method() === 'GET' && $path === '/search/issues') {
             $terms = preg_split('/\s+/', is_string($query['q'] ?? null) ? $query['q'] : '') ?: [];
             $repository = '';
 
@@ -226,7 +288,7 @@ function fakeGitHubFrom(ArrayObject $state): void
             ]);
         }
 
-        return Http::response(['message' => 'Not Found'], 404);
+        return null;
     });
 }
 
@@ -359,8 +421,12 @@ it('sends each repository the token for its own owner, and asks nothing for an o
         ->and($this->service(BacklogFetches::class)->latest(['nobody-installed/thing'])['nobody-installed/thing']['outcome'])->toBe(BacklogFetchOutcome::NoInstallation)
         ->and($this->service(LaneBoard::class)->read()['meters']['nobody-installed/thing']['count'])->toBeNull();
 
-    // One token per installation, not one per repository
-    expect(sentTo('/app/installations/7/access_tokens'))->toHaveCount(1)
+    // One lookup per owner and one token per installation, not one per repository; the lookup
+    // asks for the account as the board spells it, which GitHub reads without case
+    expect(sentTo('/users/robot-council/installation'))->toHaveCount(1)
+        ->and(sentTo('/users/UAMS-Web/installation'))->toHaveCount(1)
+        ->and(sentTo('/users/nobody-installed/installation'))->toHaveCount(1)
+        ->and(sentTo('/app/installations/7/access_tokens'))->toHaveCount(1)
         ->and(sentTo('/app/installations/9/access_tokens'))->toHaveCount(1);
 });
 
@@ -436,17 +502,31 @@ it('signs an RS256 JWT with the App id as its issuer and a window GitHub accepts
     fakeGitHub($this, ['robot-council' => 7], ['robot-council/core' => ['issues' => 1, 'pulls' => 0]]);
     $this->service(BacklogFetcher::class)->run();
 
-    expect(sentTo('/app/installations')[0]->header('Authorization'))->toBe(['Bearer '.$jwt]);
+    expect(sentTo('/users/robot-council/installation')[0]->header('Authorization'))->toBe(['Bearer '.$jwt]);
 });
 
-it('reads a key given as a PEM pasted whole, and one with its newlines written as \n', function (): void {
-    $pem = fetchFixtureKey()['private'];
+it('reads a key given as a PEM pasted whole, and one with its newlines written as \n', function (string $form): void {
+    $pem = $form === 'pkcs1' ? pkcs1Pem(fetchFixtureKey()['private']) : fetchFixtureKey()['private'];
+
+    // The form really is the one named, so the row tests what it says
+    expect($pem)->toStartWith($form === 'pkcs1' ? '-----BEGIN RSA PRIVATE KEY-----' : '-----BEGIN PRIVATE KEY-----');
 
     expect(GitHubAppKey::pem($pem))->toBe(trim($pem))
         ->and(GitHubAppKey::pem(str_replace("\n", '\n', $pem)))->toBe(trim($pem))
         ->and(GitHubAppKey::pem(chunk_split(base64_encode($pem), 64)))->toBe(trim($pem))
         ->and(GitHubAppKey::pem('not a key'))->toBeNull();
-});
+
+    // And it signs: a JWT from it verifies against the fixture's public half
+    config()->set('robot-council.github.app.id', FETCH_APP_ID);
+    config()->set('robot-council.github.app.private_key', base64_encode($pem));
+
+    [$header, $payload, $signature] = explode('.', (string) $this->service(GitHubAppKey::class)->jwt(Carbon::now()));
+
+    expect(openssl_verify($header.'.'.$payload, (string) base64_decode(strtr($signature, '-_', '+/'), true), fetchFixtureKey()['public'], OPENSSL_ALGO_SHA256))->toBe(1);
+})->with([
+    'PKCS#8' => 'pkcs8',
+    'PKCS#1, the form GitHub issues' => 'pkcs1',
+]);
 
 it('counts open issues without the open pull requests', function (): void {
     configureFetchApp();
@@ -532,17 +612,31 @@ it('stops the run at a rate limit rather than being refused for every repository
     'a 429' => [[], 429],
 ]);
 
-it('records every repository as unread when the installations cannot be listed', function (): void {
+it("records an owner's repositories as unread when its installation lookup is refused, and still fetches the other owners", function (): void {
     configureFetchApp();
+    fetchLane($this, $this->installation, 'refused-owner/one');
+    fetchLane($this, $this->installation, 'refused-owner/two');
     fetchLane($this, $this->installation, 'robot-council/core');
 
-    fakeGitHub($this, ['robot-council' => 7], [], fn () => Http::response(['message' => 'A JSON web token could not be decoded'], 401));
+    fakeGitHub(
+        $this,
+        ['robot-council' => 7],
+        ['robot-council/core' => ['issues' => 2, 'pulls' => 0]],
+        fn (string $owner) => $owner === 'refused-owner'
+            ? Http::response(['message' => 'A JSON web token could not be decoded'], 401)
+            : Http::response(['id' => 7])
+    );
 
     runBacklogFetch();
 
-    expect(fetchedReadings())->toBeEmpty()
-        ->and($this->service(BacklogFetches::class)->latest(['robot-council/core'])['robot-council/core']['status'])->toBe(401)
-        ->and(sentTo('/search/issues'))->toBeEmpty();
+    $latest = $this->service(BacklogFetches::class)->latest(['refused-owner/one', 'refused-owner/two']);
+
+    expect(fetchedReadings())->toBe(['robot-council/core' => 2])
+        ->and($latest['refused-owner/one']['status'] ?? null)->toBe(401)
+        ->and($latest['refused-owner/two']['status'] ?? null)->toBe(401)
+        // Asked once for the owner, not once per repository
+        ->and(sentTo('/users/refused-owner/installation'))->toHaveCount(1)
+        ->and(array_map(searchedRepository(...), sentTo('/search/issues')))->toBe(['robot-council/core']);
 });
 
 it('never lets the key, the JWT, or an installation token reach a log, an exception, the cache, or a page', function (): void {
@@ -562,7 +656,7 @@ it('never lets the key, the JWT, or an installation token reach a log, an except
     // The sentinels, read from what was actually sent: the JWT from the installations request and
     // the token from a search. Positive controls first: each must be a real, non-empty credential,
     // or every "does not contain" below would pass on an empty string.
-    $jwt = substr(stringValue(sentTo('/app/installations')[0]->header('Authorization')[0] ?? null), 7);
+    $jwt = substr(stringValue(sentTo('/users/robot-council/installation')[0]->header('Authorization')[0] ?? null), 7);
     $token = 'ghs_installation7SENTINEL';
     $keyBody = trim(str_replace(['-----BEGIN PRIVATE KEY-----', '-----END PRIVATE KEY-----', "\n"], '', fetchFixtureKey()['private']));
     $keyLine = substr($keyBody, 64, 48);
@@ -583,21 +677,38 @@ it('never lets the key, the JWT, or an installation token reach a log, an except
 
     expect(loggedMessages($this))->not->toBeEmpty();
 
-    // Every refusal the client can raise, by provoking each
+    // Every refusal the client can raise, by provoking each -- with the trace printing arguments
+    // whole. By default PHP leaves arguments out of a trace, or cuts a string to 15 characters, so
+    // a token passed without `#[SensitiveParameter]` would not show and this could not tell.
     $exceptions = [];
+    $ignoreArgs = ini_get('zend.exception_ignore_args');
+    $maxLength = ini_get('zend.exception_string_param_max_len');
 
-    foreach ([
-        fn () => Http::response(['message' => 'Bad credentials'], 401),
-        fn () => throw new ConnectionException('cURL error 28 carrying Bearer '.$token),
-        fn () => Http::response('not json '.$token, 200),
-    ] as $answer) {
-        fakeGitHub($this, ['robot-council' => 7], ['robot-council/core' => $answer]);
+    ini_set('zend.exception_ignore_args', '0');
+    ini_set('zend.exception_string_param_max_len', '1000000');
 
-        try {
-            $this->service(GitHubApp::class)->openIssues('robot-council/core', $token);
-        } catch (GitHubRefusal $refusal) {
-            $exceptions[] = $refusal->getMessage().$refusal->getTraceAsString();
+    try {
+        // The positive control: a parameter NOT marked sensitive prints the token whole
+        $control = (static fn (string $plain): Throwable => new RuntimeException('control'))($token);
+
+        expect($control->getTraceAsString())->toContain($token);
+
+        foreach ([
+            fn () => Http::response(['message' => 'Bad credentials'], 401),
+            fn () => throw new ConnectionException('cURL error 28 carrying Bearer '.$token),
+            fn () => Http::response('not json '.$token, 200),
+        ] as $answer) {
+            fakeGitHub($this, ['robot-council' => 7], ['robot-council/core' => $answer]);
+
+            try {
+                $this->service(GitHubApp::class)->openIssues('robot-council/core', $token);
+            } catch (GitHubRefusal $refusal) {
+                $exceptions[] = $refusal->getMessage().$refusal->getTraceAsString();
+            }
         }
+    } finally {
+        ini_set('zend.exception_ignore_args', is_string($ignoreArgs) ? $ignoreArgs : '1');
+        ini_set('zend.exception_string_param_max_len', is_string($maxLength) ? $maxLength : '15');
     }
 
     expect($exceptions)->toHaveCount(3);
@@ -687,7 +798,7 @@ it("reports the App and each repository's latest fetch through doctor", function
     expect($diagnosis('backlog fetch')?->status)->toBe(DiagnosisStatus::Passed);
 });
 
-it('schedules the fetch every five minutes, and not when the host turns it off', function (): void {
+it('schedules the fetch every five minutes, last, in the background and without overlap, and not when the host turns it off', function (): void {
     $scheduled = static fn (Schedule $schedule): array => array_values(array_filter(
         $schedule->events(),
         static fn (ScheduledEvent $event): bool => str_contains((string) $event->command, 'robot-council:backlog-fetch')
@@ -695,8 +806,20 @@ it('schedules the fetch every five minutes, and not when the host turns it off',
 
     $events = $scheduled($this->service(Schedule::class));
 
+    // In the background, never overlapping itself, with a lock that lapses in ten minutes
     expect($events)->toHaveCount(1)
-        ->and($events[0]->expression)->toBe('*/5 * * * *');
+        ->and($events[0]->expression)->toBe('*/5 * * * *')
+        ->and($events[0]->runInBackground)->toBeTrue()
+        ->and($events[0]->withoutOverlapping)->toBeTrue()
+        ->and($events[0]->expiresAt)->toBe(10);
+
+    // And last of the package's entries, so the coordination checks are not queued behind it
+    $ours = array_values(array_filter(
+        $this->service(Schedule::class)->events(),
+        static fn (ScheduledEvent $event): bool => str_contains((string) $event->command, 'robot-council:')
+    ));
+
+    expect(end($ours))->toBe($events[0]);
 
     $this->rebootWith('robot-council.schedule.backlog_fetch', false);
 
@@ -756,4 +879,219 @@ it('holds the fetched store to the bounds the session store holds', function ():
         ->and(fn () => $this->service(BacklogFetches::class)->record('robot-council/core', BacklogFetchOutcome::Refused, 1000))->toThrow(InvalidArgumentException::class)
         ->and(fn () => $this->service(GitHubApp::class)->openIssues('robot-council/core is:pr', 'x'))->toThrow(InvalidArgumentException::class)
         ->and(DB::table('robot_council_backlog_readings')->count())->toBe(0);
+});
+
+it('refuses a request the fixture does not model, so a stray one cannot pass unnoticed', function (): void {
+    // The fixture's own positive control: another host, and an unmodeled GitHub path, both throw
+    expect(fn () => Http::get('https://example.com/'))->toThrow(RuntimeException::class)
+        ->and(fn () => Http::get('https://api.github.com/app/installations'))->toThrow(RuntimeException::class)
+        ->and(Http::get('https://api.github.com/users/robot-council/installation')->status())->toBe(404);
+});
+
+it('stops a run after two requests in a row get no answer, and not after one', function (array $answers, array $searched): void {
+    configureFetchApp();
+
+    foreach (array_keys($answers) as $repository) {
+        fetchLane($this, $this->installation, $repository);
+    }
+
+    // Counted as each is asked: a request that got no answer never reaches `Http::recorded()`
+    /** @var ArrayObject<int, string> $asked */
+    $asked = new ArrayObject;
+    $specs = [];
+
+    foreach ($answers as $key => $answer) {
+        $repository = keyValue($key);
+
+        $specs[$repository] = function () use ($asked, $repository, $answer) {
+            $asked[] = $repository;
+
+            if ($answer === 'timeout') {
+                throw new ConnectionException('cURL error 28: Operation timed out');
+            }
+
+            return Http::response(['total_count' => 1, 'incomplete_results' => false]);
+        };
+    }
+
+    fakeGitHub($this, ['robot-council' => 7], $specs);
+
+    runBacklogFetch();
+
+    expect($asked->getArrayCopy())->toBe($searched);
+})->with([
+    'two in a row' => [
+        ['robot-council/a' => 'timeout', 'robot-council/b' => 'timeout', 'robot-council/c' => 'ok'],
+        ['robot-council/a', 'robot-council/b'],
+    ],
+    'separated by an answer' => [
+        ['robot-council/a' => 'timeout', 'robot-council/b' => 'ok', 'robot-council/c' => 'timeout', 'robot-council/d' => 'ok'],
+        ['robot-council/a', 'robot-council/b', 'robot-council/c', 'robot-council/d'],
+    ],
+]);
+
+it('mints once a run for an installation GitHub will not mint for, and asks nothing for its repositories', function (): void {
+    configureFetchApp();
+    fetchLane($this, $this->installation, 'suspended/one');
+    fetchLane($this, $this->installation, 'suspended/two');
+    fetchLane($this, $this->installation, 'suspended/three');
+
+    fakeGitHub(
+        $this,
+        ['suspended' => 5],
+        [],
+        null,
+        fn (int $installation) => Http::response(['message' => 'This installation has been suspended'], 403)
+    );
+
+    runBacklogFetch();
+
+    $latest = $this->service(BacklogFetches::class)->latest(['suspended/one', 'suspended/two', 'suspended/three']);
+
+    expect(sentTo('/app/installations/5/access_tokens'))->toHaveCount(1)
+        ->and(sentTo('/search/issues'))->toBeEmpty()
+        ->and(array_map(static fn (array $fetch): ?int => $fetch['status'], $latest))->toBe([
+            'suspended/one' => 403,
+            'suspended/three' => 403,
+            'suspended/two' => 403,
+        ]);
+});
+
+it('records an error and goes on when something other than GitHub fails, logging the class and never the message', function (): void {
+    configureFetchApp();
+    fetchLane($this, $this->installation, 'robot-council/core');
+    fetchLane($this, $this->installation, 'robot-council/cli');
+    fakeGitHub($this, ['robot-council' => 7], ['robot-council/core' => ['issues' => 1, 'pulls' => 0], 'robot-council/cli' => ['issues' => 1, 'pulls' => 0]]);
+
+    // A cache store that is down, whose error names where it lives
+    $this->mock(Cache::class, function (MockInterface $cache): void {
+        $cache->shouldReceive('get')->andThrow(new RuntimeException('connection refused: redis://user:secret@cache.internal:6379'));
+    });
+
+    runBacklogFetch();
+
+    $warnings = array_values(array_filter(loggedMessages($this), static fn (MessageLogged $message): bool => $message->level === 'warning'));
+
+    expect(fetchedReadings())->toBeEmpty()
+        ->and(array_map(static fn (array $fetch): BacklogFetchOutcome => $fetch['outcome'], $this->service(BacklogFetches::class)->latest(['robot-council/core', 'robot-council/cli'])))
+        ->toBe(['robot-council/cli' => BacklogFetchOutcome::Error, 'robot-council/core' => BacklogFetchOutcome::Error])
+        ->and(array_map(static fn (MessageLogged $message): array => $message->context, $warnings))->toBe([
+            ['repository' => 'robot-council/cli', 'exception' => RuntimeException::class],
+            ['repository' => 'robot-council/core', 'exception' => RuntimeException::class],
+        ])
+        ->and(str_contains((string) json_encode(array_map(static fn (MessageLogged $message): string => $message->message, $warnings)), 'secret'))->toBeFalse();
+});
+
+it('records an error when storing the reading fails, and the command still exits zero', function (): void {
+    configureFetchApp();
+    fetchLane($this, $this->installation, 'robot-council/core');
+    fakeGitHub($this, ['robot-council' => 7], ['robot-council/core' => ['issues' => 1, 'pulls' => 0]]);
+
+    // The reading's table is gone: the insert throws a `QueryException`, whose message holds SQL
+    Schema::drop('robot_council_backlog_readings');
+
+    runBacklogFetch();
+
+    $warning = collect(loggedMessages($this))->first(static fn (MessageLogged $message): bool => $message->level === 'warning');
+
+    expect($this->service(BacklogFetches::class)->latest(['robot-council/core'])['robot-council/core']['outcome'] ?? null)->toBe(BacklogFetchOutcome::Error)
+        ->and($warning?->context)->toBe(['repository' => 'robot-council/core', 'exception' => QueryException::class]);
+});
+
+it('exits zero when the fetch cannot even read the board, logging the class alone', function (): void {
+    configureFetchApp();
+    fetchLane($this, $this->installation, 'robot-council/core');
+
+    Schema::drop('robot_council_backlog_fetches');
+
+    runBacklogFetch();
+
+    expect(array_map(static fn (MessageLogged $message): array => $message->context, loggedMessages($this)))
+        ->toBe([['exception' => QueryException::class]])
+        ->and(Http::recorded())->toBeEmpty();
+});
+
+it('logs a missing installation when it begins, not on every run while it lasts', function (): void {
+    configureFetchApp();
+    fetchLane($this, $this->installation, 'nobody-installed/thing');
+
+    runBacklogFetch();
+    runBacklogFetch();
+    runBacklogFetch();
+
+    $warnings = array_filter(loggedMessages($this), static fn (MessageLogged $message): bool => $message->level === 'warning');
+
+    // Asked every run, and recorded every run, but said once
+    expect($warnings)->toHaveCount(1)
+        ->and(sentTo('/users/nobody-installed/installation'))->toHaveCount(3);
+
+    // And said again when it begins again, after a run that read it
+    fakeGitHub($this, ['nobody-installed' => 3], ['nobody-installed/thing' => ['issues' => 1, 'pulls' => 0]]);
+    runBacklogFetch();
+    fakeGitHub($this, [], []);
+    runBacklogFetch();
+
+    expect(array_filter(loggedMessages($this), static fn (MessageLogged $message): bool => $message->level === 'warning'))->toHaveCount(2);
+});
+
+it('replaces a cached token inside its refresh margin, even when the cache would keep it longer', function (): void {
+    configureFetchApp();
+    fetchLane($this, $this->installation, 'robot-council/core');
+    fakeGitHub($this, ['robot-council' => 7], ['robot-council/core' => ['issues' => 1, 'pulls' => 0]]);
+
+    Carbon::setTestNow('2026-09-24 12:00:00');
+
+    // A token a minute from expiring, in a store that would keep it an hour
+    $this->service(Cache::class)->put(
+        sprintf('robot-council:github-app:%s:installation:7:token', FETCH_APP_ID),
+        $this->service(StringEncrypter::class)->encryptString((string) json_encode(['token' => 'ghs_aboutToLapse', 'expires_at' => Carbon::now()->addMinute()->getTimestamp()])),
+        3600
+    );
+
+    runBacklogFetch();
+
+    expect(sentTo('/app/installations/7/access_tokens'))->toHaveCount(1)
+        ->and(sentTo('/search/issues')[0]->header('Authorization'))->toBe(['Bearer ghs_installation7SENTINEL']);
+});
+
+it('needs no application key while no App is configured', function (): void {
+    fetchLane($this, $this->installation, 'robot-council/core');
+
+    // A host with no APP_KEY: resolving the encrypter now throws
+    config()->set('app.key', '');
+    $this->app?->forgetInstance('encrypter');
+
+    expect(fn () => $this->service(StringEncrypter::class))->toThrow(MissingAppKeyException::class);
+
+    runBacklogFetch();
+
+    expect(loggedMessages($this))->toBeEmpty();
+});
+
+it('treats a passing failure as undetermined and a standing one as failed, grouping owners without case', function (): void {
+    configureFetchApp();
+    fetchLane($this, $this->installation, 'UAMS-Web/site');
+    fetchLane($this, $this->installation, 'uams-web/other');
+
+    $diagnosis = fn () => collect($this->service(Doctor::class)->examine(['backlog fetch']))->first();
+
+    // GitHub not answering: it may pass on its own
+    fakeGitHub($this, ['uams-web' => 9], [
+        'UAMS-Web/site' => fn () => throw new ConnectionException('cURL error 28'),
+        'uams-web/other' => ['issues' => 1, 'pulls' => 0],
+    ]);
+    runBacklogFetch();
+
+    expect($diagnosis()?->status)->toBe(DiagnosisStatus::Undetermined)
+        ->and(substr_count((string) $diagnosis()?->detail, ': installed'))->toBe(1)
+        ->and($diagnosis()?->detail)->toContain('UAMS-Web: installed');
+
+    // A refusal: somebody has something to fix
+    fakeGitHub($this, ['uams-web' => 9], [
+        'UAMS-Web/site' => fn () => Http::response(['message' => 'Not Found'], 404),
+        'uams-web/other' => ['issues' => 1, 'pulls' => 0],
+    ]);
+    runBacklogFetch();
+
+    expect($diagnosis()?->status)->toBe(DiagnosisStatus::Failed);
 });

@@ -183,8 +183,11 @@ return [
     |
     | `app.id` is the App's numeric id. `app.private_key` is the PEM GitHub generated for it,
     | base64-encoded onto one line (`base64 < key.pem | tr -d '\n'`), because most environment
-    | editors mangle a multi-line value; a PEM pasted whole is accepted too. Leave either unset and
-    | nothing is fetched: the meters then read only what sessions report.
+    | editors mangle a multi-line value; a PEM pasted whole is accepted too, in either the PKCS#1
+    | (`BEGIN RSA PRIVATE KEY`) form GitHub issues or PKCS#8. With neither set, nothing is fetched
+    | and no request is made: the meters read only what sessions report. With only one set, or a
+    | key that does not parse, no request is made either -- nothing can be signed -- but each board
+    | repository records `key unusable` and `robot-council:doctor` fails its `github app` check.
     |
     */
 

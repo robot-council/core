@@ -7,6 +7,7 @@ namespace RobotCouncil\Support;
 use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Contracts\Cache\Repository as Cache;
+use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Encryption\StringEncrypter;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
@@ -26,10 +27,17 @@ use Throwable;
  * webhook alone, and a second caller of this class for anything but a count is the rule lapsing.
  * `tests/SlackMirrorTest.php` names this file as the second and only other one that talks HTTP.
  *
- * Three requests, all to `api.github.com`: the App's installations, signed with its JWT; an
- * installation token for one of them, minted with the same JWT; and one search per repository with
+ * Three requests, all to `api.github.com`: the App's installation on one account, signed with its
+ * JWT; an installation token for it, minted with the same JWT; and one search per repository with
  * that token. The token is asked for with `issues: read` alone, so it carries less than the App
  * even if the App is later granted more.
+ *
+ * **Installations are looked up per account, not listed.** `GET /users/{owner}/installation`
+ * answers for organizations and users alike, and a 404 means that account has none. Listing
+ * `/app/installations` would page through every account that installed the App -- and a public App
+ * can be installed by anyone, so third-party installations could push a real owner past any page
+ * cap. `/repos/{owner}/{repo}/installation` was not used either: its 404 cannot tell an account with
+ * no installation from one whose installation leaves that repository out.
  *
  * **No credential leaves through here.** A failure becomes a `GitHubRefusal` built from the status
  * alone. An installation token is cached encrypted with the application's key, so a cache store
@@ -52,14 +60,9 @@ final class GitHubApp
     public const int REFRESH_BEFORE_SECONDS = 300;
 
     /**
-     * How many installations one page of `/app/installations` asks for, which is GitHub's most.
+     * The shape of an account login this will put in a URL path.
      */
-    public const int PER_PAGE = 100;
-
-    /**
-     * The most pages of installations read. A thousand organizations is well past any fleet.
-     */
-    public const int MAX_INSTALLATION_PAGES = 10;
+    public const string OWNER = '/^[A-Za-z0-9_.][A-Za-z0-9._-]{0,99}$/D';
 
     /**
      * The shape of an installation token GitHub issues, and of nothing else the cache might return.
@@ -69,57 +72,54 @@ final class GitHubApp
     /**
      * @param  GitHubAppKey  $key  The App's id and key, and the JWT they sign.
      * @param  Cache  $cache  The host's configured cache store, for installation tokens.
-     * @param  StringEncrypter  $encrypter  The application's encrypter, so a cached token is not
-     *                                      readable by anything that can read the cache.
+     * @param  Container  $container  Resolves the application's encrypter when a token is cached
+     *                                or read, and not before: resolving it throws on a host with
+     *                                no `APP_KEY`, and a host with no App configured must not fail
+     *                                every five minutes for a key it never needs.
      */
     public function __construct(
         private readonly GitHubAppKey $key,
         private readonly Cache $cache,
-        private readonly StringEncrypter $encrypter
+        private readonly Container $container
     ) {}
 
     /**
-     * Every account the App is installed on.
+     * The App's installation on one account, if it has one.
      *
-     * @return array<string, int> Installation ids, keyed by the account's login lower-cased, since
-     *                            GitHub compares logins without case.
+     * @param  string  $owner  The account's login, organization or user.
+     * @return int|null The installation's id, or null when GitHub says the account has none (404).
      *
-     * @throws GitHubRefusal When GitHub could not be asked or refused.
+     * @throws GitHubRefusal When GitHub could not be asked, refused otherwise, or answered with no id.
+     * @throws InvalidArgumentException When the owner is not a login, which would change the path.
      */
-    public function installations(): array
+    public function installation(string $owner): ?int
     {
-        $jwt = $this->jwt();
-        $owners = [];
-
-        // Walk the pages until a short one, bounded
-        for ($page = 1; $page <= self::MAX_INSTALLATION_PAGES; $page++) {
-            $response = $this->send(fn (): Response => $this->client()
-                ->withToken($jwt)
-                ->get('/app/installations', ['per_page' => self::PER_PAGE, 'page' => $page]));
-
-            $rows = $response->json();
-
-            if (! \is_array($rows) || ! array_is_list($rows)) {
-                throw new GitHubRefusal(BacklogFetchOutcome::Unparseable, $response->status());
-            }
-
-            // Keep each installation whose id and account are what GitHub documents, and skip the rest
-            foreach ($rows as $row) {
-                $id = \is_array($row) ? ($row['id'] ?? null) : null;
-                $account = \is_array($row) ? ($row['account'] ?? null) : null;
-                $login = \is_array($account) ? ($account['login'] ?? null) : null;
-
-                if (\is_int($id) && $id > 0 && \is_string($login) && $login !== '') {
-                    $owners[mb_strtolower($login)] = $id;
-                }
-            }
-
-            if (\count($rows) < self::PER_PAGE) {
-                break;
-            }
+        if (preg_match(self::OWNER, $owner) !== 1) {
+            throw new InvalidArgumentException('An owner is an account login.');
         }
 
-        return $owners;
+        $jwt = $this->jwt();
+
+        try {
+            $response = $this->send(fn (): Response => $this->client()
+                ->withToken($jwt)
+                ->get(sprintf('/users/%s/installation', rawurlencode($owner))));
+        } catch (GitHubRefusal $gitHubRefusal) {
+            // A 404 here is an answer, not a failure: the account has no installation
+            if ($gitHubRefusal->outcome === BacklogFetchOutcome::Refused && $gitHubRefusal->status === 404) {
+                return null;
+            }
+
+            throw $gitHubRefusal;
+        }
+
+        $id = $response->json('id');
+
+        if (! \is_int($id) || $id < 1) {
+            throw new GitHubRefusal(BacklogFetchOutcome::Unparseable, $response->status());
+        }
+
+        return $id;
     }
 
     /**
@@ -161,7 +161,7 @@ final class GitHubApp
         if ($seconds > 0) {
             $this->cache->put(
                 $cacheKey,
-                $this->encrypter->encryptString((string) json_encode(['token' => $token, 'expires_at' => $expiresAt->getTimestamp()])),
+                $this->encrypter()->encryptString((string) json_encode(['token' => $token, 'expires_at' => $expiresAt->getTimestamp()])),
                 $seconds
             );
         }
@@ -295,7 +295,7 @@ final class GitHubApp
         }
 
         try {
-            $entry = json_decode($this->encrypter->decryptString($stored), true);
+            $entry = json_decode($this->encrypter()->decryptString($stored), true);
         } catch (Throwable) {
             // Written under another application key, or not by this class: a miss, not a failure
             return null;
@@ -311,6 +311,16 @@ final class GitHubApp
         }
 
         return $expiresAt - self::REFRESH_BEFORE_SECONDS > CarbonImmutable::now()->getTimestamp() ? $token : null;
+    }
+
+    /**
+     * The application's encrypter, resolved now.
+     *
+     * @return StringEncrypter The encrypter.
+     */
+    private function encrypter(): StringEncrypter
+    {
+        return $this->container->make(StringEncrypter::class);
     }
 
     /**

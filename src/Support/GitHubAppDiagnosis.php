@@ -86,7 +86,12 @@ final class GitHubAppDiagnosis
      *
      * Fails when an owner has no installation or a repository's latest fetch failed, because each
      * is a meter reading unreadable for a reason somebody can fix. Undetermined when a repository has
-     * not been fetched recently, which is what a scheduler that is not running looks like.
+     * not been fetched recently, which is what a scheduler that is not running looks like, and when
+     * its latest fetch met something that passes on its own -- GitHub not answering, a rate limit,
+     * an incomplete search, or a failure outside GitHub -- because failing a deploy gate on those
+     * would fail it on GitHub's weather.
+     *
+     * Owners are grouped without case, as GitHub names them, and shown as the board spells them.
      *
      * @return Diagnosis What the check concluded.
      */
@@ -106,13 +111,16 @@ final class GitHubAppDiagnosis
         $recent = CarbonImmutable::now()->subMinutes($this->staleAfterMinutes());
 
         $owners = [];
+        $shown = [];
         $lines = [];
         $failed = false;
         $unknown = false;
 
         // Describe each repository, and gather whether its owner's installation was found
         foreach ($repositories as $repository) {
-            $owner = explode('/', $repository, 2)[0];
+            $spelled = explode('/', $repository, 2)[0];
+            $owner = mb_strtolower($spelled);
+            $shown[$owner] ??= $spelled;
             $fetch = $latest[$repository] ?? null;
 
             if ($fetch === null || $fetch['attempted_at']->lessThan($recent)) {
@@ -133,7 +141,12 @@ final class GitHubAppDiagnosis
                 default => $owners[$owner] ?? null,
             };
 
-            $failed = $failed || $fetch['outcome'] !== BacklogFetchOutcome::Read;
+            // A transient outcome leaves the answer open; any other failure is one to fix
+            if ($fetch['outcome']->transient()) {
+                $unknown = true;
+            } elseif ($fetch['outcome'] !== BacklogFetchOutcome::Read) {
+                $failed = true;
+            }
 
             $lines[] = sprintf(
                 '%s: %s%s at %s UTC',
@@ -147,7 +160,8 @@ final class GitHubAppDiagnosis
         ksort($owners, SORT_STRING);
 
         $ownerLines = array_map(
-            static fn (string $owner, ?bool $installed): string => sprintf('%s: %s', $owner, match ($installed) {
+            // A key that looks like a number arrives as an int, so it is taken as either
+            static fn (int|string $owner, ?bool $installed): string => sprintf('%s: %s', $shown[$owner] ?? (string) $owner, match ($installed) {
                 true => 'installed',
                 false => 'no installation',
                 null => 'not confirmed by the latest fetch',
@@ -168,7 +182,7 @@ final class GitHubAppDiagnosis
         if ($unknown) {
             return Diagnosis::undetermined(
                 'backlog fetch',
-                $detail.' Is the scheduler running `robot-council:backlog-fetch`?'
+                $detail.' A transient failure clears on a later fetch; a repository never fetched recently asks whether the scheduler is running `robot-council:backlog-fetch`.'
             );
         }
 
