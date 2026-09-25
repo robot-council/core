@@ -399,7 +399,7 @@ final class LaneConditions
     /**
      * The held tasks of each of these sessions, by session.
      *
-     * @param  list<mixed>  $sessions  The session ids.
+     * @param  array<mixed>  $sessions  The session ids.
      * @return array<int, list<int>> Task ids by session, for the sessions holding any.
      */
     private function heldBy(array $sessions): array
