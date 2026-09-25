@@ -71,7 +71,7 @@ final class FleetTotals extends Component
     /**
      * Render the row.
      *
-     * @param  FleetPresence  $presence  The store the presence panel reads.
+     * @param  FleetPresence  $presence  The store the Agents and Locks pages read.
      * @param  TaskList  $tasks  The store the task board reads.
      * @return View The three tiles.
      */

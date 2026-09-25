@@ -343,18 +343,22 @@ package's route files then, and the server is registered inside that same guard.
 
 ## The dashboard
 
-A signed-in developer reaches the fleet's state through seven pages, each behind the same access
+A signed-in developer reaches the fleet's state through eight pages, each behind the same access
 list and framing refusal as the verification page:
 
 | path | shows |
 | --- | --- |
 | `{prefix}/dashboard` | the fleet's totals, and the way in to the rest |
-| `{prefix}/dashboard/presence` | the agents and the locks they hold |
+| `{prefix}/dashboard/agents` | the agent sessions, each linking to the locks it holds |
+| `{prefix}/dashboard/locks` | the named locks, each linking to the session holding it |
 | `{prefix}/dashboard/lanes` | the lane board: each lane's state and what it is on, pull requests by repository, and backlog meters |
 | `{prefix}/dashboard/queue` | the task board |
 | `{prefix}/dashboard/feed` | the change feed |
 | `{prefix}/dashboard/seats` | the signed-in developer's own seats, assignment hours and days off |
 | `{prefix}/dashboard/administration` | the installations -- **admins only** |
+
+`{prefix}/dashboard/presence`, where agents and locks shared one page before #308, answers with a
+permanent redirect to `{prefix}/dashboard/agents`, so a bookmark to it still lands.
 
 **Each page is its own, so each one pays only for what it shows.** The administration page
 refuses a non-admin from the component rather than from the route, so a direct visit answers 403

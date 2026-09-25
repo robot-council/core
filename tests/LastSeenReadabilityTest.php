@@ -12,8 +12,9 @@ declare(strict_types=1);
  */
 
 use Livewire\Livewire;
-use RobotCouncil\Livewire\FleetPresence;
+use RobotCouncil\Livewire\Agents;
 use RobotCouncil\Models\AgentSession;
+use RobotCouncil\Support\FleetPresence;
 use RobotCouncil\Support\PresenceClock;
 
 beforeEach(function (): void {
@@ -45,7 +46,7 @@ it('grows through the units rather than counting seconds forever', function (int
         'last_seen_at' => PresenceClock::now()->subSeconds($secondsAgo),
     ]);
 
-    Livewire::test(FleetPresence::class)
+    Livewire::test(Agents::class)
         ->assertOk()
         ->assertSee($expected);
 })->with([
@@ -62,7 +63,7 @@ it('no longer renders a bare second count', function (): void {
         'last_seen_at' => PresenceClock::now()->subSeconds(187),
     ]);
 
-    $panel = Livewire::test(FleetPresence::class);
+    $panel = Livewire::test(Agents::class);
 
     $panel->assertOk()->assertSee('3 minutes ago');
 
@@ -78,7 +79,7 @@ it('keeps the machine-readable value the API and MCP tools read', function (): v
 
     // The store's contract is unchanged: it still returns an integer, and the words are the
     // panel's own decoration. Anything reading `seconds_since_contact` is unaffected.
-    $described = $this->service(RobotCouncil\Support\FleetPresence::class)->sessions(50)['sessions'];
+    $described = $this->service(FleetPresence::class)->sessions(50)['sessions'];
 
     expect($described[0]['seconds_since_contact'])->toBeInt()
         ->toBeGreaterThanOrEqual(187)
@@ -93,9 +94,9 @@ it('reads the age off the presence clock, not the application clock', function (
         'last_seen_at' => PresenceClock::now()->subSeconds(7200),
     ]);
 
-    Livewire::test(FleetPresence::class)->assertOk()->assertSee('2 hours ago');
+    Livewire::test(Agents::class)->assertOk()->assertSee('2 hours ago');
 
-    expect(file_get_contents(__DIR__.'/../src/Livewire/FleetPresence.php'))
+    expect(file_get_contents(__DIR__.'/../src/Livewire/Agents.php'))
         ->toContain('CarbonInterval::seconds($seconds)')
 
         // A `Carbon::now()` in the formatting would put the displayed age on the application's

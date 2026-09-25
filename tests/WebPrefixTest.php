@@ -132,9 +132,10 @@ it('mounts every web route at the application root when the prefix is empty', fu
     // and pinning it would fail the next time a route moved in the file without moving in the URL.
     ksort($web);
 
-    // Every web route the package mounts, at the root rather than under a prefix. Thirteen, not the
-    // seven the issue counted: #215 split the dashboard into five pages, and sign-out and its
-    // landing page arrived with the shell.
+    // Every web route the package mounts, at the root rather than under a prefix. Seventeen, not the
+    // seven the issue counted: #215 split the dashboard into five pages, #308 split one of those in
+    // two and kept the old path as a redirect, and sign-out and its landing page arrived with the
+    // shell.
     //
     // **Exact rather than `toMatchArray`**, which asserts only that the expected keys are present
     // and would have passed with `prefix-root` mounted at `/` -- the one thing this case sits
@@ -142,6 +143,7 @@ it('mounts every web route at the application root when the prefix is empty', fu
     // which a subset assertion cannot do.
     expect($web)->toBe([
         'administration' => 'dashboard/administration',
+        'agents' => 'dashboard/agents',
         'auth.callback' => 'auth/github/callback',
         'auth.redirect' => 'auth/github/redirect',
         'dashboard' => 'dashboard',
@@ -151,6 +153,7 @@ it('mounts every web route at the application root when the prefix is empty', fu
         'enroll.show' => 'enroll',
         'feed' => 'dashboard/feed',
         'lanes' => 'dashboard/lanes',
+        'locks' => 'dashboard/locks',
         'presence' => 'dashboard/presence',
         'queue' => 'dashboard/queue',
         'seats' => 'dashboard/seats',

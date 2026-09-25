@@ -127,9 +127,15 @@
 
                         <ul class="flex flex-col gap-1">
                             <li>
-                                <a href="{{ route('robot-council.presence') }}"
-                                    @class(['menu-active' => $currentRoute === 'robot-council.presence'])
-                                    @if ($currentRoute === 'robot-council.presence') aria-current="page" @endif>Presence</a>
+                                <a href="{{ route('robot-council.agents') }}"
+                                    @class(['menu-active' => $currentRoute === 'robot-council.agents'])
+                                    @if ($currentRoute === 'robot-council.agents') aria-current="page" @endif>Agents</a>
+                            </li>
+
+                            <li>
+                                <a href="{{ route('robot-council.locks') }}"
+                                    @class(['menu-active' => $currentRoute === 'robot-council.locks'])
+                                    @if ($currentRoute === 'robot-council.locks') aria-current="page" @endif>Locks</a>
                             </li>
 
                             <li>

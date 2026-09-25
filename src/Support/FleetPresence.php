@@ -58,12 +58,20 @@ final class FleetPresence
      * hunting that would not find it behind a filter. `Scope::Live` narrows to the ones still
      * running. This is the opposite default from `locks()` below, and the reason is in `Scope`.
      *
+     * **`$only` narrows the page to one session and nothing else.** It is how a lock's holder
+     * links to the agent holding it (#308), which is the diagnosis path the shared panel used to
+     * give by scrolling. The totals are still the whole fleet's, because a count that shrank with
+     * the narrowing would read as a fleet of one. An id no row carries -- zero, a negative, or a
+     * session long since pruned -- matches nothing and yields an empty page, which is the honest
+     * answer to a stale link.
+     *
      * @param  int  $limit  How many to return, clamped to `MAX_PAGE`.
      * @param  Scope  $scope  Live sessions, or every one the table holds.
      * @param  int|null  $after  The id of the last session the reader has seen.
+     * @param  int|null  $only  The one session to list, or null for every session in scope.
      * @return array{sessions: list<array<string, mixed>>, cursor: int|null, more: bool, live: int, gone: int}
      */
-    public function sessions(int $limit, Scope $scope = Scope::All, ?int $after = null): array
+    public function sessions(int $limit, Scope $scope = Scope::All, ?int $after = null, ?int $only = null): array
     {
         // Eager-loaded rather than read per row. `Model::preventLazyLoading()` raises on a query
         // that hydrated more than one row, so a host running strict mode would take a
@@ -83,6 +91,7 @@ final class FleetPresence
             ->with('installation')
             ->when($scope === Scope::Live, fn (Builder $query) => $query->where('status', '!=', AgentSessionStatus::Gone->value))
             ->when($after !== null, fn (Builder $query) => $query->where('id', '<', $after))
+            ->when($only !== null, fn (Builder $query) => $query->where('id', $only))
             ->orderByDesc('id')
             ->limit($size + 1)
             ->get();
@@ -194,12 +203,19 @@ final class FleetPresence
      * row still names somebody is precisely what a developer is hunting, so it must not be filtered
      * out with the free ones.
      *
+     * **`$heldBy` narrows the page to the locks one session holds**, which is how a session row
+     * links to what it is blocking (#308). It matches `holder_id` alone: a lock the session held
+     * once and released names it only as `previous_holder_id`, and "what is this session holding"
+     * is the question the link asks. The totals are the whole table's, for the reason `sessions()`
+     * gives.
+     *
      * @param  int  $limit  How many to return, clamped to `MAX_PAGE`.
      * @param  Scope  $scope  Locks that still name a holder, or every row the table holds.
      * @param  string|null  $after  The name of the last lock the reader has seen.
+     * @param  int|null  $heldBy  The session whose locks to list, or null for every holder.
      * @return array{locks: list<array<string, mixed>>, cursor: string|null, more: bool, held: int, free: int}
      */
-    public function locks(int $limit, Scope $scope = Scope::Live, ?string $after = null): array
+    public function locks(int $limit, Scope $scope = Scope::Live, ?string $after = null, ?int $heldBy = null): array
     {
         $size = max(1, min($limit, self::MAX_PAGE));
 
@@ -212,6 +228,7 @@ final class FleetPresence
         $locks = Lock::query()
             ->when($scope === Scope::Live, fn (Builder $query) => $query->whereNotNull('holder_id'))
             ->when($after !== null, fn (Builder $query) => $query->where('name', '>', $after))
+            ->when($heldBy !== null, fn (Builder $query) => $query->where('holder_id', $heldBy))
             ->orderBy('name')
             ->limit($size + 1)
             ->get();

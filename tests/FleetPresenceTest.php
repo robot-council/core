@@ -3,7 +3,8 @@
 declare(strict_types=1);
 
 /**
- * Who is alive in the fleet, and what they are holding.
+ * Who is alive in the fleet, and what they are holding: the Agents and Locks pages, and the store
+ * both read.
  *
  * @command  vendor/bin/pest --compact tests/FleetPresenceTest.php
  */
@@ -14,7 +15,8 @@ use Laravel\Sanctum\PersonalAccessToken;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 use RobotCouncil\Access\Role;
-use RobotCouncil\Livewire\FleetPresence;
+use RobotCouncil\Livewire\Agents as AgentsPage;
+use RobotCouncil\Livewire\Locks as LocksPage;
 use RobotCouncil\Models\AgentSessionStatus;
 use RobotCouncil\Models\Lock;
 use RobotCouncil\Support\FleetPresence as Presence;
@@ -37,7 +39,7 @@ beforeEach(function (): void {
 });
 
 it('lists a session with its developer, machine, harness and contact time', function (): void {
-    Livewire::test(FleetPresence::class)
+    Livewire::test(AgentsPage::class)
         ->assertSee('octodev')
         ->assertSee('workbench-01')
         ->assertSee('claude-code')
@@ -50,7 +52,7 @@ it('tells a stale session from a live one, and a gone one from both', function (
     // run -- showing `stale` while every conditional update still treated the session as active.
     $this->session->forceFill(['status' => $status])->save();
 
-    Livewire::test(FleetPresence::class)
+    Livewire::test(AgentsPage::class)
         ->assertSeeHtml('<span class="badge badge-sm">'.$status.'</span>');
 })->with([
     'active' => AgentSessionStatus::Active->value,
@@ -64,7 +66,7 @@ it("shows each session's own role, which its machine no longer decides", functio
     // bare string match would pass with the column removed entirely.
     $this->session->forceFill(['role' => $role])->save();
 
-    Livewire::test(FleetPresence::class)
+    Livewire::test(AgentsPage::class)
         ->assertSeeHtml('<span class="badge badge-sm badge-outline">'.$role.'</span>');
 })->with([
     'build' => Role::Build->value,
@@ -75,7 +77,7 @@ it("shows each session's own role, which its machine no longer decides", functio
 it('shows where a session is working, as a repository and the checkout within it', function (): void {
     $this->session->forceFill(['repository' => 'UAMS-Web/uams-statamic', 'work_location' => 'ci'])->save();
 
-    Livewire::test(FleetPresence::class)
+    Livewire::test(AgentsPage::class)
         ->assertSee('UAMS-Web/uams-statamic')
         ->assertSeeHtml('<div class="opacity-60">ci</div>');
 });
@@ -94,7 +96,7 @@ it('shows a session that named only a work location, rather than calling it none
         'work_location' => 'primary',
     ])->save();
 
-    Livewire::test(FleetPresence::class)
+    Livewire::test(AgentsPage::class)
         ->assertSeeHtml('<div class="opacity-60">primary</div>')
         ->assertDontSeeHtml('<span class="opacity-60">none</span>');
 });
@@ -107,7 +109,7 @@ it('keeps saying none for a session that named nothing at all', function (): voi
         'work_location' => null,
     ])->save();
 
-    Livewire::test(FleetPresence::class)
+    Livewire::test(AgentsPage::class)
         ->assertSeeHtml('<span class="opacity-60">none</span>');
 });
 
@@ -116,7 +118,7 @@ it('renders a hostile repository as text', function (): void {
     // this string cannot arrive through the API, so the page's escaping is its own guarantee.
     $this->session->forceFill(['repository' => '<script>alert(1)</script>'])->save();
 
-    $html = Livewire::test(FleetPresence::class)->html();
+    $html = Livewire::test(AgentsPage::class)->html();
 
     expect($html)->toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
         ->not->toContain('<script>alert(1)</script>');
@@ -130,7 +132,7 @@ it('shows two sessions on one machine holding different roles', function (): voi
     $this->session->forceFill(['role' => Role::Coordinator])->save();
     $second->forceFill(['role' => Role::Build])->save();
 
-    Livewire::test(FleetPresence::class)
+    Livewire::test(AgentsPage::class)
         ->assertSeeHtml('<span class="badge badge-sm badge-outline">'.Role::Coordinator->value.'</span>')
         ->assertSeeHtml('<span class="badge badge-sm badge-outline">'.Role::Build->value.'</span>');
 });
@@ -140,13 +142,14 @@ it('keeps a gone session on the page rather than hiding it', function (): void {
     // nothing moves, which is why #24 keeps the row rather than deleting it.
     $this->session->forceFill(['status' => AgentSessionStatus::Gone->value])->save();
 
-    Livewire::test(FleetPresence::class)->assertSee('workbench-01');
+    Livewire::test(AgentsPage::class)->assertSee('workbench-01');
 });
 
 it('lists a held lock with its holder, fence and lease', function (): void {
-    // Held by a *second* developer, because this component renders both panels and the first
-    // developer's login is in the sessions table on every render -- so `assertSee('octodev')` here
-    // would pass with the entire holder cell replaced by the word `nobody`.
+    // Held by a *second* developer, whose login the fixture has no other reason to print. When this
+    // list shared a panel with the sessions, the first developer's login was on the page on every
+    // render, and `assertSee('octodev')` passed with the holder cell replaced by `nobody`. The
+    // split (#308) removed that table from this page, not the reason to hold the fixture apart.
     $other = $this->enrollDeveloper(77, login: 'somebody-else');
 
     $installation = $this->approveInstallation($other, machineLabel: 'their-box');
@@ -155,7 +158,7 @@ it('lists a held lock with its holder, fence and lease', function (): void {
 
     app(Locks::class)->acquire($theirs, 'deploy', 60, asCoordinator: false);
 
-    Livewire::test(FleetPresence::class)
+    Livewire::test(LocksPage::class)
         ->assertSee('deploy')
         ->assertSee('somebody-else')
         ->assertSeeHtml('<td>1</td>')
@@ -169,7 +172,7 @@ it('shows a lapsed lease as lapsed rather than hiding the row', function (): voi
     // developer is looking for and the one a filtered list would conceal
     Lock::query()->where('name', 'deploy')->update(['expires_at' => Carbon::now()->subMinute()]);
 
-    Livewire::test(FleetPresence::class)
+    Livewire::test(LocksPage::class)
         ->assertSee('deploy')
         ->assertSee('lapsed')
         ->assertDontSee('expires in')
@@ -181,34 +184,39 @@ it('renders a hostile machine label as text', function (): void {
     // this string cannot arrive through the API, so the page's escaping is its own guarantee.
     $this->installation->forceFill(['machine_label' => '<script>alert(1)</script>'])->save();
 
-    $html = Livewire::test(FleetPresence::class)->html();
+    $html = Livewire::test(AgentsPage::class)->html();
 
     expect($html)->toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
         ->not->toContain('<script>alert(1)</script>');
 });
 
-it('polls on the interval the dashboard resolved', function (): void {
-    Livewire::test(FleetPresence::class)->assertSeeHtml('wire:poll.5s');
+it('polls on the interval the dashboard resolved', function (string $page): void {
+    Livewire::test($page)->assertSeeHtml('wire:poll.5s');
 
-    Livewire::test(FleetPresence::class, ['pollSeconds' => 30])->assertSeeHtml('wire:poll.30s');
-});
+    Livewire::test($page, ['pollSeconds' => 30])->assertSeeHtml('wire:poll.30s');
+})->with([AgentsPage::class, LocksPage::class]);
 
-it('will not let a client change the polling interval', function (): void {
-    Livewire::test(FleetPresence::class)->set('pollSeconds', 0);
-})->throws(CannotUpdateLockedPropertyException::class);
+it('will not let a client change the polling interval', function (string $page): void {
+    Livewire::test($page)->set('pollSeconds', 0);
+})->with([AgentsPage::class, LocksPage::class])->throws(CannotUpdateLockedPropertyException::class);
 
-it('shows presence through the gate, and refuses a stranger', function (): void {
+it('shows each page through the gate, and refuses a stranger', function (string $route, string $shown): void {
     // `Livewire::test()` runs no HTTP middleware, so every case above would pass with the
     // `actingAs` in `beforeEach` deleted. This one goes through the route.
-    $this->get(route('robot-council.presence'))->assertOk()->assertSee('workbench-01');
+    app(Locks::class)->acquire($this->session, 'deploy', 60, asCoordinator: false);
+
+    $this->get(route($route))->assertOk()->assertSee($shown);
 
     $stranger = $this->enrollDeveloper(9999, login: 'stranger');
 
     $this->actingAs($stranger, 'web')
-        ->get(route('robot-council.presence'))
+        ->get(route($route))
         ->assertForbidden()
-        ->assertDontSee('workbench-01');
-});
+        ->assertDontSee($shown);
+})->with([
+    'agents' => ['robot-council.agents', 'workbench-01'],
+    'locks' => ['robot-council.locks', 'deploy'],
+]);
 
 it('calls a released lock free rather than never held, and does not alarm about it', function (): void {
     // Every release path in `Support\Locks` nulls `holder_id` **and** `expires_at`, so a released
@@ -224,8 +232,8 @@ it('calls a released lock free rather than never held, and does not alarm about 
     // A released row explains nothing and they accumulate forever, which is the trade that issue
     // asked for -- so this asserts the label on the page that shows it rather than pretending the
     // default did not move.
-    Livewire::test(FleetPresence::class)
-        ->call('showLocks', Scope::All->value)
+    Livewire::test(LocksPage::class)
+        ->call('show', Scope::All->value)
         ->assertSee('deploy')
         ->assertSee('free')
         ->assertDontSee('never held')
@@ -233,7 +241,7 @@ it('calls a released lock free rather than never held, and does not alarm about 
 
     // And it is genuinely hidden by default rather than merely absent from this assertion, which
     // is the half that would otherwise go unstated
-    Livewire::test(FleetPresence::class)->assertDontSee('deploy');
+    Livewire::test(LocksPage::class)->assertDontSee('deploy');
 });
 
 it("loads each session's installation without a query per row", function (): void {
@@ -247,7 +255,7 @@ it("loads each session's installation without a query per row", function (): voi
     Model::preventLazyLoading();
 
     try {
-        Livewire::test(FleetPresence::class)
+        Livewire::test(AgentsPage::class)
             ->assertSee('workbench-01')
             ->assertSee('laptop');
     } finally {
@@ -270,7 +278,7 @@ it('reports whole seconds since contact, not a fraction of one', function (): vo
     // now reads in words rather than as a second count -- it grows through minutes, hours and days
     // beside the queue's `Age` -- so the shape asserted here moved with it. The property is the
     // same one: no fraction of a unit reaches the page.
-    $html = (string) Livewire::test(FleetPresence::class)->html();
+    $html = (string) Livewire::test(AgentsPage::class)->html();
 
     expect($html)->toMatch('/\d+ seconds? ago/')
         ->not->toMatch('/\d+\.\d+ \w+ ago/')
@@ -286,7 +294,7 @@ it('lists a session that named no checkout, without inventing one for it', funct
     expect($this->session->repository)->toBeNull()
         ->and(app(Presence::class)->sessions(20)['sessions'][0]['repository'])->toBeNull();
 
-    $html = Livewire::test(FleetPresence::class)->html();
+    $html = Livewire::test(AgentsPage::class)->html();
 
     // Still on the page -- a session with no label is a session all the same
     expect($html)->toContain('workbench-01')
@@ -314,7 +322,7 @@ it('tells two worktrees on one machine and harness apart', function (): void {
         ->and(array_unique(array_map(stringValue(...), array_column($rows, 'machine_label'))))->toHaveCount(1)
         ->and(array_unique(array_map(stringValue(...), array_column($rows, 'harness'))))->toHaveCount(1);
 
-    Livewire::test(FleetPresence::class)
+    Livewire::test(AgentsPage::class)
         ->assertSeeHtml('<div class="opacity-60">a</div>')
         ->assertSeeHtml('<div class="opacity-60">ci</div>');
 });
@@ -339,7 +347,7 @@ it('renders a hostile lock name as text', function (): void {
 
     Lock::query()->where('name', 'deploy')->update(['name' => '<script>alert(3)</script>']);
 
-    $html = Livewire::test(FleetPresence::class)->html();
+    $html = Livewire::test(LocksPage::class)->html();
 
     expect($html)->toContain('&lt;script&gt;alert(3)&lt;/script&gt;')
         ->not->toContain('<script>alert(3)</script>');
@@ -351,7 +359,12 @@ it('shows no credential of any kind on the page', function (): void {
     // asserts on the rendered page rather than reasoning from which columns the components select.
     $requested = requestDeviceCode($this);
 
-    $html = Livewire::test(FleetPresence::class)->html();
+    app(Locks::class)->acquire($this->session, 'deploy', 60, asCoordinator: false);
+
+    $html = Livewire::test(AgentsPage::class)->html().Livewire::test(LocksPage::class)->html();
+
+    // Both pages rendered something to search, or the absences below are about an empty string
+    expect($html)->toContain('workbench-01')->toContain('deploy');
 
     expect($html)->not->toContain($this->token)
         ->not->toContain($requested['device_code'])
@@ -380,7 +393,7 @@ it('reaches a lapsed lock whose name sorts past the page', function (): void {
     $locks = app(Locks::class);
 
     // Seeded past the page, all held, so the target cannot be on the first page by luck
-    $size = FleetPresence::LOCKS;
+    $size = LocksPage::LOCKS;
 
     foreach (range(1, $size + 5) as $n) {
         $locks->acquire($this->session, sprintf('a-%03d', $n), 60, asCoordinator: false);
@@ -429,7 +442,7 @@ it('reaches a session that has gone, and says how many there are', function (): 
     // #75 decided a gone session stays listed, so sessions default to `all` rather than to the
     // narrower scope the lock list uses. This asserts both halves: it is on the page, and it is
     // still reachable once the fleet is larger than one page.
-    $size = FleetPresence::SESSIONS;
+    $size = AgentsPage::SESSIONS;
 
     foreach (range(1, $size + 3) as $ignored) {
         $this->startAgentSession($this->installation);

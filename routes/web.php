@@ -17,15 +17,17 @@ use RobotCouncil\Http\Controllers\EnrollmentDecisionController;
 use RobotCouncil\Http\Controllers\EnrollmentPageController;
 use RobotCouncil\Http\Controllers\GitHubCallbackController;
 use RobotCouncil\Http\Controllers\GitHubRedirectController;
+use RobotCouncil\Http\Controllers\PresenceRedirectController;
 use RobotCouncil\Http\Controllers\SignedOutController;
 use RobotCouncil\Http\Controllers\SignOutController;
 use RobotCouncil\Http\Middleware\DenyFraming;
 use RobotCouncil\Http\Middleware\EnsureAllowlistedDeveloper;
 use RobotCouncil\Livewire\Administration;
+use RobotCouncil\Livewire\Agents;
 use RobotCouncil\Livewire\ChangeFeed;
 use RobotCouncil\Livewire\Dashboard;
-use RobotCouncil\Livewire\FleetPresence;
 use RobotCouncil\Livewire\Lanes;
+use RobotCouncil\Livewire\Locks;
 use RobotCouncil\Livewire\SeatSettings;
 use RobotCouncil\Livewire\TaskBoard;
 use RobotCouncil\RobotCouncilServiceProvider;
@@ -88,7 +90,17 @@ Route::middleware([EnsureAllowlistedDeveloper::class, DenyFraming::class])->grou
     // None of this touches the background-tab throttle. That is a separate `throttleWhile` on the
     // same directive and needs no modifier; `theDirectiveIsMissingKeepAlive()` is what it reads, so
     // `.keep-alive` would opt OUT of it and nothing here should carry that one.
-    Route::get('dashboard/presence', FleetPresence::class)->name('presence');
+    Route::get('dashboard/agents', Agents::class)->name('agents');
+    Route::get('dashboard/locks', Locks::class)->name('locks');
+
+    // **Agents and locks were one page here until #308 split them.** The old path is kept as a
+    // permanent redirect to the agents, so a stale bookmark -- the only reader the old path has --
+    // lands rather than 404ing. A controller rather than `Route::redirect()`, because that helper's
+    // destination is a literal path the group prefix is never applied to; the controller's
+    // docblock has the measurement. It keeps its route name, so a host template still calling
+    // `route('robot-council.presence')` resolves rather than throwing, but nothing in this package
+    // links to it and the sidebar does not offer it.
+    Route::get('dashboard/presence', PresenceRedirectController::class)->name('presence');
     Route::get('dashboard/lanes', Lanes::class)->name('lanes');
     Route::get('dashboard/queue', TaskBoard::class)->name('queue');
     Route::get('dashboard/feed', ChangeFeed::class)->name('feed');
