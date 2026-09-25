@@ -111,3 +111,24 @@ it("matches the number as a whole token, and only in the ticket's repository", f
 
     expect(warningsFor($this))->toBeEmpty();
 });
+
+it('warns when documentation is placed while functionality tickets are placeable in the repository', function (): void {
+    knownItem(318, ['labels' => json_encode(['documentation'])]);
+    knownItem(319, ['labels' => json_encode(['development'])]);
+    knownItem(320, ['labels' => json_encode(['documentation'])]);
+    knownItem(321, ['state' => 'closed']);
+
+    expect(warningsFor($this))->toContain(
+        'This is documentation, and 1 functionality ticket(s) are placeable in robot-council/core: robot-council/core#319. The service cannot know why they were passed over; their blind spots are on the shortlist.'
+    );
+});
+
+it('does not warn about documentation when nothing else is placeable, or when the ticket is not documentation', function (): void {
+    knownItem(318, ['labels' => json_encode(['documentation'])]);
+
+    expect(warningsFor($this))->toBeEmpty();
+
+    knownItem(319, ['labels' => json_encode(['development'])]);
+
+    expect(warningsFor($this, 'robot-council/core#319'))->toBeEmpty();
+});

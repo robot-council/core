@@ -172,6 +172,17 @@ final class PlacementRules
             $warnings[] = 'Every acceptance criterion is ticked and the ticket is still open. Read it before placing it.';
         }
 
+        $ahead = $item instanceof GitHubItem ? $this->functionalityAhead($item) : [];
+
+        if ($ahead !== []) {
+            $warnings[] = sprintf(
+                'This is documentation, and %d functionality ticket(s) are placeable in %s: %s. The service cannot know why they were passed over; their blind spots are on the shortlist.',
+                \count($ahead),
+                $item->repository,
+                implode(', ', $ahead)
+            );
+        }
+
         $started = $item instanceof GitHubItem ? $this->branchesWithoutPullRequest($item) : [];
 
         if ($started !== []) {
@@ -182,6 +193,34 @@ final class PlacementRules
         }
 
         return $warnings;
+    }
+
+    /**
+     * The functionality tickets placeable in the same repository, when this one is documentation
+     * (#344, from #314's "functionality before documentation").
+     *
+     * Read from the shortlist, so "placeable" means exactly what the coordinator was shown. Resolved
+     * here rather than injected, because the shortlist is built on these rules and each would
+     * otherwise need the other to be constructed first.
+     *
+     * @param  GitHubItem  $item  The ticket being placed.
+     * @return list<string> The functionality tickets, `owner/name#N`, up to ten.
+     */
+    private function functionalityAhead(GitHubItem $item): array
+    {
+        if (! \in_array('documentation', $item->labels, true)) {
+            return [];
+        }
+
+        $ahead = [];
+
+        foreach (app(Shortlist::class)->read()[$item->repository] ?? [] as $entry) {
+            if ($entry['ticket'] !== $item->reference() && ! \in_array('documentation', $entry['labels'], true)) {
+                $ahead[] = $entry['ticket'];
+            }
+        }
+
+        return \array_slice($ahead, 0, 10);
     }
 
     /**
@@ -255,7 +294,7 @@ final class PlacementRules
      * @param  GitHubItem  $item  The issue.
      * @return bool True when something still blocks it.
      */
-    private function blocked(GitHubItem $item): bool
+    public function blocked(GitHubItem $item): bool
     {
         // Compared without case, as the item was found: an edge's repository comes from the issue's
         // `repository_url` and an item's from the delivery's `full_name`, and a rule that fails open
