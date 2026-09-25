@@ -326,15 +326,12 @@ it('summarizes the lanes on the overview, counted by the same reader', function 
 });
 
 it('renders a measured count with its direction against the baseline, in words', function (int $now, string $delta): void {
-    Carbon::setTestNow('2026-09-24 12:55:00');
+    // A reading of 10 before 08:00 in the default zone, UTC, which becomes today's baseline
+    Carbon::setTestNow('2026-09-24 07:55:00');
     $lane = boardLane($this, 'a');
     $this->service(Backlog::class)->report($lane, 'robot-council/core', 10);
 
-    // 08:00 in the configured zone, UTC here: the baseline is 10
-    Carbon::setTestNow('2026-09-24 13:00:00');
-    $this->app?->make('config')->set('robot-council.dashboard.timezone', 'UTC');
     Carbon::setTestNow('2026-09-24 08:05:00');
-    DB::table('robot_council_backlog_readings')->update(['read_at' => '2026-09-24 07:55:00']);
     $this->service(Backlog::class)->takeBaselines(Carbon::now());
 
     Carbon::setTestNow('2026-09-24 09:00:00');
@@ -344,7 +341,7 @@ it('renders a measured count with its direction against the baseline, in words',
 
     expect($html)->toContain('data-meter="read"')
         ->and($html)->not->toContain('data-meter="unreadable"')
-        ->and(markedText($html, 'data-meter-delta')[0] ?? '')->toStartWith($delta);
+        ->and(str_starts_with(markedText($html, 'data-meter-delta')[0] ?? '', $delta))->toBeTrue();
 })->with([
     'fewer open issues' => [7, 'down 3'],
     'more' => [12, 'up 2'],
