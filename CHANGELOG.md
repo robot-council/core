@@ -2,6 +2,13 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.6.5 — When a Session Ends (2026-09-25)
+
+The README now says that ending a session frees its work at the next presence sweep, within about a minute, rather than at once.
+
+### Maintenance and tooling
+- Say that ending a session frees its work at the next sweep, not at once [#375](https://github.com/robot-council/core/pull/375)
+
 ## v0.6.4 — Lost Locks, Named (2026-09-25)
 
 A session whose lock was force-released is now told it lost the lock rather than that it never held it.
