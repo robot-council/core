@@ -218,6 +218,42 @@ it('tells a former holder its lease is gone once another session has taken the n
         ->toBe($this->session->getKey());
 })->with(['renew', 'release']);
 
+it('tells a holder whose lock was force-released that it lost it, after another session takes the name', function (string $action): void {
+    lockAction($this, $this->token, 'acquire', ['name' => 'deploy', 'ttl' => 600])->assertOk();
+
+    [, $coordinator] = lockCoordinator($this);
+    lockAction($this, $coordinator, 'force-release', ['name' => 'deploy'])->assertOk();
+
+    // Nobody has taken it yet: already a lost lease, not a stranger's
+    lockAction($this, $this->token, $action, lockBody($action, 'deploy', 60))->assertStatus(409);
+
+    [, $rival] = rivalAgent($this);
+    lockAction($this, $rival, 'acquire', ['name' => 'deploy', 'ttl' => 600])->assertOk();
+
+    // The case #367 is about: the rival's acquire used to overwrite the record with the null
+    // holder the force release left, and this answered 403 as though the lock was never held
+    lockAction($this, $this->token, $action, lockBody($action, 'deploy', 60))->assertStatus(409);
+
+    expect(Lock::query()->where('name', 'deploy')->sole()->previous_holder_id)->toBe($this->session->getKey());
+})->with(['renew', 'release']);
+
+it('records no previous holder after a lock is given up rather than taken', function (): void {
+    [, $rival] = rivalAgent($this);
+
+    // Taken from this session by a lapse, then given up by the rival, then acquired afresh
+    lockAction($this, $this->token, 'acquire', ['name' => 'deploy', 'ttl' => 60])->assertOk();
+    $this->travelTo(Carbon::parse('2026-01-01 12:01:01'));
+    lockAction($this, $rival, 'acquire', ['name' => 'deploy', 'ttl' => 600])->assertOk();
+
+    expect(Lock::query()->where('name', 'deploy')->sole()->previous_holder_id)->toBe($this->session->getKey());
+
+    lockAction($this, $rival, 'release', ['name' => 'deploy'])->assertOk();
+    lockAction($this, $rival, 'acquire', ['name' => 'deploy', 'ttl' => 600])->assertOk();
+
+    // Nothing was taken from anybody this time, and the old victim is not dragged forward
+    expect(Lock::query()->where('name', 'deploy')->sole()->previous_holder_id)->toBeNull();
+});
+
 it('still refuses a session that never held the name', function (string $action): void {
     lockAction($this, $this->token, 'acquire', ['name' => 'deploy', 'ttl' => 600])->assertOk();
 
