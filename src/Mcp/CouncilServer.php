@@ -10,6 +10,7 @@ use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Attributes\Version;
 use Laravel\Mcp\Server\Contracts\Transport;
 use Laravel\Mcp\Server\Tool;
+use RobotCouncil\Mcp\Tools\BacklogReportTool;
 use RobotCouncil\Mcp\Tools\CreateTaskTool;
 use RobotCouncil\Mcp\Tools\HeartbeatTool;
 use RobotCouncil\Mcp\Tools\LaneHoldTool;
@@ -91,6 +92,7 @@ final class CouncilServer extends Server
             new PostNarrationTool,
             new PostDirectiveTool,
             new HeartbeatTool,
+            new BacklogReportTool,
         ];
     }
 }
