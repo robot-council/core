@@ -2,6 +2,15 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.7.0 — Session Capacity (2026-09-25)
+
+A session can declare on join how many tickets it will hold at once, up to its seat's cap, and label each held task for the subagent working it; the wiki was refreshed for this release.
+
+**Breaking change** — a host calling `LaneBoard::read()` or constructing `LiveSessions` directly has to follow their new shapes, and `robot-council/robot-council` raises its `robot-council/core` constraint from `^0.6` to `^0.7` by hand before updating. Everyone else runs `migrate`. The bridge's join field for this is `capacity`, which `robot-council/cli#302` adds.
+
+### Breaking changes
+- `LaneBoard::read()` lists a working lane's held tasks under `on_what.tasks[]`, drops `also_holds`, and adds `holding` and `capacity`; `LiveSessions` now takes `Seats` in its constructor [#437](https://github.com/robot-council/core/pull/437).
+
 ## v0.6.17 — AAA Contrast (2026-09-25)
 
 The dashboard's text and buttons reach the AAA contrast ratio in both themes, including hovered and pressed buttons, and pressed filters and the current page stay visible under forced colors; the wiki was checked for this release, and only Home's version line changes.
