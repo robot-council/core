@@ -223,6 +223,12 @@ it('keeps every pair it owns legible in both themes', function (string $theme, s
             $bar,
             sprintf('%s theme, %s: %.2f:1 against a %.1f:1 bar', $theme, $label, $ratio, $bar)
         );
+
+        // An exception that is no longer needed is removed, rather than left to excuse the next
+        // regression on the same pair: once the pair clears 7:1, this fails until it is deleted
+        if (isset(THEME_AA_EXCEPTIONS[$theme][$label])) {
+            expect($ratio)->toBeLessThan(7.0, sprintf('%s theme, %s now clears 7:1; remove its AA exception', $theme, $label));
+        }
     }
 })->with([
     ['light', ':where(:root)'],
@@ -402,6 +408,41 @@ function dimmedContrastRatio(string $foreground, string $background, float $alph
     $behind = relativeLuminance(linearRgb($background)) + 0.05;
 
     return $text > $behind ? $text / $behind : $behind / $text;
+}
+
+/**
+ * A colour mixed toward white or black in OKLab, as CSS `color-mix(in oklab, <colour>, <toward> N%)`
+ * paints it.
+ *
+ * White and black both sit at a = b = 0 in OKLab, so the mix moves lightness toward 1 or 0 and
+ * scales the chroma down by the same share; the hue does not change.
+ *
+ * @param  string  $color  An `oklch()` colour.
+ * @param  string  $toward  `#fff` or `#000`.
+ * @param  float  $share  How much of `$toward`, 0-1.
+ * @return string The mixed colour, as `oklch()`.
+ */
+function shadedToward(string $color, string $toward, float $share): string
+{
+    if (preg_match('/oklch\(\s*([\d.]+)(%?)\s+([\d.]+)\s+([\d.]+)/i', $color, $parts) !== 1) {
+        throw new InvalidArgumentException('Not an oklch() colour: '.$color);
+    }
+
+    $target = match (strtolower($toward)) {
+        '#fff', '#ffffff' => 1.0,
+        '#000', '#000000' => 0.0,
+        default => throw new InvalidArgumentException('Not white or black: '.$toward),
+    };
+
+    $lightness = (float) $parts[1];
+    $lightness = $parts[2] === '%' || $lightness > 1 ? $lightness / 100 : $lightness;
+
+    return sprintf(
+        'oklch(%F %F %F)',
+        $lightness * (1 - $share) + $target * $share,
+        (float) $parts[3] * (1 - $share),
+        (float) $parts[4]
+    );
 }
 
 /**
@@ -597,22 +638,70 @@ it('lifts every text daisyUI or the preflight dims below the bar, for everything
     expect($unlifted)->toBeEmpty(implode(', ', $unlifted));
 });
 
+it("keeps a hovered or pressed button's label at the bar, in both themes", function (): void {
+    $css = stylesheet();
+
+    // **The fill a label sits on changes with the button's state, and the resting pair says nothing
+    // about it** (#398). daisyUI mixes 7% black into the fill on hover and 5% on press, and 5% at
+    // rest on anything carrying `aria-pressed="true"` -- every selected filter. The controls: both
+    // still ship, so the override below is answering something real.
+    expect($css)->toContain('.btn:hover{--btn-bg:color-mix(in oklab, var(--btn-color,var(--color-base-200)), #000 7%)}')
+        ->and($css)->toContain('.btn:is([aria-pressed=true],[aria-checked=true],[aria-current]:not([aria-current=false],[aria-current=""])){--btn-bg:color-mix(in oklab, var(--btn-color,var(--color-base-200)), #000 5%)}');
+
+    // The override's share and the warning button's direction, read out of the artifact. Captured
+    // outside `expect()`: Rector rewrites `expect(preg_match(...))->toBe(1)` into `toMatch()`, which
+    // keeps the assertion and drops the captures this reads.
+    $found = preg_match('/:where\(\.btn-primary,\.btn-warning\):is\(:hover,:active,\[aria-pressed=true\][^{]*\{--btn-bg:color-mix\(in oklab, ?var\(--btn-color\), ?var\(--btn-shade\) (\d+)%\)\}/', $css, $shareMatch);
+    $foundWarning = preg_match('/:where\(\.btn-warning\)\{--btn-shade:(#[0-9a-f]+)\}/i', $css, $warningMatch);
+
+    if ($found !== 1 || $foundWarning !== 1) {
+        throw new RuntimeException('The hovered-button override is missing from the built stylesheet.');
+    }
+
+    $share = (int) $shareMatch[1] / 100;
+    $warningShade = $warningMatch[1];
+
+    foreach (['light' => ':where(:root)', 'dark' => '[data-theme=dark]'] as $theme => $selector) {
+        $tokens = themeTokens($selector);
+
+        expect($tokens)->toHaveKey('primary-shade');
+
+        $pairs = [
+            'primary button' => [$tokens['color-primary-content'], shadedToward($tokens['color-primary'], $tokens['primary-shade'], $share)],
+            'warning alert' => [$tokens['color-warning-content'], shadedToward($tokens['color-warning'], $warningShade, $share)],
+        ];
+
+        foreach ($pairs as $label => [$text, $fill]) {
+            $ratio = contrastRatio($text, $fill);
+
+            // A pair the rule lets stop at AA at rest stops there under the same exception here
+            $bar = isset(THEME_AA_EXCEPTIONS[$theme][$label]) ? 4.5 : 7.0;
+
+            expect($ratio)->toBeGreaterThanOrEqual($bar, sprintf('%s theme, hovered or pressed %s: %.2f:1 against a %.1f:1 bar', $theme, $label, $ratio, $bar));
+        }
+    }
+});
+
 it('marks a pressed filter and the current page for forced colors, where their fill is lost', function (): void {
     $css = stylesheet();
 
-    // **Two states the dashboard shows by fill alone** (#398). Under `forced-colors: active` the
-    // browser replaces every author background, so a pressed `btn-primary` and daisyUI's active menu
-    // row read exactly like their neighbours -- measured in headless Chrome with the forced-colors
-    // media feature emulated, before this rule: pressed and unpressed both painted black on a black
-    // canvas with the same white text. The rule paints them with the system's `Highlight`.
+    // **Two states the dashboard shows by fill** (#398). Under `forced-colors: active` the browser
+    // replaces every author background. A pressed `btn-primary` then reads exactly like its
+    // neighbours -- measured in headless Chrome with the forced-colors media feature emulated, before
+    // this rule: pressed and unpressed both painted black on a black canvas with the same white text.
+    // The current menu row kept one mark, a transparent outline daisyUI adds that forced colours make
+    // visible; the rule replaces it with the same fill as the filter, so both states read alike.
     $at = strpos($css, '.btn[aria-pressed=true],.menu [aria-current=page]{forced-color-adjust:none;');
 
     expect($at)->toBeInt();
 
     $rule = substr($css, (int) $at, (int) strpos($css, '}', (int) $at) - (int) $at);
 
+    // `forced-color-adjust: none` releases every colour on the element, the focus ring's included,
+    // so the rule names the ring's colour too rather than leaving it the brand violet on the canvas
     expect($rule)->toContain('background-color:highlight')
         ->and($rule)->toContain('color:highlighttext')
+        ->and($rule)->toContain('outline-color:canvastext')
         ->and(blocksEnclosing($css, (int) $at))->toBe(['@layer utilities', '@media (forced-colors:active)']);
 
     // **And the rule reaches every such state the pages render.** It keys on the ARIA state, so a
@@ -626,7 +715,7 @@ it('marks a pressed filter and the current page for forced colors, where their f
     $pressed = 0;
     $current = 0;
 
-    foreach (['dashboard', 'queue', 'agents', 'locks', 'lanes', 'administration'] as $page) {
+    foreach (['dashboard', 'queue', 'agents', 'locks', 'lanes', 'feed', 'seats', 'administration'] as $page) {
         $html = (string) $this->get(route('robot-council.'.$page))->assertOk()->getContent();
 
         // An empty page parses to an empty document and would find nothing to check
@@ -664,7 +753,7 @@ it('marks a pressed filter and the current page for forced colors, where their f
     // The controls: the Queue, Agents, Locks and Administration pages each render a filter row, and
     // every page marks its sidebar entry, so zero of either is a read that saw nothing
     expect($pressed)->toBeGreaterThanOrEqual(8)
-        ->and($current)->toBeGreaterThanOrEqual(6);
+        ->and($current)->toBeGreaterThanOrEqual(8);
 });
 
 it('measures every dimmed step the views actually use', function (): void {
