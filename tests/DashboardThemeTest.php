@@ -216,6 +216,14 @@ it('keeps every pair it owns legible in both themes', function (string $theme, s
 it('keeps every filter boundary and focus ring at 3:1 against the card, in both themes', function (string $theme, string $selector): void {
     $tokens = themeTokens($selector);
 
+    // The pairs below name the tokens daisyUI draws with, so read that from the rule itself: a
+    // daisyUI release that drew the border as a mix of `base-content` would otherwise pass here
+    // while the painted border fell below 3:1
+    preg_match_all('/\.btn-outline\{([^}]*)\}/', stylesheet(), $outline);
+
+    expect($outline[1])->not->toBeEmpty()
+        ->and(implode(';', $outline[1]))->toContain('--btn-border:var(--btn-color,var(--color-base-content))');
+
     // WCAG 1.4.11: what identifies a control needs 3:1 against what is next to it, and every
     // filter and pager sits on a `bg-base-100` card (#309). daisyUI draws `btn-outline`'s border in
     // `base-content`, a `btn-primary` fill in `primary`, and a focused button's 2px ring in

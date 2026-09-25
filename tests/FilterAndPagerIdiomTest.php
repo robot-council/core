@@ -188,6 +188,26 @@ it('gives both pagers of every pair the same bordered variant', function (string
     'the change feed' => ['change-feed', 2],
 ]);
 
+it('knows every show action a view offers, so a new filter or pager is not silently left out', function (): void {
+    // The tests above find filters by their action and pagers by name; a new action under another
+    // name would be in neither and pass them both. Every `show*` action is listed here, so adding
+    // one fails until it is placed in a test above
+    $actions = [];
+
+    foreach ((array) glob(__DIR__.'/../resources/views/livewire/*.blade.php') as $view) {
+        preg_match_all('/wire:click="(show[A-Za-z]*)/', (string) file_get_contents((string) $view), $found);
+
+        $actions = [...$actions, ...$found[1]];
+    }
+
+    $actions = array_values(array_unique($actions));
+    sort($actions);
+
+    expect($actions)->toBe([
+        'show', 'showEveryHolder', 'showEverySession', 'showFirst', 'showLatest', 'showNext', 'showOlder', 'showScope', 'showStatus',
+    ]);
+});
+
 it('marks every status selected when the Queue was asked for one that is not a status', function (): void {
     // The list widens to every task for a status it cannot read, so the filter has to say so. It
     // compared the raw `status` property against `''`, which is null for every status and holds
