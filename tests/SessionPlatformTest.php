@@ -11,7 +11,7 @@ declare(strict_types=1);
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 use Livewire\Livewire;
-use RobotCouncil\Livewire\FleetPresence;
+use RobotCouncil\Livewire\Agents;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\FleetEventType;
@@ -106,16 +106,16 @@ it('shows the OS family on the Agents list, and nothing for a bridge that report
     $this->service(AgentSessions::class)->start($this->installation, null, null, 'Darwin', 'arm64');
     $this->actingAs($this->developer, 'web');
 
-    Livewire::test(FleetPresence::class)->assertSeeHtml('<div class="text-xs opacity-60">Darwin arm64</div>');
+    Livewire::test(Agents::class)->assertSeeHtml('<div class="text-xs opacity-60">Darwin arm64</div>');
 
     AgentSession::query()->update(['os_family' => 'Linux', 'arch' => null]);
 
-    Livewire::test(FleetPresence::class)->assertSeeHtml('<div class="text-xs opacity-60">Linux</div>');
+    Livewire::test(Agents::class)->assertSeeHtml('<div class="text-xs opacity-60">Linux</div>');
 
     AgentSession::query()->update(['os_family' => null, 'arch' => null]);
 
     // No line at all, not an empty one
-    Livewire::test(FleetPresence::class)
+    Livewire::test(Agents::class)
         ->assertDontSeeHtml('Linux')
         ->assertDontSeeHtml('<div class="text-xs opacity-60"></div>');
 });

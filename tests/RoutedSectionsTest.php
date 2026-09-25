@@ -17,10 +17,11 @@ use Illuminate\Foundation\Auth\User;
 use Livewire\Livewire;
 use RobotCouncil\Http\Middleware\EnsureAllowlistedDeveloper;
 use RobotCouncil\Livewire\Administration;
+use RobotCouncil\Livewire\Agents;
 use RobotCouncil\Livewire\ChangeFeed;
-use RobotCouncil\Livewire\FleetPresence;
 use RobotCouncil\Livewire\FleetTotals;
 use RobotCouncil\Livewire\Lanes;
+use RobotCouncil\Livewire\Locks as LocksPage;
 use RobotCouncil\Livewire\TaskBoard;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\Installation;
@@ -75,7 +76,8 @@ it('mounts one panel per route, and only that one', function (string $section, s
 
     expect(array_values(array_unique($found[1])))->toBe([$mounted]);
 })->with([
-    'presence' => ['presence', 'robot-council-fleet-presence'],
+    'agents' => ['agents', 'robot-council-agents'],
+    'locks' => ['locks', 'robot-council-locks'],
     'queue' => ['queue', 'robot-council-task-board'],
     'feed' => ['feed', 'robot-council-change-feed'],
     'administration' => ['administration', 'robot-council-administration'],
@@ -100,7 +102,11 @@ it('pays for one panel per page', function (string $section, int $queries): void
     // Two more for what the fleet waits on developers for (#335): the open items, and the logins that
     // decide whether each still names someone
     'the lanes: the same six, three last-change reads, two for owed items, the gate and the layout' => ['lanes', 14],
-    'presence: sessions, their installations, their logins, the held locks and two summaries' => ['presence', 11],
+    // #308 split presence in two. Each half pays the gate and the layout plus its own four: the
+    // agents their page, its installations, their logins and one summary; the locks their page,
+    // the holder's session and login, and one summary
+    'agents: sessions, their installations, their logins and a summary' => ['agents', 7],
+    "locks: the held locks, their holders' sessions and logins, and a summary" => ['locks', 7],
     'the queue: the tasks, their sessions and their logins' => ['queue', 6],
     'the feed: the events and their logins' => ['feed', 5],
     'administration: the installations, their sessions, their logins and a summary' => ['administration', 9],
@@ -135,7 +141,7 @@ it('keeps every section behind the allowlist gate', function (string $section): 
     $this->actingAs($stranger, 'web')
         ->get(route('robot-council.'.$section))
         ->assertForbidden();
-})->with(['presence', 'queue', 'feed', 'administration']);
+})->with(['agents', 'locks', 'presence', 'queue', 'feed', 'administration']);
 
 it('refuses the administration route from the component, not the route', function (): void {
     // A developer who is allowlisted but not an admin. The route carries no gate of its own, so
@@ -145,7 +151,7 @@ it('refuses the administration route from the component, not the route', functio
 
     // **Shown to pass the gate first.** Without this, the 403 below could be the allowlist refusing
     // a developer who was never on it -- the opposite of what this test is named for.
-    $this->get(route('robot-council.presence'))->assertOk();
+    $this->get(route('robot-council.agents'))->assertOk();
 
     $this->get(route('robot-council.administration'))->assertForbidden();
 
@@ -170,7 +176,7 @@ it('gives every page the same validated interval, from one place', function (): 
 
     // Each panel reads `Support\PollInterval` itself now that each has a route. A second copy of
     // the bounds is how two pages come to poll at different rates on one host.
-    foreach (['dashboard', 'presence', 'queue', 'feed', 'administration'] as $section) {
+    foreach (['dashboard', 'agents', 'locks', 'queue', 'feed', 'administration'] as $section) {
         $html = (string) $this->get(route('robot-council.'.$section))->assertOk()->getContent();
 
         preg_match_all('/wire:poll\.(\d+)s/', $html, $found);
@@ -185,7 +191,7 @@ it('falls back to the default when a host configures something unusable', functi
 
     signInWithAFleet($this);
 
-    $html = (string) $this->get(route('robot-council.presence'))->assertOk()->getContent();
+    $html = (string) $this->get(route('robot-council.agents'))->assertOk()->getContent();
 
     expect($html)->toContain('wire:poll.'.PollInterval::DEFAULT.'s');
 });
@@ -195,7 +201,8 @@ it('mounts every section under the configured web prefix', function (): void {
     // that reason: at an empty prefix a top-level `queue` would sit in the host's own namespace.
     $this->rebootWith('robot-council.routes.web_prefix', 'council');
 
-    expect(route('robot-council.presence', absolute: false))->toBe('/council/dashboard/presence')
+    expect(route('robot-council.agents', absolute: false))->toBe('/council/dashboard/agents')
+        ->and(route('robot-council.locks', absolute: false))->toBe('/council/dashboard/locks')
         ->and(route('robot-council.queue', absolute: false))->toBe('/council/dashboard/queue')
         ->and(route('robot-council.feed', absolute: false))->toBe('/council/dashboard/feed')
         ->and(route('robot-council.administration', absolute: false))->toBe('/council/dashboard/administration');
@@ -244,10 +251,11 @@ it('takes a scope filter from the query string on the page that owns it', functi
         $filtered->assertDontSee($vanishes);
     }
 })->with([
-    // All four `#[Url]` filters the routable panels carry. Presence defaults to every session and
-    // to live locks only, so its two filters are asserted in opposite directions.
-    'presence, narrowed to live sessions' => ['presence', 'sessions=live', null, 'retired-box'],
-    'presence, widened to every lock' => ['presence', 'locks=all', 'migrate', null],
+    // All four scope filters the routable panels carry. The agents default to every session and the
+    // locks to live ones only, so their two filters are asserted in opposite directions. Both are
+    // `scope` now that each lives on a page of its own (#308).
+    'the agents, narrowed to live sessions' => ['agents', 'scope=live', null, 'retired-box'],
+    'the locks, widened to every lock' => ['locks', 'scope=all', 'migrate', null],
     'the queue, narrowed to what is done' => ['queue', 'status=done', null, 'Open work'],
     'administration, widened to every installation' => ['administration', 'installations=all', 'retired-box', null],
 ]);
@@ -264,7 +272,8 @@ it('bounds an interval a parent passed, not just the one a host configured', fun
     expect($rendered)->toContain('wire:poll.'.PollInterval::DEFAULT.'s')
         ->and($rendered)->not->toContain('wire:poll.-1s');
 })->with([
-    FleetPresence::class,
+    Agents::class,
+    LocksPage::class,
     TaskBoard::class,
     ChangeFeed::class,
     FleetTotals::class,

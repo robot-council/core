@@ -30,7 +30,7 @@ function everyPage(TestCase $case): array
 {
     $pages = [];
 
-    foreach (['dashboard', 'presence', 'lanes', 'queue', 'feed', 'seats', 'administration', 'enroll.show'] as $route) {
+    foreach (['dashboard', 'agents', 'locks', 'lanes', 'queue', 'feed', 'seats', 'administration', 'enroll.show'] as $route) {
         $pages[$route] = (string) $case->actingAs($case->developer, 'web')->get(route('robot-council.'.$route))->assertOk()->getContent();
     }
 
@@ -74,7 +74,8 @@ it('gives every page its own title, with the fleet name after it and alone on th
 
     expect($titles)->toBe([
         'dashboard' => 'Robot Council',
-        'presence' => 'Presence · Robot Council',
+        'agents' => 'Agents · Robot Council',
+        'locks' => 'Locks · Robot Council',
         'lanes' => 'Lanes · Robot Council',
         'queue' => 'Queue · Robot Council',
         'feed' => 'Change feed · Robot Council',

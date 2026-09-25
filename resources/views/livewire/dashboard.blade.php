@@ -1,9 +1,10 @@
 {{--
     The overview.
 
-    It mounts no panel -- each of the four is a page of its own as of #215, so this holds the
-    question a developer opens the console to ask, and a way into each section. No `wire:poll`
-    here: the totals row polls itself, and a parent refresh does not re-execute a child.
+    It mounts no panel -- each is a page of its own as of #215, and agents and locks each have one
+    as of #308 -- so this holds the question a developer opens the console to ask, and a way into
+    each section. No `wire:poll` here: the totals row polls itself, and a parent refresh does not
+    re-execute a child.
 
     The links duplicate the sidebar deliberately. The sidebar is off-canvas below daisyUI's `lg`
     breakpoint, so on a phone this is the only way through.
@@ -23,9 +24,16 @@
                  A row that only fails while it is being pointed at is still a row that fails. --}}
             <ul class="menu w-full gap-1 p-0">
                 <li>
-                    <a href="{{ route('robot-council.presence') }}">
-                        <span class="grow">Presence</span>
-                        <span class="text-xs opacity-70">Agents and the locks they hold</span>
+                    <a href="{{ route('robot-council.agents') }}">
+                        <span class="grow">Agents</span>
+                        <span class="text-xs opacity-70">Who is working, and where</span>
+                    </a>
+                </li>
+
+                <li>
+                    <a href="{{ route('robot-council.locks') }}">
+                        <span class="grow">Locks</span>
+                        <span class="text-xs opacity-70">What the fleet is holding, and who holds it</span>
                     </a>
                 </li>
 

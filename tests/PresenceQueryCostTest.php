@@ -3,22 +3,24 @@
 declare(strict_types=1);
 
 /**
- * What one render of the presence panel costs, and along which axes that cost can grow.
+ * What one render of the Agents and Locks pages costs, and along which axes that cost can grow.
  *
- * The panel was the most expensive of the four and nothing said where its queries went. This pins
- * the numbers so a later change that adds one fails here rather than shipping.
+ * They were one panel, the most expensive of the four, and nothing said where its queries went.
+ * This pins the numbers so a later change that adds one fails here rather than shipping. #308 split
+ * the panel onto two pages, and the numbers split with it: the two add up to what the panel cost.
  *
- * **There are two numbers, not one.** A fleet with no lock held costs six; one with any lock held
- * costs eight, because resolving a lock's holder is the one hop that cannot read a row already in
- * hand. The first draft of this file measured only the six, on a fixture that acquired no locks,
- * and called it the panel's cost.
+ * **The Locks page has two numbers, not one.** With no lock held it costs two; with any lock held
+ * it costs four, because resolving a lock's holder is the one hop that cannot read a row already in
+ * hand. The first draft of this file measured only the lower figure, on a fixture that acquired no
+ * locks, and called it the panel's cost.
  *
  * @command  vendor/bin/pest --compact tests/PresenceQueryCostTest.php
  */
 
 use Illuminate\Foundation\Auth\User;
 use Livewire\Livewire;
-use RobotCouncil\Livewire\FleetPresence as PresencePanel;
+use RobotCouncil\Livewire\Agents as AgentsPage;
+use RobotCouncil\Livewire\Locks as LocksPage;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Support\FleetPresence as PresenceStore;
 use RobotCouncil\Support\Locks;
@@ -69,26 +71,32 @@ beforeEach(function (): void {
     $this->setAccessLists(developers: [4242, 77]);
 });
 
-it('renders on six queries when no lock is held', function (): void {
-    $this->actingAs(fleetOf($this, 3), 'web');
+it('renders the agents on four queries', function (int $locks): void {
+    $this->actingAs(fleetOf($this, 3, locks: $locks), 'web');
 
-    // The six, in the order they are issued:
+    // The four, in the order they are issued:
     //
     //   1  the page of sessions, with `installation` eager-loaded
     //   2  that eager load
     //   3  the GitHub logins, by the `user_id` already on each loaded row
     //   4  the session totals, live and overall in one pass
-    //   5  the page of locks
-    //   6  the lock totals, held and overall in one pass
     //
-    // Three were removed to get here. `AgentLogins::forSessions()` asked the session table for the
+    // Two were removed to get here. `AgentLogins::forSessions()` asked the session table for the
     // `user_id` of rows this method had just loaded in full, which cost two queries where
-    // `forUsers()` costs one; and `gone` and `free` were each a second `count()` over a table the
-    // line above had already counted.
-    expect(queriesIssuedBy(fn () => Livewire::test(PresencePanel::class)))->toBe(6);
+    // `forUsers()` costs one; and `gone` was a second `count()` over a table the line above had
+    // already counted. Held locks change nothing here, because this page no longer reads them.
+    expect(queriesIssuedBy(fn () => Livewire::test(AgentsPage::class)))->toBe(4);
+})->with(['no lock held' => 0, 'a lock held' => 1]);
+
+it('renders the locks on two queries when none is held', function (): void {
+    $this->actingAs(fleetOf($this, 3), 'web');
+
+    // The page of locks and the lock totals, held and overall in one pass. `free` was once a
+    // second `count()` over a table the line above had already counted.
+    expect(queriesIssuedBy(fn () => Livewire::test(LocksPage::class)))->toBe(2);
 });
 
-it('renders on eight queries when a lock is held', function (): void {
+it('renders the locks on four queries when one is held', function (): void {
     $this->actingAs(fleetOf($this, 3, locks: 1), 'web');
 
     // The two extra are `AgentLogins::forSessions()` resolving the lock's holder: one read of the
@@ -96,39 +104,52 @@ it('renders on eight queries when a lock is held', function (): void {
     // the way the session-side pair was -- `locks()` maps holder ids belonging to sessions it never
     // loaded, so there is no row in hand to take a key off.
     //
-    // This is the realistic figure. The panel's default lock scope is `Scope::Live`, which is
-    // exactly the rows that still name a holder, so any fleet with a lock at all pays it.
-    expect(queriesIssuedBy(fn () => Livewire::test(PresencePanel::class)))->toBe(8);
+    // This is the realistic figure. The page's default scope is `Scope::Live`, which is exactly the
+    // rows that still name a holder, so any fleet with a lock at all pays it.
+    expect(queriesIssuedBy(fn () => Livewire::test(LocksPage::class)))->toBe(4);
 });
 
-it('costs the same on a poll as it does on a mount', function (): void {
+it('costs the same on a poll as it does on a mount', function (string $page): void {
     $this->actingAs(fleetOf($this, 3, locks: 1), 'web');
 
     // `Livewire::test()` mounts AND renders; `->call('$refresh')` renders a second time. A poll is
     // one render, so the difference between the two is what a poll costs -- and reading the
     // combined figure as one cycle is how an earlier measurement reported double.
-    $mountOnly = queriesIssuedBy(fn () => Livewire::test(PresencePanel::class));
-    $mountAndRefresh = queriesIssuedBy(fn () => Livewire::test(PresencePanel::class)->call('$refresh'));
+    $mountOnly = queriesIssuedBy(fn () => Livewire::test($page));
+    $mountAndRefresh = queriesIssuedBy(fn () => Livewire::test($page)->call('$refresh'));
 
-    expect($mountAndRefresh - $mountOnly)->toBe(8)
-        ->and($mountAndRefresh)->toBe(16);
-});
+    expect($mountAndRefresh - $mountOnly)->toBe(4)
+        ->and($mountAndRefresh)->toBe(8);
+})->with([AgentsPage::class, LocksPage::class]);
 
 it('does not grow with the number of sessions', function (int $sessions): void {
     $this->actingAs(fleetOf($this, $sessions, locks: 1), 'web');
 
     expect(AgentSession::query()->count())->toBe($sessions)
-        ->and(queriesIssuedBy(fn () => Livewire::test(PresencePanel::class)))->toBe(8);
+        ->and(queriesIssuedBy(fn () => Livewire::test(AgentsPage::class)))->toBe(4)
+        ->and(queriesIssuedBy(fn () => Livewire::test(LocksPage::class)))->toBe(4);
 })->with([1, 5, 20]);
 
 it('does not grow with the number of locks', function (int $locks): void {
-    // The axis the first draft never varied, and the only one along which this panel still makes a
-    // multi-query hop. An N+1 introduced in the lock-holder lookup would be invisible to a test
-    // that varies sessions alone.
+    // The axis the first draft never varied, and the only one along which the Locks page still
+    // makes a multi-query hop. An N+1 introduced in the lock-holder lookup would be invisible to a
+    // test that varies sessions alone.
     $this->actingAs(fleetOf($this, 2, locks: $locks), 'web');
 
-    expect(queriesIssuedBy(fn () => Livewire::test(PresencePanel::class)))->toBe(8);
+    expect(queriesIssuedBy(fn () => Livewire::test(LocksPage::class)))->toBe(4);
 })->with([1, 5, 20]);
+
+it('does not grow when narrowed to one session or one holder', function (): void {
+    // The narrowing (#308) is a `where` on the page read and nothing else. A version that looked
+    // the named session up first, to say whether it exists, would add a query per page and pass
+    // every test above, all of which render unnarrowed.
+    $this->actingAs(fleetOf($this, 3, locks: 2), 'web');
+
+    $holder = intValue($this->session->id);
+
+    expect(queriesIssuedBy(fn () => Livewire::withQueryParams(['session' => $holder])->test(AgentsPage::class)))->toBe(4)
+        ->and(queriesIssuedBy(fn () => Livewire::withQueryParams(['holder' => $holder])->test(LocksPage::class)))->toBe(4);
+});
 
 it('serves each developer their own login, not whichever the map happens to hold', function (): void {
     // The control this assertion needs. With one developer enrolled, `assertSee('octodev')` passes
@@ -140,7 +161,7 @@ it('serves each developer their own login, not whichever the map happens to hold
 
     $this->actingAs($first, 'web');
 
-    Livewire::test(PresencePanel::class)
+    Livewire::test(AgentsPage::class)
         ->assertOk()
         ->assertSee('octodev')
         ->assertSee('otherdev')

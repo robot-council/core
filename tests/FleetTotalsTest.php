@@ -11,8 +11,9 @@ declare(strict_types=1);
 
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
-use RobotCouncil\Livewire\FleetPresence as PresencePanel;
+use RobotCouncil\Livewire\Agents;
 use RobotCouncil\Livewire\FleetTotals;
+use RobotCouncil\Livewire\Locks as LocksPage;
 use RobotCouncil\Livewire\TaskBoard;
 use RobotCouncil\Models\TaskStatus;
 use RobotCouncil\Support\FleetPresence;
@@ -70,13 +71,13 @@ it('shows a zero rather than an empty tile', function (): void {
 });
 
 it('counts the fleet rather than the page', function (): void {
-    // Over every panel bound: `FleetPresence::SESSIONS` and `::LOCKS` are 50, `TaskBoard::PER_PAGE`
+    // Over every panel bound: `Agents::SESSIONS` and `Locks::LOCKS` are 50, `TaskBoard::PER_PAGE`
     // is 25. A total taken as `count()` over a page would report the bound, and a capped total is
     // indistinguishable from a real one -- which is the failure this row exists to prevent.
     // Sessions exceeds locks, because each lock is acquired by one of the sessions below -- asking
     // for more locks than sessions silently produces fewer than requested.
-    $sessions = PresencePanel::SESSIONS + 2;
-    $locks = PresencePanel::LOCKS + 1;
+    $sessions = Agents::SESSIONS + 2;
+    $locks = LocksPage::LOCKS + 1;
     $tasks = TaskBoard::PER_PAGE + 1;
 
     // **The three counts are deliberately different from one another.** With all three equal, an
@@ -227,7 +228,7 @@ it('appears on the overview, above the way into each section', function (): void
     $html = (string) $page->getContent();
 
     $totals = strpos($html, 'Live agents');
-    $panels = strpos($html, route('robot-council.presence'));
+    $panels = strpos($html, route('robot-council.agents'));
 
     // **Both positions are established before they are compared.** `strpos()` answers `false` when
     // the needle is absent, and PHP compares bool against int by casting the int to bool -- so

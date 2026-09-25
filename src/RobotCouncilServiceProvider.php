@@ -42,10 +42,11 @@ use RobotCouncil\Http\Middleware\EnsureAgentSession;
 use RobotCouncil\Http\Middleware\EnsureAllowlistedDeveloper;
 use RobotCouncil\Http\ViewComposers\DashboardLayoutComposer;
 use RobotCouncil\Livewire\Administration;
+use RobotCouncil\Livewire\Agents;
 use RobotCouncil\Livewire\ChangeFeed;
-use RobotCouncil\Livewire\FleetPresence as FleetPresenceComponent;
 use RobotCouncil\Livewire\FleetTotals;
 use RobotCouncil\Livewire\Lanes;
+use RobotCouncil\Livewire\Locks as LocksPage;
 use RobotCouncil\Livewire\SeatSettings;
 use RobotCouncil\Livewire\TaskBoard;
 use RobotCouncil\Mcp\CouncilServer;
@@ -322,10 +323,14 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
     private function registerLivewireComponents(): void
     {
         Livewire::component('robot-council-administration', Administration::class);
+        Livewire::component('robot-council-agents', Agents::class);
         Livewire::component('robot-council-change-feed', ChangeFeed::class);
-        Livewire::component('robot-council-fleet-presence', FleetPresenceComponent::class);
         Livewire::component('robot-council-fleet-totals', FleetTotals::class);
+        // The combined presence panel's name, kept for a host that embedded it before #308: it
+        // now mounts the agents half rather than failing to resolve.
+        Livewire::component('robot-council-fleet-presence', Agents::class);
         Livewire::component('robot-council-lanes', Lanes::class);
+        Livewire::component('robot-council-locks', LocksPage::class);
         Livewire::component('robot-council-seat-settings', SeatSettings::class);
         Livewire::component('robot-council-task-board', TaskBoard::class);
 

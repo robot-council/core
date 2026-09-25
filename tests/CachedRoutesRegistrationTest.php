@@ -58,10 +58,11 @@ it('can tell a registered name from an unregistered one', function (): void {
 it('registers every component name even though the routes are cached', function (): void {
     foreach ([
         'robot-council-administration',
+        'robot-council-agents',
         'robot-council-change-feed',
-        'robot-council-fleet-presence',
         'robot-council-fleet-totals',
         'robot-council-lanes',
+        'robot-council-locks',
         'robot-council-seat-settings',
         'robot-council-task-board',
     ] as $name) {

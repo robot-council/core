@@ -95,8 +95,8 @@ it('links to every page a signed-in developer can reach', function (): void {
     // Both pages the package mounts behind the gate, reachable by clicking rather than by typing.
     //
     // Through `anchorTagFor` rather than `assertSeeHtml`, because the sections are mounted UNDER
-    // the dashboard path: `.../dashboard` is a substring of `.../dashboard/presence`, so a
-    // document-wide check for the dashboard's URL is satisfied by any one of its four children.
+    // the dashboard path: `.../dashboard` is a substring of `.../dashboard/agents`, so a
+    // document-wide check for the dashboard's URL is satisfied by any one of its children.
     // Delete the Dashboard entry entirely and the string form still passes.
     expect(anchorTagFor($page->getContent(), route('robot-council.dashboard')))->not->toBeEmpty();
 
@@ -152,7 +152,7 @@ it('offers a link to every section, and each one answers', function (): void {
         ->get(route('robot-council.dashboard'))
         ->assertOk();
 
-    foreach (['presence', 'queue', 'feed'] as $section) {
+    foreach (['agents', 'locks', 'queue', 'feed'] as $section) {
         $page->assertSeeHtml('href="'.route('robot-council.'.$section).'"');
 
         forgetResolvedGuards();
@@ -240,7 +240,7 @@ it('renders every panel inside the shell, each on its own page', function (): vo
 
     // The panels moved off the index; what this pins is unchanged -- every one of them renders
     // inside the shell rather than as a bare page, which is what the sidebar and sign-out depend on.
-    foreach (['presence', 'queue', 'feed', 'administration'] as $section) {
+    foreach (['agents', 'locks', 'queue', 'feed', 'administration'] as $section) {
         forgetResolvedGuards();
 
         $this->actingAs($this->developer, 'web')
