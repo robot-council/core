@@ -341,7 +341,7 @@ it('renders a measured count with its direction against the baseline, in words',
 
     expect($html)->toContain('data-meter="read"')
         ->and($html)->not->toContain('data-meter="unreadable"')
-        ->and(str_starts_with(markedText($html, 'data-meter-delta')[0] ?? '', $delta))->toBeTrue();
+        ->and(markedText($html, 'data-meter-delta')[0] ?? '')->toStartWith($delta);
 })->with([
     'fewer open issues' => [7, 'down 3'],
     'more' => [12, 'up 2'],
