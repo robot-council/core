@@ -104,6 +104,7 @@ final class GitHubState
                 'issues' => $this->issue($payload),
                 'pull_request' => $this->pullRequest($payload),
                 'issue_dependencies' => $this->dependency($payload),
+                'create', 'delete' => $this->branch($event, $payload),
                 default => 'ignored',
             };
         });
@@ -269,6 +270,37 @@ final class GitHubState
     private function stored(string $repository, int $number): ?GitHubItem
     {
         return GitHubItem::query()->where('repository', $repository)->where('number', $number)->first();
+    }
+
+    /**
+     * A `create` or `delete` delivery, recording branches (#344).
+     *
+     * Only branches: a tag says nothing about work in progress. A name outside `BranchName` is not
+     * recorded, since no lane could report it. Unordered, like a blocker edge (#341): a `delete`
+     * delivered before its `create` leaves the branch recorded until it is deleted again.
+     *
+     * @param  string  $event  `create` or `delete`.
+     * @param  array<array-key, mixed>  $payload  The delivery.
+     * @return string What came of it.
+     */
+    private function branch(string $event, array $payload): string
+    {
+        $name = $payload['ref'] ?? null;
+
+        if (($payload['ref_type'] ?? null) !== 'branch' || ! \is_string($name)
+            || mb_strlen($name) > BranchName::MAX || preg_match(BranchName::PATTERN, $name) !== 1) {
+            return 'ignored';
+        }
+
+        $key = ['repository' => self::repository($payload), 'name' => $name];
+
+        if ($event === 'create') {
+            DB::table('robot_council_github_branches')->insertOrIgnore([...$key, 'created_at' => Carbon::now()]);
+        } else {
+            DB::table('robot_council_github_branches')->where($key)->delete();
+        }
+
+        return 'applied';
     }
 
     /**

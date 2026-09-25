@@ -172,7 +172,96 @@ final class PlacementRules
             $warnings[] = 'Every acceptance criterion is ticked and the ticket is still open. Read it before placing it.';
         }
 
+        $ahead = $item instanceof GitHubItem ? $this->functionalityAhead($item) : [];
+
+        if ($ahead !== []) {
+            $warnings[] = sprintf(
+                'This is documentation, and %d functionality ticket(s) are placeable in %s: %s. The service cannot know why they were passed over; their blind spots are on the shortlist.',
+                \count($ahead),
+                $item->repository,
+                implode(', ', $ahead)
+            );
+        }
+
+        $started = $item instanceof GitHubItem ? $this->branchesWithoutPullRequest($item) : [];
+
+        if ($started !== []) {
+            $warnings[] = sprintf(
+                "A branch whose name carries this ticket's number exists with no open pull request -- the work may already have started: %s. Matched by name, so it may be unrelated.",
+                implode(', ', $started)
+            );
+        }
+
         return $warnings;
+    }
+
+    /**
+     * The functionality tickets placeable in the same repository, when this one is documentation
+     * (#344, from #314's "functionality before documentation").
+     *
+     * Read from the shortlist, so "placeable" means exactly what the coordinator was shown. Resolved
+     * here rather than injected, because the shortlist is built on these rules and each would
+     * otherwise need the other to be constructed first.
+     *
+     * @param  GitHubItem  $item  The ticket being placed.
+     * @return list<string> The functionality tickets, `owner/name#N`, up to ten.
+     */
+    private function functionalityAhead(GitHubItem $item): array
+    {
+        if (! \in_array('documentation', $item->labels, true)) {
+            return [];
+        }
+
+        $ahead = [];
+
+        foreach (app(Shortlist::class)->read()[$item->repository] ?? [] as $entry) {
+            if ($entry['ticket'] !== $item->reference() && ! \in_array('documentation', $entry['labels'], true)) {
+                $ahead[] = $entry['ticket'];
+            }
+        }
+
+        return \array_slice($ahead, 0, 10);
+    }
+
+    /**
+     * Branches in the ticket's repository whose name carries its number as a whole token, with no
+     * open pull request from them (#344).
+     *
+     * **A heuristic, and the warning says so.** Nothing links a branch to a ticket but its name, and
+     * `318-webhook`, `issue-318` and `fix/318` are all how people name them. Bounded to a few names,
+     * since a warning lists them.
+     *
+     * @param  GitHubItem  $item  The ticket.
+     * @return list<string> Up to five branch names.
+     */
+    private function branchesWithoutPullRequest(GitHubItem $item): array
+    {
+        $number = (string) $item->number;
+
+        $candidates = DB::table('robot_council_github_branches')
+            ->whereRaw('lower(repository) = ?', [mb_strtolower($item->repository)])
+            ->where('name', 'like', '%'.$number.'%')
+            ->orderBy('name')
+            ->pluck('name')
+            ->filter(static fn (mixed $name): bool => \is_string($name) && preg_match('/(?<![0-9])'.$number.'(?![0-9])/', $name) === 1);
+
+        if ($candidates->isEmpty()) {
+            return [];
+        }
+
+        $withPullRequest = GitHubItem::query()
+            ->whereRaw('lower(repository) = ?', [mb_strtolower($item->repository)])
+            ->where('is_pull_request', true)
+            ->where('state', 'open')
+            ->whereIn('head_ref', $candidates->all())
+            ->pluck('head_ref')
+            ->all();
+
+        return array_values(array_slice(
+            array_filter($candidates->all(), static fn (string $name): bool => ! \in_array($name, $withPullRequest, true)),
+            0,
+            5
+        ));
     }
 
     /**
