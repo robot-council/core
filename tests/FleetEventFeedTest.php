@@ -460,7 +460,7 @@ it('asks the enum which types are restricted', function (): void {
     // The feed's query is built from this, so a later restricted type is restricted by declaring
     // itself so. A hardcoded comparison would fail open for the new type.
     // `lane.quiet` joined for #332: addressed to the coordinators, with no user, so they alone read it
-    expect(FleetEventType::restrictedValues())->toBe([FleetEventType::Narration->value, FleetEventType::LaneQuiet->value, FleetEventType::LaneCondition->value])
+    expect(FleetEventType::restrictedValues())->toBe([FleetEventType::Narration->value, FleetEventType::LaneQuiet->value, FleetEventType::LaneCondition->value, FleetEventType::PlacementInstruction->value])
         ->and(FleetEventType::Narration->isRestricted())->toBeTrue()
         ->and(FleetEventType::LaneQuiet->isRestricted())->toBeTrue()
         ->and(FleetEventType::Directive->isRestricted())->toBeFalse()

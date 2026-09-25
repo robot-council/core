@@ -221,15 +221,36 @@ final class Tasks
             // guarantee.** A throw here -- a body over `FleetEvent::MAX_BODY`, a feed that cannot be
             // written -- rolls the placement back with it, so there is no committed state in which a
             // lane holds work nobody told it about, nor one in which it was told about work it does
-            // not hold. `targets` names the lane; the feed does not narrow delivery by it, so every
-            // session sees the directive as it sees any other, and the lane is the one it names.
+            // not hold.
+            //
+            // **Two events, split by who may read them (#331).** The directive, which is what wakes
+            // an idle lane and reaches every agent, says only what the package composes: the task,
+            // the lane, and whether it is a hand-back. The coordinator's own words go to the lane
+            // alone as a `placement.instruction` -- they may name an issue another developer's agent
+            // may not read, and a directive broadcast them to the whole fleet and to Slack.
             if ($transition->takesADirective() && $holder instanceof AgentSession && $directive !== null) {
                 $this->events->record(
                     FleetEventType::Directive,
                     $actor,
-                    $directive,
-                    ['targets' => [$holder->getKey()], 'task_id' => $taskId],
+                    sprintf(
+                        'Task #%d was placed on session #%d%s. Its instructions are a placement.instruction event addressed to that session; read them with events_read.',
+                        $taskId,
+                        $holder->id,
+                        $handBack ? ' as a hand-back' : ''
+                    ),
+                    ['targets' => [$holder->getKey()], 'task_id' => $taskId, 'hand_back' => $handBack],
                     $asCoordinator
+                );
+
+                $this->events->record(
+                    FleetEventType::PlacementInstruction,
+                    $actor,
+                    $directive,
+                    // `to` so a reader can tell it is the addressee without asking the service,
+                    // as a narration's `to` does (#324)
+                    ['task_id' => $taskId, 'hand_back' => $handBack, 'to' => [$holder->getKey()]],
+                    $asCoordinator,
+                    addressees: [$holder]
                 );
             }
 

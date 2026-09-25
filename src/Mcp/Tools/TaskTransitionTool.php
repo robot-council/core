@@ -101,7 +101,7 @@ final class TaskTransitionTool extends Tool
         if ($this->transition->takesADirective()) {
             $arguments['directive'] = $schema->string()
                 ->max(FleetEvent::MAX_BODY)
-                ->description('What to tell the session you are handing the task to. Written to the fleet in the same step as the handover, so the session is never holding work nobody told it about.')
+                ->description('What to tell the session you are handing the task to. Delivered to that session alone, and to your own developer, as a `placement.instruction` event in the same step as the handover; the fleet-wide directive that wakes the session carries only the task and the session, never these words.')
                 ->required();
             $arguments['expect'] = $schema->string()
                 ->enum(TaskStatus::values($this->transition->startsFrom()))

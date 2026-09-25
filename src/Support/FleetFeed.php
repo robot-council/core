@@ -190,7 +190,11 @@ final class FleetFeed
                 // the narration was posted, because session ids are reused -- a match on the id
                 // alone would hand a dead session's mail to whoever holds its id now.
                 $query->whereNotIn('type', FleetEventType::restrictedValues())
-                    ->orWhere('posted_with_coordinator', true)
+                    // A coordinator's post reaches everyone -- except a type that stays addressed
+                    // even when a coordinator posts it (#331)
+                    ->orWhere(fn (QueryBuilder $coordinator): QueryBuilder => $coordinator
+                        ->where('posted_with_coordinator', true)
+                        ->whereNotIn('type', FleetEventType::addressedOnlyValues()))
                     ->orWhere('user_id', $reader->user_id)
                     ->orWhereExists(fn (QueryBuilder $addressed): QueryBuilder => $addressed
                         ->select(DB::raw(1))

@@ -155,8 +155,10 @@ final class TransitionTaskController
     /**
      * What a reassignment tells the session it hands the task to.
      *
-     * Required, and bounded like any directive: #316 makes a placement and the directive telling
-     * the lane one write, so a reassignment without one is refused at the edge rather than stored.
+     * Required, and bounded like any event body: #316 makes a placement and the telling of the lane
+     * one write, so a reassignment without one is refused at the edge rather than stored. Since #331
+     * these words travel to the lane alone as a `placement.instruction`; the broadcast directive
+     * carries only what the package composes.
      *
      * @param  Request  $request  The incoming request.
      * @param  TaskTransition  $move  The transition being attempted.
