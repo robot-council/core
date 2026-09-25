@@ -48,16 +48,17 @@
  * AAA target `.claude/rules/accessibility.md` sets for normal text (#398); every label these colours
  * carry is 14px, so the large-text bar never applies. Every value this file introduces for #398 is
  * inside the sRGB gamut, so the colour a browser paints is the colour that was measured -- an
- * out-of-gamut value is mapped by the browser and by the test's arithmetic differently. The brand
- * primaries and daisyUI's stock warning are marginally outside it; the difference moves no ratio
- * past a bar:
+ * out-of-gamut value is mapped by the browser and by the test's arithmetic differently. The dark
+ * brand primary and daisyUI's stock warning are marginally outside it; the difference moves no
+ * ratio past a bar:
  *
  *   - `primary` is the brand hue. daisyUI's stock light `primary` is its own violet at
  *     `oklch(45% 0.24 277)`; this is the same family a step lighter and seven degrees round.
  *     Against it, daisyUI's stock `primary-content` measures **3.90:1** and fails AA for normal
- *     text, so the content colour is white, which measures **4.81:1**. That meets AA and misses
- *     AAA, and only the button's own lightness moves it: 48% would measure 7.14:1. Whether the brand
- *     darkens for that is the one decision #398 put to the operator, recorded on #398.
+ *     text, so the content colour is white. #184 put the brand at `57%`, where white measured
+ *     4.81:1: AA, and short of AAA, and only the button's own lightness moves it. The operator
+ *     decided on #398 to darken it one step for AAA: at `48%`, same hue and chroma, white measures
+ *     **7.14:1**. It is inside the sRGB gamut, where `57%` was marginally outside it.
  *   - `error` at its stock `oklch(71% 0.194 13.428)` measures **2.87:1** as text on `base-100`,
  *     which every `text-error` message renders. #229's `55%` measured 5.46:1, AA only. At `47%`, with
  *     the chroma brought inside the gamut, it measures **7.54:1** on a card and **7.12:1** on the page,
@@ -71,7 +72,7 @@
     default: true;
     color-scheme: light;
 
-    --color-primary: oklch(57% 0.237 270);
+    --color-primary: oklch(48% 0.237 270);
     --color-primary-content: oklch(100% 0 0);
     --color-error: oklch(47% 0.18 13.4);
     --color-error-content: oklch(100% 0 0);

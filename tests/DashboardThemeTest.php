@@ -167,26 +167,13 @@ it('serves light by default and dark to a system that asks for it', function ():
 });
 
 it('carries the brand primary in both themes', function (): void {
-    // Pinned on #184, and measured rather than picked: `oklch(57% 0.237 270)` is TailAdmin's
-    // `brand-500` converted, which is daisyUI's own stock hue family a step lighter.
-    expect(themeTokens(':where(:root)')['color-primary'] ?? null)->toBe('oklch(57% .237 270)')
+    // Pinned on #184, and measured rather than picked: `oklch(57% 0.237 270)` was TailAdmin's
+    // `brand-500` converted, daisyUI's own stock hue family a step lighter. #398 darkened the light
+    // theme's to `48%`, the same hue and chroma, so white on it reaches the AAA ratio (7.14:1); the
+    // operator decided that on #398.
+    expect(themeTokens(':where(:root)')['color-primary'] ?? null)->toBe('oklch(48% .237 270)')
         ->and(themeTokens('[data-theme=dark]')['color-primary'] ?? null)->toBe('oklch(69% .163 270)');
 });
-
-/**
- * The theme pairs the accessibility rule lets stop at AA, each with the reason it records.
- *
- * `.claude/rules/accessibility.md` makes AAA the target and AA the floor, and says a pair that stops
- * at AA names why. Keyed by the dataset's theme label and the pair's label, so an exception covers
- * exactly one pair in one theme, and a pair not listed here is held to 7:1.
- */
-const THEME_AA_EXCEPTIONS = [
-    'light' => [
-        // White on the brand violet measures 4.81:1, and only the violet's lightness moves it: 48%
-        // would measure 7.14:1. Whether the brand darkens for AAA is the operator's decision on #398.
-        'primary button' => 'the brand violet, pending the decision on #398',
-    ],
-];
 
 it('keeps every pair it owns legible in both themes', function (string $theme, string $selector): void {
     $tokens = themeTokens($selector);
@@ -215,20 +202,12 @@ it('keeps every pair it owns legible in both themes', function (string $theme, s
 
         // AAA for normal text, per `.claude/rules/accessibility.md` (#398). The large-text bars are
         // not used: a button label and a validation message are both 14px, and the theme cannot know
-        // which is which. A pair the rule lets stop at AA is named in THEME_AA_EXCEPTIONS with its
-        // reason, and still has to clear AA.
-        $bar = isset(THEME_AA_EXCEPTIONS[$theme][$label]) ? 4.5 : 7.0;
-
+        // which is which. No pair is excepted: the one #398 opened with, white on the light brand
+        // violet at 4.81:1, was settled by darkening the violet rather than by stopping at AA.
         expect($ratio)->toBeGreaterThanOrEqual(
-            $bar,
-            sprintf('%s theme, %s: %.2f:1 against a %.1f:1 bar', $theme, $label, $ratio, $bar)
+            7.0,
+            sprintf('%s theme, %s: %.2f:1 against a 7.0:1 bar', $theme, $label, $ratio)
         );
-
-        // An exception that is no longer needed is removed, rather than left to excuse the next
-        // regression on the same pair: once the pair clears 7:1, this fails until it is deleted
-        if (isset(THEME_AA_EXCEPTIONS[$theme][$label])) {
-            expect($ratio)->toBeLessThan(7.0, sprintf('%s theme, %s now clears 7:1; remove its AA exception', $theme, $label));
-        }
     }
 })->with([
     ['light', ':where(:root)'],
@@ -674,10 +653,7 @@ it("keeps a hovered or pressed button's label at the bar, in both themes", funct
         foreach ($pairs as $label => [$text, $fill]) {
             $ratio = contrastRatio($text, $fill);
 
-            // A pair the rule lets stop at AA at rest stops there under the same exception here
-            $bar = isset(THEME_AA_EXCEPTIONS[$theme][$label]) ? 4.5 : 7.0;
-
-            expect($ratio)->toBeGreaterThanOrEqual($bar, sprintf('%s theme, hovered or pressed %s: %.2f:1 against a %.1f:1 bar', $theme, $label, $ratio, $bar));
+            expect($ratio)->toBeGreaterThanOrEqual(7.0, sprintf('%s theme, hovered or pressed %s: %.2f:1 against a 7.0:1 bar', $theme, $label, $ratio));
         }
     }
 });
