@@ -28,6 +28,7 @@ use RobotCouncil\Access\Ability;
 use RobotCouncil\Models\TaskStatus;
 use RobotCouncil\Support\Locks;
 use RobotCouncil\Support\Platform;
+use RobotCouncil\Support\SubLabel;
 use RobotCouncil\Support\TicketLink;
 use RobotCouncil\Support\WireArgument;
 use RobotCouncil\Support\WorkIdentity;
@@ -740,6 +741,7 @@ it('admits no executable payload in any charset-limited field, though it does ad
     'repository' => ['repository', WorkIdentity::REPOSITORY, 'robot-council/core'],
     'work_location' => ['work_location', WorkIdentity::LOCATION, 'primary'],
     'arch' => ['arch', Platform::ARCH, 'x86_64'],
+    'sub_label' => ['sub_label', SubLabel::PATTERN, 'wt-one'],
 ]);
 
 it('refuses a traversal segment in the two fields whose names invite one', function (): void {

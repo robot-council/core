@@ -24,7 +24,13 @@ enum PlacementRule: string
     case LaneInRepository = 'lane_in_repository';
 
     /**
-     * The lane holds no other task.
+     * The lane holds fewer other tasks than its capacity, which is one unless the session declared
+     * more and its seat allows it (#409).
+     *
+     * **The value and the refusal text are unchanged from before #409**, so a coordinator or a
+     * waiver recorded against `lane_free` means the same thing: at a capacity of one, "fewer than
+     * one other task" is "no other task", and once a larger lane is full it does already hold
+     * another task.
      */
     case LaneFree = 'lane_free';
 

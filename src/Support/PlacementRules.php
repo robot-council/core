@@ -37,7 +37,7 @@ final class PlacementRules
     public const array HUMAN_VERBS = ['delete', 'remove', 'retire', 'release', 'tag', 'publish', 'install', 'upgrade', 'rotate', 'spend'];
 
     /**
-     * @param  Seats  $seats  The seat store, for whether the lane is parked or exempt.
+     * @param  Seats  $seats  The seat store, for whether the lane is parked or exempt, and its cap.
      * @param  DeveloperSettings  $settings  The hours store.
      */
     public function __construct(
@@ -72,17 +72,23 @@ final class PlacementRules
             }
         }
 
-        $holdsOther = Task::query()
+        $seat = $this->seats->of($lane);
+
+        // **Full, not merely busy (#409).** The lane holds as many OTHER tasks as its capacity --
+        // the task being placed is not counted, so re-placing work on the lane already holding it
+        // is not refused. At the default capacity of one this is exactly the rule it replaced,
+        // "the lane holds another task". Counted with the lane's session row already locked by
+        // `Tasks::transition()`, so two placements on one lane are serialized and cannot both see
+        // room for one more.
+        $holdsOthers = Task::query()
             ->where('claimed_by', $lane->getKey())
             ->whereKeyNot($task->getKey())
             ->whereIn('status', TaskStatus::values(TaskStatus::held()))
-            ->exists();
+            ->count();
 
-        if ($holdsOther) {
+        if ($holdsOthers >= Capacity::effective($lane, $seat)) {
             $broken[] = PlacementRule::LaneFree;
         }
-
-        $seat = $this->seats->of($lane);
 
         if ($seat?->isParked() === true) {
             $broken[] = PlacementRule::LaneNotParked;

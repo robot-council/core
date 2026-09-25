@@ -54,6 +54,9 @@ final class AgentSessions
      * @param  string|null  $workLocation  Which checkout of it, as a conventional label.
      * @param  string|null  $osFamily  The OS family the bridge runs on, as `PHP_OS_FAMILY` (#351).
      * @param  string|null  $arch  The architecture it runs on.
+     * @param  int  $capacity  How many tickets it declares it will hold at once (#409). Clamped to
+     *                         `Capacity::DEFAULT`..`Capacity::MAX` rather than refused, since it is an
+     *                         ordinal; its seat's cap applies on every read, not here.
      * @return IssuedCredential<AgentSession> The session and its plaintext token.
      */
     public function start(
@@ -61,14 +64,16 @@ final class AgentSessions
         ?string $repository = null,
         ?string $workLocation = null,
         ?string $osFamily = null,
-        ?string $arch = null
+        ?string $arch = null,
+        int $capacity = Capacity::DEFAULT
     ): IssuedCredential {
         // Bounded here as well as at the endpoint, because this is a public method a host may call
         // directly and the values reach other developers' agents through the enrollment event
         WorkIdentity::ensure($repository, $workLocation);
         Platform::ensure($osFamily, $arch);
+        $capacity = Capacity::clamp($capacity);
 
-        return DB::transaction(function () use ($installation, $repository, $workLocation, $osFamily, $arch): IssuedCredential {
+        return DB::transaction(function () use ($installation, $repository, $workLocation, $osFamily, $arch, $capacity): IssuedCredential {
             $current = $this->locked($installation);
 
             // **Every session starts as `build`, and that is the decision rather than a default
@@ -96,6 +101,10 @@ final class AgentSessions
                 'work_location' => $workLocation,
                 'os_family' => $osFamily,
                 'arch' => $arch,
+
+                // What it declared, not what is in effect: the seat's cap is read on every use, so
+                // a developer raising it reaches this session without a restart (`Capacity`)
+                'declared_capacity' => $capacity,
             ]);
 
             // In the same transaction as the session it describes, so a failure here leaves
@@ -117,6 +126,10 @@ final class AgentSessions
                     // `Support\Platform` for the same reason
                     'os_family' => $osFamily,
                     'arch' => $arch,
+
+                    // What it declared (#409), so a coordinator reading the feed knows a lane may
+                    // take more than one ticket. The number in effect is on `GET lanes`.
+                    'declared_capacity' => $capacity,
                 ]
             );
 

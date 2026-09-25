@@ -63,7 +63,7 @@ it('records the branch the holder reports on a started task, and a second report
     $this->machine($this->token)
         ->postJson(route('robot-council.tasks.branch', ['task' => $taskId]), ['branch' => 'feature/lane-board'])
         ->assertOk()
-        ->assertExactJson(['task_id' => $taskId, 'branch' => 'feature/lane-board', 'applied' => true]);
+        ->assertExactJson(['task_id' => $taskId, 'branch' => 'feature/lane-board', 'sub_label' => null, 'applied' => true]);
 
     expect(recordedBranch($taskId))->toBe('feature/lane-board');
 

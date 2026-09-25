@@ -5,7 +5,7 @@
     expression. A ticket reference is linked only when it is repository-qualified; the URL comes from
     `Support\TicketLink`, and a bare `#N` renders as text, since linking it would invent a repository.
     Every agent-supplied string -- a machine label, a harness, a repository, a slot, a branch, a
-    title, a hold's party -- is rendered as escaped text and nothing else.
+    sub-label, a title, a hold's party -- is rendered as escaped text and nothing else.
 --}}
 
 <div wire:poll.{{ \RobotCouncil\Support\WireArgument::of($pollSeconds) }}s class="flex flex-col gap-6">
@@ -74,6 +74,9 @@
                                     <td>
                                         <div class="font-medium">{{ $lane['developer'] ?? 'unknown developer' }} &middot; {{ $lane['machine'] }}@if ($lane['slot'] !== null) / {{ $lane['slot'] }}@endif</div>
                                         <div class="text-meta opacity-90">{{ $lane['harness'] }}@if ($lane['is_gate']) &middot; gate @endif</div>
+                                        {{-- Occupancy against capacity (#409): the number `lane_free` refuses a
+                                             placement on once the two are equal --}}
+                                        <div class="text-meta opacity-90"><span data-occupancy>{{ $lane['holding'] }} / {{ $lane['capacity'] }}</span> {{ $lane['holding'] === 1 ? 'ticket' : 'tickets' }} held</div>
                                     </td>
                                     <td data-state="{{ $lane['state'] }}">{{ $lane['state'] }}</td>
                                     {{-- Its own column, separate from State, from the watcher's own heartbeat (#337) --}}
@@ -104,27 +107,34 @@
                                                 @endif
                                             </span>
                                         @elseif ($lane['state'] === 'Working' && is_array($lane['on_what']))
-                                            @php($work = $lane['on_what'])
-                                            <div>
-                                                @if (\RobotCouncil\Support\TicketLink::url($work['ticket']) !== null)
-                                                    <a href="{{ \RobotCouncil\Support\TicketLink::url($work['ticket']) }}" class="link" rel="noopener noreferrer">{{ $work['ticket'] }}</a>
-                                                @elseif ($work['ticket'] !== null)
-                                                    {{ $work['ticket'] }}
-                                                @else
-                                                    task #{{ $work['task_id'] }}, no ticket
-                                                @endif
-                                                @if ($work['hand_back'])
-                                                    <span class="badge badge-sm badge-warning" data-hand-back>hand-back</span>
-                                                @endif
-                                                @if ($work['also_holds'] > 0)
-                                                    <span class="badge badge-sm" data-also-holds>and {{ $work['also_holds'] }} more held</span>
-                                                @endif
-                                            </div>
-                                            <div class="text-meta opacity-90">
-                                                {{ $work['branch'] }}
-                                                &middot; {{ $work['taken_up'] ? 'taken up' : ($work['blocked'] ? 'taken up, blocked' : 'placed, not taken up') }}
-                                                &middot; {{ $work['provenance'] }}
-                                            </div>
+                                            {{-- Every held ticket, not the first with a count (#409). The sub-label is
+                                                 the lane's own word for which subagent works it, rendered as text --}}
+                                            <ul class="flex flex-col gap-2">
+                                                @foreach ($lane['on_what']['tasks'] as $work)
+                                                    <li wire:key="lane-{{ $lane['id'] }}-task-{{ $work['task_id'] }}" data-held-task>
+                                                        <div>
+                                                            @if (\RobotCouncil\Support\TicketLink::url($work['ticket']) !== null)
+                                                                <a href="{{ \RobotCouncil\Support\TicketLink::url($work['ticket']) }}" class="link" rel="noopener noreferrer">{{ $work['ticket'] }}</a>
+                                                            @elseif ($work['ticket'] !== null)
+                                                                {{ $work['ticket'] }}
+                                                            @else
+                                                                task #{{ $work['task_id'] }}, no ticket
+                                                            @endif
+                                                            @if ($work['hand_back'])
+                                                                <span class="badge badge-sm badge-warning" data-hand-back>hand-back</span>
+                                                            @endif
+                                                            @if ($work['sub_label'] !== null)
+                                                                <span class="text-meta">subagent <code data-sub-label>{{ $work['sub_label'] }}</code></span>
+                                                            @endif
+                                                        </div>
+                                                        <div class="text-meta opacity-90">
+                                                            {{ $work['branch'] }}
+                                                            &middot; {{ $work['taken_up'] ? 'taken up' : ($work['blocked'] ? 'taken up, blocked' : 'placed, not taken up') }}
+                                                            &middot; {{ $work['provenance'] }}
+                                                        </div>
+                                                    </li>
+                                                @endforeach
+                                            </ul>
                                         @elseif (is_array($lane['on_what']))
                                             <span data-on-what>
                                             @if (\RobotCouncil\Support\TicketLink::url($lane['on_what']['party']) !== null)

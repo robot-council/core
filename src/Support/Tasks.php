@@ -113,10 +113,13 @@ final class Tasks
      * @param  TaskStatus|null  $expect  For a reassignment, the one status the task must still be in
      *                                   -- `pending` for a coordinator placing unclaimed work that
      *                                   must not take it from a lane that claimed it meanwhile.
+     * @param  string|null  $subLabel  Which of the lane's subagents takes it up, for a start (#409).
+     *                                 Display only, within `SubLabel`.
      * @return Outcome What came of it.
      *
-     * @throws InvalidArgumentException When a reassignment names nobody or says nothing, a branch is
-     *                                  unusable, or `expect` is given where it cannot apply.
+     * @throws InvalidArgumentException When a reassignment names nobody or says nothing, a branch or
+     *                                  sub-label is unusable, or `expect` is given where it cannot
+     *                                  apply.
      * @throws PlacementRefused When a placement breaks an invariant no waiver covers (#320).
      */
     public function transition(
@@ -129,7 +132,8 @@ final class Tasks
         ?string $directive = null,
         bool $handBack = false,
         ?string $branch = null,
-        ?TaskStatus $expect = null
+        ?TaskStatus $expect = null,
+        ?string $subLabel = null
     ): Outcome {
         $holder = $transition->takesTheClaim()
             ? ($assignee ?? $actor)
@@ -162,7 +166,11 @@ final class Tasks
         $branch = $transition->takesABranch() ? $branch : null;
         BranchName::ensure($branch);
 
-        return DB::transaction(function () use ($taskId, $transition, $actor, $asCoordinator, $holder, $result, $directive, $handBack, $branch, $expect): Outcome {
+        // The same rule for the same reason: only a start says which subagent took the task up
+        $subLabel = $transition->takesABranch() ? $subLabel : null;
+        SubLabel::ensure($subLabel);
+
+        return DB::transaction(function () use ($taskId, $transition, $actor, $asCoordinator, $holder, $result, $directive, $handBack, $branch, $expect, $subLabel): Outcome {
             // The session row before the task row, which is the package's lock order. A claim or a
             // reassign writes `claimed_by`, and on InnoDB that takes a shared lock on the new
             // parent -- after the task row, inverting the order against the release step. Taking it
@@ -176,11 +184,22 @@ final class Tasks
             // #320: the invariants a placement must hold, assessed before the write -- whether a
             // placement is new depends on the status the task had -- and enforced after it, so a
             // placement that loses its race never spends a waiver it did not use
-            $broken = $transition === TaskTransition::Reassign && $holder instanceof AgentSession
-                ? $this->placementRefusals($taskId, $holder, $handBack)
+            //
+            // The task is read under its lock here, once, and the same read answers two questions of
+            // #409's: which label the previous holder gave it, for the event, and whether this is a
+            // re-placement onto the lane already holding it, which keeps that label
+            $before = $transition === TaskTransition::Reassign && $holder instanceof AgentSession
+                ? Task::query()->whereKey($taskId)->lockForUpdate()->first()
+                : null;
+
+            // A `$before` exists only where `$holder` does, which the analyzer follows
+            $broken = $before instanceof Task
+                ? $this->placementRefusals($before, $holder, $handBack)
                 : [];
 
-            $changed = $this->write($taskId, $transition, $actor, $asCoordinator, $holder, $result, $handBack, $branch, $expect);
+            $sameHolder = $before instanceof Task && $before->claimed_by === $holder->getKey();
+
+            $changed = $this->write($taskId, $transition, $actor, $asCoordinator, $holder, $result, $handBack, $branch, $expect, $subLabel, $sameHolder);
 
             if ($changed !== 1) {
                 return $this->diagnose($taskId, $transition, $actor, $asCoordinator, $holder, $expect);
@@ -198,6 +217,26 @@ final class Tasks
                 }
             }
 
+            // The sub-label the event carries (#409): the label the task had as this happened.
+            //
+            // - A reassignment reports the one it had before the write -- the previous holder's, read
+            //   under the lock above -- which the write cleared unless the holder is unchanged.
+            // - A claim starts only from `pending`, and every way to `pending` clears the label, so
+            //   there is none to report and nothing to read.
+            // - Anything else reads it AFTER the write, under the row lock the write took: a query
+            //   on the task ahead of the deciding write would be a read nothing needs. **A release
+            //   clears it here rather than in the write**, so the feed can still say whose ticket
+            //   went back: read, then removed, inside the same transaction.
+            $label = match (true) {
+                $transition === TaskTransition::Reassign => $before?->sub_label,
+                $transition->takesTheClaim() => null,
+                default => Task::query()->whereKey($taskId)->value('sub_label'),
+            };
+
+            if ($transition->to() === TaskStatus::Pending && $label !== null) {
+                Task::query()->whereKey($taskId)->update(['sub_label' => null]);
+            }
+
             // A lane given work is no longer idle on purpose, so its hold goes in the same
             // transaction (#334). After the task row and before the feed sentinel, which is the
             // package's lock order; the session row is already held from `stillWorkable()`.
@@ -213,6 +252,9 @@ final class Tasks
                     'task_id' => $taskId,
                     'to' => $transition->to()->value,
                     'assigned_to' => $holder?->getKey(),
+
+                    // Charset-limited by `SubLabel`, since this reaches every session in the fleet
+                    'sub_label' => \is_string($label) ? $label : null,
                 ], static fn (mixed $value): bool => $value !== null),
                 $asCoordinator
             );
@@ -292,8 +334,10 @@ final class Tasks
         return DB::transaction(function () use ($taskId, $completed, $why, $still): bool {
             $to = $completed ? TaskStatus::Done : TaskStatus::Pending;
 
-            // Who held it, for the event, read under the lock the update takes anyway
-            $claimant = Task::query()->whereKey($taskId)->lockForUpdate()->value('claimed_by');
+            // Who held it, and the label its holder gave it, for the event -- read under the lock
+            // the update takes anyway
+            $held = Task::query()->whereKey($taskId)->lockForUpdate()->first(['claimed_by', 'sub_label']);
+            $claimant = $held?->claimed_by;
 
             $changed = Task::query()
                 ->whereKey($taskId)
@@ -308,6 +352,7 @@ final class Tasks
                         'placed_by' => null,
                         'hand_back' => false,
                         'branch' => null,
+                        'sub_label' => null,
                         'updated_at' => Carbon::now(),
                     ]);
 
@@ -319,7 +364,13 @@ final class Tasks
                 $completed ? FleetEventType::TaskCompleted : FleetEventType::TaskReleased,
                 null,
                 sprintf('Task #%d %s: %s.', $taskId, $completed ? 'completed' : 'released', $why),
-                ['task_id' => $taskId, 'to' => $to->value, 'source' => 'github', 'released_from' => $claimant]
+                [
+                    'task_id' => $taskId,
+                    'to' => $to->value,
+                    'source' => 'github',
+                    'released_from' => $claimant,
+                    ...self::labelled($held?->sub_label),
+                ]
             );
 
             return true;
@@ -327,7 +378,8 @@ final class Tasks
     }
 
     /**
-     * Record the branch the lane holding a task is working on, after it has started.
+     * Record the branch the lane holding a task is working on, after it has started, and which of
+     * its subagents is working it.
      *
      * **After the start rather than at it, which is `robot-council/cli#238`'s decision.** At
      * `start` a lane has usually not made its branch yet, so what its checkout says then is `main`
@@ -340,17 +392,31 @@ final class Tasks
      * fleet event: a branch is read off the row by whoever renders it, and every report would
      * otherwise be a line in every session's feed.
      *
+     * **The sub-label rides the same report (#409)**, since it is the same kind of fact -- where the
+     * work on this ticket is happening -- known at the same moment, and written by the same holder.
+     * Either may be sent alone; one that is not sent is left as it was. It reaches the feed on the
+     * task's next `task.*` event rather than through an event of its own, for the reason above.
+     *
      * @param  int  $taskId  The task.
      * @param  AgentSession  $holder  The session reporting, which must hold it.
-     * @param  string  $branch  The branch, within `BranchName`.
+     * @param  string|null  $branch  The branch, within `BranchName`, or null to leave it.
+     * @param  string|null  $subLabel  The sub-label, within `SubLabel`, or null to leave it.
      * @return Outcome Applied; NotFound; Conflict for a task not in progress or blocked; Forbidden
      *                 for a session that does not hold it.
      *
-     * @throws InvalidArgumentException When the branch is outside `BranchName`.
+     * @throws InvalidArgumentException When either is outside its bound, or neither is given.
      */
-    public function reportBranch(int $taskId, AgentSession $holder, string $branch): Outcome
+    public function reportBranch(int $taskId, AgentSession $holder, ?string $branch, ?string $subLabel = null): Outcome
     {
         BranchName::ensure($branch);
+        SubLabel::ensure($subLabel);
+
+        // Only what was sent, so reporting a sub-label does not forget the branch, or the reverse
+        $values = array_filter(['branch' => $branch, 'sub_label' => $subLabel], static fn (?string $value): bool => $value !== null);
+
+        if ($values === []) {
+            throw new InvalidArgumentException('A report names a branch, a sub-label, or both.');
+        }
 
         $reportable = [TaskStatus::InProgress->value, TaskStatus::Blocked->value];
 
@@ -358,7 +424,7 @@ final class Tasks
             ->whereKey($taskId)
             ->where('claimed_by', $holder->getKey())
             ->whereIn('status', $reportable)
-            ->update(['branch' => $branch]);
+            ->update($values);
 
         if ($changed === 1) {
             return Outcome::Applied;
@@ -373,7 +439,7 @@ final class Tasks
             // Everything the write tested holds. MySQL reports rows CHANGED, so a report of the
             // branch already recorded, in the second `updated_at` already holds, reads as 0 there
             // and 1 elsewhere; the row says what was asked, so it is applied either way.
-            $task->branch === $branch => Outcome::Applied,
+            ($branch === null || $task->branch === $branch) && ($subLabel === null || $task->sub_label === $subLabel) => Outcome::Applied,
             default => Outcome::Conflict,
         };
     }
@@ -481,6 +547,7 @@ final class Tasks
                     'placed_by' => null,
                     'hand_back' => false,
                     'branch' => null,
+                    'sub_label' => null,
                     'updated_at' => Carbon::now(),
                 ]);
 
@@ -494,11 +561,27 @@ final class Tasks
                 FleetEventType::TaskReleased,
                 null,
                 sprintf('Task #%d released: its session ended.', $task->id),
-                ['task_id' => $task->id, 'to' => TaskStatus::Pending->value, 'released_from' => $claimant]
+                [
+                    'task_id' => $task->id,
+                    'to' => TaskStatus::Pending->value,
+                    'released_from' => $claimant,
+                    ...self::labelled($task->sub_label),
+                ]
             );
 
             return true;
         });
+    }
+
+    /**
+     * A held task's sub-label as event `meta`, or nothing where it has none (#409).
+     *
+     * @param  string|null  $label  The label the holder gave it.
+     * @return array<string, string> `['sub_label' => ...]`, or empty.
+     */
+    private static function labelled(?string $label): array
+    {
+        return $label === null ? [] : ['sub_label' => $label];
     }
 
     /**
@@ -515,21 +598,20 @@ final class Tasks
     }
 
     /**
-     * The invariants a placement on this lane would break, read under the task's lock.
+     * The invariants a placement on this lane would break.
      *
-     * An empty list for a task that is missing or not in a status a reassignment starts from:
-     * the write then changes nothing, and the diagnosis says why, which is the more useful answer.
+     * An empty list for a task not in a status a reassignment starts from -- and the caller passes
+     * none for a missing one: the write then changes nothing, and the diagnosis says why, which is
+     * the more useful answer.
      *
-     * @param  int  $taskId  The task.
+     * @param  Task  $task  The task, read by the caller under its lock.
      * @param  AgentSession  $lane  The session it would be placed on.
      * @param  bool  $handBack  Whether it returns a gate's pull request.
      * @return list<PlacementRule> The rules it breaks.
      */
-    private function placementRefusals(int $taskId, AgentSession $lane, bool $handBack): array
+    private function placementRefusals(Task $task, AgentSession $lane, bool $handBack): array
     {
-        $task = Task::query()->whereKey($taskId)->lockForUpdate()->first();
-
-        if (! $task instanceof Task || ! \in_array($task->status, TaskTransition::Reassign->startsFrom(), true)) {
+        if (! \in_array($task->status, TaskTransition::Reassign->startsFrom(), true)) {
             return [];
         }
 
@@ -548,6 +630,9 @@ final class Tasks
      * @param  bool  $handBack  Whether a reassignment returns a gate's pull request.
      * @param  string|null  $branch  The branch a start reports, already bounded.
      * @param  TaskStatus|null  $expect  The one status a reassignment insists on, already checked.
+     * @param  string|null  $subLabel  The sub-label a start reports, already bounded.
+     * @param  bool  $sameHolder  Whether a reassignment re-places the task on the lane already
+     *                            holding it, which keeps the label that lane gave it.
      * @return int How many rows changed, which is one or none.
      */
     private function write(
@@ -559,7 +644,9 @@ final class Tasks
         ?array $result,
         bool $handBack,
         ?string $branch,
-        ?TaskStatus $expect = null
+        ?TaskStatus $expect = null,
+        ?string $subLabel = null,
+        bool $sameHolder = false
     ): int {
         // `expect` narrows the statuses the write starts from to the one the caller read, in the
         // write's own `where`, so the database decides the race rather than a read before it
@@ -605,12 +692,23 @@ final class Tasks
                 : Placement::Lane->value;
             $values['hand_back'] = $transition === TaskTransition::Reassign && $handBack;
             $values['branch'] = null;
+
+            // The label is the holder's word for which of its subagents works the task, so it goes
+            // only when the holder does. `sameHolder` was read under this row's lock.
+            if (! $sameHolder) {
+                $values['sub_label'] = null;
+            }
         }
 
         if ($branch !== null) {
             // Only a start reaches here with one. Absent, the column is left alone, so resuming a
             // blocked task without naming the branch again does not forget the one it was on.
             $values['branch'] = $branch;
+        }
+
+        if ($subLabel !== null) {
+            // The same rule as the branch, for the same reason
+            $values['sub_label'] = $subLabel;
         }
 
         if ($transition->takesAResult() && $result !== null) {
@@ -630,6 +728,8 @@ final class Tasks
             $values['placed_by'] = null;
             $values['hand_back'] = false;
             $values['branch'] = null;
+
+            // `sub_label` is cleared by `transition()` after it has read it for the event
         }
 
         return $query->update($values);

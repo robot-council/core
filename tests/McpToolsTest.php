@@ -822,9 +822,73 @@ it('records the branch of a started task through task_branch', function (): void
 
     $result = toolResult(callTool($this, $this->token, 'task_branch', ['task_id' => $taskId, 'branch' => 'feature/lane-board']));
 
-    expect($result)->toBe(['task_id' => $taskId, 'branch' => 'feature/lane-board', 'applied' => true])
+    expect($result)->toBe(['task_id' => $taskId, 'branch' => 'feature/lane-board', 'sub_label' => null, 'applied' => true])
         ->and(Task::query()->findOrFail($taskId)->branch)->toBe('feature/lane-board');
 });
+
+it('records only a sub-label through task_branch, leaving the branch alone', function (): void {
+    $taskId = $this->createClaimedTask();
+    callTool($this, $this->token, 'task_start', ['task_id' => $taskId, 'branch' => 'feature/kept']);
+
+    $result = toolResult(callTool($this, $this->token, 'task_branch', ['task_id' => $taskId, 'sub_label' => 'subagent-2']));
+    $row = Task::query()->findOrFail($taskId);
+
+    expect($result)->toBe(['task_id' => $taskId, 'branch' => null, 'sub_label' => 'subagent-2', 'applied' => true])
+        ->and([$row->branch, $row->sub_label])->toBe(['feature/kept', 'subagent-2']);
+});
+
+it('records a sub-label through task_start, and carries it on task.started', function (): void {
+    $taskId = $this->createClaimedTask();
+
+    toolResult(callTool($this, $this->token, 'task_start', ['task_id' => $taskId, 'sub_label' => 'subagent-1']));
+
+    $started = FleetEvent::query()->where('type', FleetEventType::TaskStarted->value)->latest('id')->firstOrFail();
+
+    expect(Task::query()->findOrFail($taskId)->sub_label)->toBe('subagent-1')
+        ->and(arrayValue($started->meta)['sub_label'] ?? null)->toBe('subagent-1');
+});
+
+it('refuses a sub_label on every transition tool but task_start', function (string $tool): void {
+    $taskId = $this->createClaimedTask();
+
+    $body = callTool($this, $this->token, $tool, ['task_id' => $taskId, 'sub_label' => 'subagent-1']);
+
+    // Refused by validation, naming the argument, and nothing written
+    expect(json_encode($body, JSON_THROW_ON_ERROR))->toContain('sub label')
+        ->and(Task::query()->findOrFail($taskId)->sub_label)->toBeNull()
+        ->and(Task::query()->findOrFail($taskId)->status)->toBe(TaskStatus::Claimed);
+})->with(['task_block', 'task_complete', 'task_fail', 'task_release']);
+
+it('refuses a sub_label outside its bound through both tools, and writes nothing', function (string $label): void {
+    $taskId = $this->createClaimedTask();
+
+    $start = callTool($this, $this->token, 'task_start', ['task_id' => $taskId, 'sub_label' => $label]);
+
+    expect(json_encode($start, JSON_THROW_ON_ERROR))->toContain('sub label')
+        ->and(Task::query()->findOrFail($taskId)->status)->toBe(TaskStatus::Claimed);
+
+    callTool($this, $this->token, 'task_start', ['task_id' => $taskId]);
+
+    expect(json_encode(callTool($this, $this->token, 'task_branch', ['task_id' => $taskId, 'sub_label' => $label]), JSON_THROW_ON_ERROR))->toContain('sub label')
+        ->and(Task::query()->findOrFail($taskId)->sub_label)->toBeNull();
+})->with([
+    'past the column, written out' => [str_repeat('a', 65)],
+    'a leading dot' => ['.git'],
+    'a slash' => ['wt/one'],
+]);
+
+it('refuses a task_branch call naming neither a branch nor a sub-label, blank or absent', function (array $arguments): void {
+    $taskId = $this->createClaimedTask();
+    callTool($this, $this->token, 'task_start', ['task_id' => $taskId]);
+
+    // A validation refusal naming `branch`, so the tool never reaches the store with neither
+    expect(json_encode(callTool($this, $this->token, 'task_branch', ['task_id' => $taskId, ...$arguments]), JSON_THROW_ON_ERROR))
+        ->toContain('branch field is required');
+})->with([
+    'absent' => [[]],
+    'blank' => [['branch' => '', 'sub_label' => '']],
+    'whitespace' => [['branch' => '   ', 'sub_label' => '   ']],
+]);
 
 it('refuses task_branch on a task not yet started, as an error the agent can act on', function (): void {
     $taskId = $this->createClaimedTask();

@@ -10,7 +10,8 @@ use RobotCouncil\Models\Installation;
 use RobotCouncil\Models\Seat;
 
 /**
- * Parking a developer's seats, and exempting them from assignment hours.
+ * Parking a developer's seats, exempting them from assignment hours, and capping how many tickets a
+ * session in one may hold.
  *
  * **Each write is one conditional update, and its `where` is the rule.** Parking names the seat's
  * owner, so a developer can park only their own; lifting names the developer who parked it, so
@@ -69,6 +70,7 @@ final class Seats
                 'repository' => $session->repository,
                 'work_location' => $session->work_location ?? '',
                 'hours_exempt' => false,
+                'max_capacity' => Capacity::DEFAULT,
                 'created_at' => $now,
                 'updated_at' => $now,
             ])->all());
@@ -241,6 +243,39 @@ final class Seats
             ->where('user_id', $developer)
             ->where('hours_exempt', ! $exempt)
             ->update(['hours_exempt' => $exempt, 'updated_at' => PresenceClock::now()]);
+
+        return $changed === 1 ? Outcome::Applied : $this->diagnose($seatId, static fn (Seat $seat): Outcome => match (true) {
+            $seat->user_id !== $developer => Outcome::Forbidden,
+            default => Outcome::Applied,
+        });
+    }
+
+    /**
+     * Set how many tickets a session sitting in this seat may hold at once (#409).
+     *
+     * **The cap on what a session declares, never a number a session writes**: #386 decided the
+     * session declares and its developer caps. Clamped to `Capacity::DEFAULT`..`Capacity::MAX`
+     * rather than refused, as an ordinal is; the page refuses an out-of-range entry before it gets
+     * here, so a developer who typed 50 is told rather than silently given 16.
+     *
+     * A repeat is Applied, as `exempt()`'s is, and for the same MySQL reason the update names the
+     * value it must differ from.
+     *
+     * @param  string  $developer  The developer asking, as a host user key.
+     * @param  int  $seatId  The seat.
+     * @param  int  $capacity  The most tickets a session in it may hold.
+     * @return Outcome Applied, NotFound, or Forbidden for another developer's seat.
+     */
+    public function cap(string $developer, int $seatId, int $capacity): Outcome
+    {
+        $developer = HostKey::from($developer);
+        $capacity = Capacity::clamp($capacity);
+
+        $changed = Seat::query()
+            ->whereKey($seatId)
+            ->where('user_id', $developer)
+            ->where('max_capacity', '!=', $capacity)
+            ->update(['max_capacity' => $capacity, 'updated_at' => PresenceClock::now()]);
 
         return $changed === 1 ? Outcome::Applied : $this->diagnose($seatId, static fn (Seat $seat): Outcome => match (true) {
             $seat->user_id !== $developer => Outcome::Forbidden,

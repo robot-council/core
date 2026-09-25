@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Access\Tokens;
 use RobotCouncil\Http\Principal;
+use RobotCouncil\Support\Capacity;
 use RobotCouncil\Support\FeedCursors;
 use RobotCouncil\Support\FleetAbilities;
 
@@ -29,9 +30,10 @@ final class AgentSessionController
      * @param  Request  $request  The incoming request.
      * @param  FeedCursors  $cursors  Where each session has read to.
      * @param  FleetAbilities  $fleet  What this fleet can do, as opposed to this session.
+     * @param  Capacity  $capacity  What the session may be given, against its seat's cap.
      * @return JsonResponse The session, without anything secret in it.
      */
-    public function __invoke(Request $request, FeedCursors $cursors, FleetAbilities $fleet): JsonResponse
+    public function __invoke(Request $request, FeedCursors $cursors, FleetAbilities $fleet, Capacity $capacity): JsonResponse
     {
         $session = Principal::agentSession($request);
 
@@ -57,6 +59,12 @@ final class AgentSessionController
             // is translated by `SessionStartController`, and reads the result here.
             'repository' => $session->repository,
             'work_location' => $session->work_location,
+
+            // How many tasks a coordinator may place on it NOW (#409): the smaller of what it
+            // declared and its seat's cap, read fresh, so a developer changing the cap is visible
+            // here without a restart. `declared_capacity` is what it asked for at join.
+            'capacity' => $capacity->of($session),
+            'declared_capacity' => $session->declared_capacity,
 
             // Read from the row rather than from this instance, which the guard hydrated before
             // the request ran. A process that has lost its position asks here and resumes,

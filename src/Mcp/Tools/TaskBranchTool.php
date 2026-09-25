@@ -15,10 +15,11 @@ use RobotCouncil\Mcp\ActsAsAgent;
 use RobotCouncil\Mcp\Arguments;
 use RobotCouncil\Support\BranchName;
 use RobotCouncil\Support\Outcome;
+use RobotCouncil\Support\SubLabel;
 use RobotCouncil\Support\Tasks;
 
 /**
- * Report the branch a task is being worked on, as a tool.
+ * Report the branch a task is being worked on, and which subagent is working it, as a tool.
  *
  * The same store call as `Http\Controllers\ReportTaskBranchController`; `Support\Tasks::reportBranch()`
  * records why a branch is reported after the start rather than read at it.
@@ -47,7 +48,11 @@ final class TaskBranchTool extends Tool
         return 'Record the git branch you are working on for a task you hold, once you have created it. '
             .'Call it after creating or switching to the branch, not before -- at `task_start` the branch '
             .'usually does not exist yet. Works while the task is in progress or blocked; a second call '
-            .'replaces the first. Needs `tasks:claim`.';
+            .'replaces the first. If you hand tasks you hold to subagents, also pass `sub_label` -- for '
+            ."example the subagent's worktree -- so the lane board and the feed can tell your tasks apart; "
+            .'it is display only, and it is visible to every session in the fleet, so it must not name an '
+            .'issue, a branch or anything confidential -- use something like `subagent-2` or a worktree '
+            .'slot name. Send either or both. Needs `tasks:claim`.';
     }
 
     /**
@@ -62,8 +67,10 @@ final class TaskBranchTool extends Tool
             'task_id' => $schema->integer()->description('The task you hold.')->required(),
             'branch' => $schema->string()
                 ->max(BranchName::MAX)
-                ->description('The branch, as [A-Za-z0-9._/-].')
-                ->required(),
+                ->description('The branch, as [A-Za-z0-9._/-]. Required unless you send `sub_label`.'),
+            'sub_label' => $schema->string()
+                ->max(SubLabel::MAX)
+                ->description('Which of your subagents works this task, as [A-Za-z0-9._-] starting with a letter or digit. Display only. It is visible to every session in the fleet, so it must not name an issue, a branch or anything confidential -- use something like `subagent-2` or a worktree slot name.'),
         ];
     }
 
@@ -83,13 +90,24 @@ final class TaskBranchTool extends Tool
 
         $request->validate([
             'task_id' => ['required', 'integer', 'min:1'],
-            'branch' => ['required', 'string', 'max:'.BranchName::MAX, 'regex:'.BranchName::PATTERN],
+            'branch' => ['required_without:sub_label', 'nullable', 'string', 'max:'.BranchName::MAX, 'regex:'.BranchName::PATTERN],
+            'sub_label' => ['sometimes', 'nullable', 'string', 'max:'.SubLabel::MAX, 'regex:'.SubLabel::PATTERN],
         ]);
 
         $taskId = Arguments::integer($request->get('task_id'));
-        $branch = Arguments::string($request->get('branch'));
 
-        $outcome = $tasks->reportBranch($taskId, $this->session($http), $branch);
+        // `trim()` for the reason `TaskTransitionTool` gives: without the framework's `TrimStrings`
+        // a blank value would reach the store, which refuses it as an internal error
+        $branch = $request->get('branch');
+        $branch = \is_string($branch) && trim($branch) !== '' ? $branch : null;
+
+        $subLabel = $request->get('sub_label');
+        $subLabel = \is_string($subLabel) && trim($subLabel) !== '' ? $subLabel : null;
+
+        // No "neither" case to answer here: `required_without` counts a blank as absent and both
+        // `regex` rules refuse whitespace, so a call naming neither never passes validation
+
+        $outcome = $tasks->reportBranch($taskId, $this->session($http), $branch, $subLabel);
 
         if ($outcome !== Outcome::Applied) {
             return Response::error(match ($outcome) {
@@ -99,6 +117,6 @@ final class TaskBranchTool extends Tool
             });
         }
 
-        return Response::structured(['task_id' => $taskId, 'branch' => $branch, 'applied' => true]);
+        return Response::structured(['task_id' => $taskId, 'branch' => $branch, 'sub_label' => $subLabel, 'applied' => true]);
     }
 }

@@ -44,6 +44,7 @@ use RobotCouncil\Support\PresenceTimestamp;
  * @property string|null $work_location
  * @property string|null $os_family
  * @property string|null $arch
+ * @property int $declared_capacity
  * @property Role|null $requested_role
  * @property Carbon|null $requested_at
  * @property int $feed_cursor
@@ -61,6 +62,7 @@ use RobotCouncil\Support\PresenceTimestamp;
     'work_location',
     'os_family',
     'arch',
+    'declared_capacity',
     'requested_role',
     'requested_at',
 ])]
@@ -71,6 +73,17 @@ final class AgentSession extends Model implements AuthenticatableContract
 
     /** @use HasApiTokens<PersonalAccessToken> */
     use HasApiTokens;
+
+    /**
+     * What a model built in memory holds before it is saved (#409).
+     *
+     * The column defaults to one as well, but a host constructing a session itself would otherwise
+     * hold `null` until a reload, and `Support\Capacity` reads this as an integer. Public, since a
+     * subclass may widen a parent's visibility and the package keeps nothing protected.
+     *
+     * @var array<string, mixed>
+     */
+    public $attributes = ['declared_capacity' => 1];
 
     /**
      * The attribute casts.
@@ -85,6 +98,7 @@ final class AgentSession extends Model implements AuthenticatableContract
         return [
             'installation_id' => 'integer',
             'feed_cursor' => 'integer',
+            'declared_capacity' => 'integer',
             'status' => AgentSessionStatus::class,
             // Cast like `status`, and carrying the same exposure: Laravel resolves an enum cast
             // through `from()`, so a row holding a name the enum no longer has raises a

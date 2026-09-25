@@ -13,6 +13,7 @@ use Livewire\Component;
 use RobotCouncil\Access\CurrentDeveloper;
 use RobotCouncil\Models\PlacementRule;
 use RobotCouncil\Models\Seat;
+use RobotCouncil\Support\Capacity;
 use RobotCouncil\Support\DeveloperSettings;
 use RobotCouncil\Support\Outcome;
 use RobotCouncil\Support\PlacementWaivers;
@@ -22,7 +23,7 @@ use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
 
 /**
- * A developer's own seats, assignment hours and days off (#322).
+ * A developer's own seats, their capacity (#409), assignment hours and days off (#322).
  *
  * **The developer is read off the package's web guard on every entry point, and never from the
  * request.** Nothing a client sends names whose settings change: an action carries a seat id or a
@@ -63,6 +64,31 @@ final class SeatSettings extends Component
      * A day off being added, `YYYY-MM-DD`.
      */
     public string $holiday = '';
+
+    /**
+     * Each seat's capacity as the form holds it, by seat id (#409).
+     *
+     * Client-writable, like every other field here, so `setCapacity()` reads it as untrusted and the
+     * store refuses a seat that is not this developer's.
+     *
+     * @var array<int|string, mixed>
+     */
+    public array $capacities = [];
+
+    /**
+     * The seat whose ticket limit the last save was about, or null.
+     *
+     * Locked, like `notice`: the page shows its confirmation or its error next to that seat's field,
+     * and only the server says which seat that is.
+     */
+    #[Locked]
+    public ?int $capacitySeat = null;
+
+    /**
+     * Why the last ticket-limit save was refused, in words, or null when it was saved.
+     */
+    #[Locked]
+    public ?string $capacityError = null;
 
     /**
      * What the last action did not do, in words, or null when it did what was asked.
@@ -178,6 +204,39 @@ final class SeatSettings extends Component
     }
 
     /**
+     * Cap how many tickets a session in this seat may hold at once, from what the form holds (#409).
+     *
+     * **Refused here when out of range, though the store clamps.** A developer who typed 50 should
+     * be told the bound rather than find 16 stored, and a blank or a fraction is not a number of
+     * tickets at all.
+     *
+     * @param  int  $seatId  The seat.
+     */
+    public function setCapacity(int $seatId): void
+    {
+        $developer = $this->developer();
+        $typed = $this->capacities[$seatId] ?? null;
+        $capacity = \is_int($typed) ? $typed : (\is_string($typed) && preg_match('/^[0-9]{1,3}$/D', trim($typed)) === 1 ? (int) trim($typed) : null);
+
+        // Reported beside the field it is about, not in the page's alert, so a reader of that seat
+        // hears the answer where they are (`.claude/rules/accessibility.md`)
+        $this->notice = null;
+        $this->capacitySeat = $seatId;
+
+        if ($capacity === null || $capacity < Capacity::DEFAULT || $capacity > Capacity::MAX) {
+            $this->capacityError = sprintf('Enter a whole number from %d to %d.', Capacity::DEFAULT, Capacity::MAX);
+
+            return;
+        }
+
+        $this->capacityError = match ($this->service(Seats::class)->cap($developer, $seatId, $capacity)) {
+            Outcome::Applied => null,
+            Outcome::NotFound => 'That seat no longer exists.',
+            Outcome::Conflict, Outcome::Forbidden => "Only a seat's own developer can change how many tickets it takes at once.",
+        };
+    }
+
+    /**
      * Waive one placement refusal for the next placement on a seat (#320).
      *
      * The rule arrives as a string from rendered markup, so it goes through the enum rather than
@@ -222,6 +281,12 @@ final class SeatSettings extends Component
 
         $mine = $seats->forDeveloper($developer);
         $waivers = $this->service(PlacementWaivers::class);
+
+        // Each seat's field starts at what is stored, and a seat that appeared since the last render
+        // gets one; a value the developer is part-way through typing is left alone
+        foreach ($mine as $seat) {
+            $this->capacities[$seat->id] ??= $seat->max_capacity;
+        }
 
         return view($template, [
             'seats' => $mine,

@@ -177,7 +177,10 @@ enum TaskTransition: string
      * Only a start, which is a lane taking up a task: that is the moment it knows the branch, and
      * the board keeps take-up apart from placement for exactly that reason.
      *
-     * @return bool True when the request may carry a `branch`.
+     * **A start's optional `sub_label` rides the same rule (#409)**: it says which of a lane's
+     * subagents took the task up, which is known at the same moment and nowhere earlier.
+     *
+     * @return bool True when the request may carry a `branch` and a `sub_label`.
      */
     public function takesABranch(): bool
     {
