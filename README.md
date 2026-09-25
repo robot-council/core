@@ -153,8 +153,10 @@ protocol below is documented for anyone writing their own client.
    given an installation credential. That credential can do one thing: start and renew sessions.
 4. Each agent process calls `POST {prefix}/api/sessions` for a short-lived session token, and
    `POST {prefix}/api/sessions/{id}/renew` to replace it without a restart and without a human.
-   `DELETE {prefix}/api/sessions/{id}` ends one when its harness exits, so what it held is released
-   at once rather than after the presence threshold. All three take the installation credential,
+   `DELETE {prefix}/api/sessions/{id}` ends one when its harness exits: its tokens stop working at
+   once, and what it held is released by the next presence sweep, within about a minute, rather than
+   after the thirty-minute gone threshold. While `schedule.sweep_sessions` is off, nothing releases
+   it. All three take the installation credential,
    because the token belonging to the process that just died is the one thing that may no longer
    work. Ending is idempotent. A start may carry `platform`, with `os_family` (one of PHP's
    `PHP_OS_FAMILY` values) and an optional `arch`, as the bridge reports them; an older bridge
@@ -786,6 +788,10 @@ delivered again: that is deliberate, because a page that was sent and lost shoul
 than vanish. It also means a reader that never sends `after` keeps receiving the same events. The
 stored position only ever moves forward, and a cursor past the end of the feed is ignored rather
 than stored.
+
+**`limit` caps the events a read returns, up to 200; how far one read looks is fixed at 1,000 event
+ids.** So a page shorter than `limit`, or empty, does not mean the reader is caught up: compare the
+`cursor`, which always moves, rather than the count (#365).
 
 **A reader following the feed for an agent passes `acknowledge=false`** (#354). The stored position is
 what the agent's own read resumes from when it names no `after`, so a bridge that polls on the
