@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Route;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Http\Controllers\AgentHeartbeatController;
 use RobotCouncil\Http\Controllers\AgentSessionController;
+use RobotCouncil\Http\Controllers\BacklogReadingController;
 use RobotCouncil\Http\Controllers\CreateTaskController;
 use RobotCouncil\Http\Controllers\DeveloperSettingsController;
 use RobotCouncil\Http\Controllers\DeviceCodeController;
@@ -109,6 +110,11 @@ Route::middleware(['throttle:'.RobotCouncilServiceProvider::AGENT_LIMITER, Ensur
             ->name('events.store');
 
         // The one ability enrollment can never ask for, granted only by an admin afterwards
+        // A session's count of a repository's open issues, for the backlog meters (#339)
+        Route::post('backlog/readings', BacklogReadingController::class)
+            ->middleware(RequireAbility::class.':'.Ability::EventsPost->value)
+            ->name('backlog.readings');
+
         Route::post('directives', PostDirectiveController::class)
             ->middleware(RequireAbility::class.':'.Ability::CoordinatorDirect->value)
             ->name('directives.store');

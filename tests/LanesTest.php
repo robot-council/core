@@ -24,6 +24,7 @@ use RobotCouncil\Models\HoldReason;
 use RobotCouncil\Models\Seat;
 use RobotCouncil\Models\TaskTransition;
 use RobotCouncil\Support\AgentSessions;
+use RobotCouncil\Support\Backlog;
 use RobotCouncil\Support\HostKey;
 use RobotCouncil\Support\LaneBoard;
 use RobotCouncil\Support\LaneHolds;
@@ -168,7 +169,7 @@ it('links a repository-qualified reference and never a bare number', function ()
 it('renders an unmeasured count as a dash, never a number', function (): void {
     boardLane($this, 'a');
 
-    expect($this->service(LaneBoard::class)->read()['meters'])->toBe(['robot-council/core' => ['count' => null, 'delta' => null]]);
+    expect($this->service(LaneBoard::class)->read()['meters'])->toBe(['robot-council/core' => ['count' => null, 'delta' => null, 'age_seconds' => null]]);
 
     $html = Livewire::actingAs($this->developer)->test(Lanes::class)->html();
 
@@ -322,4 +323,39 @@ it('summarizes the lanes on the overview, counted by the same reader', function 
 
     // The coordinator's own session is a lane too, idle
     expect($summary)->toBe(['1 working, 2 idle, 0 parked, 0 blocked, 0 not observed']);
+});
+
+it('renders a measured count with its direction against the baseline, in words', function (int $now, string $delta): void {
+    // A reading of 10 before 08:00 in the default zone, UTC, which becomes today's baseline
+    Carbon::setTestNow('2026-09-24 07:55:00');
+    $lane = boardLane($this, 'a');
+    $this->service(Backlog::class)->report($lane, 'robot-council/core', 10);
+
+    Carbon::setTestNow('2026-09-24 08:05:00');
+    $this->service(Backlog::class)->takeBaselines(Carbon::now());
+
+    Carbon::setTestNow('2026-09-24 09:00:00');
+    $this->service(Backlog::class)->report($lane, 'robot-council/core', $now);
+
+    $html = Livewire::actingAs($this->developer)->test(Lanes::class)->html();
+
+    expect($html)->toContain('data-meter="read"')
+        ->and($html)->not->toContain('data-meter="unreadable"')
+        ->and(markedText($html, 'data-meter-delta')[0] ?? '')->toMatch('/^'.preg_quote($delta, '/').'\b/');
+})->with([
+    'fewer open issues' => [7, 'down 3'],
+    'more' => [12, 'up 2'],
+    'the same' => [10, 'flat'],
+]);
+
+it('colours only the bad direction, with the colour the theme measures', function (): void {
+    Carbon::setTestNow('2026-09-24 07:55:00');
+    $lane = boardLane($this, 'a');
+    $backlog = $this->service(Backlog::class);
+    $backlog->report($lane, 'robot-council/core', 10);
+    Carbon::setTestNow('2026-09-24 08:05:00');
+    $backlog->takeBaselines(Carbon::now());
+    $backlog->report($lane, 'robot-council/core', 12);
+
+    expect(Livewire::actingAs($this->developer)->test(Lanes::class)->html())->toContain('<span class="font-semibold text-error">up 2</span>');
 });
