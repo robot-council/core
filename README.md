@@ -195,6 +195,12 @@ nothing on its own: the token in the client's hand is untouched until somebody d
 stops any checkout from taking `coordinator:direct` by asserting it. The same page imposes a role
 with no request outstanding, which is the emergency demotion.
 
+A session withdraws a request by asking for the role it already holds. The pending request leaves
+the administrator's queue and can no longer be approved, and the change feed records a
+`session.role_withdrawn` event, which is not a denial: nobody refused anything. The response's
+`pending` and `requested_role` always describe what is pending once the call returns, not the role
+that was asked for.
+
 There is deliberately no machine-level gate any more, and no console command for one. An
 administrator who does not want a machine coordinating declines its request, which is one action
 rather than two authorities that can disagree.

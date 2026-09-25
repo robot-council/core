@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RobotCouncil\Support;
 
 use Illuminate\Support\Facades\DB;
+use LogicException;
 use RobotCouncil\Access\Role;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
@@ -41,25 +42,47 @@ final class RoleRequests
     public function __construct(private readonly FleetEvents $events) {}
 
     /**
-     * Record that a session has asked to be a role.
+     * Record that a session has asked to be a role, or withdraw what it asked for.
      *
      * **It changes nothing the session may do.** The abilities on its token are untouched, and they
      * stay untouched until an administrator decides. Asking again replaces what was pending, which
      * is what a client retrying after a restart does anyway.
      *
+     * **Asking for the role it already holds withdraws whatever is pending** (the decision on
+     * `robot-council/core#369`). An earlier version answered it as nothing to do and left the other
+     * request in the administrator's queue, where it could still be approved -- promoting a session
+     * that had been told nothing was pending. Being promoted after changing its mind is the worse
+     * failure, so the request is cleared and the feed records a withdrawal, which is not a denial:
+     * nobody refused anything.
+     *
+     * **True always means `$role` is what the row now holds pending, and false that nothing is**,
+     * which is what lets a caller describe the row from the return alone.
+     *
      * @param  AgentSession  $session  The session asking.
      * @param  Role  $role  What it wants to be.
-     * @return bool True when a request is now pending, false when the session is not live or
-     *              already holds that role.
+     * @return bool True when `$role` is now pending, false when nothing is: the session already
+     *              holds that role, which withdraws anything pending, or it is not live.
+     *
+     * @throws LogicException When a withdrawal's write changed no row, which the lock makes
+     *                        unreachable on one connection; see `withdraw()`.
      */
     public function request(AgentSession $session, Role $role): bool
     {
         return DB::transaction(function () use ($session, $role): bool {
             $current = $this->locked($session);
 
+            // A session that has gone has nothing an administrator can decide, whatever its row
+            // still holds -- `settle()` and `deny()` both refuse it -- so nothing is pending for it.
+            if (! $current instanceof AgentSession || $current->hasGone()) {
+                return false;
+            }
+
             // Asking to be what it already is is not a request. Answering it as one would put a
-            // row in an administrator's queue whose approval changes nothing.
-            if (! $current instanceof AgentSession || $current->role === $role) {
+            // row in an administrator's queue whose approval changes nothing -- and it is how a
+            // session takes back a request it no longer wants.
+            if ($current->role === $role) {
+                $this->withdraw($current);
+
                 return false;
             }
 
@@ -227,6 +250,57 @@ final class RoleRequests
 
             return $this->settle($current, $role, $actor, 'imposed');
         });
+    }
+
+    /**
+     * Take back a live session's pending request, leaving its role as it is.
+     *
+     * **It throws rather than returning when the write changed nothing**, because no answer
+     * `request()` can give would be true then: false says nothing is pending while the request
+     * still is, and true says the role the session asked for -- its current one -- is pending.
+     * Throwing rolls the transaction back, so the caller is told the call failed rather than told
+     * something the row contradicts.
+     *
+     * @param  AgentSession  $session  The session, already locked and live.
+     *
+     * @throws LogicException When the write changed no row.
+     */
+    private function withdraw(AgentSession $session): void
+    {
+        $withdrawn = $session->requested_role;
+
+        // Check whether anything is pending at all. Nothing to take back writes nothing and
+        // records nothing, so asking for the current role stays free of feed noise.
+        if (! $withdrawn instanceof Role) {
+            return;
+        }
+
+        // No `requested_role` or `status` predicate: the row is locked and both were read above,
+        // which is the reasoning `approve()` gives for dropping two permanent mutation survivors.
+        $changed = AgentSession::query()
+            ->whereKey($session->getKey())
+            ->update(['requested_role' => null, 'requested_at' => null]);
+
+        // Unreachable on one connection: the row is held by `locked()` and was read live with a
+        // request pending, so the write always clears it. Kept because a second connection could
+        // on an engine that does not serialize writers, and no test can reach it.
+        // @pest-mutate-ignore
+        if ($changed !== 1) {
+            throw new LogicException(sprintf(
+                'Withdrawing the role request of session %d changed no row.',
+                $session->id
+            ));
+        }
+
+        // Record the withdrawal after the row, as its own type: a denial names an administrator
+        // who refused, and here nobody did -- the session changed its mind.
+        $this->record(
+            $session,
+            FleetEventType::SessionRoleWithdrawn,
+            sprintf('withdrew its request for %s and stays %s', $withdrawn->value, $session->role->value),
+            ['withdrawn' => $withdrawn->value, 'stays' => $session->role->value],
+            null
+        );
     }
 
     /**
