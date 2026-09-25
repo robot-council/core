@@ -41,26 +41,43 @@ final class RoleRequests
     public function __construct(private readonly FleetEvents $events) {}
 
     /**
-     * Record that a session has asked to be a role.
+     * Record that a session has asked to be a role, or withdraw what it asked for.
      *
      * **It changes nothing the session may do.** The abilities on its token are untouched, and they
      * stay untouched until an administrator decides. Asking again replaces what was pending, which
      * is what a client retrying after a restart does anyway.
      *
+     * **Asking for the role it already holds withdraws whatever is pending** (the decision on
+     * `robot-council/core#369`). An earlier version answered it as nothing to do and left the other
+     * request in the administrator's queue, where it could still be approved -- promoting a session
+     * that had been told nothing was pending. Being promoted after changing its mind is the worse
+     * failure, so the request is cleared and the feed records a withdrawal, which is not a denial:
+     * nobody refused anything.
+     *
+     * **The return describes the row once this returns, not the request that was made**, so a
+     * caller reporting it cannot tell a session that a request is gone while one still waits.
+     *
      * @param  AgentSession  $session  The session asking.
      * @param  Role  $role  What it wants to be.
-     * @return bool True when a request is now pending, false when the session is not live or
-     *              already holds that role.
+     * @return Role|null The role now pending for an administrator, or null when nothing is: the
+     *                   session holds the role it asked for, or it is not live.
      */
-    public function request(AgentSession $session, Role $role): bool
+    public function request(AgentSession $session, Role $role): ?Role
     {
-        return DB::transaction(function () use ($session, $role): bool {
+        return DB::transaction(function () use ($session, $role): ?Role {
             $current = $this->locked($session);
 
+            // A session that has gone has nothing an administrator can decide, whatever its row
+            // still holds -- `settle()` and `deny()` both refuse it -- so nothing is pending for it.
+            if (! $current instanceof AgentSession || $current->hasGone()) {
+                return null;
+            }
+
             // Asking to be what it already is is not a request. Answering it as one would put a
-            // row in an administrator's queue whose approval changes nothing.
-            if (! $current instanceof AgentSession || $current->role === $role) {
-                return false;
+            // row in an administrator's queue whose approval changes nothing -- and it is how a
+            // session takes back a request it no longer wants.
+            if ($current->role === $role) {
+                return $this->withdraw($current);
             }
 
             // **Already pending is not a new request, and saying so here is what keeps the three
@@ -71,7 +88,7 @@ final class RoleRequests
             // Without this the endpoint would answer `pending: false` on one engine while a request
             // WAS pending, which is the state the field exists to let a client tell apart.
             if ($current->requested_role === $role) {
-                return true;
+                return $role;
             }
 
             $changed = AgentSession::query()
@@ -83,7 +100,7 @@ final class RoleRequests
                 ]);
 
             if ($changed !== 1) {
-                return false;
+                return null;
             }
 
             // Recorded after the row, so the feed cannot describe a request that failed to write.
@@ -97,7 +114,7 @@ final class RoleRequests
                 null
             );
 
-            return true;
+            return $role;
         });
     }
 
@@ -227,6 +244,51 @@ final class RoleRequests
 
             return $this->settle($current, $role, $actor, 'imposed');
         });
+    }
+
+    /**
+     * Take back a live session's pending request, leaving its role as it is.
+     *
+     * @param  AgentSession  $session  The session, already locked and live.
+     * @return Role|null Null once nothing is pending, which is every path but the unreachable one.
+     */
+    private function withdraw(AgentSession $session): ?Role
+    {
+        $withdrawn = $session->requested_role;
+
+        // Check whether anything is pending at all. Nothing to take back writes nothing and
+        // records nothing, so asking for the current role stays free of feed noise.
+        if (! $withdrawn instanceof Role) {
+            return null;
+        }
+
+        // Clear the request only while the row still holds the one that was read, so the update
+        // cannot take back a different request than the one this decided about.
+        $changed = AgentSession::query()
+            ->whereKey($session->getKey())
+            ->where('requested_role', $withdrawn->value)
+            ->where('status', '!=', AgentSessionStatus::Gone->value)
+            ->update(['requested_role' => null, 'requested_at' => null]);
+
+        // Unreachable on one connection, as in `deny()`: the row is held by `locked()` and was read
+        // live with this request pending, so nothing can change either in between. A write that did
+        // not happen leaves the request where it was, and the return says so.
+        // @pest-mutate-ignore
+        if ($changed !== 1) {
+            return $withdrawn;
+        }
+
+        // Record the withdrawal after the row, as its own type: a denial names an administrator
+        // who refused, and here nobody did -- the session changed its mind.
+        $this->record(
+            $session,
+            FleetEventType::SessionRoleWithdrawn,
+            sprintf('withdrew its request for %s and stays %s', $withdrawn->value, $session->role->value),
+            ['withdrawn' => $withdrawn->value, 'stays' => $session->role->value],
+            null
+        );
+
+        return null;
     }
 
     /**
