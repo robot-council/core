@@ -178,7 +178,14 @@ final class Locks
                     // to right, so this has to read the old holder before the next line overwrites
                     // it. Postgres and SQLite evaluate every right-hand side against the pre-update
                     // row, so they agree either way.
-                    'previous_holder_id' => DB::raw('holder_id'),
+                    //
+                    // **Falling back to the recorded one when the lock is free (#367).** A force
+                    // release frees the row and records the session it displaced; without the
+                    // fallback, the next acquire overwrote that with the null `holder_id`, and the
+                    // displaced session's renew was told it had never held the lock. A voluntary
+                    // release clears the column, so a free row carries a previous holder only when
+                    // one was taken from.
+                    'previous_holder_id' => DB::raw('coalesce(holder_id, previous_holder_id)'),
                     'holder_id' => $session->getKey(),
 
                     // From the sequence rather than from this row, which is what lets the row be
@@ -297,7 +304,9 @@ final class Locks
                 ->where('name', $name)
                 ->where('holder_id', $session->getKey())
                 ->where('expires_at', '>', $now)
-                ->update(['holder_id' => null, 'expires_at' => null, 'updated_at' => $now]);
+                // `previous_holder_id` cleared: giving a lock up is not having it taken, and a
+                // stale value would be kept by the next acquire's fallback (#367)
+                ->update(['holder_id' => null, 'previous_holder_id' => null, 'expires_at' => null, 'updated_at' => $now]);
 
             if ($released !== 1) {
                 return $this->diagnose($name, $session, $now);
@@ -338,7 +347,10 @@ final class Locks
             $freed = Lock::query()
                 ->where('name', $name)
                 ->whereNotNull('holder_id')
-                ->update(['holder_id' => null, 'expires_at' => null, 'updated_at' => $now]);
+                // The displaced session is recorded, as a takeover records it, so its renew or
+                // release is told it lost the lock rather than that it never held it (#367). Before
+                // `holder_id` in the SET list, which MySQL evaluates left to right.
+                ->update(['previous_holder_id' => DB::raw('holder_id'), 'holder_id' => null, 'expires_at' => null, 'updated_at' => $now]);
 
             if ($freed !== 1) {
                 // Already free, which is what a second force release finds

@@ -2,6 +2,13 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.6.4 — Lost Locks, Named (2026-09-25)
+
+A session whose lock was force-released is now told it lost the lock rather than that it never held it.
+
+### What's fixed
+- Tell a force-released lock holder it lost the lock, not that it never held it [#374](https://github.com/robot-council/core/pull/374)
+
 ## v0.6.3 — An Agent's Own Cursor (2026-09-25)
 
 A bridge can now read the change feed for its agent without moving the agent's resume position; pair it with `robot-council/cli` v0.4.20, which does.
