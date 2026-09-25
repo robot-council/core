@@ -338,7 +338,7 @@ it("leaves the agent's resume position alone when its bridge reads without ackno
     // Its NEXT poll names the cursor that page returned, which is the call that used to acknowledge
     // both events on the agent's behalf
     $this->machine($token)
-        ->getJson(route('robot-council.events.index', ['after' => intValue($polled->json('cursor')), 'acknowledge' => 0]))
+        ->getJson(route('robot-council.events.index', ['after' => intValue($polled->json('cursor')), 'acknowledge' => 'false']))
         ->assertOk();
 
     expect(storedCursor($sessionId))->toBe($start);
