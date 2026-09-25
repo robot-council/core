@@ -15,6 +15,7 @@ use RobotCouncil\Mcp\Tools\CreateTaskTool;
 use RobotCouncil\Mcp\Tools\GateRunTool;
 use RobotCouncil\Mcp\Tools\HeartbeatTool;
 use RobotCouncil\Mcp\Tools\LaneHoldTool;
+use RobotCouncil\Mcp\Tools\ListSessionsTool;
 use RobotCouncil\Mcp\Tools\ListTasksTool;
 use RobotCouncil\Mcp\Tools\LockTool;
 use RobotCouncil\Mcp\Tools\OwedItemTool;
@@ -79,6 +80,7 @@ final class CouncilServer extends Server
 
         $this->tools = [
             new ListTasksTool,
+            new ListSessionsTool,
             new CreateTaskTool,
             ...array_map(
                 static fn (TaskTransition $transition): TaskTransitionTool => new TaskTransitionTool($transition),

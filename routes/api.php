@@ -28,6 +28,7 @@ use RobotCouncil\Http\Controllers\FleetFeedController;
 use RobotCouncil\Http\Controllers\GateRunController;
 use RobotCouncil\Http\Controllers\GitHubWebhookController;
 use RobotCouncil\Http\Controllers\LaneHoldController;
+use RobotCouncil\Http\Controllers\ListSessionsController;
 use RobotCouncil\Http\Controllers\ListTasksController;
 use RobotCouncil\Http\Controllers\LockController;
 use RobotCouncil\Http\Controllers\OwedItemController;
@@ -163,6 +164,11 @@ Route::middleware(['throttle:'.RobotCouncilServiceProvider::AGENT_LIMITER, Ensur
             ->where('session', RobotCouncilServiceProvider::ROUTE_ID)
             ->middleware(RequireAbility::class.':'.Ability::CoordinatorDirect->value)
             ->name('lanes.clear-hold');
+
+        // The sessions in the fleet right now (#325). Every agent: a session's existence and state
+        // already reach the whole fleet through presence events, and this reads them from the row
+        // rather than making each agent rebuild them from a pruned feed
+        Route::get('lanes', ListSessionsController::class)->name('lanes.index');
 
         // Every agent sees every task: an agent cannot decide whether to claim work it cannot see,
         // and a queue half the fleet is blind to is a queue that deadlocks. What narrows a task is

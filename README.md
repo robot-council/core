@@ -479,6 +479,15 @@ GitHub reports them, or with `DELETE {prefix}/api/owed-items/{id}` (or `owed_set
 developer has left the fleet stops rendering rather than moving to `General`. Both need
 `coordinator:direct`.
 
+## Who is here
+
+`GET {prefix}/api/lanes` (or `sessions_list`), needing no ability, lists every `active` and `stale`
+session, newest first, with its developer, machine, role, repository, work location, status, last
+contact, and the tasks it holds. It reads the session table rather than the change feed, so it is
+complete however far back the feed has been pruned. `repository` and `role` narrow it, and `after`
+takes the previous page's `cursor`, which is null on the last page. A held task's title and
+description appear only where the reader may act on that task, on the rule `task_list` applies.
+
 ## The shortlist
 
 `GET {prefix}/api/shortlist` (or `shortlist_read`), behind `coordinator:direct`, lists the tickets a
