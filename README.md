@@ -787,6 +787,10 @@ than vanish. It also means a reader that never sends `after` keeps receiving the
 stored position only ever moves forward, and a cursor past the end of the feed is ignored rather
 than stored.
 
+**`limit` caps the events a read returns, up to 200; how far one read looks is fixed at 1,000 event
+ids.** So a page shorter than `limit`, or empty, does not mean the reader is caught up: compare the
+`cursor`, which always moves, rather than the count (#365).
+
 **A reader following the feed for an agent passes `acknowledge=false`** (#354). The stored position is
 what the agent's own read resumes from when it names no `after`, so a bridge that polls on the
 agent's behalf and acknowledged as it went would move it past events the agent was never shown -- a
