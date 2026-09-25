@@ -153,8 +153,10 @@ protocol below is documented for anyone writing their own client.
    given an installation credential. That credential can do one thing: start and renew sessions.
 4. Each agent process calls `POST {prefix}/api/sessions` for a short-lived session token, and
    `POST {prefix}/api/sessions/{id}/renew` to replace it without a restart and without a human.
-   `DELETE {prefix}/api/sessions/{id}` ends one when its harness exits, so what it held is released
-   at once rather than after the presence threshold. All three take the installation credential,
+   `DELETE {prefix}/api/sessions/{id}` ends one when its harness exits: its tokens stop working at
+   once, and what it held is released by the next presence sweep, within about a minute, rather than
+   after the thirty-minute gone threshold. While `schedule.sweep_sessions` is off, nothing releases
+   it. All three take the installation credential,
    because the token belonging to the process that just died is the one thing that may no longer
    work. Ending is idempotent. A start may carry `platform`, with `os_family` (one of PHP's
    `PHP_OS_FAMILY` values) and an optional `arch`, as the bridge reports them; an older bridge

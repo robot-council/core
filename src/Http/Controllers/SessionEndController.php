@@ -15,8 +15,10 @@ use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
- * Ends one of an installation's sessions, so what the process held is released at the moment its
- * harness exits rather than after the gone threshold has passed.
+ * Ends one of an installation's sessions when its harness exits. The session's tokens are deleted at
+ * once; what the process held is released by the next presence sweep's release steps, within about a
+ * minute, rather than after the gone threshold has passed (#368). Nothing here releases it directly,
+ * and while the sweep is switched off nothing releases it at all.
  *
  * Reached with the installation credential rather than the session's own token, because the session
  * whose token it is may be the thing that has just died. The bridge holds the installation
