@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RobotCouncil\Support;
 
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use RobotCouncil\Models\PlacementRule;
 use RobotCouncil\Models\PlacementWaiver;
 use RobotCouncil\Models\Seat;
@@ -33,28 +34,34 @@ final class PlacementWaivers
     public function grant(string $developer, int $seatId, PlacementRule $rule): Outcome
     {
         $developer = HostKey::from($developer);
-        $seat = Seat::query()->find($seatId);
 
-        if (! $seat instanceof Seat) {
-            return Outcome::NotFound;
-        }
+        // The seat row locked around the check and the insert, so two grants at once -- two open
+        // tabs -- cannot both find nothing outstanding and both insert: a second waiver would let a
+        // second placement through on what the developer meant as one
+        return DB::transaction(function () use ($developer, $seatId, $rule): Outcome {
+            $seat = Seat::query()->whereKey($seatId)->lockForUpdate()->first();
 
-        if ($seat->user_id !== $developer) {
-            return Outcome::Forbidden;
-        }
+            if (! $seat instanceof Seat) {
+                return Outcome::NotFound;
+            }
 
-        if ($this->outstanding($seatId, $rule) instanceof PlacementWaiver) {
+            if ($seat->user_id !== $developer) {
+                return Outcome::Forbidden;
+            }
+
+            if ($this->outstanding($seatId, $rule) instanceof PlacementWaiver) {
+                return Outcome::Applied;
+            }
+
+            PlacementWaiver::query()->insert([
+                'seat_id' => $seatId,
+                'rule' => $rule->value,
+                'granted_by' => $developer,
+                'granted_at' => Carbon::now(),
+            ]);
+
             return Outcome::Applied;
-        }
-
-        PlacementWaiver::query()->insert([
-            'seat_id' => $seatId,
-            'rule' => $rule->value,
-            'granted_by' => $developer,
-            'granted_at' => Carbon::now(),
-        ]);
-
-        return Outcome::Applied;
+        });
     }
 
     /**

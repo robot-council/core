@@ -210,7 +210,7 @@ final class TaskTransitionTool extends Tool
         } catch (PlacementRefused $placementRefused) {
             // Every rule the placement broke, in words, as an error: the model must not read a
             // refusal as having worked
-            return Response::error($placementRefused->getMessage()." The developer who owns the lane's seat can waive one of these for a single placement; a coordinator cannot.");
+            return Response::error($placementRefused->getMessage()." The developer who owns the lane's seat can waive one of these for a single placement from their seats page, once that page has recorded the seat; a coordinator cannot.");
         }
 
         // A refusal is an error, not a result. A client cannot tell a result that describes a

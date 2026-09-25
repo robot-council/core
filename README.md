@@ -529,7 +529,7 @@ status with 409. It moves no status and writes no event; the lane board reads th
 | `lane_free` | the lane already holds another task |
 | `lane_not_parked` | the lane's seat is parked |
 | `ticket_unblocked` | the issue has a `blocked_by` edge whose blocker is open, or unknown |
-| `assignment_hours` | it is outside the lane's developer's hours -- new placements only, so a hand-back, work already held, and an exempt seat are not gated |
+| `assignment_hours` | it is outside the lane's developer's hours -- new work only: a hand-back to a lane that has started the task before, work moved between one developer's own lanes, and an exempt seat are not gated |
 
 The two ticket rules apply only to a task that names an issue. **Only the developer who owns the
 lane's seat can waive a refusal**, from their seats page, for one rule and one placement; the

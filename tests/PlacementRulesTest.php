@@ -11,7 +11,6 @@ declare(strict_types=1);
  * @command  vendor/bin/pest --compact tests/PlacementRulesTest.php
  */
 
-use Illuminate\Routing\Route;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
@@ -159,7 +158,7 @@ it('refuses each broken invariant and writes nothing', function (string $case, P
 
     $events = FleetEvent::query()->count();
 
-    expect(refusedOn(fn (): Outcome => placeOnLane($this, $taskId)))->toContain($rule);
+    expect(refusedOn(fn (): Outcome => placeOnLane($this, $taskId)))->toBe([$rule]);
 
     $row = taskRow($taskId);
 
@@ -214,15 +213,14 @@ it('reads parked from the same rule the board will, and refuses on it', function
         ->and(refusedOn(fn (): Outcome => placeOnLane($this, ticketTask($this))))->toBe([PlacementRule::LaneNotParked]);
 });
 
-it('gates new placements on assignment hours, and not a hand-back or an exempt seat', function (): void {
+it('gates new placements on assignment hours, and not an exempt seat', function (): void {
     knownIssue(12);
     $key = HostKey::from($this->developer->getAuthIdentifier());
     $this->service(DeveloperSettings::class)->setHours($key, 'UTC', '13:00', '17:00', false);
 
-    expect(refusedOn(fn (): Outcome => placeOnLane($this, ticketTask($this))))->toBe([PlacementRule::AssignmentHours])
-        ->and(placeOnLane($this, ticketTask($this), handBack: true))->toBe(Outcome::Applied);
+    expect(refusedOn(fn (): Outcome => placeOnLane($this, ticketTask($this))))->toBe([PlacementRule::AssignmentHours]);
 
-    // An exempt seat, on another lane in the same place of the same developer
+    // An exempt seat, on another lane of the same developer
     $other = $this->service(AgentSessions::class)->start($this->installation, 'robot-council/core', 'b')->owner;
     $seat = collect($this->service(Seats::class)->forDeveloper($key))->firstWhere('work_location', 'b');
 
@@ -233,6 +231,63 @@ it('gates new placements on assignment hours, and not a hand-back or an exempt s
     }
 
     expect(placeOnLane($this, ticketTask($this), lane: $other))->toBe(Outcome::Applied);
+});
+
+it('does not gate a hand-back to the lane that started the task', function (): void {
+    knownIssue(12);
+    $key = HostKey::from($this->developer->getAuthIdentifier());
+    $taskId = ticketTask($this);
+
+    // Placed within hours, started by the lane, then given back to the queue
+    expect(placeOnLane($this, $taskId))->toBe(Outcome::Applied);
+    $this->service(Tasks::class)->transition($taskId, TaskTransition::Start, $this->session, false);
+    $this->service(Tasks::class)->transition($taskId, TaskTransition::Release, $this->session, false);
+
+    // Hours close; the gate hands the pull request back to the lane that made it
+    $this->service(DeveloperSettings::class)->setHours($key, 'UTC', '13:00', '17:00', false);
+
+    expect(placeOnLane($this, $taskId, handBack: true))->toBe(Outcome::Applied);
+});
+
+it('gates a hand-back the lane never started, since the coordinator alone cannot make work a hand-back', function (): void {
+    knownIssue(12);
+    $this->service(DeveloperSettings::class)->setHours(HostKey::from($this->developer->getAuthIdentifier()), 'UTC', '13:00', '17:00', false);
+
+    // Exactly the bypass the review found: a fresh task, flagged as a hand-back
+    expect(refusedOn(fn (): Outcome => placeOnLane($this, ticketTask($this), handBack: true)))->toBe([PlacementRule::AssignmentHours]);
+});
+
+it("gates held work moved to another developer's lane, and not within one developer's lanes", function (): void {
+    knownIssue(12);
+
+    // Placed within hours on this developer's lane, with nothing gating it
+    $taskId = ticketTask($this);
+    expect(placeOnLane($this, $taskId))->toBe(Outcome::Applied);
+
+    // Another developer, whose hours are closed, with a lane in the same repository
+    $this->setAccessLists(developers: [4242, 77, 5151]);
+    $other = $this->enrollDeveloper(5151, login: 'otherdev');
+    $theirLane = $this->service(AgentSessions::class)->start($this->approveInstallation($other, 'other-box'), 'robot-council/core', 'x')->owner;
+    $this->service(DeveloperSettings::class)->setHours(HostKey::from($other->getAuthIdentifier()), 'UTC', '13:00', '17:00', false);
+
+    // The task was filed with the coordinator's ability, so their lane may hold it
+    expect(refusedOn(fn (): Outcome => placeOnLane($this, $taskId, lane: $theirLane)))->toBe([PlacementRule::AssignmentHours])
+        ->and(taskRow($taskId)->claimed_by)->toBe($this->session->getKey());
+
+    // This developer's own hours close too, and a move to their other lane is still not gated
+    $this->service(DeveloperSettings::class)->setHours(HostKey::from($this->developer->getAuthIdentifier()), 'UTC', '13:00', '17:00', false);
+    $sameDeveloper = $this->service(AgentSessions::class)->start($this->installation, 'robot-council/core', 'b')->owner;
+
+    expect(placeOnLane($this, $taskId, lane: $sameDeveloper))->toBe(Outcome::Applied);
+});
+
+it('does not count the task being moved as other work its new lane holds', function (): void {
+    knownIssue(12);
+    $taskId = ticketTask($this);
+
+    expect(placeOnLane($this, $taskId))->toBe(Outcome::Applied)
+        // Placed again on the lane that already holds it: the lane holds no OTHER task
+        ->and(placeOnLane($this, $taskId))->toBe(Outcome::Applied);
 });
 
 it("lets a placement through on the seat owner's waiver, once, and records it as spent", function (): void {
@@ -278,12 +333,19 @@ it("refuses a waiver from anyone but the seat's own developer", function (): voi
     expect($this->service(PlacementWaivers::class)->grant('77', $seat->id, PlacementRule::AssignmentHours))->toBe(Outcome::Forbidden)
         ->and(PlacementWaiver::query()->count())->toBe(0);
 
-    // And the coordinator session has no route that reaches it at all
-    $routes = collect(app('router')->getRoutes()->getRoutes())
-        ->filter(fn (Route $route): bool => str_contains($route->getActionName(), 'Waiver'))
-        ->all();
+    // And nothing an agent session reaches calls `grant()`: its only caller in `src/` is the
+    // dashboard's seat page, which reads the developer off the web guard. The scan is shown able to
+    // find a caller -- the page itself -- so its finding nothing else is evidence.
+    $callers = [];
 
-    expect($routes)->toBeEmpty();
+    foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(__DIR__.'/../src')) as $file) {
+        if ($file instanceof SplFileInfo && $file->getExtension() === 'php'
+            && str_contains((string) file_get_contents($file->getPathname()), 'PlacementWaivers::class)->grant(')) {
+            $callers[] = basename($file->getPathname());
+        }
+    }
+
+    expect($callers)->toBe(['SeatSettings.php']);
 });
 
 it("grants and withdraws a waiver from the seat's own page", function (): void {
@@ -302,6 +364,32 @@ it("grants and withdraws a waiver from the seat's own page", function (): void {
     expect($this->service(PlacementWaivers::class)->waivedOn($seat->id))->toBeEmpty();
 
     Livewire::actingAs($this->developer)->test(SeatSettings::class)->call('waive', $seat->id, 'no_such_rule')->assertStatus(422);
+});
+
+it("refuses a waiver on another developer's seat through the page, whatever seat id the client sends", function (): void {
+    $seat = $this->service(Seats::class)->forDeveloper(HostKey::from($this->developer->getAuthIdentifier()))[0];
+
+    $this->setAccessLists(developers: [4242, 77, 5152]);
+    $other = $this->enrollDeveloper(5152, login: 'someoneelse');
+
+    Livewire::actingAs($other)->test(SeatSettings::class)
+        ->call('waive', $seat->id, 'assignment_hours')
+        ->assertSet('notice', "Only the developer who parked a seat can lift it, and only a seat's own developer can change it.");
+
+    expect(PlacementWaiver::query()->count())->toBe(0);
+});
+
+it('answers a refused placement from the tool as an error naming the rule', function (): void {
+    $taskId = ticketTask($this);
+
+    $response = $this->machine($this->coordinatorToken)->postJson('/robot-council/api/mcp', [
+        'jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/call',
+        'params' => ['name' => 'task_reassign', 'arguments' => ['task_id' => $taskId, 'session_id' => $this->session->getKey(), 'directive' => 'Take this.']],
+    ]);
+
+    expect($response->json('result.isError'))->toBeTrue()
+        ->and((string) json_encode($response->json('result.content')))->toContain(PlacementRule::TicketOpen->reads())
+        ->and(taskRow($taskId)->claimed_by)->toBeNull();
 });
 
 it('warns without blocking, and says why', function (): void {

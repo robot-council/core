@@ -7,6 +7,8 @@ namespace RobotCouncil\Support;
 use DateTimeInterface;
 use Illuminate\Support\Facades\DB;
 use RobotCouncil\Models\AgentSession;
+use RobotCouncil\Models\FleetEvent;
+use RobotCouncil\Models\FleetEventType;
 use RobotCouncil\Models\GitHubItem;
 use RobotCouncil\Models\PlacementRule;
 use RobotCouncil\Models\Task;
@@ -90,15 +92,61 @@ final class PlacementRules
             $broken[] = PlacementRule::TicketUnblocked;
         }
 
-        // New placements only: a hand-back fix, and work already held that is being moved, are not
-        // gated, as #314 records. An exempt seat is not either -- that is its developer's setting.
-        $isNew = $task->status === TaskStatus::Pending;
+        // New placements only, as #314 records, and "new" is decided from state the coordinator does
+        // not assert. **Work already held moves ungated only within one developer's lanes**: hours
+        // are a developer's, so work arriving from another developer's lane is new to this one --
+        // otherwise placing on an in-hours lane and then moving it would place anything anywhere.
+        // **A hand-back is exempt only when this lane has itself started the task before**, which
+        // its own `task.started` event records; a bare `hand_back: true` from the coordinator would
+        // otherwise be a waiver the coordinator granted itself. An exempt seat is not gated either
+        // -- that is its developer's setting.
+        $isNew = $task->status === TaskStatus::Pending || ! $this->heldByTheSameDeveloper($task, $lane);
+        $returning = $handBack && $this->laneStarted($task, $lane);
 
-        if ($isNew && ! $handBack && $seat?->hours_exempt !== true && ! $this->settings->takesNewWorkAt($lane->user_id, $at)) {
+        if ($isNew && ! $returning && $seat?->hours_exempt !== true && ! $this->settings->takesNewWorkAt($lane->user_id, $at)) {
             $broken[] = PlacementRule::AssignmentHours;
         }
 
         return $broken;
+    }
+
+    /**
+     * Whether a held task is currently held by one of this lane's developer's sessions.
+     *
+     * @param  Task  $task  The task.
+     * @param  AgentSession  $lane  The lane it is being moved to.
+     * @return bool True when the current holder belongs to the same developer.
+     */
+    private function heldByTheSameDeveloper(Task $task, AgentSession $lane): bool
+    {
+        $holder = $task->claimed_by === null ? null : AgentSession::query()->find($task->claimed_by);
+
+        return $holder instanceof AgentSession && $holder->user_id === $lane->user_id;
+    }
+
+    /**
+     * Whether this lane has itself started the task before, which is what makes a placement back
+     * onto it a hand-back rather than new work.
+     *
+     * Read from the lane's own `task.started` events, matched on the event's recorded developer as
+     * well as its session id, because session ids are reused. Matched in PHP rather than through a
+     * JSON path, which compares text against an integer differently on each engine. Bounded: a lane
+     * that started this task starts few others before it is handed back.
+     *
+     * @param  Task  $task  The task.
+     * @param  AgentSession  $lane  The lane.
+     * @return bool True when it started the task.
+     */
+    private function laneStarted(Task $task, AgentSession $lane): bool
+    {
+        return FleetEvent::query()
+            ->where('type', FleetEventType::TaskStarted->value)
+            ->where('agent_session_id', $lane->getKey())
+            ->where('user_id', $lane->user_id)
+            ->orderByDesc('id')
+            ->limit(500)
+            ->get(['meta'])
+            ->contains(static fn (FleetEvent $event): bool => ($event->meta['task_id'] ?? null) === $task->id);
     }
 
     /**
@@ -159,14 +207,17 @@ final class PlacementRules
      */
     private function blocked(GitHubItem $item): bool
     {
+        // Compared without case, as the item was found: an edge's repository comes from the issue's
+        // `repository_url` and an item's from the delivery's `full_name`, and a rule that fails open
+        // on a spelling difference is the wrong direction for "an unknown blocker blocks"
         $blockers = DB::table('robot_council_github_blockers')
-            ->where('repository', $item->repository)
+            ->whereRaw('lower(repository) = ?', [mb_strtolower($item->repository)])
             ->where('number', $item->number)
             ->get(['blocker_repository', 'blocker_number']);
 
         foreach ($blockers as $blocker) {
             $state = GitHubItem::query()
-                ->where('repository', $blocker->blocker_repository)
+                ->whereRaw('lower(repository) = ?', [mb_strtolower(\is_string($blocker->blocker_repository) ? $blocker->blocker_repository : '')])
                 ->where('number', $blocker->blocker_number)
                 ->value('state');
 
