@@ -2,12 +2,22 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.6.15 — Type Scale (2026-09-25)
+
+The dashboard states its type scale once, nothing renders below 14px, and dimmed text reaches the AAA contrast ratio in both themes.
+
+### What's new
+- Raise the dashboard's type scale, and state it in one place [#413](https://github.com/robot-council/core/pull/413)
+
 ## v0.6.14 — Withdrawn Role Requests (2026-09-25)
 
 Asking for the role a session already holds now withdraws its other pending request, and the feed records the withdrawal.
 
 ### What's fixed
 - Withdraw a pending role request when a session asks for the role it already holds [#423](https://github.com/robot-council/core/pull/423)
+
+### Maintenance and tooling
+- Port cairn's accessibility rule: WCAG 2.2 AAA as the target, with COGA and low-vision guidance [#426](https://github.com/robot-council/core/pull/426)
 
 ## v0.6.13 — Slot Names (2026-09-25)
 
