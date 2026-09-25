@@ -2,6 +2,13 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.6.13 — Slot Names (2026-09-25)
+
+Core's worktree slots are renamed to robot-council-core-a and robot-council-core-b, and the worktree rule names them.
+
+### Maintenance and tooling
+- Rename core's worktree slots to robot-council-core-a and robot-council-core-b [`be6a2c3`](https://github.com/robot-council/core/commit/be6a2c3a3ff41965440d9246e6cd57c79df50d0c)
+
 ## v0.6.12 — Current Token Shape (2026-09-25)
 
 The backlog fetch now accepts installation tokens in the shape GitHub issues today, so the lane board's meters read counts.
