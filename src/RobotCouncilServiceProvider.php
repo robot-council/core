@@ -24,6 +24,7 @@ use RobotCouncil\Access\Guard;
 use RobotCouncil\Console\CheckLaneConditionsCommand;
 use RobotCouncil\Console\CheckQuietLanesCommand;
 use RobotCouncil\Console\DoctorCommand;
+use RobotCouncil\Console\FetchBacklogCommand;
 use RobotCouncil\Console\ImportGitHubItemsCommand;
 use RobotCouncil\Console\InstallCommand;
 use RobotCouncil\Console\PruneDeviceCodesCommand;
@@ -156,6 +157,7 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
                 PruneTasksCommand::class,
                 SweepSessionsCommand::class,
                 TakeBacklogBaselineCommand::class,
+                FetchBacklogCommand::class,
                 CheckQuietLanesCommand::class,
                 CheckLaneConditionsCommand::class,
             ]);
@@ -681,14 +683,15 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
         $pruneLocks = $config->get('robot-council.schedule.prune_locks', true) === true;
         $pruneSessions = $config->get('robot-council.schedule.prune_sessions', true) === true;
         $backlog = $config->get('robot-council.schedule.backlog_baseline', true) === true;
+        $fetch = $config->get('robot-council.schedule.backlog_fetch', true) === true;
         $quiet = $config->get('robot-council.schedule.quiet_lanes', true) === true;
         $conditions = $config->get('robot-council.schedule.lane_conditions', true) === true;
 
-        if (! $prune && ! $sweep && ! $pruneEvents && ! $pruneTasks && ! $pruneLocks && ! $pruneSessions && ! $backlog && ! $quiet && ! $conditions) {
+        if (! $prune && ! $sweep && ! $pruneEvents && ! $pruneTasks && ! $pruneLocks && ! $pruneSessions && ! $backlog && ! $fetch && ! $quiet && ! $conditions) {
             return;
         }
 
-        $this->app->booted(static function () use ($prune, $sweep, $pruneEvents, $pruneTasks, $pruneLocks, $pruneSessions, $backlog, $quiet, $conditions): void {
+        $this->app->booted(static function () use ($prune, $sweep, $pruneEvents, $pruneTasks, $pruneLocks, $pruneSessions, $backlog, $fetch, $quiet, $conditions): void {
             if ($prune) {
                 Schedule::command(PruneDeviceCodesCommand::class)->hourly();
             }
@@ -722,6 +725,12 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
 
             if ($backlog) {
                 Schedule::command(TakeBacklogBaselineCommand::class)->everyFiveMinutes();
+            }
+
+            // Scheduled whether or not a GitHub App is configured: the command makes no request
+            // without one, and a host that adds the App later then needs no schedule change (#383)
+            if ($fetch) {
+                Schedule::command(FetchBacklogCommand::class)->everyFiveMinutes();
             }
 
             if ($quiet) {

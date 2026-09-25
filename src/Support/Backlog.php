@@ -12,7 +12,8 @@ use InvalidArgumentException;
 use RobotCouncil\Models\AgentSession;
 
 /**
- * Each repository's open-issue count, as sessions report it, against a start-of-day baseline (#339).
+ * Each repository's open-issue count, as sessions report it or core fetches it, against a
+ * start-of-day baseline (#339, #383).
  *
  * **A count nobody measured recently is unreadable, never a number.** #314 recorded a board that
  * showed the last number it had after the thing that produced it stopped; the meter says "count
@@ -59,6 +60,37 @@ final class Backlog
      */
     public function report(AgentSession $session, string $repository, int $openIssues): void
     {
+        $this->insert($repository, $openIssues, $session->getKey());
+    }
+
+    /**
+     * Record a count the package fetched from GitHub itself, with no session behind it (#383).
+     *
+     * **A null `reported_by` is what marks it fetched**; the migration that made the column nullable
+     * records why that is one field rather than a source column beside it. Held to the same bounds
+     * as a session's report, because a count GitHub answered with is input like any other.
+     *
+     * @param  string  $repository  `owner/name`.
+     * @param  int  $openIssues  The count.
+     *
+     * @throws InvalidArgumentException When the repository or the count is outside what is stored.
+     */
+    public function record(string $repository, int $openIssues): void
+    {
+        $this->insert($repository, $openIssues, null);
+    }
+
+    /**
+     * Store one reading, refusing what the table does not hold.
+     *
+     * @param  string  $repository  `owner/name`.
+     * @param  int  $openIssues  The count.
+     * @param  mixed  $reportedBy  The reporting session's key, or null for a fetched count.
+     *
+     * @throws InvalidArgumentException When the repository or the count is outside what is stored.
+     */
+    private function insert(string $repository, int $openIssues, mixed $reportedBy): void
+    {
         if (mb_strlen($repository) > WorkIdentity::MAX_REPOSITORY || preg_match(WorkIdentity::REPOSITORY, $repository) !== 1) {
             throw new InvalidArgumentException('A repository is named as owner/name.');
         }
@@ -70,7 +102,7 @@ final class Backlog
         DB::table('robot_council_backlog_readings')->insert([
             'repository' => $repository,
             'open_issues' => $openIssues,
-            'reported_by' => $session->getKey(),
+            'reported_by' => $reportedBy,
             'read_at' => PresenceClock::now(),
         ]);
     }

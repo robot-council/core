@@ -24,6 +24,7 @@ use RobotCouncil\Support\Diagnosis;
 use RobotCouncil\Support\DiagnosisStatus;
 use RobotCouncil\Support\Doctor;
 use RobotCouncil\Support\FleetAbilities;
+use RobotCouncil\Support\GitHubAppDiagnosis;
 
 beforeEach(function (): void {
     // **The schema is migrated per test that needs one, not in this hook.**
@@ -97,6 +98,7 @@ function doctorFor(string $directory): Doctor
         app(Repository::class),
         app(Allowlist::class),
         app(FleetAbilities::class),
+        app(GitHubAppDiagnosis::class),
         $directory
     );
 }
@@ -117,7 +119,7 @@ it('passes every check on a configuration with nothing wrong with it', function 
     ));
 
     expect($failed)->toBeEmpty()
-        ->and(app(Doctor::class)->examine())->toHaveCount(10);
+        ->and(app(Doctor::class)->examine())->toHaveCount(12);
 });
 
 it('fails when the sanctum guard names no provider, and passes when it does', function (): void {
