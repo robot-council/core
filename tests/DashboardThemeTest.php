@@ -3,8 +3,8 @@
 declare(strict_types=1);
 
 /**
- * The shipped stylesheet's themes: which two exist, which is served when, and whether the colour
- * pairs the dashboard renders are legible.
+ * The shipped stylesheet's themes: which two exist, which is served when, whether the colour
+ * pairs the dashboard renders are legible, and the type scale the views draw their sizes from.
  *
  * Asserted against the built artifact rather than against `resources/css/dashboard.css`, because
  * the source is a statement of intent and the artifact is what a browser receives. A daisyUI
@@ -531,4 +531,151 @@ it('keeps dimmed text legible on the surface a hovered menu row paints', functio
             );
         }
     }
+});
+
+/**
+ * The type scale #310 chose: each step's name, mapped to its size as the minified artifact writes it.
+ */
+const TYPE_SCALE = [
+    'text-body' => '1rem',
+    'text-meta' => '.875rem',
+    'text-table' => '.875rem',
+];
+
+/**
+ * The floor, in rem: the `meta` step, below which nothing a view renders is set.
+ */
+const TYPE_FLOOR_REM = 0.875;
+
+/**
+ * Tailwind size utilities a view may still name, each mapped to the reason it has to.
+ *
+ * Empty, and meant to stay that way. A view names a step of the scale, never a Tailwind size at or
+ * below `body`, because a Tailwind size in a view is a size the scale cannot move.
+ *
+ * @var array<string, string>
+ */
+const TAILWIND_SIZES_ALLOWED_IN_VIEWS = [];
+
+/**
+ * Every Tailwind size at or below `body` that a source names, as a class token.
+ *
+ * A variant counts -- `sm:text-xs` is reported as its `text-xs` -- and `text-xs-foo` does not. Comments are NOT stripped:
+ * Tailwind's scanner reads them, so a class named in a Blade comment reaches the artifact (#230),
+ * and a view explaining which size it no longer uses should say so without spelling the class.
+ *
+ * @param  string  $source  A template's raw source.
+ * @return list<string> The class tokens found, in order.
+ */
+function tailwindSizesIn(string $source): array
+{
+    preg_match_all('/(?<![\w-])text-(?:xs|sm|base)(?![\w-])/', $source, $found);
+
+    return $found[0];
+}
+
+it('states the type scale once, at the sizes it chose', function (): void {
+    // The theme layer's one `:root,:host` rule, which is where `@theme static` emits. Read through
+    // `themeTokens()`, which refuses a fragment matching more than one rule, so a second emission
+    // holding different sizes fails here instead of one of them being read at random
+    $tokens = themeTokens(':root,:host');
+
+    foreach (TYPE_SCALE as $step => $size) {
+        expect($tokens[$step] ?? null)->toBe($size, sprintf('--%s', $step))
+            ->and($tokens[$step.'--line-height'] ?? null)->not->toBeNull(sprintf('--%s--line-height', $step));
+    }
+
+    // And the utilities the views name read those tokens rather than a size of their own, so the
+    // token is the one place a step changes
+    expect(stylesheet())
+        ->toContain('.text-body{font-size:var(--text-body);line-height:var(--tw-leading,var(--text-body--line-height))}')
+        ->toContain('.text-meta{font-size:var(--text-meta);line-height:var(--tw-leading,var(--text-meta--line-height))}');
+});
+
+it('names a step of the scale in every view, never a Tailwind size at or below body', function (): void {
+    // The instrument first, on sources it must and must not report, so an empty result below is a
+    // clean tree rather than a pattern that stopped matching
+    expect(tailwindSizesIn('<p class="mt-1 text-xs opacity-70">'))->toBe(['text-xs'])
+        ->and(tailwindSizesIn('<p class="sm:text-sm">'))->toBe(['text-sm'])
+        ->and(tailwindSizesIn('<h2 class="card-title text-base">'))->toBe(['text-base'])
+        ->and(tailwindSizesIn('<p class="text-meta text-xl text-xs-wide">'))->toBeEmpty();
+
+    $found = [];
+    $read = 0;
+
+    foreach (bladeTemplatesIn(__DIR__.'/../resources/views') as $view) {
+        $read++;
+
+        foreach (tailwindSizesIn((string) file_get_contents($view)) as $class) {
+            if (! array_key_exists($class, TAILWIND_SIZES_ALLOWED_IN_VIEWS)) {
+                $found[] = sprintf('%s: %s', basename($view), $class);
+            }
+        }
+    }
+
+    // A walk that read nothing would report nothing
+    expect($read)->toBeGreaterThan(10)
+        ->and($found)->toBeEmpty(implode(', ', $found));
+});
+
+it('lifts every size daisyUI draws below the floor, for every component a view uses', function (): void {
+    $css = stylesheet();
+
+    // The classes the scale's own rules cover, read out of the artifact rather than listed here,
+    // so this checks what shipped. Each is a `:where()` rule setting a size from a token.
+    preg_match_all('/:where\(([^{}]*)\)\{(?:font-size|--fontsize|--card-fs):var\(--text-(?:body|meta|table)\)\}/', $css, $rules);
+
+    $lifted = [];
+
+    foreach ($rules[1] as $selectors) {
+        preg_match_all('/\.([a-z][a-z0-9-]*)/', $selectors, $classes);
+
+        $lifted = [...$lifted, ...$classes[1]];
+    }
+
+    expect($lifted)->toContain('btn-xs', 'btn-sm', 'badge-sm', 'stat-title', 'stat-desc', 'table', 'card-body');
+
+    // Every rule in the artifact that sets a rem size below the floor, keyed by the first class of
+    // EACH selector in its list -- `.btn-xs{--fontsize:.6875rem}` is `btn-xs`. Each, not the list's
+    // first: daisyUI shares one rule between components, `.badge-sm,.kbd-sm{...}`, and reading only
+    // the first reported a view using `kbd-sm` as clean because `badge-sm` is lifted
+    preg_match_all('/([^{}]*)\{([^{}]*)\}/', $css, $all, PREG_SET_ORDER);
+
+    $small = [];
+
+    foreach ($all as [, $selectors, $body]) {
+        if (preg_match('/(?:^|;)(?:font-size|--fontsize):(\d*\.?\d+)rem/', $body, $size) !== 1
+            || (float) $size[1] >= TYPE_FLOOR_REM) {
+            continue;
+        }
+
+        // A naive split, which cuts `:not(thead,tfoot)` in two. That can only ADD candidates -- a
+        // class inside a `:not()` read as a selector of its own -- so its error is a loud failure,
+        // never a quiet pass
+        foreach (explode(',', $selectors) as $selector) {
+            if (preg_match('/\.([a-z][a-z0-9-]*)/', $selector, $class) === 1) {
+                $small[$class[1]] = true;
+            }
+        }
+    }
+
+    // The control: daisyUI draws `btn-xs` at 0.6875rem, so a parser that found nothing below the
+    // floor has stopped reading the artifact rather than found it clean
+    expect($small)->toHaveKey('btn-xs');
+
+    $views = '';
+
+    foreach (bladeTemplatesIn(__DIR__.'/../resources/views') as $view) {
+        $views .= sourceWithoutComments($view)."\n";
+    }
+
+    // Only a component a view actually names can render: daisyUI emits `input-sm` and
+    // `floating-label` whether or not anything uses them
+    $unlifted = array_values(array_filter(
+        array_keys($small),
+        static fn (string $class): bool => preg_match('/(?<![\w-])'.preg_quote($class, '/').'(?![\w-])/', $views) === 1
+            && ! in_array($class, $lifted, true),
+    ));
+
+    expect($unlifted)->toBeEmpty(implode(', ', $unlifted));
 });

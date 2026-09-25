@@ -26,14 +26,14 @@
                 <li>
                     <a href="{{ route('robot-council.agents') }}">
                         <span class="grow">Agents</span>
-                        <span class="text-xs opacity-70">Who is working, and where</span>
+                        <span class="text-meta opacity-70">Who is working, and where</span>
                     </a>
                 </li>
 
                 <li>
                     <a href="{{ route('robot-council.locks') }}">
                         <span class="grow">Locks</span>
-                        <span class="text-xs opacity-70">What the fleet is holding, and who holds it</span>
+                        <span class="text-meta opacity-70">What the fleet is holding, and who holds it</span>
                     </a>
                 </li>
 
@@ -41,7 +41,7 @@
                     <a href="{{ route('robot-council.lanes') }}">
                         <span class="grow">Lanes</span>
                         {{-- The lane board's summary (#317): how many lanes are in each of its states --}}
-                        <span class="text-xs opacity-70" data-lanes-summary>
+                        <span class="text-meta opacity-70" data-lanes-summary>
                             {{ collect($laneCounts)->map(fn (int $count, string $state): string => $count.' '.mb_strtolower($state))->implode(', ') }}
                         </span>
                     </a>
@@ -49,14 +49,14 @@
                 <li>
                     <a href="{{ route('robot-council.queue') }}">
                         <span class="grow">Queue</span>
-                        <span class="text-xs opacity-70">What the fleet has been asked to do</span>
+                        <span class="text-meta opacity-70">What the fleet has been asked to do</span>
                     </a>
                 </li>
 
                 <li>
                     <a href="{{ route('robot-council.feed') }}">
                         <span class="grow">Change feed</span>
-                        <span class="text-xs opacity-70">What has happened, newest first</span>
+                        <span class="text-meta opacity-70">What has happened, newest first</span>
                     </a>
                 </li>
 
@@ -70,7 +70,7 @@
                     <li>
                         <a href="{{ route('robot-council.administration') }}">
                             <span class="grow">Administration</span>
-                            <span class="text-xs opacity-70">Installations and their sessions</span>
+                            <span class="text-meta opacity-70">Installations and their sessions</span>
                         </a>
                     </li>
                 @endif

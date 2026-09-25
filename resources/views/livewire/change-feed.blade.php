@@ -27,7 +27,7 @@
                         <div class="min-w-0 grow">
                             <p class="break-words">{{ $event['body'] }}</p>
 
-                            <p class="mt-1 text-xs opacity-60">
+                            <p class="mt-1 text-meta opacity-60">
                                 @if ($event['actor']['github_login'] !== null)
                                     {{ $event['actor']['github_login'] }}
                                 @elseif ($event['actor']['session_id'] !== null)
@@ -56,7 +56,7 @@
                                 {{-- Recorded on the event when it was written, so revoking the
                                      ability afterwards does not rewrite what the page says --}}
                                 @if ($event['actor']['coordinator_direct'])
-                                    <span class="badge badge-xs badge-outline">coordinator</span>
+                                    <span class="badge badge-sm badge-outline">coordinator</span>
                                 @endif
 
                                 @if ($event['age'] !== null)

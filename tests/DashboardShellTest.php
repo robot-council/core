@@ -125,7 +125,7 @@ it('serves a stylesheet that carries the utilities the pages use, and not the on
         'sm\\:stats-horizontal',
 
         // every panel's frame
-        'card', 'card-body', 'card-title', 'table', 'table-sm', 'badge', 'badge-sm',
+        'card', 'card-body', 'card-title', 'table', 'badge', 'badge-sm',
 
         // the paging and scope controls #83 and #114 added
         'btn', 'btn-sm', 'btn-xs', 'btn-ghost', 'btn-primary', 'justify-between', 'flex-wrap',

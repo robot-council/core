@@ -30,7 +30,7 @@
             </p>
         @else
             <div class="overflow-x-auto">
-                <table class="table table-sm">
+                <table class="table">
                     <thead>
                         <tr>
                             <th>Task</th>
@@ -48,7 +48,7 @@
                                     <div class="font-medium">{{ $task['title'] }}</div>
 
                                     @if ($task['project_id'])
-                                        <div class="text-xs opacity-60">{{ $task['project_id'] }}</div>
+                                        <div class="text-meta opacity-60">{{ $task['project_id'] }}</div>
                                     @endif
                                 </td>
 
@@ -78,7 +78,7 @@
                                     @endif
                                 </td>
 
-                                <td class="whitespace-nowrap text-xs opacity-70">
+                                <td class="whitespace-nowrap text-meta opacity-70">
                                     {{ $task['age'] }}
                                 </td>
                             </tr>

@@ -11,7 +11,7 @@
 <div wire:poll.{{ \RobotCouncil\Support\WireArgument::of($pollSeconds) }}s class="flex flex-col gap-6">
     <div class="flex flex-wrap items-baseline justify-between gap-2">
         <h1 class="text-2xl font-semibold">Lanes</h1>
-        <span class="text-sm opacity-70" data-last-change>
+        <span class="text-meta opacity-70" data-last-change>
             Last change {{ $board['last_change']?->copy()->setTimezone($timezone)->format('Y-m-d H:i T') ?? 'none recorded' }}
             &middot; read {{ $board['observed_at']->copy()->setTimezone($timezone)->format('H:i T') }}
         </span>
@@ -22,18 +22,18 @@
             @foreach ($board['meters'] as $repository => $meter)
                 <div wire:key="meter-{{ $repository }}" class="card bg-base-100 shadow-sm">
                     <div class="card-body p-4">
-                        <div class="text-xs opacity-70">{{ $repository }} open issues</div>
+                        <div class="text-meta opacity-70">{{ $repository }} open issues</div>
                         {{-- Unreadable is a dash and says so, never a number: no count reported,
                              or one older than `backlog.stale_after_minutes` (#339) --}}
                         @if ($meter['count'] === null)
-                            <div class="text-xl" data-meter="unreadable">&mdash; <span class="text-sm opacity-70">count unreadable</span></div>
+                            <div class="text-xl" data-meter="unreadable">&mdash; <span class="text-meta opacity-70">count unreadable</span></div>
                         @else
                             <div class="text-xl" data-meter="read">{{ $meter['count'] }}</div>
                             {{-- The direction in words and a sign, not only a colour: the theme's
                                  success colour measures 1.96:1 on a card in the light theme, so
                                  only "up" -- the bad direction -- is coloured, with the measured
                                  error colour --}}
-                            <div class="text-xs" data-meter-delta>
+                            <div class="text-meta" data-meter-delta>
                                 @if ($meter['delta'] === null)
                                     <span class="opacity-70">no baseline today</span>
                                 @elseif ($meter['delta'] > 0)
@@ -58,7 +58,7 @@
                 <h2 class="card-title">{{ $repository === '' ? 'No repository reported' : $repository }}</h2>
 
                 <div class="overflow-x-auto">
-                    <table class="table table-sm">
+                    <table class="table">
                         <thead>
                             <tr>
                                 <th>Lane</th>
@@ -73,14 +73,14 @@
                                 <tr wire:key="lane-{{ $lane['id'] }}" @class(['bg-base-200' => $lane['is_gate']])>
                                     <td>
                                         <div class="font-medium">{{ $lane['developer'] ?? 'unknown developer' }} &middot; {{ $lane['machine'] }}@if ($lane['slot'] !== null) / {{ $lane['slot'] }}@endif</div>
-                                        <div class="text-xs opacity-70">{{ $lane['harness'] }}@if ($lane['is_gate']) &middot; gate @endif</div>
+                                        <div class="text-meta opacity-70">{{ $lane['harness'] }}@if ($lane['is_gate']) &middot; gate @endif</div>
                                     </td>
                                     <td data-state="{{ $lane['state'] }}">{{ $lane['state'] }}</td>
                                     {{-- Its own column, separate from State, from the watcher's own heartbeat (#337) --}}
                                     <td data-watcher="{{ $lane['watcher']['state'] }}">
                                         @switch ($lane['watcher']['state'])
                                             @case('alive')
-                                                alive <span class="text-xs opacity-70">{{ $lane['watcher']['age_seconds'] }}s ago</span>
+                                                alive <span class="text-meta opacity-70">{{ $lane['watcher']['age_seconds'] }}s ago</span>
                                                 @break
                                             @case('stale')
                                                 <span class="font-semibold text-error">stale {{ $lane['watcher']['age_seconds'] }}s</span>
@@ -120,7 +120,7 @@
                                                     <span class="badge badge-sm" data-also-holds>and {{ $work['also_holds'] }} more held</span>
                                                 @endif
                                             </div>
-                                            <div class="text-xs opacity-70">
+                                            <div class="text-meta opacity-70">
                                                 {{ $work['branch'] }}
                                                 &middot; {{ $work['taken_up'] ? 'taken up' : ($work['blocked'] ? 'taken up, blocked' : 'placed, not taken up') }}
                                                 &middot; {{ $work['provenance'] }}
@@ -138,7 +138,7 @@
                                             <span class="opacity-60">&mdash;</span>
                                         @endif
                                     </td>
-                                    <td class="text-sm opacity-70">{{ $lane['known_since']?->diffForHumans() ?? 'never' }}</td>
+                                    <td class="text-meta opacity-70">{{ $lane['known_since']?->diffForHumans() ?? 'never' }}</td>
                                 </tr>
                             @endforeach
                         </tbody>
@@ -149,9 +149,9 @@
                     <div class="mt-2">
                         <h3 class="font-medium">Pull requests</h3>
                         @if (($board['pull_requests'][$repository] ?? []) === [])
-                            <p class="text-sm opacity-60">None open, as far as GitHub has told the fleet.</p>
+                            <p class="text-meta opacity-60">None open, as far as GitHub has told the fleet.</p>
                         @else
-                            <ul class="text-sm">
+                            <ul class="text-meta">
                                 @foreach ($board['pull_requests'][$repository] as $pull)
                                     <li wire:key="pull-{{ $repository }}-{{ $pull['number'] }}">
                                         <a href="{{ \RobotCouncil\Support\TicketLink::url($pull['reference']) }}" class="link" rel="noopener noreferrer">#{{ $pull['number'] }}</a>
@@ -170,7 +170,7 @@
     @endforelse
 
     @if ($board['truncated'])
-        <p class="text-sm opacity-70">Only the first {{ \RobotCouncil\Support\LaneBoard::MAX_LANES }} lanes are shown.</p>
+        <p class="text-meta opacity-70">Only the first {{ \RobotCouncil\Support\LaneBoard::MAX_LANES }} lanes are shown.</p>
     @endif
 
     <div class="card bg-base-100 shadow-sm">
@@ -183,7 +183,7 @@
             @forelse ($board['waiting'] as $section)
                 <div wire:key="owed-{{ $section['developer'] ?? '-general' }}" data-owed-section="{{ $section['developer'] ?? 'General' }}">
                     <h3 class="font-medium">{{ $section['developer'] ?? 'General' }}</h3>
-                    <ul class="text-sm">
+                    <ul class="text-meta">
                         @foreach ($section['items'] as $item)
                             <li wire:key="owed-item-{{ $item['id'] }}" data-owed-item>
                                 @if (\RobotCouncil\Support\TicketLink::url($item['ticket']) !== null)
@@ -196,12 +196,12 @@
                     </ul>
                 </div>
             @empty
-                <p class="text-sm opacity-60">Nothing is waiting on a developer.</p>
+                <p class="text-meta opacity-60">Nothing is waiting on a developer.</p>
             @endforelse
         </div>
     </div>
 
-    <p class="text-xs opacity-60">
+    <p class="text-meta opacity-60">
         Rendered from measured state, not edited by hand. Liveness comes from observed presence, not from
         any declared roster.
     </p>

@@ -100,7 +100,7 @@ it("shows where each of an installation's sessions is working", function (): voi
 
     // **`assertSee('ci')` here would pass with the whole cell deleted.** Livewire's `assertSee` is
     // a raw substring search over the page's HTML with no tag stripping, and this panel's own
-    // standing paragraph carries `class="text-sm opacity-70"` -- which contains `ci`. The rendered
+    // standing paragraph carries `class="text-meta opacity-70"` -- which contains `ci`. The rendered
     // fragment is what discriminates.
     Livewire::actingAs($this->admin)
         ->test(Administration::class)

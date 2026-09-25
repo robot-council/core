@@ -31,7 +31,7 @@
              with the way back beside it, because a list of one otherwise reads as a fleet of
              one. The counts on the scope buttons stay the whole fleet's. --}}
         @if ($session !== null)
-            <div class="flex flex-wrap items-center gap-2 text-sm">
+            <div class="flex flex-wrap items-center gap-2 text-meta">
                 <span>Showing one session, #{{ $session }}.</span>
                 <button type="button" wire:click="showEverySession" class="btn btn-xs btn-outline">Show all</button>
             </div>
@@ -47,7 +47,7 @@
             </p>
         @else
             <div class="overflow-x-auto">
-                <table class="table table-sm">
+                <table class="table">
                     <thead>
                         <tr>
                             <th>Developer</th>
@@ -66,12 +66,12 @@
 
                                 <td>
                                     <div>{{ $agent['machine_label'] ?? 'an unknown machine' }}</div>
-                                    <div class="text-xs opacity-60">{{ $agent['harness'] ?? '' }}</div>
+                                    <div class="text-meta opacity-60">{{ $agent['harness'] ?? '' }}</div>
 
                                     {{-- The operating system the bridge reported (#351), and
                                          nothing for an older bridge that reported none --}}
                                     @if (($agent['os_family'] ?? null) !== null)
-                                        <div class="text-xs opacity-60">{{ $agent['os_family'] }}{{ ($agent['arch'] ?? null) !== null ? ' '.$agent['arch'] : '' }}</div>
+                                        <div class="text-meta opacity-60">{{ $agent['os_family'] }}{{ ($agent['arch'] ?? null) !== null ? ' '.$agent['arch'] : '' }}</div>
                                     @endif
                                 </td>
 
@@ -92,7 +92,7 @@
                                      one field the split exists for the least visible of the
                                      two. Absent is still shown as absent, and both are
                                      agent-supplied and escaped. --}}
-                                <td class="text-xs">
+                                <td class="text-meta">
                                     @php($where = $agent['repository'] ?? null)
 
                                     @if ($where !== null)
@@ -135,7 +135,7 @@
                                     <span class="badge badge-sm">{{ $agent['status'] }}</span>
                                 </td>
 
-                                <td class="whitespace-nowrap text-xs opacity-70">
+                                <td class="whitespace-nowrap text-meta opacity-70">
                                     {{ $agent['last_seen'] }}
                                 </td>
 
@@ -143,7 +143,7 @@
                                      kept: what this process is blocking. The id is the row's own
                                      key, assigned by the server, and it reaches the URL only
                                      through `route()` with a literal name. --}}
-                                <td class="whitespace-nowrap text-xs">
+                                <td class="whitespace-nowrap text-meta">
                                     <a href="{{ route('robot-council.locks', ['holder' => $agent['id']]) }}" class="link">Locks held</a>
                                 </td>
                             </tr>

@@ -32,7 +32,7 @@
                     <a class="btn btn-primary" href="{{ route('robot-council.auth.redirect') }}">Start again</a>
                 </div>
 
-                <p class="text-sm opacity-70">
+                <p class="text-meta opacity-70">
                     If starting again brings you straight back here, your browser is most likely
                     refusing the cookie this site needs to remember the attempt.
                 </p>

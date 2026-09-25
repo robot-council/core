@@ -34,7 +34,7 @@
             </div>
         </div>
 
-        <p class="text-sm opacity-70">
+        <p class="text-meta opacity-70">
             What each machine may do, and which of its sessions are alive. Changes take effect on
             the next request, not on the next renewal.
         </p>
@@ -56,7 +56,7 @@
                                     {{ $installation['harness'] }} on {{ $installation['machine_label'] }}
                                 </div>
 
-                                <div class="text-xs opacity-70">
+                                <div class="text-meta opacity-70">
                                     approved for {{ $installation['github_login'] ?? 'an unknown account' }}
                                 </div>
                             </div>
@@ -84,7 +84,7 @@
                             <ul class="mt-3 space-y-1">
                                 @foreach ($installation['sessions']['shown'] as $session)
                                     <li wire:key="admin-session-{{ $session['id'] }}"
-                                        class="flex flex-wrap items-center gap-2 text-xs">
+                                        class="flex flex-wrap items-center gap-2 text-meta">
                                         <span class="badge badge-sm">{{ $session['status'] }}</span>
 
                                         {{-- The role, which is the whole of what this session may
@@ -176,7 +176,7 @@
                              length. A list truncated at its limit looks exactly like a complete
                              one, and the number that would show otherwise is the one not printed. --}}
                         @if ($installation['sessions']['hidden'] > 0 || $installation['sessions']['gone'] > 0)
-                            <p class="mt-2 text-xs opacity-60">
+                            <p class="mt-2 text-meta opacity-60">
                                 @if ($installation['sessions']['hidden'] > 0)
                                     {{ $installation['sessions']['hidden'] }} more live session(s) not shown.
                                 @endif
