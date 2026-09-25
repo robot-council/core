@@ -77,7 +77,21 @@
                                     </td>
                                     <td data-state="{{ $lane['state'] }}">{{ $lane['state'] }}</td>
                                     {{-- Its own column, separate from State: not reported until #337 --}}
-                                    <td class="opacity-70" data-watcher>not reported</td>
+                                    <td data-watcher="{{ $lane['watcher']['state'] }}">
+                                        @switch ($lane['watcher']['state'])
+                                            @case('alive')
+                                                alive <span class="text-xs opacity-70">{{ $lane['watcher']['age_seconds'] }}s ago</span>
+                                                @break
+                                            @case('stale')
+                                                <span class="font-semibold text-error">stale {{ $lane['watcher']['age_seconds'] }}s</span>
+                                                @break
+                                            @case('unknown')
+                                                <span class="opacity-70">unknown, re-read</span>
+                                                @break
+                                            @default
+                                                <span class="opacity-70">absent</span>
+                                        @endswitch
+                                    </td>
                                     <td>
                                         @if ($lane['state'] === 'Working' && is_array($lane['on_what']) && isset($lane['on_what']['gate_pull_request']))
                                             <span data-gate-run>

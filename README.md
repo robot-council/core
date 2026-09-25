@@ -362,8 +362,11 @@ broadcasting: a change an agent commits is visible within one interval and no so
 **The lane board is rendered from measured state, never typed.** A lane's `State` is one of
 `Working`, `Idle`, `Parked`, `Blocked` and `not observed`, derived each time -- a lane holding no task
 is never `Working` -- and `Parked` is the same rule a placement refuses on. A cell whose data has no
-source yet reads "not reported" rather than a stand-in: the watcher, and what the fleet waits on each
-developer for. **A gate** -- a session in the `ci` role -- reports the pull request it is validating
+source yet reads "not reported" rather than a stand-in: what the fleet waits on each developer for.
+**`Watcher` is read from the bridge watcher's own heartbeat**, `POST {prefix}/api/agent/watcher`,
+which no other request refreshes: `absent` until it reports, `alive` within
+`presence.watcher_stale_after_seconds` (90), `stale` with its age after that, and `unknown, re-read`
+past fifteen minutes. **A gate** -- a session in the `ci` role -- reports the pull request it is validating
 with `POST {prefix}/api/gates/run` and `{ "pull_request": "owner/name#N" }` (or `gate_start`), and
 finishes with `DELETE` on the same path (or `gate_finish`); GitHub reporting that pull request closed
 or merged ends the run too. The board marks it `running` and counts each repository's queue: open,
