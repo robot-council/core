@@ -129,6 +129,8 @@ it('does not warn about documentation when nothing else is placeable, or when th
     expect(warningsFor($this))->toBeEmpty();
 
     knownItem(319, ['labels' => json_encode(['development'])]);
+    knownItem(320, ['labels' => json_encode(['development'])]);
 
+    // Another functionality ticket is placeable, so only the label check keeps this quiet
     expect(warningsFor($this, 'robot-council/core#319'))->toBeEmpty();
 });
