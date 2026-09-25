@@ -42,6 +42,7 @@ use RobotCouncil\Livewire\Administration;
 use RobotCouncil\Livewire\ChangeFeed;
 use RobotCouncil\Livewire\FleetPresence as FleetPresenceComponent;
 use RobotCouncil\Livewire\FleetTotals;
+use RobotCouncil\Livewire\Lanes;
 use RobotCouncil\Livewire\SeatSettings;
 use RobotCouncil\Livewire\TaskBoard;
 use RobotCouncil\Mcp\CouncilServer;
@@ -318,6 +319,7 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
         Livewire::component('robot-council-change-feed', ChangeFeed::class);
         Livewire::component('robot-council-fleet-presence', FleetPresenceComponent::class);
         Livewire::component('robot-council-fleet-totals', FleetTotals::class);
+        Livewire::component('robot-council-lanes', Lanes::class);
         Livewire::component('robot-council-seat-settings', SeatSettings::class);
         Livewire::component('robot-council-task-board', TaskBoard::class);
 

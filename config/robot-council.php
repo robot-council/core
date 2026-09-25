@@ -301,6 +301,10 @@ return [
 
     'dashboard' => [
         'poll_seconds' => (int) env('ROBOT_COUNCIL_DASHBOARD_POLL_SECONDS', 5),
+
+        // The timezone the lane board's stamps are shown in (#317). An IANA name; anything else
+        // falls back to UTC rather than failing the page.
+        'timezone' => env('ROBOT_COUNCIL_DASHBOARD_TIMEZONE', 'UTC'),
     ],
 
     /*

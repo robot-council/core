@@ -30,6 +30,15 @@
                 </li>
 
                 <li>
+                    <a href="{{ route('robot-council.lanes') }}">
+                        <span class="grow">Lanes</span>
+                        {{-- The lane board's summary (#317): how many lanes are in each of its states --}}
+                        <span class="text-xs opacity-70" data-lanes-summary>
+                            {{ collect($laneCounts)->map(fn (int $count, string $state): string => $count.' '.mb_strtolower($state))->implode(', ') }}
+                        </span>
+                    </a>
+                </li>
+                <li>
                     <a href="{{ route('robot-council.queue') }}">
                         <span class="grow">Queue</span>
                         <span class="text-xs opacity-70">What the fleet has been asked to do</span>

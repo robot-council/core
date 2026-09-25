@@ -173,7 +173,7 @@ it('puts the sections inside the dashboard entry and leaves enrollment beside it
 
     // The console's own link, then its sections beneath it
     expect(trim(elementMatching($xpath, './a', $console)->textContent))->toBe('Dashboard')
-        ->and(childLabels($xpath, $console))->toBe(['Presence', 'Queue', 'Change feed', 'My seats and hours', 'Administration']);
+        ->and(childLabels($xpath, $console))->toBe(['Presence', 'Lanes', 'Queue', 'Change feed', 'My seats and hours', 'Administration']);
 
     // And enrollment is a sibling with no children of its own, which is the half that fails if the
     // whole list were simply wrapped one level deeper
@@ -212,7 +212,7 @@ it('keeps the administration section out of the list for a developer who is not 
 
     // The other four are still nested, so this is the admin entry being withheld rather than the
     // whole group failing to render.
-    expect(childLabels($xpath, $console))->toBe(['Presence', 'Queue', 'Change feed', 'My seats and hours']);
+    expect(childLabels($xpath, $console))->toBe(['Presence', 'Lanes', 'Queue', 'Change feed', 'My seats and hours']);
 });
 
 it('marks a nested section as current without marking the page that holds it', function (): void {
@@ -246,5 +246,5 @@ it('keeps the whole tree on a page that is not part of the console', function ()
 
     // The sections were fragments once, and vanished everywhere but the dashboard. They are routes
     // now, so the tree has the same shape on every page.
-    expect(childLabels($xpath, $console))->toBe(['Presence', 'Queue', 'Change feed', 'My seats and hours', 'Administration']);
+    expect(childLabels($xpath, $console))->toBe(['Presence', 'Lanes', 'Queue', 'Change feed', 'My seats and hours', 'Administration']);
 });

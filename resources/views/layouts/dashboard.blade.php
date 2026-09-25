@@ -138,6 +138,12 @@
                             </li>
 
                             <li>
+                                <a href="{{ route('robot-council.lanes') }}"
+                                    @class(['menu-active' => $currentRoute === 'robot-council.lanes'])
+                                    @if ($currentRoute === 'robot-council.lanes') aria-current="page" @endif>Lanes</a>
+                            </li>
+
+                            <li>
                                 <a href="{{ route('robot-council.queue') }}"
                                     @class(['menu-active' => $currentRoute === 'robot-council.queue'])
                                     @if ($currentRoute === 'robot-council.queue') aria-current="page" @endif>Queue</a>
