@@ -53,6 +53,11 @@ final class GitHubState
     public const int MAX_LABELS = 100;
 
     /**
+     * The most mentioned paths kept for one item.
+     */
+    public const int MAX_PATHS = 50;
+
+    /**
      * @param  Tasks  $tasks  The task store, for freeing a lane.
      * @param  GateRuns  $gates  The gate runs, ended when their pull request leaves the open set.
      * @param  OwedItems  $owed  What the fleet waits on developers for, settled by their tickets (#335).
@@ -321,6 +326,7 @@ final class GitHubState
 
         // Encoded by hand: neither `insertOrIgnore` nor a query-builder `update` runs the model's casts
         $row['labels'] = json_encode($row['labels'], JSON_THROW_ON_ERROR);
+        $row['mentioned_paths'] = json_encode($row['mentioned_paths'], JSON_THROW_ON_ERROR);
 
         $inserted = GitHubItem::query()->insertOrIgnore([...$row, 'created_at' => $now, 'updated_at' => $now]);
 
@@ -357,7 +363,7 @@ final class GitHubState
      * @param  string  $repository  The repository it belongs to.
      * @param  array<array-key, mixed>  $object  The issue or pull request.
      * @param  bool  $isPull  Whether it is a pull request.
-     * @return array{repository: string, number: int, is_pull_request: bool, state: string, merged: bool, draft: bool, title: string, head_ref: string|null, labels: mixed, checkboxes: int, checkboxes_ticked: int, github_updated_at: Carbon}
+     * @return array{repository: string, number: int, is_pull_request: bool, state: string, merged: bool, draft: bool, title: string, head_ref: string|null, labels: mixed, mentioned_paths: mixed, checkboxes: int, checkboxes_ticked: int, github_updated_at: Carbon}
      *
      * @throws InvalidArgumentException When a field is outside what GitHub sends.
      */
@@ -405,6 +411,10 @@ final class GitHubState
 
         $body = \is_string($object['body'] ?? null) ? $object['body'] : '';
 
+        // Paths the body mentions, for the shortlist to show as unverified (#321). Read from the
+        // whole body, code spans included, since that is where a ticket names its files.
+        $paths = self::mentionedPaths($body);
+
         // Without fenced code first: a checkbox quoted in a code block is not one GitHub renders
         $body = (string) preg_replace('/^[ \t]*(```|~~~).*?^[ \t]*\1[^\n]*$/ms', '', $body);
 
@@ -427,8 +437,27 @@ final class GitHubState
             'labels' => $labels,
             'checkboxes' => \is_int($boxes) ? $boxes : 0,
             'checkboxes_ticked' => \is_int($ticked) ? $ticked : 0,
+            'mentioned_paths' => $paths,
             'github_updated_at' => $updatedAt,
         ];
+    }
+
+    /**
+     * The file paths a body mentions: a slash-separated name ending in an extension.
+     *
+     * Not a path inside a URL -- a `/` or `:` before it rules that out -- and not a bare name with no
+     * directory, which says too little to be worth showing. Bounded, since a body is anybody's text.
+     *
+     * @param  string  $body  The body.
+     * @return list<string> Up to `MAX_PATHS` paths, each within `BranchName::MAX`, in first-seen order.
+     */
+    private static function mentionedPaths(string $body): array
+    {
+        preg_match_all('~(?<![\w/.:-])((?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_-][A-Za-z0-9_.-]*\.[A-Za-z0-9]{1,8})(?![\w/-])~', $body, $found);
+
+        $paths = array_values(array_unique(array_filter($found[1], static fn (string $path): bool => mb_strlen($path) <= BranchName::MAX)));
+
+        return \array_slice($paths, 0, self::MAX_PATHS);
     }
 
     /**

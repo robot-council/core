@@ -205,7 +205,7 @@ final class PlacementRules
      * @param  GitHubItem  $item  The issue.
      * @return bool True when something still blocks it.
      */
-    private function blocked(GitHubItem $item): bool
+    public function blocked(GitHubItem $item): bool
     {
         // Compared without case, as the item was found: an edge's repository comes from the issue's
         // `repository_url` and an item's from the delivery's `full_name`, and a rule that fails open
