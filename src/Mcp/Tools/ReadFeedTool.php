@@ -65,7 +65,14 @@ final class ReadFeedTool extends Tool
                 ."means the entire history back to the fleet's first event, which on a busy fleet "
                 .'is a great many pages.'
             ),
-            'limit' => $schema->integer()->description(sprintf('How many to examine, up to %d.', FleetFeed::MAX_PAGE)),
+            // What it caps is the events RETURNED; how far one read looks is fixed, which is why a
+            // short page is not the end of the feed (#365)
+            'limit' => $schema->integer()->description(sprintf(
+                'The most events to return, up to %d. One read looks at no more than %d event ids, so '
+                .'a page shorter than this does not mean you are caught up.',
+                FleetFeed::MAX_PAGE,
+                FleetFeed::EXAMINE_CAP
+            )),
         ];
     }
 

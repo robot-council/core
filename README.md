@@ -153,8 +153,10 @@ protocol below is documented for anyone writing their own client.
    given an installation credential. That credential can do one thing: start and renew sessions.
 4. Each agent process calls `POST {prefix}/api/sessions` for a short-lived session token, and
    `POST {prefix}/api/sessions/{id}/renew` to replace it without a restart and without a human.
-   `DELETE {prefix}/api/sessions/{id}` ends one when its harness exits, so what it held is released
-   at once rather than after the presence threshold. All three take the installation credential,
+   `DELETE {prefix}/api/sessions/{id}` ends one when its harness exits: its tokens stop working at
+   once, and what it held is released by the next presence sweep, within about a minute, rather than
+   after the thirty-minute gone threshold. While `schedule.sweep_sessions` is off, nothing releases
+   it. All three take the installation credential,
    because the token belonging to the process that just died is the one thing that may no longer
    work. Ending is idempotent. A start may carry `platform`, with `os_family` (one of PHP's
    `PHP_OS_FAMILY` values) and an optional `arch`, as the bridge reports them; an older bridge
@@ -787,6 +789,10 @@ than vanish. It also means a reader that never sends `after` keeps receiving the
 stored position only ever moves forward, and a cursor past the end of the feed is ignored rather
 than stored.
 
+**`limit` caps the events a read returns, up to 200; how far one read looks is fixed at 1,000 event
+ids.** So a page shorter than `limit`, or empty, does not mean the reader is caught up: compare the
+`cursor`, which always moves, rather than the count (#365).
+
 **A reader following the feed for an agent passes `acknowledge=false`** (#354). The stored position is
 what the agent's own read resumes from when it names no `after`, so a bridge that polls on the
 agent's behalf and acknowledged as it went would move it past events the agent was never shown -- a
@@ -835,12 +841,15 @@ Three things worth knowing before you enable it:
   Slack failure surfaces on a request whose event is already committed. Set
   `ROBOT_COUNCIL_SLACK_CONNECTION` to a real queue connection. The package will not fail a write
   because Slack is unreachable, but it cannot move the work off the request for you.
-- **Narration is mirrored by default, and the feed's visibility rule does not apply to Slack.** That
+- **The restricted events are mirrored by default, and the feed's visibility rule does not apply to
+  Slack.** That covers narration, `lane.quiet`, `lane.condition` and `placement.instruction`. The
   rule governs what one developer's *agent* may read from another's, because event content is
   untrusted input to something that may have shell access. A Slack channel is a human surface, and
   being a narration channel for humans is the point of having one — but it does mean everyone with
-  channel access reads every agent's narration. Set `ROBOT_COUNCIL_SLACK_MIRROR_NARRATION=false` to
-  mirror only state changes and directives.
+  channel access reads every agent's narration and every placement's instructions. Set
+  `ROBOT_COUNCIL_SLACK_MIRROR_RESTRICTED=false` to mirror only state changes and directives. The
+  older name, `ROBOT_COUNCIL_SLACK_MIRROR_NARRATION`, is still read when the new one is unset, and
+  the new one wins when both are set (#366).
 - **The mirror's rate limit needs a shared cache store.** It is one limit across every worker,
   because Slack's is per webhook. On `CACHE_STORE=array` or `file` it is per process or per machine,
   and on `null` there is no limit at all.

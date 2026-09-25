@@ -126,13 +126,19 @@ return [
         // meant to cost visibility and never correctness, which only holds off `sync`.
         'connection' => env('ROBOT_COUNCIL_SLACK_CONNECTION'),
 
-        // Whether narration is mirrored. Narration is the one kind of event the feed restricts by
-        // reader (#29), and that rule is about what one developer's AGENT may read from another's
-        // -- because event content is untrusted input to something that may have shell access.
-        // A Slack channel is a human surface, so mirroring narration there is the point of having
-        // one, and it does mean everyone with channel access reads every agent's narration. Turn
-        // this off to mirror only state changes and directives.
-        'mirror_restricted' => env('ROBOT_COUNCIL_SLACK_MIRROR_NARRATION', true),
+        // Whether the restricted event types are mirrored: every type
+        // `Models\FleetEventType::isRestricted()` names -- narration, `lane.quiet`,
+        // `lane.condition` and `placement.instruction`. The feed restricts them by reader (#29),
+        // and that rule is about what one developer's AGENT may read from another's, because event
+        // content is untrusted input to something that may have shell access. A Slack channel is a
+        // human surface, so mirroring them there is the point of having one, and it does mean
+        // everyone with channel access reads every agent's narration and every placement's
+        // instructions. Turn this off to mirror only state changes and directives.
+        //
+        // `ROBOT_COUNCIL_SLACK_MIRROR_RESTRICTED` wins; `ROBOT_COUNCIL_SLACK_MIRROR_NARRATION`, its
+        // name from when narration was the only restricted type, is still read when it is unset
+        // (#366), so a host that chose a value keeps it.
+        'mirror_restricted' => env('ROBOT_COUNCIL_SLACK_MIRROR_RESTRICTED', env('ROBOT_COUNCIL_SLACK_MIRROR_NARRATION', true)),
     ],
 
     /*
