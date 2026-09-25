@@ -478,6 +478,15 @@ GitHub reports them, or with `DELETE {prefix}/api/owed-items/{id}` (or `owed_set
 developer has left the fleet stops rendering rather than moving to `General`. Both need
 `coordinator:direct`.
 
+## The shortlist
+
+`GET {prefix}/api/shortlist` (or `shortlist_read`), behind `coordinator:direct`, lists the tickets a
+coordinator could place, per repository: open, with no open or unknown `blocked_by` blocker, and not
+already held by a lane. **It is ordered by number and implies no preference** -- choosing is the
+coordinator's. Each entry lists its blind spots: a `hitl` label, a title naming an act that needs a
+human, every acceptance criterion ticked while still open, and the file paths its body mentions,
+which are unverified and are never compared between tickets.
+
 ## Quiet lanes
 
 Every five minutes the scheduler checks each build lane for anything it has **authored**: a

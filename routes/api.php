@@ -38,6 +38,7 @@ use RobotCouncil\Http\Controllers\RequestRoleController;
 use RobotCouncil\Http\Controllers\SessionEndController;
 use RobotCouncil\Http\Controllers\SessionRenewController;
 use RobotCouncil\Http\Controllers\SessionStartController;
+use RobotCouncil\Http\Controllers\ShortlistController;
 use RobotCouncil\Http\Controllers\TransitionTaskController;
 use RobotCouncil\Http\Controllers\WatcherHeartbeatController;
 use RobotCouncil\Http\Middleware\EnsureAgentSession;
@@ -137,6 +138,11 @@ Route::middleware(['throttle:'.RobotCouncilServiceProvider::AGENT_LIMITER, Ensur
             ->where('item', RobotCouncilServiceProvider::ROUTE_ID)
             ->middleware(RequireAbility::class.':'.Ability::CoordinatorDirect->value)
             ->name('owed.settle');
+
+        // The placeable tickets, unranked (#321). The coordinator's tool for choosing
+        Route::get('shortlist', ShortlistController::class)
+            ->middleware(RequireAbility::class.':'.Ability::CoordinatorDirect->value)
+            ->name('shortlist');
 
         Route::post('directives', PostDirectiveController::class)
             ->middleware(RequireAbility::class.':'.Ability::CoordinatorDirect->value)

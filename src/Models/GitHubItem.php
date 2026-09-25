@@ -23,6 +23,7 @@ use Illuminate\Support\Carbon;
  * @property string $title
  * @property string|null $head_ref
  * @property list<string> $labels
+ * @property list<string>|null $mentioned_paths
  * @property int $checkboxes
  * @property int $checkboxes_ticked
  * @property Carbon $github_updated_at
@@ -46,6 +47,7 @@ final class GitHubItem extends Model
             'merged' => 'boolean',
             'draft' => 'boolean',
             'labels' => 'array',
+            'mentioned_paths' => 'array',
             'checkboxes' => 'integer',
             'checkboxes_ticked' => 'integer',
             'github_updated_at' => 'datetime',
