@@ -14,12 +14,17 @@ use RobotCouncil\Http\Principal;
 use RobotCouncil\Http\Rules\BoundedMeta;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\FleetEvent;
+use RobotCouncil\Models\PlacementRule;
+use RobotCouncil\Models\Task;
 use RobotCouncil\Models\TaskStatus;
 use RobotCouncil\Models\TaskTransition;
 use RobotCouncil\Support\BranchName;
 use RobotCouncil\Support\Outcome;
+use RobotCouncil\Support\PlacementRefused;
+use RobotCouncil\Support\PlacementRules;
 use RobotCouncil\Support\TaskList;
 use RobotCouncil\Support\Tasks;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 
 /**
@@ -48,7 +53,7 @@ final class TransitionTaskController
      *
      * @throws AccessDeniedHttpException When the session holds neither way in.
      */
-    public function __invoke(Request $request, string $task, string $transition, Tasks $tasks): JsonResponse
+    public function __invoke(Request $request, string $task, string $transition, Tasks $tasks, PlacementRules $rules): JsonResponse
     {
         // The router's constraint already refused anything else, so this cannot be null in a
         // request that reached here -- but a route registered by hand elsewhere could
@@ -74,24 +79,55 @@ final class TransitionTaskController
 
         $assignee = $move === TaskTransition::Reassign ? $this->assignee($request) : null;
 
-        $outcome = $tasks->transition(
-            (int) $task,
-            $move,
-            $session,
-            $asCoordinator,
-            $assignee,
-            $this->result($request, $move),
-            $this->directive($request, $move),
-            $move === TaskTransition::Reassign && $request->boolean('hand_back'),
-            $this->branch($request, $move),
-            $this->expect($request, $move)
-        );
+        try {
+            $outcome = $tasks->transition(
+                (int) $task,
+                $move,
+                $session,
+                $asCoordinator,
+                $assignee,
+                $this->result($request, $move),
+                $this->directive($request, $move),
+                $move === TaskTransition::Reassign && $request->boolean('hand_back'),
+                $this->branch($request, $move),
+                $this->expect($request, $move)
+            );
+        } catch (PlacementRefused $placementRefused) {
+            // Every rule the placement broke, not only the first, so a coordinator can fix them all
+            return new JsonResponse([
+                'task_id' => (int) $task,
+                'status' => null,
+                'applied' => false,
+                'refused' => array_map(static fn (PlacementRule $rule): array => ['rule' => $rule->value, 'reason' => $rule->reads()], $placementRefused->rules),
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
 
-        return new JsonResponse([
+        $body = [
             'task_id' => (int) $task,
             'status' => $outcome === Outcome::Applied ? $move->to()->value : null,
             'applied' => $outcome === Outcome::Applied,
-        ], $outcome->status());
+        ];
+
+        // Soft invariants (#320) do not block; they say why a coordinator might think again
+        if ($move === TaskTransition::Reassign && $outcome === Outcome::Applied) {
+            $body['warnings'] = $this->warnings((int) $task, $rules);
+        }
+
+        return new JsonResponse($body, $outcome->status());
+    }
+
+    /**
+     * The soft invariants a placement was warned about.
+     *
+     * @param  int  $taskId  The task.
+     * @param  PlacementRules  $rules  The rules.
+     * @return list<string> The warnings.
+     */
+    private function warnings(int $taskId, PlacementRules $rules): array
+    {
+        $placed = Task::query()->find($taskId);
+
+        return $placed instanceof Task ? $rules->warnings($placed) : [];
     }
 
     /**

@@ -58,6 +58,29 @@
                                     <button type="button" wire:click="park({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-sm btn-warning">Park</button>
                                 @endif
                             </div>
+                            {{-- #320: a waiver lets exactly one placement through one refusal on this
+                                 seat. Only the seat's developer can grant it; a coordinator cannot. --}}
+                            <details class="w-full text-sm">
+                                <summary class="cursor-pointer opacity-70">
+                                    Waive a placement refusal
+                                    @if ($waived[$seat->id] !== [])
+                                        ({{ count($waived[$seat->id]) }} waived for the next placement)
+                                    @endif
+                                </summary>
+
+                                <ul class="mt-2 flex flex-col gap-1">
+                                    @foreach ($rules as $rule)
+                                        <li wire:key="seat-{{ $seat->id }}-rule-{{ $rule->value }}" class="flex items-center justify-between gap-2">
+                                            <span>Refused when {{ $rule->reads() }}</span>
+                                            @if (in_array($rule, $waived[$seat->id], true))
+                                                <button type="button" wire:click="withdrawWaiver({{ \RobotCouncil\Support\WireArgument::of($seat->id) }}, '{{ \RobotCouncil\Support\WireArgument::of($rule) }}')" class="btn btn-xs btn-ghost">Withdraw waiver</button>
+                                            @else
+                                                <button type="button" wire:click="waive({{ \RobotCouncil\Support\WireArgument::of($seat->id) }}, '{{ \RobotCouncil\Support\WireArgument::of($rule) }}')" class="btn btn-xs">Waive once</button>
+                                            @endif
+                                        </li>
+                                    @endforeach
+                                </ul>
+                            </details>
                         </li>
                     @endforeach
                 </ul>
