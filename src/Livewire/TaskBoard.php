@@ -9,6 +9,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Support\Carbon;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 use RobotCouncil\Models\Task;
@@ -30,6 +31,7 @@ use RobotCouncil\Support\TaskList;
  * why the guards in #67 and #70 exist and why nothing here renders anything unescaped.
  */
 #[Layout('robot-council::layouts.dashboard')]
+#[Title('Queue')]
 final class TaskBoard extends Component
 {
     /**

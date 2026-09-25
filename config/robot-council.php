@@ -331,6 +331,10 @@ return [
     */
 
     'dashboard' => [
+        // The fleet's name, printed in every page title and the sidebar (#313). Escaped like
+        // anything else the console prints.
+        'name' => env('ROBOT_COUNCIL_DASHBOARD_NAME', 'Robot Council'),
+
         'poll_seconds' => (int) env('ROBOT_COUNCIL_DASHBOARD_POLL_SECONDS', 5),
 
         // The timezone the lane board's stamps are shown in and the backlog baseline is taken in

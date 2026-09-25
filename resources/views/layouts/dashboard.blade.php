@@ -27,14 +27,9 @@
 --}}
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}" @if (($theme ?? null) !== null) data-theme="{{ $theme }}" @endif>
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    @include('robot-council::partials.head', ['title' => $title ?? null])
+
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <meta name="robots" content="noindex, nofollow">
-
-    <title>{{ $title ?? 'Robot Council' }}</title>
-
-    <link rel="stylesheet" href="{{ route('robot-council.dashboard.stylesheet') }}">
 
     {{--
         Only where a page mounts a component. The enrollment page mounts none, and it is the page
@@ -62,7 +57,7 @@
                 </label>
 
                 <div class="min-w-0 grow">
-                    <p class="truncate font-semibold">Robot Council</p>
+                    <p class="truncate font-semibold">{{ \RobotCouncil\Support\DashboardName::value() }}</p>
                     <p class="truncate text-xs opacity-70">Fleet coordination</p>
                 </div>
 

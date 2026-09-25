@@ -10,6 +10,7 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\Title;
 use Livewire\Component;
 use RobotCouncil\Support\FleetFeed;
 use RobotCouncil\Support\PollInterval;
@@ -35,6 +36,7 @@ use RobotCouncil\Support\PollInterval;
  * rather than guarded here because a component cannot know what a host intended by rendering it.
  */
 #[Layout('robot-council::layouts.dashboard')]
+#[Title('Change feed')]
 final class ChangeFeed extends Component
 {
     /**

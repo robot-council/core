@@ -16,13 +16,7 @@
 {{-- No `data-theme`, for the reason the shell has none: it is what lets the dark theme apply. --}}
 <html lang="en">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="robots" content="noindex, nofollow">
-
-    <title>Signed out &middot; Robot Council</title>
-
-    <link rel="stylesheet" href="{{ route('robot-council.dashboard.stylesheet') }}">
+    @include('robot-council::partials.head', ['title' => 'Signed out'])
 </head>
 <body class="min-h-screen bg-base-200 font-sans antialiased">
     <main class="mx-auto flex min-h-screen max-w-lg items-center p-4">

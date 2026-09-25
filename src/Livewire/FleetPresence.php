@@ -11,6 +11,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Support\Carbon;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 use RobotCouncil\Support\FleetPresence as Presence;
@@ -28,6 +29,7 @@ use RobotCouncil\Support\Scope;
  * makes this page safe is that nothing here is rendered unescaped.
  */
 #[Layout('robot-council::layouts.dashboard')]
+#[Title('Presence')]
 final class FleetPresence extends Component
 {
     /**

@@ -8,6 +8,7 @@ use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 use RobotCouncil\Access\CurrentDeveloper;
@@ -45,6 +46,7 @@ use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
  * touches -- so this is a property of the reader rather than a rule the view remembers.
  */
 #[Layout('robot-council::layouts.dashboard')]
+#[Title('Administration')]
 final class Administration extends Component
 {
     /**

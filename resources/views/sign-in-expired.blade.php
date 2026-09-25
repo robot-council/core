@@ -11,47 +11,33 @@
     either: the values that reach this page are supplied by whoever made the request.
 --}}
 <!DOCTYPE html>
+{{-- The shared head and the signed-out page's card, rather than a document of its own (#313) --}}
 <html lang="en">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Sign-in expired &middot; robot-council</title>
-    <style>
-        :root { color-scheme: light; }
-        body {
-            margin: 0 auto;
-            padding: 2rem 1rem 4rem;
-            max-width: 34rem;
-            font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-            color: #1a1a1a;
-        }
-        h1 { font-size: 1.35rem; margin: 0 0 0.75rem; }
-        p { margin: 0 0 1rem; }
-        .muted { color: #555; font-size: 0.9rem; }
-        a.button {
-            display: inline-block;
-            padding: 0.6rem 1.1rem;
-            border-radius: 0.4rem;
-            background: #1a1a1a;
-            color: #fff;
-            text-decoration: none;
-        }
-    </style>
+    @include('robot-council::partials.head', ['title' => 'Sign-in expired'])
 </head>
-<body>
-    <h1>That sign-in attempt expired</h1>
+<body class="min-h-screen bg-base-200 font-sans antialiased">
+    <main class="mx-auto flex min-h-screen max-w-lg items-center p-4">
+        <div class="card w-full bg-base-100 shadow-sm">
+            <div class="card-body">
+                <h1 class="card-title">That sign-in attempt expired</h1>
 
-    <p>
-        Sign-in carries a one-time value that is checked when GitHub sends you back, and this
-        request did not carry a valid one. Refreshing the page after signing in does it, and so does
-        leaving the GitHub screen open long enough for the session to lapse.
-    </p>
+                <p>
+                    Sign-in carries a one-time value that is checked when GitHub sends you back, and
+                    this request did not carry a valid one. Refreshing the page after signing in does
+                    it, and so does leaving the GitHub screen open long enough for the session to lapse.
+                </p>
 
-    <p><a class="button" href="{{ route('robot-council.auth.redirect') }}">Start again</a></p>
+                <div class="card-actions mt-2">
+                    <a class="btn btn-primary" href="{{ route('robot-council.auth.redirect') }}">Start again</a>
+                </div>
 
-    <p class="muted">
-        If starting again brings you straight back here, your browser is most likely refusing the
-        cookie this site needs to remember the attempt.
-    </p>
+                <p class="text-sm opacity-70">
+                    If starting again brings you straight back here, your browser is most likely
+                    refusing the cookie this site needs to remember the attempt.
+                </p>
+            </div>
+        </div>
+    </main>
 </body>
 </html>
