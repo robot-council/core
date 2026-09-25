@@ -61,11 +61,13 @@ final class GitHubState
      * @param  Tasks  $tasks  The task store, for freeing a lane.
      * @param  GateRuns  $gates  The gate runs, ended when their pull request leaves the open set.
      * @param  OwedItems  $owed  What the fleet waits on developers for, settled by their tickets (#335).
+     * @param  LaneConditions  $conditions  Told when a merge leaves sessions behind (#319).
      */
     public function __construct(
         private readonly Tasks $tasks,
         private readonly GateRuns $gates,
-        private readonly OwedItems $owed
+        private readonly OwedItems $owed,
+        private readonly LaneConditions $conditions
     ) {}
 
     /**
@@ -227,6 +229,12 @@ final class GitHubState
 
         // A gate running a pull request that has left the open set is running nothing (#336)
         $this->gates->endPullRequest($repository, $stored->number);
+
+        // A merge leaves every live session in that repository behind (#319). Told after this
+        // delivery commits, so the raise neither holds these rows nor can undo the delivery
+        if ($stored->merged) {
+            $this->conditions->merged($repository, $stored->number);
+        }
 
         if ($stored->head_ref === null) {
             return 'applied';
