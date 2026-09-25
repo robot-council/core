@@ -55,11 +55,13 @@ final class LaneBoard
      * @param  Seats  $seats  The seat store, for `Parked`.
      * @param  AgentLogins  $logins  Resolves host user keys to GitHub logins.
      * @param  Backlog  $backlog  The backlog counts, for the meters.
+     * @param  OwedItems  $owed  What the fleet waits on developers for (#335).
      */
     public function __construct(
         private readonly Seats $seats,
         private readonly AgentLogins $logins,
-        private readonly Backlog $backlog
+        private readonly Backlog $backlog,
+        private readonly OwedItems $owed
     ) {}
 
     /**
@@ -70,6 +72,7 @@ final class LaneBoard
      *     pull_requests: array<string, list<array{number: int, reference: string, title: string, state: string}>>,
      *     meters: array<string, array{count: int|null, delta: int|null, age_seconds: int|null}>,
      *     counts: array<string, int>,
+     *     waiting: list<array{developer: string|null, items: list<array{id: int, ticket: string, question: string, why: string, recorded_at: Carbon}>}>,
      *     truncated: bool,
      *     last_change: Carbon|null,
      *     observed_at: Carbon
@@ -93,6 +96,7 @@ final class LaneBoard
             'pull_requests' => $this->pullRequests(array_keys($rows)),
             'meters' => $this->meters(array_keys($rows)),
             'counts' => self::tally($rows),
+            'waiting' => $this->owed->open(),
             'truncated' => $truncated,
             'last_change' => $changes === [] ? null : Carbon::parse(max($changes)),
             'observed_at' => Carbon::now(),

@@ -153,7 +153,28 @@
     <div class="card bg-base-100 shadow-sm">
         <div class="card-body">
             <h2 class="card-title">Waiting on a developer</h2>
-            <p class="text-sm opacity-60">Not reported yet.</p>
+
+            {{-- `General` first, then one section per developer (#335). An item naming a developer
+                 the fleet no longer knows is dropped by `Support\OwedItems::open()`, never moved to
+                 `General` where it would stop being anyone's --}}
+            @forelse ($board['waiting'] as $section)
+                <div wire:key="owed-{{ $section['developer'] ?? '-general' }}" data-owed-section="{{ $section['developer'] ?? 'General' }}">
+                    <h3 class="font-medium">{{ $section['developer'] ?? 'General' }}</h3>
+                    <ul class="text-sm">
+                        @foreach ($section['items'] as $item)
+                            <li wire:key="owed-item-{{ $item['id'] }}" data-owed-item>
+                                @if (\RobotCouncil\Support\TicketLink::url($item['ticket']) !== null)
+                                    <a href="{{ \RobotCouncil\Support\TicketLink::url($item['ticket']) }}" class="link" rel="noopener noreferrer">{{ $item['ticket'] }}</a>
+                                @endif
+                                &mdash; {{ $item['question'] }}
+                                <span class="opacity-70">{{ $item['why'] }} &middot; waiting {{ $item['recorded_at']->diffForHumans(syntax: \Carbon\CarbonInterface::DIFF_ABSOLUTE) }}</span>
+                            </li>
+                        @endforeach
+                    </ul>
+                </div>
+            @empty
+                <p class="text-sm opacity-60">Nothing is waiting on a developer.</p>
+            @endforelse
         </div>
     </div>
 

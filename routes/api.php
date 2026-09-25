@@ -29,6 +29,7 @@ use RobotCouncil\Http\Controllers\GitHubWebhookController;
 use RobotCouncil\Http\Controllers\LaneHoldController;
 use RobotCouncil\Http\Controllers\ListTasksController;
 use RobotCouncil\Http\Controllers\LockController;
+use RobotCouncil\Http\Controllers\OwedItemController;
 use RobotCouncil\Http\Controllers\PostDirectiveController;
 use RobotCouncil\Http\Controllers\PostNarrationController;
 use RobotCouncil\Http\Controllers\ReportTaskBranchController;
@@ -114,6 +115,15 @@ Route::middleware(['throttle:'.RobotCouncilServiceProvider::AGENT_LIMITER, Ensur
         Route::post('backlog/readings', BacklogReadingController::class)
             ->middleware(RequireAbility::class.':'.Ability::EventsPost->value)
             ->name('backlog.readings');
+
+        // What the fleet is waiting on a developer for (#335). The coordinator's record
+        Route::post('owed-items', [OwedItemController::class, 'store'])
+            ->middleware(RequireAbility::class.':'.Ability::CoordinatorDirect->value)
+            ->name('owed.store');
+        Route::delete('owed-items/{item}', [OwedItemController::class, 'destroy'])
+            ->where('item', RobotCouncilServiceProvider::ROUTE_ID)
+            ->middleware(RequireAbility::class.':'.Ability::CoordinatorDirect->value)
+            ->name('owed.settle');
 
         Route::post('directives', PostDirectiveController::class)
             ->middleware(RequireAbility::class.':'.Ability::CoordinatorDirect->value)

@@ -54,8 +54,12 @@ final class GitHubState
 
     /**
      * @param  Tasks  $tasks  The task store, for freeing a lane.
+     * @param  OwedItems  $owed  What the fleet waits on developers for, settled by their tickets (#335).
      */
-    public function __construct(private readonly Tasks $tasks) {}
+    public function __construct(
+        private readonly Tasks $tasks,
+        private readonly OwedItems $owed
+    ) {}
 
     /**
      * Apply one delivery.
@@ -150,6 +154,19 @@ final class GitHubState
         }
 
         $this->store($repository, $issue, $isPull);
+
+        // What the fleet waits on a developer for settles when its ticket stops needing a human
+        // (#335): the `hitl` label removed -- read off this delivery, since only the delivery says
+        // which label went -- or the ticket closed, read off the stored state as the lane is below
+        $label = \is_array($payload['label'] ?? null) ? ($payload['label']['name'] ?? null) : null;
+
+        if (! $isPull && $action === 'unlabeled' && $label === 'hitl') {
+            $this->owed->settleTicket($repository.'#'.self::number($issue), 'hitl_removed');
+        }
+
+        if ($action === 'closed' && ! $isPull && $this->stored($repository, self::number($issue))?->isOpen() === false) {
+            $this->owed->settleTicket($repository.'#'.self::number($issue), 'ticket_closed');
+        }
 
         if ($action !== 'closed' || $isPull || $this->stored($repository, self::number($issue))?->isOpen() !== false) {
             return 'applied';

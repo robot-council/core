@@ -97,7 +97,9 @@ it('pays for one panel per page', function (string $section, int $queries): void
     // seat, issue and pull-request reads are skipped; each is one query when it runs, whatever the
     // number of lanes or repositories -- `LanesTest` holds that
     'the overview: the gate, the layout, three counts and the lane summary' => ['dashboard', 12],
-    'the lanes: the same five, three last-change reads, the gate and the layout' => ['lanes', 11],
+    // Two more for what the fleet waits on developers for (#335): the open items, and the logins that
+    // decide whether each still names someone
+    'the lanes: the same five, three last-change reads, two for owed items, the gate and the layout' => ['lanes', 13],
     'presence: sessions, their installations, their logins, the held locks and two summaries' => ['presence', 11],
     'the queue: the tasks, their sessions and their logins' => ['queue', 6],
     'the feed: the events and their logins' => ['feed', 5],
