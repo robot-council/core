@@ -6,9 +6,11 @@ namespace RobotCouncil\Http\Controllers;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use RobotCouncil\Http\Principal;
 use RobotCouncil\Support\AgentSessions;
 use RobotCouncil\Support\Credentials;
+use RobotCouncil\Support\Platform;
 use RobotCouncil\Support\WorkIdentity;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -46,6 +48,12 @@ final class SessionStartController
             // has not been upgraded working.
             'repository' => ['nullable', 'string', 'max:'.WorkIdentity::MAX_REPOSITORY, 'regex:'.WorkIdentity::REPOSITORY],
             'work_location' => ['nullable', 'string', 'max:'.WorkIdentity::MAX_LOCATION, 'regex:'.WorkIdentity::LOCATION],
+
+            // Reported by the bridge, never typed in (#351). Optional, so an older bridge starts a
+            // session as it always has; an OS family outside PHP's own set is refused, not stored
+            'platform' => ['sometimes', 'nullable', 'array:os_family,arch'],
+            'platform.os_family' => ['required_with:platform', 'string', Rule::in(Platform::OS_FAMILIES)],
+            'platform.arch' => ['sometimes', 'nullable', 'string', 'max:'.Platform::MAX_ARCH, 'regex:'.Platform::ARCH],
         ]);
 
         $projectId = $request->filled('project_id') ? $request->string('project_id')->value() : null;
@@ -68,7 +76,16 @@ final class SessionStartController
             [$repository, $workLocation] = WorkIdentity::fromProjectId($projectId);
         }
 
-        $issued = $sessions->start($installation, $repository, $workLocation);
+        $osFamily = $request->input('platform.os_family');
+        $arch = $request->input('platform.arch');
+
+        $issued = $sessions->start(
+            $installation,
+            $repository,
+            $workLocation,
+            \is_string($osFamily) ? $osFamily : null,
+            \is_string($arch) ? $arch : null
+        );
 
         return new JsonResponse([
             'session_id' => $issued->owner->getKey(),

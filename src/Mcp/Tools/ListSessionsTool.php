@@ -16,6 +16,7 @@ use RobotCouncil\Http\Controllers\ListSessionsController;
 use RobotCouncil\Mcp\ActsAsAgent;
 use RobotCouncil\Mcp\Arguments;
 use RobotCouncil\Support\LiveSessions;
+use RobotCouncil\Support\Platform;
 
 /**
  * The sessions in the fleet right now, as a tool (#325).
@@ -45,7 +46,7 @@ final class ListSessionsTool extends Tool
     {
         return 'List the sessions in the fleet right now, newest first: every `active` and `stale` '
             .'session, never a `gone` one, with its developer, machine, role, repository, work '
-            .'location, status, last contact, and the tasks it holds. Read from the session table, so '
+            .'location, operating system, status, last contact, and the tasks it holds. Read from the session table, so '
             .'it is complete however far back the feed has been pruned. Page it with the `cursor` from '
             .'the previous call; it is null on the last page. Tasks you may not claim come back with '
             .'`readable` false and no title or description.';
@@ -64,6 +65,7 @@ final class ListSessionsTool extends Tool
             'role' => $schema->string()
                 ->enum(array_map(static fn (Role $role): string => $role->value, Role::cases()))
                 ->description('Only sessions holding this role.'),
+            'os_family' => $schema->string()->enum(Platform::OS_FAMILIES)->description('Only sessions on this OS family, as the bridge reported it.'),
             'limit' => $schema->integer()->description(sprintf('How many to return, up to %d.', LiveSessions::MAX_PAGE)),
             'after' => $schema->integer()->description('The `cursor` from the previous call.'),
         ];
@@ -85,6 +87,7 @@ final class ListSessionsTool extends Tool
         $role = $request->get('role');
         $limit = $request->get('limit');
         $after = $request->get('after');
+        $osFamily = $request->get('os_family');
 
         return Response::structured($sessions->page(
             $this->session($http),
@@ -94,7 +97,8 @@ final class ListSessionsTool extends Tool
             \is_string($repository) && $repository !== '' ? $repository : null,
             \is_string($role) ? Role::tryFrom($role) : null,
             $limit === null ? LiveSessions::MAX_PAGE : Arguments::integer($limit),
-            $after === null ? null : Arguments::integer($after)
+            $after === null ? null : Arguments::integer($after),
+            \is_string($osFamily) && $osFamily !== '' ? $osFamily : null
         ));
     }
 }

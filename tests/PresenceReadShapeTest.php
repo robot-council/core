@@ -68,6 +68,8 @@ it('returns every key a session row carries, and no others', function (): void {
         'role',
         'repository',
         'work_location',
+        'os_family',
+        'arch',
         'status',
         'seconds_since_contact',
     ]);
