@@ -321,3 +321,53 @@ it('resumes through MCP as well, which is the surface the model reads', function
         ->not->toContain('Before the session.')
         ->and($fromZero)->toContain('Before the session.');
 });
+
+it("leaves the agent's resume position alone when its bridge reads without acknowledging", function (): void {
+    [$sessionId, $token, $start] = startedSession($this, $this->mine);
+
+    $this->service(FleetEvents::class)->record(FleetEventType::Directive, null, 'Placed on you.');
+    $this->service(FleetEvents::class)->record(FleetEventType::Directive, null, 'And this after it.');
+
+    // The bridge's follower polls past both, from its own position, as it does every ten seconds
+    $polled = $this->machine($token)
+        ->getJson(route('robot-council.events.index', ['after' => $start, 'acknowledge' => 0]))
+        ->assertOk();
+
+    expect(bodiesOf(arrayValue($polled->json('events'))))->toBe(['Placed on you.', 'And this after it.']);
+
+    // Its NEXT poll names the cursor that page returned, which is the call that used to acknowledge
+    // both events on the agent's behalf
+    $this->machine($token)
+        ->getJson(route('robot-council.events.index', ['after' => intValue($polled->json('cursor')), 'acknowledge' => 0]))
+        ->assertOk();
+
+    expect(storedCursor($sessionId))->toBe($start);
+
+    // The agent's own first read, with no `after`, is shown what the bridge already read
+    expect(mcpFeedBodies($this, $token))->toContain('Placed on you.', 'And this after it.');
+});
+
+it('still acknowledges a supplied cursor unless told not to, and never moves one backwards', function (): void {
+    [$sessionId, $token, $start] = startedSession($this, $this->mine);
+
+    $events = $this->service(FleetEvents::class);
+    $first = $events->record(FleetEventType::Directive, null, 'First.');
+    $events->record(FleetEventType::Directive, null, 'Second.');
+
+    $this->machine($token)->getJson(route('robot-council.events.index', ['after' => $first->id, 'acknowledge' => 1]))->assertOk();
+
+    expect(storedCursor($sessionId))->toBe($first->id);
+
+    // No flag at all is the old behavior, and an earlier cursor cannot drag the position back
+    $this->machine($token)->getJson(route('robot-council.events.index', ['after' => $start]))->assertOk();
+
+    expect(storedCursor($sessionId))->toBe($first->id);
+});
+
+it('refuses an acknowledge flag that is not a boolean', function (): void {
+    [, $token] = startedSession($this, $this->mine);
+
+    $this->machine($token)->getJson(route('robot-council.events.index', ['acknowledge' => 'sometimes']))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('acknowledge');
+});

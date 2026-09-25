@@ -78,13 +78,20 @@ final class FleetFeed
      * The acknowledgement is written after the page is read, so a read that throws records
      * nothing.
      *
+     * **A reader that follows the feed on the agent's behalf reads without acknowledging (#354).**
+     * The stored position is the AGENT's: what its no-argument read resumes from. A bridge that
+     * polls every few seconds and acknowledged as it went would move that position past events the
+     * agent was never shown -- a task placed on it included -- so its reads pass
+     * `$acknowledge = false`, keep their own position in memory, and leave the agent's alone.
+     *
      * @param  AgentSession  $reader  The session doing the reading.
      * @param  int|null  $after  The last event ID the reader has seen, or null to resume.
      * @param  int  $limit  How many events to examine.
+     * @param  bool  $acknowledge  Whether a supplied `after` moves the stored position.
      * @return array{events: list<array<string, mixed>>, cursor: int} The visible events and where
      *                                                                to read from next.
      */
-    public function after(AgentSession $reader, ?int $after, int $limit): array
+    public function after(AgentSession $reader, ?int $after, int $limit, bool $acknowledge = true): array
     {
         $from = $after ?? $this->cursors->of($reader);
 
@@ -144,7 +151,9 @@ final class FleetFeed
         // What the reader told us it had processed, not where this page reached. Advancing to the
         // latter would skip a page that was returned and never arrived; this way that page is
         // simply unacknowledged, and comes again.
-        $this->cursors->acknowledge($reader, $from);
+        if ($acknowledge) {
+            $this->cursors->acknowledge($reader, $from);
+        }
 
         return ['events' => $described, 'cursor' => $this->cursor($described, $page, $reached, $from)];
     }

@@ -787,6 +787,12 @@ than vanish. It also means a reader that never sends `after` keeps receiving the
 stored position only ever moves forward, and a cursor past the end of the feed is ignored rather
 than stored.
 
+**A reader following the feed for an agent passes `acknowledge=false`** (#354). The stored position is
+what the agent's own read resumes from when it names no `after`, so a bridge that polls on the
+agent's behalf and acknowledged as it went would move it past events the agent was never shown -- a
+task placed on it included. With `acknowledge=false` the read writes nothing, and the reader keeps its
+own position.
+
 **Recovering it.** `POST sessions/{id}/renew` and `GET agent/session` both state the current
 position, so a restarted process reads it back instead of choosing between replaying the feed from
 `0` and starting a new session.
