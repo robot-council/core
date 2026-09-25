@@ -118,11 +118,20 @@
  *
  * daisyUI draws a card's body at 0.875rem, a table at 0.875rem and a `table-sm` row at 0.75rem,
  * `btn-sm` text at 0.75rem and `btn-xs` at 0.6875rem, `badge-sm` at 0.75rem and `badge-xs` at
- * 0.625rem, and a stat's title and description at 0.75rem. Every one of those but the first two is
- * below the floor, and the first two are what make `body` a step at all rather than a name.
+ * 0.625rem, a stat's title and description at 0.75rem, and an `input-sm` at 0.75rem. Every one of
+ * those but the first two is below the floor, and the first two are what make `body` a step at all
+ * rather than a name.
+ *
+ * **Several of those sizes arrive through a custom property rather than `font-size`**, so the lift
+ * has to set the property the component reads: `--fontsize` for a button, `--card-fs` for a card
+ * body, and `--font-size-min` for an input, which daisyUI draws at `max(--font-size,
+ * --font-size-min)`. Setting `font-size` on an `input-sm` would be overridden by that rule.
  *
  * **Only the text changes.** A control's height and padding are daisyUI's still, because control
- * affordance is its own ticket; a 0.875rem label fits the 1.5rem box `btn-xs` draws.
+ * affordance is its own ticket; a 0.875rem label fits the 1.5rem box `btn-xs` draws. `badge-sm` is
+ * the tight one: its 1.25rem box leaves 1.125rem inside the border, and the 0.875rem label is
+ * centered in it by daisyUI's flex layout with little room to spare. It is left there rather than
+ * resized, for the same reason.
  *
  * **No view uses `table-sm` any more**, so a table takes daisyUI's default cell padding. The class
  * shrank the text and the padding together, and #310 named both as part of why the dashboard read
@@ -144,6 +153,7 @@
 
     :where(.table, .table thead, .table tfoot, .table-sm tr, .table-xs tr) {
         font-size: var(--text-table);
+        line-height: var(--text-table--line-height);
     }
 
     :where(.btn-xs, .btn-sm) {
@@ -152,6 +162,10 @@
 
     :where(.badge-xs, .badge-sm, .stat-title, .stat-desc) {
         font-size: var(--text-meta);
+    }
+
+    :where(.input-xs, .input-sm) {
+        --font-size-min: var(--text-meta);
     }
 }
 

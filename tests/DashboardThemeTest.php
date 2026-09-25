@@ -548,30 +548,103 @@ const TYPE_SCALE = [
 const TYPE_FLOOR_REM = 0.875;
 
 /**
- * Tailwind size utilities a view may still name, each mapped to the reason it has to.
+ * Off-scale sizes a view may still carry, each mapped to the reason it has to.
  *
- * Empty, and meant to stay that way. A view names a step of the scale, never a Tailwind size at or
- * below `body`, because a Tailwind size in a view is a size the scale cannot move.
+ * Empty, and meant to stay that way. A view names a step of the scale, because any other size in a
+ * view is a size the scale cannot move.
  *
  * @var array<string, string>
  */
-const TAILWIND_SIZES_ALLOWED_IN_VIEWS = [];
+const OFF_SCALE_SIZES_ALLOWED_IN_VIEWS = [];
 
 /**
- * Every Tailwind size at or below `body` that a source names, as a class token.
+ * Every way a source sets a text size without naming a step of the scale.
  *
- * A variant counts -- `sm:text-xs` is reported as its `text-xs` -- and `text-xs-foo` does not. Comments are NOT stripped:
- * Tailwind's scanner reads them, so a class named in a Blade comment reaches the artifact (#230),
- * and a view explaining which size it no longer uses should say so without spelling the class.
+ * - A Tailwind size at or below `body`: `text-xs`, `text-sm`, `text-base`. A variant counts --
+ *   `sm:text-xs` is reported as its `text-xs` -- and `text-xs-foo` does not.
+ * - An arbitrary size: `text-[13px]`, `text-[length:...]`, `text-(length:--x)`, or the arbitrary
+ *   property `[font-size:...]`. An arbitrary COLOR, `text-[#fff]`, is not a size and is not reported.
+ * - An inline style setting `font-size` or the `font` shorthand.
+ * - `<small>`, which the browser's own stylesheet draws at `smaller`.
+ *
+ * Comments are NOT stripped: Tailwind's scanner reads them, so a class named in a Blade comment
+ * reaches the artifact (#230), and a view explaining which size it no longer uses should say so
+ * without spelling the class.
  *
  * @param  string  $source  A template's raw source.
- * @return list<string> The class tokens found, in order.
+ * @return list<string> What was found, in order.
  */
-function tailwindSizesIn(string $source): array
+function offScaleSizesIn(string $source): array
 {
-    preg_match_all('/(?<![\w-])text-(?:xs|sm|base)(?![\w-])/', $source, $found);
+    preg_match_all(
+        '/(?<![\w-])text-(?:xs|sm|base)(?![\w-])'
+        .'|(?<![\w-])text-\[(?:length:[^\]]*|[\d.]+[a-z%]*)\]'
+        .'|(?<![\w-])text-\(length:[^)]*\)'
+        .'|\[font-size:[^\]]*\]'
+        .'|\bstyle\s*=\s*["\'][^"\']*\bfont(?:-size)?\s*:'
+        .'|<small\b/i',
+        $source,
+        $found
+    );
 
     return $found[0];
+}
+
+/**
+ * The blocks enclosing an offset in the stylesheet, outermost first.
+ *
+ * Each is the header text before its `{` -- `@layer utilities`, `@media (...)`, a selector -- read
+ * after the last `;` so that `@layer components;@layer utilities{` reads as `@layer utilities`. The
+ * minified artifact carries no brace inside a string or a comment, which the controls in the test
+ * that uses this establish rather than assume: a daisyUI rule must come back nested deeper than a
+ * Tailwind utility, or the reading is wrong.
+ *
+ * @param  string  $css  The stylesheet.
+ * @param  int  $offset  A byte offset into it.
+ * @return list<string> The enclosing headers, outermost first.
+ */
+function blocksEnclosing(string $css, int $offset): array
+{
+    preg_match_all('/[{}]/', substr($css, 0, $offset), $braces, PREG_OFFSET_CAPTURE);
+
+    $stack = [];
+    $previous = -1;
+
+    foreach ($braces[0] as [$brace, $at]) {
+        if ($brace === '{') {
+            $header = substr($css, $previous + 1, $at - $previous - 1);
+            $semicolon = strrpos($header, ';');
+
+            $stack[] = trim($semicolon === false ? $header : substr($header, $semicolon + 1));
+        } else {
+            array_pop($stack);
+        }
+
+        $previous = $at;
+    }
+
+    return $stack;
+}
+
+/**
+ * The rules that apply the scale to daisyUI's own sizes: each `:where()` rule setting a value from
+ * a step's token, with its byte offset in the artifact.
+ *
+ * @return list<array{selectors: string, offset: int}>
+ */
+function scaleLiftRules(): array
+{
+    preg_match_all(
+        '/:where\(([^{}]*)\)\{[^{}]*var\(--text-(?:body|meta|table)[^{}]*\}/',
+        stylesheet(),
+        $found,
+        PREG_SET_ORDER | PREG_OFFSET_CAPTURE
+    );
+
+    return array_map(
+        static fn (array $rule): array => ['selectors' => $rule[1][0], 'offset' => $rule[0][1]],
+        $found
+    );
 }
 
 it('states the type scale once, at the sizes it chose', function (): void {
@@ -585,20 +658,28 @@ it('states the type scale once, at the sizes it chose', function (): void {
             ->and($tokens[$step.'--line-height'] ?? null)->not->toBeNull(sprintf('--%s--line-height', $step));
     }
 
-    // And the utilities the views name read those tokens rather than a size of their own, so the
-    // token is the one place a step changes
+    // And whatever draws each step reads its tokens rather than a size of its own, so the token is
+    // the one place a step changes. `table` has no utility; the rule lifting daisyUI's table is
+    // what consumes it, line-height included
     expect(stylesheet())
         ->toContain('.text-body{font-size:var(--text-body);line-height:var(--tw-leading,var(--text-body--line-height))}')
-        ->toContain('.text-meta{font-size:var(--text-meta);line-height:var(--tw-leading,var(--text-meta--line-height))}');
+        ->toContain('.text-meta{font-size:var(--text-meta);line-height:var(--tw-leading,var(--text-meta--line-height))}')
+        ->toContain('{font-size:var(--text-table);line-height:var(--text-table--line-height)}');
 });
 
-it('names a step of the scale in every view, never a Tailwind size at or below body', function (): void {
+it('names a step of the scale in every view, never another size', function (): void {
     // The instrument first, on sources it must and must not report, so an empty result below is a
     // clean tree rather than a pattern that stopped matching
-    expect(tailwindSizesIn('<p class="mt-1 text-xs opacity-70">'))->toBe(['text-xs'])
-        ->and(tailwindSizesIn('<p class="sm:text-sm">'))->toBe(['text-sm'])
-        ->and(tailwindSizesIn('<h2 class="card-title text-base">'))->toBe(['text-base'])
-        ->and(tailwindSizesIn('<p class="text-meta text-xl text-xs-wide">'))->toBeEmpty();
+    expect(offScaleSizesIn('<p class="mt-1 text-xs opacity-70">'))->toBe(['text-xs'])
+        ->and(offScaleSizesIn('<p class="sm:text-sm">'))->toBe(['text-sm'])
+        ->and(offScaleSizesIn('<h2 class="card-title text-base">'))->toBe(['text-base'])
+        ->and(offScaleSizesIn('<p class="text-[13px] text-[length:var(--x)] text-(length:--y)">'))
+        ->toBe(['text-[13px]', 'text-[length:var(--x)]', 'text-(length:--y)'])
+        ->and(offScaleSizesIn('<p class="[font-size:11px]">'))->toBe(['[font-size:11px]'])
+        ->and(offScaleSizesIn('<p style="color: red; font-size: 11px">'))->toHaveCount(1)
+        ->and(offScaleSizesIn("<p style='font: 11px sans-serif'>"))->toHaveCount(1)
+        ->and(offScaleSizesIn('<small>fine print</small>'))->toBe(['<small'])
+        ->and(offScaleSizesIn('<p class="text-meta text-xl text-xs-wide text-[#fff]" style="color: red">'))->toBeEmpty();
 
     $found = [];
     $read = 0;
@@ -606,9 +687,9 @@ it('names a step of the scale in every view, never a Tailwind size at or below b
     foreach (bladeTemplatesIn(__DIR__.'/../resources/views') as $view) {
         $read++;
 
-        foreach (tailwindSizesIn((string) file_get_contents($view)) as $class) {
-            if (! array_key_exists($class, TAILWIND_SIZES_ALLOWED_IN_VIEWS)) {
-                $found[] = sprintf('%s: %s', basename($view), $class);
+        foreach (offScaleSizesIn((string) file_get_contents($view)) as $size) {
+            if (! array_key_exists($size, OFF_SCALE_SIZES_ALLOWED_IN_VIEWS)) {
+                $found[] = sprintf('%s: %s', basename($view), $size);
             }
         }
     }
@@ -621,19 +702,38 @@ it('names a step of the scale in every view, never a Tailwind size at or below b
 it('lifts every size daisyUI draws below the floor, for every component a view uses', function (): void {
     $css = stylesheet();
 
-    // The classes the scale's own rules cover, read out of the artifact rather than listed here,
-    // so this checks what shipped. Each is a `:where()` rule setting a size from a token.
-    preg_match_all('/:where\(([^{}]*)\)\{(?:font-size|--fontsize|--card-fs):var\(--text-(?:body|meta|table)\)\}/', $css, $rules);
+    // **Every property daisyUI feeds into a font size, read out of the artifact.** A component that
+    // sizes its text through a custom property -- `--fontsize` for a button, `--card-fs` for a card
+    // body, `--font-size-min` for an input -- is invisible to a check reading only `font-size`, and
+    // that is how `input-sm` shipped at 0.75rem past the first version of this test. Derived rather
+    // than listed, so a property a daisyUI upgrade introduces is read without anyone adding it.
+    preg_match_all('/font-size:([^;}]*)/', $css, $declarations);
+    preg_match_all('/var\(--([a-z0-9-]+)/', implode(';', $declarations[1]), $fed);
 
+    $properties = array_values(array_unique(array_filter(
+        $fed[1],
+        static fn (string $property): bool => ! str_starts_with($property, 'text-') && ! str_starts_with($property, 'tw-'),
+    )));
+
+    // The control: the four daisyUI draws with today. Missing one means the derivation stopped
+    // reading the artifact rather than that the property went away
+    expect($properties)->toContain('fontsize', 'card-fs', 'font-size', 'font-size-min');
+
+    $sized = implode('|', array_map(
+        static fn (string $property): string => preg_quote('--'.$property, '/'),
+        $properties,
+    ));
+
+    // The classes the scale's own rules cover, read out of the artifact rather than listed here
     $lifted = [];
 
-    foreach ($rules[1] as $selectors) {
-        preg_match_all('/\.([a-z][a-z0-9-]*)/', $selectors, $classes);
+    foreach (scaleLiftRules() as $rule) {
+        preg_match_all('/\.([a-z][a-z0-9-]*)/', $rule['selectors'], $classes);
 
         $lifted = [...$lifted, ...$classes[1]];
     }
 
-    expect($lifted)->toContain('btn-xs', 'btn-sm', 'badge-sm', 'stat-title', 'stat-desc', 'table', 'card-body');
+    expect($lifted)->toContain('btn-xs', 'btn-sm', 'badge-sm', 'stat-title', 'stat-desc', 'table', 'card-body', 'input-sm');
 
     // Every rule in the artifact that sets a rem size below the floor, keyed by the first class of
     // EACH selector in its list -- `.btn-xs{--fontsize:.6875rem}` is `btn-xs`. Each, not the list's
@@ -644,8 +744,9 @@ it('lifts every size daisyUI draws below the floor, for every component a view u
     $small = [];
 
     foreach ($all as [, $selectors, $body]) {
-        if (preg_match('/(?:^|;)(?:font-size|--fontsize):(\d*\.?\d+)rem/', $body, $size) !== 1
-            || (float) $size[1] >= TYPE_FLOOR_REM) {
+        preg_match_all('/(?:^|;)(?:font-size|'.$sized.'):(\d*\.?\d+)rem/', $body, $sizes);
+
+        if (array_filter($sizes[1], static fn (string $size): bool => (float) $size < TYPE_FLOOR_REM) === []) {
             continue;
         }
 
@@ -659,9 +760,10 @@ it('lifts every size daisyUI draws below the floor, for every component a view u
         }
     }
 
-    // The control: daisyUI draws `btn-xs` at 0.6875rem, so a parser that found nothing below the
-    // floor has stopped reading the artifact rather than found it clean
-    expect($small)->toHaveKey('btn-xs');
+    // The controls, one per path: daisyUI draws `btn-xs` at 0.6875rem through `--fontsize` and
+    // `input-sm` at 0.75rem through `--font-size-min`, so a detector missing either has stopped
+    // reading that path rather than found it clean
+    expect($small)->toHaveKeys(['btn-xs', 'input-sm']);
 
     $views = '';
 
@@ -669,8 +771,9 @@ it('lifts every size daisyUI draws below the floor, for every component a view u
         $views .= sourceWithoutComments($view)."\n";
     }
 
-    // Only a component a view actually names can render: daisyUI emits `input-sm` and
-    // `floating-label` whether or not anything uses them
+    // Only a component a view names can render, and the artifact carries more than the views use:
+    // daisyUI emits some rules wholesale -- the card size modifiers are here with no view naming
+    // one -- so the candidates are narrowed to classes a view actually writes
     $unlifted = array_values(array_filter(
         array_keys($small),
         static fn (string $class): bool => preg_match('/(?<![\w-])'.preg_quote($class, '/').'(?![\w-])/', $views) === 1
@@ -678,4 +781,34 @@ it('lifts every size daisyUI draws below the floor, for every component a view u
     ));
 
     expect($unlifted)->toBeEmpty(implode(', ', $unlifted));
+});
+
+it('keeps the scale where it beats daisyUI and loses to a utility', function (): void {
+    $css = stylesheet();
+
+    // The reader's controls, first. A Tailwind utility sits directly in `utilities`, and a daisyUI
+    // component in a sublayer of it, so a reader that could not tell those apart would pass the
+    // assertion below wherever the rules went
+    $utility = strpos($css, '.text-meta{');
+    $daisy = strpos($css, '.btn-xs{--fontsize:.6875rem');
+
+    expect($utility)->toBeInt()
+        ->and($daisy)->toBeInt()
+        ->and(blocksEnclosing($css, (int) $utility))->toBe(['@layer utilities'])
+        ->and(blocksEnclosing($css, (int) $daisy))->toHaveCount(2)
+        ->and(blocksEnclosing($css, (int) $daisy)[0])->toBe('@layer utilities')
+        ->and(blocksEnclosing($css, (int) $daisy)[1])->toStartWith('@layer daisyui');
+
+    // **Directly inside `utilities`, and nowhere else, is what makes the lift work.** daisyUI nests
+    // its components in sublayers of `utilities`, and a rule unlayered within a layer beats every
+    // sublayer of it. In `@layer components` the lift would lose to daisyUI outright; inside a
+    // daisyUI sublayer it would depend on source order. Either way the text would render at
+    // daisyUI's size with every other assertion here still passing.
+    $rules = scaleLiftRules();
+
+    expect($rules)->not->toBeEmpty();
+
+    foreach ($rules as $rule) {
+        expect(blocksEnclosing($css, $rule['offset']))->toBe(['@layer utilities'], $rule['selectors']);
+    }
 });
