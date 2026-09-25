@@ -835,12 +835,15 @@ Three things worth knowing before you enable it:
   Slack failure surfaces on a request whose event is already committed. Set
   `ROBOT_COUNCIL_SLACK_CONNECTION` to a real queue connection. The package will not fail a write
   because Slack is unreachable, but it cannot move the work off the request for you.
-- **Narration is mirrored by default, and the feed's visibility rule does not apply to Slack.** That
+- **The restricted events are mirrored by default, and the feed's visibility rule does not apply to
+  Slack.** That covers narration, `lane.quiet`, `lane.condition` and `placement.instruction`. The
   rule governs what one developer's *agent* may read from another's, because event content is
   untrusted input to something that may have shell access. A Slack channel is a human surface, and
   being a narration channel for humans is the point of having one — but it does mean everyone with
-  channel access reads every agent's narration. Set `ROBOT_COUNCIL_SLACK_MIRROR_NARRATION=false` to
-  mirror only state changes and directives.
+  channel access reads every agent's narration and every placement's instructions. Set
+  `ROBOT_COUNCIL_SLACK_MIRROR_RESTRICTED=false` to mirror only state changes and directives. The
+  older name, `ROBOT_COUNCIL_SLACK_MIRROR_NARRATION`, is still read when the new one is unset, and
+  the new one wins when both are set (#366).
 - **The mirror's rate limit needs a shared cache store.** It is one limit across every worker,
   because Slack's is per webhook. On `CACHE_STORE=array` or `file` it is per process or per machine,
   and on `null` there is no limit at all.
