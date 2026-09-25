@@ -2,6 +2,13 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.6.16 — Wiki Step (2026-09-25)
+
+Refreshing the wiki is now a step of every release, and releases are published through REST as pre-releases; the wiki was checked for this release, and only Home's version line changes.
+
+### Maintenance and tooling
+- Make refreshing the wiki a step of every release, and publish releases through REST [#431](https://github.com/robot-council/core/pull/431)
+
 ## v0.6.15 — Type Scale (2026-09-25)
 
 The dashboard states its type scale once, nothing renders below 14px, and dimmed text reaches the AAA contrast ratio in both themes.
