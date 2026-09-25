@@ -12,6 +12,7 @@ use Laravel\Mcp\Server\Contracts\Transport;
 use Laravel\Mcp\Server\Tool;
 use RobotCouncil\Mcp\Tools\BacklogReportTool;
 use RobotCouncil\Mcp\Tools\CreateTaskTool;
+use RobotCouncil\Mcp\Tools\GateRunTool;
 use RobotCouncil\Mcp\Tools\HeartbeatTool;
 use RobotCouncil\Mcp\Tools\LaneHoldTool;
 use RobotCouncil\Mcp\Tools\ListTasksTool;
@@ -96,6 +97,8 @@ final class CouncilServer extends Server
             new OwedItemTool,
             new OwedItemTool(settles: true),
             new BacklogReportTool,
+            new GateRunTool,
+            new GateRunTool(clears: true),
         ];
     }
 }

@@ -92,14 +92,14 @@ it('pays for one panel per page', function (string $section, int $queries): void
     expect(queriesIssuedBy(fn () => $this->get(route('robot-council.'.$section))->assertOk()))->toBe($queries);
 })->with([
     // The fixture holds one session, one held lock and one task, so no panel reads an empty table
-    // The overview's lane summary (#317) adds five: the live sessions, their installations, their
-    // held tasks, their holds and their logins. This fixture's session names no repository, so the
+    // The overview's lane summary (#317) adds six: the live sessions, their installations, their
+    // held tasks, their holds, their logins and the gates' runs (#336). This fixture's session names no repository, so the
     // seat, issue and pull-request reads are skipped; each is one query when it runs, whatever the
     // number of lanes or repositories -- `LanesTest` holds that
-    'the overview: the gate, the layout, three counts and the lane summary' => ['dashboard', 12],
+    'the overview: the gate, the layout, three counts and the lane summary' => ['dashboard', 13],
     // Two more for what the fleet waits on developers for (#335): the open items, and the logins that
     // decide whether each still names someone
-    'the lanes: the same five, three last-change reads, two for owed items, the gate and the layout' => ['lanes', 13],
+    'the lanes: the same six, three last-change reads, two for owed items, the gate and the layout' => ['lanes', 14],
     'presence: sessions, their installations, their logins, the held locks and two summaries' => ['presence', 11],
     'the queue: the tasks, their sessions and their logins' => ['queue', 6],
     'the feed: the events and their logins' => ['feed', 5],
