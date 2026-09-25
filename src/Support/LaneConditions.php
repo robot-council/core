@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace RobotCouncil\Support;
 
 use Carbon\CarbonImmutable;
+use Closure;
 use DateTimeInterface;
 use Illuminate\Contracts\Config\Repository;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Support\Facades\DB;
 use RobotCouncil\Access\Role;
 use RobotCouncil\Models\AgentSession;
@@ -17,6 +19,7 @@ use RobotCouncil\Models\LaneHold;
 use RobotCouncil\Models\Placement;
 use RobotCouncil\Models\Task;
 use RobotCouncil\Models\TaskStatus;
+use Throwable;
 
 /**
  * The lane conditions that go quiet, raised to the coordinator as fleet events (#319).
@@ -26,10 +29,19 @@ use RobotCouncil\Models\TaskStatus;
  * restricted and addressed to the live coordinators, so it arrives through the feed and the stop
  * hook every other event does -- no new channel.
  *
- * **Once per occurrence.** An open row in `robot_council_lane_conditions` means the coordinator was
- * told and the condition still holds; a check that no longer finds it clears the row, and a
- * recurrence raises again. With no coordinator live nothing is raised or recorded, so the first
- * check after one appears tells it.
+ * **Once per occurrence.** An open row in `robot_council_lane_conditions` means the condition
+ * holds; `raised_at` says whether the coordinator was told. A check that no longer finds it clears
+ * the row, and a recurrence raises again. With no coordinator live the row waits unraised, so the
+ * first check after one appears tells it -- **for the conditions a check recomputes**, which is
+ * every one but `merge_behind` and a lane that ended: those are told on the event itself or not at
+ * all. Rows are per occurrence, not per coordinator, so a coordinator that restarts is not told
+ * again what its predecessor already was; `lane.quiet` behaves the same.
+ *
+ * **Every raise holds the feed before it reads this table**, which puts the table after the feed
+ * sentinel in the package's lock order and makes the check-then-insert atomic -- `for update` on a
+ * row that does not exist locks nothing on Postgres. And a raise from inside another write (a
+ * presence transition, a GitHub delivery) runs **after that write commits and cannot fail it**: a
+ * coordinator not being told is a lesser failure than a session that cannot go stale.
  *
  * The conditions #319 routes to the board rather than to an event -- an owed item settled by its
  * ticket, and a question not yet answered -- are the lane board's (#335), and a placement "never
@@ -67,12 +79,14 @@ final class LaneConditions
      * @param  Repository  $config  The application's configuration, for the windows.
      * @param  Seats  $seats  Whether a lane is parked.
      * @param  GateRuns  $gates  Which pull requests a gate is on.
+     * @param  ExceptionHandler  $handler  Where a raise that failed after its write is reported.
      */
     public function __construct(
         private readonly FleetEvents $events,
         private readonly Repository $config,
         private readonly Seats $seats,
-        private readonly GateRuns $gates
+        private readonly GateRuns $gates,
+        private readonly ExceptionHandler $handler
     ) {}
 
     /**
@@ -90,16 +104,22 @@ final class LaneConditions
             ...$this->freeLanes($now),
             ...$this->notTakenUp($now),
             ...$this->unpickedPullRequests($now),
+            ...$this->unobservedLanes(),
         ];
 
         $raised = 0;
 
-        foreach ($current as [$condition, $subject, $body, $meta]) {
-            $raised += $this->raise($condition, $subject, $body, $meta, $now) ? 1 : 0;
+        foreach ($current as [$condition, $subject, $body, $meta, $due]) {
+            $raised += $this->raise($condition, $subject, $body, $meta, $now, $due) ? 1 : 0;
         }
 
-        $this->clearAllBut([self::LANE_FREE, self::NOT_TAKEN_UP, self::PULL_REQUEST_UNPICKED], $current, $now);
-        $this->clearAnswered($now);
+        // `merge_behind` and an ended lane are never recomputed, so every open row of theirs is
+        // cleared here: they were told, or could not be, and nothing would clear them otherwise
+        $this->clearAllBut(
+            [self::LANE_FREE, self::NOT_TAKEN_UP, self::PULL_REQUEST_UNPICKED, self::WORKING_UNOBSERVED, self::MERGE_BEHIND],
+            $current,
+            $now
+        );
 
         return $raised;
     }
@@ -108,32 +128,24 @@ final class LaneConditions
      * Raise at once when a lane holding work stops answering or ends -- on the presence
      * transition, not on the next check.
      *
-     * Called inside the transition's own transaction, after its feed event, so the two commit
-     * together.
+     * The work is read here, inside the transition's transaction, so an ended lane is described
+     * with what it held before the release takes it. The raise itself waits for the commit.
      *
      * @param  AgentSession  $session  The session that went stale or gone.
      * @param  AgentSessionStatus  $into  Which.
      */
     public function sessionUnobserved(AgentSession $session, AgentSessionStatus $into): void
     {
-        $held = Task::query()
-            ->where('claimed_by', $session->getKey())
-            ->whereIn('status', TaskStatus::values(TaskStatus::held()))
-            ->orderBy('id')
-            ->pluck('id')
-            ->all();
+        $held = $this->heldBy([$session->id])[$session->id] ?? [];
 
         if ($held === []) {
             return;
         }
 
-        $this->raise(
-            self::WORKING_UNOBSERVED,
-            'session:'.$session->id,
-            sprintf('Session #%d holds work and is %s.', $session->id, $into->value),
-            ['session_id' => $session->id, 'status' => $into->value, 'task_ids' => $held],
-            CarbonImmutable::now('UTC')
-        );
+        [$condition, $subject, $body, $meta] = $this->unobserved($session->id, $into, $held);
+        $at = CarbonImmutable::now('UTC');
+
+        $this->afterCommit(fn (): bool => $this->raise($condition, $subject, $body, $meta, $at));
     }
 
     /**
@@ -159,54 +171,67 @@ final class LaneConditions
             return;
         }
 
-        $this->raise(
+        $at = CarbonImmutable::now('UTC');
+
+        $this->afterCommit(fn (): bool => $this->raise(
             self::MERGE_BEHIND,
             $repository.'#'.$number,
             sprintf('%s#%d merged; %d live session(s) in that repository are now behind.', $repository, $number, \count($behind)),
             ['pull_request' => $repository.'#'.$number, 'session_ids' => $behind],
-            CarbonImmutable::now('UTC')
-        );
+            $at
+        ));
     }
 
     /**
-     * Raise one condition unless it is already open.
+     * Record a condition as holding, and tell the coordinators once it is due.
      *
      * @param  string  $condition  Which condition.
      * @param  string  $subject  What it is about.
      * @param  string  $body  The event's text.
      * @param  array<string, mixed>  $meta  The event's detail.
      * @param  CarbonImmutable  $now  When.
+     * @param  bool  $due  Whether its window has passed, so the coordinator should be told now.
      * @return bool True when it was raised.
      */
-    private function raise(string $condition, string $subject, string $body, array $meta, CarbonImmutable $now): bool
+    private function raise(string $condition, string $subject, string $body, array $meta, CarbonImmutable $now, bool $due = true): bool
     {
-        $coordinators = AgentSession::query()
-            ->where('role', Role::Coordinator->value)
-            ->where('status', '!=', AgentSessionStatus::Gone->value)
-            ->get()
-            ->all();
+        return DB::transaction(function () use ($condition, $subject, $body, $meta, $now, $due): bool {
+            // The feed first, for the lock order and for atomicity both -- see the class docblock
+            $this->events->hold();
 
-        if ($coordinators === []) {
-            return false;
-        }
-
-        return DB::transaction(function () use ($condition, $subject, $body, $meta, $now, $coordinators): bool {
             $open = DB::table('robot_council_lane_conditions')
                 ->where('condition', $condition)
                 ->where('subject', $subject)
                 ->whereNull('cleared_at')
-                ->lockForUpdate()
-                ->exists();
+                ->first(['id', 'raised_at']);
 
-            if ($open) {
+            if ($open === null) {
+                $id = DB::table('robot_council_lane_conditions')->insertGetId([
+                    'condition' => $condition,
+                    'subject' => $subject,
+                    'observed_at' => $now,
+                ]);
+            } elseif ($open->raised_at !== null) {
+                return false;
+            } else {
+                $id = $open->id;
+            }
+
+            if (! $due) {
                 return false;
             }
 
-            DB::table('robot_council_lane_conditions')->insert([
-                'condition' => $condition,
-                'subject' => $subject,
-                'raised_at' => $now,
-            ]);
+            $coordinators = AgentSession::query()
+                ->where('role', Role::Coordinator->value)
+                ->where('status', '!=', AgentSessionStatus::Gone->value)
+                ->get()
+                ->all();
+
+            if ($coordinators === []) {
+                return false;
+            }
+
+            DB::table('robot_council_lane_conditions')->where('id', $id)->update(['raised_at' => $now]);
 
             $this->events->record(
                 FleetEventType::LaneCondition,
@@ -221,10 +246,28 @@ final class LaneConditions
     }
 
     /**
+     * Run a raise once the surrounding write has committed, reporting rather than throwing.
+     *
+     * Outside a transaction it runs at once, which is still after everything it follows.
+     *
+     * @param  Closure(): bool  $raise  The raise.
+     */
+    private function afterCommit(Closure $raise): void
+    {
+        DB::afterCommit(function () use ($raise): void {
+            try {
+                $raise();
+            } catch (Throwable $throwable) {
+                $this->handler->report($throwable);
+            }
+        });
+    }
+
+    /**
      * Clear the open rows of scheduled conditions no longer found.
      *
      * @param  list<string>  $conditions  The conditions this check computes.
-     * @param  list<array{string, string, string, array<string, mixed>}>  $current  What it found.
+     * @param  list<array{string, string, string, array<string, mixed>, bool}>  $current  What it found.
      * @param  CarbonImmutable  $now  When.
      */
     private function clearAllBut(array $conditions, array $current, CarbonImmutable $now): void
@@ -235,7 +278,13 @@ final class LaneConditions
             $holding[$condition."\n".$subject] = true;
         }
 
-        $open = DB::table('robot_council_lane_conditions')->whereIn('condition', $conditions)->whereNull('cleared_at')->get(['id', 'condition', 'subject']);
+        // Only what was observed before this check began: a row a presence transition inserted
+        // while the check ran is not one the check could have found
+        $open = DB::table('robot_council_lane_conditions')
+            ->whereIn('condition', $conditions)
+            ->whereNull('cleared_at')
+            ->where('observed_at', '<=', $now)
+            ->get(['id', 'condition', 'subject']);
 
         foreach ($open as $row) {
             $key = (\is_string($row->condition) ? $row->condition : '')."\n".(\is_string($row->subject) ? $row->subject : '');
@@ -247,31 +296,18 @@ final class LaneConditions
     }
 
     /**
-     * Clear an unobserved-lane condition once that session answers again.
+     * Build lanes free -- live, holding nothing, not parked, not held -- and whether each has been
+     * free for longer than its window.
+     *
+     * **Measured from when a check first saw the lane free**, not from the lane's history. A lane
+     * is freed by its own completion, by a pull request merging, by a coordinator moving its work,
+     * or by the service releasing it, and those events do not all name the lane -- a reading taken
+     * from them started the clock at whatever the lane last did itself, which on a merge-freed lane
+     * is hours early. The first sighting is late by at most one check and never early.
      *
      * @param  CarbonImmutable  $now  When.
-     */
-    private function clearAnswered(CarbonImmutable $now): void
-    {
-        $answering = AgentSession::query()->where('status', AgentSessionStatus::Active->value)->pluck('id')
-            ->map(static fn (mixed $id): string => 'session:'.(is_numeric($id) ? (int) $id : 0))
-            ->all();
-
-        if ($answering !== []) {
-            DB::table('robot_council_lane_conditions')
-                ->where('condition', self::WORKING_UNOBSERVED)
-                ->whereIn('subject', $answering)
-                ->whereNull('cleared_at')
-                ->update(['cleared_at' => $now]);
-        }
-    }
-
-    /**
-     * Build lanes free -- live, holding nothing, not parked, not held -- for longer than their
-     * window, and since when.
-     *
-     * @param  CarbonImmutable  $now  When.
-     * @return list<array{string, string, string, array<string, mixed>}> The conditions.
+     * @return list<array{string, string, string, array<string, mixed>, bool}> Every free lane, and
+     *                                                                         whether it is due.
      */
     private function freeLanes(CarbonImmutable $now): array
     {
@@ -284,54 +320,101 @@ final class LaneConditions
             ->orderBy('id')
             ->get();
 
-        $working = Task::query()->whereIn('claimed_by', $lanes->pluck('id')->all())
-            ->whereIn('status', TaskStatus::values(TaskStatus::held()))->pluck('claimed_by')
-            ->map(static fn (mixed $id): int => is_numeric($id) ? (int) $id : 0)->all();
+        $working = $this->heldBy($lanes->pluck('id')->all());
         $held = LaneHold::query()->whereIn('agent_session_id', $lanes->pluck('id')->all())->pluck('agent_session_id')
             ->map(static fn (mixed $id): int => is_numeric($id) ? (int) $id : 0)->all();
         $seats = $this->seats->forSessions($lanes);
 
+        $observed = [];
+
+        foreach (DB::table('robot_council_lane_conditions')->where('condition', self::LANE_FREE)->whereNull('cleared_at')->get(['subject', 'observed_at']) as $row) {
+            if (\is_string($row->subject) && \is_string($row->observed_at)) {
+                $observed[$row->subject] = CarbonImmutable::parse($row->observed_at, 'UTC');
+            }
+        }
+
         foreach ($lanes as $lane) {
-            if (\in_array($lane->id, $working, true) || \in_array($lane->id, $held, true) || ($seats[$lane->id] ?? null)?->isParked() === true) {
+            if (isset($working[$lane->id]) || \in_array($lane->id, $held, true) || ($seats[$lane->id] ?? null)?->isParked() === true) {
                 continue;
             }
 
-            $since = $this->freeSince($lane);
+            $subject = 'session:'.$lane->id;
+            $since = $observed[$subject] ?? $now;
             $minutes = (int) $since->diffInMinutes($now, true);
 
-            if ($minutes >= $window) {
-                $found[] = [
-                    self::LANE_FREE,
-                    'session:'.$lane->id,
-                    sprintf('Session #%d has been free, with no stated hold, for %d minutes.', $lane->id, $minutes),
-                    ['session_id' => $lane->id, 'free_since' => $since->toIso8601String()],
-                ];
-            }
+            $found[] = [
+                self::LANE_FREE,
+                $subject,
+                sprintf('Session #%d has been free, with no stated hold, for at least %d minutes.', $lane->id, $minutes),
+                ['session_id' => $lane->id, 'free_since' => $since->toIso8601String()],
+                $minutes >= $window,
+            ];
         }
 
         return $found;
     }
 
     /**
-     * When a lane last finished or gave back work, or started if it never has.
+     * Stale lanes still holding work, recomputed on every check.
      *
-     * Read from its own task events, matched on the event's session and developer both, since
-     * session ids are reused.
+     * The presence transition raises this at once; recomputing it is what tells a coordinator that
+     * was not live at the transition, and what clears the row once the lane answers again.
      *
-     * @param  AgentSession  $lane  The lane.
-     * @return CarbonImmutable The moment.
+     * @return list<array{string, string, string, array<string, mixed>, bool}> The conditions.
      */
-    private function freeSince(AgentSession $lane): CarbonImmutable
+    private function unobservedLanes(): array
     {
-        $latest = DB::table('robot_council_events')
-            ->where('agent_session_id', $lane->getKey())
-            ->where('user_id', $lane->user_id)
-            ->whereIn('type', [FleetEventType::TaskCompleted->value, FleetEventType::TaskFailed->value, FleetEventType::TaskReleased->value])
-            ->max('created_at');
+        $stale = AgentSession::query()->where('status', AgentSessionStatus::Stale->value)->orderBy('id')->pluck('id')
+            ->map(static fn (mixed $id): int => is_numeric($id) ? (int) $id : 0)->all();
 
-        $started = $lane->getAttributes()['created_at'] ?? null;
+        $found = [];
 
-        return CarbonImmutable::parse(\is_string($latest) ? $latest : (\is_string($started) ? $started : 'now'), 'UTC');
+        foreach ($this->heldBy($stale) as $session => $tasks) {
+            $found[] = [...$this->unobserved($session, AgentSessionStatus::Stale, $tasks), true];
+        }
+
+        return $found;
+    }
+
+    /**
+     * One unobserved lane, as a condition.
+     *
+     * An ended lane is a subject of its own, so a lane that went stale and then ended is told both.
+     *
+     * @param  int  $session  The session.
+     * @param  AgentSessionStatus  $into  Stale or gone.
+     * @param  list<int>  $tasks  What it holds.
+     * @return array{string, string, string, array<string, mixed>} The condition.
+     */
+    private function unobserved(int $session, AgentSessionStatus $into, array $tasks): array
+    {
+        return [
+            self::WORKING_UNOBSERVED,
+            'session:'.$session.($into === AgentSessionStatus::Gone ? ':gone' : ''),
+            sprintf('Session #%d holds work and is %s.', $session, $into->value),
+            ['session_id' => $session, 'status' => $into->value, 'task_ids' => $tasks],
+        ];
+    }
+
+    /**
+     * The held tasks of each of these sessions, by session.
+     *
+     * @param  list<mixed>  $sessions  The session ids.
+     * @return array<int, list<int>> Task ids by session, for the sessions holding any.
+     */
+    private function heldBy(array $sessions): array
+    {
+        $held = [];
+
+        if ($sessions === []) {
+            return $held;
+        }
+
+        foreach (Task::query()->whereIn('claimed_by', $sessions)->whereIn('status', TaskStatus::values(TaskStatus::held()))->orderBy('id')->get(['id', 'claimed_by']) as $task) {
+            $held[(int) $task->claimed_by][] = $task->id;
+        }
+
+        return $held;
     }
 
     /**
@@ -339,11 +422,14 @@ final class LaneConditions
      * them, which the event says.
      *
      * @param  CarbonImmutable  $now  When.
-     * @return list<array{string, string, string, array<string, mixed>}> The conditions.
+     * @return list<array{string, string, string, array<string, mixed>, bool}> The conditions.
      */
     private function notTakenUp(CarbonImmutable $now): array
     {
-        $cutoff = $now->subMinutes($this->minutes('take_up_within_minutes', 15));
+        // On the application's clock, because `claimed_at` is written with `Carbon::now()` and a
+        // bound date is sent as its digits: a UTC cutoff on a host at UTC-5 would put every
+        // placement five hours past its window
+        $cutoff = $now->subMinutes($this->minutes('take_up_within_minutes', 15))->setTimezone(date_default_timezone_get());
         $found = [];
 
         $tasks = Task::query()
@@ -359,6 +445,7 @@ final class LaneConditions
                 'task:'.$task->id,
                 sprintf('Task #%d was placed on session #%d and has not been taken up%s.', $task->id, (int) $task->claimed_by, $task->hand_back ? ' -- it is a hand-back the lane owes' : ''),
                 ['task_id' => $task->id, 'session_id' => $task->claimed_by, 'hand_back' => $task->hand_back],
+                true,
             ];
         }
 
@@ -372,12 +459,24 @@ final class LaneConditions
      * draft or was last pushed -- the fleet stores no separate ready time.
      *
      * @param  CarbonImmutable  $now  When.
-     * @return list<array{string, string, string, array<string, mixed>}> The conditions.
+     * @return list<array{string, string, string, array<string, mixed>, bool}> The conditions.
      */
     private function unpickedPullRequests(CarbonImmutable $now): array
     {
         $cutoff = $now->subMinutes($this->minutes('gate_pickup_within_minutes', 30));
         $running = array_map(mb_strtolower(...), array_values($this->gates->running()));
+
+        // Only where a live gate works. "No gate picked it up" is news where a gate could have,
+        // and a repository no gate serves would otherwise raise one event for every open pull
+        // request it has -- the whole backfill, on the first run
+        $served = AgentSession::query()
+            ->where('role', Role::Ci->value)
+            ->where('status', '!=', AgentSessionStatus::Gone->value)
+            ->whereNotNull('repository')
+            ->pluck('repository')
+            ->map(static fn (mixed $repository): string => mb_strtolower(\is_string($repository) ? $repository : ''))
+            ->all();
+
         $found = [];
 
         $pulls = GitHubItem::query()
@@ -390,7 +489,7 @@ final class LaneConditions
             ->get();
 
         foreach ($pulls as $pull) {
-            if (\in_array(mb_strtolower($pull->reference()), $running, true)) {
+            if (! \in_array(mb_strtolower($pull->repository), $served, true) || \in_array(mb_strtolower($pull->reference()), $running, true)) {
                 continue;
             }
 
@@ -399,6 +498,7 @@ final class LaneConditions
                 $pull->reference(),
                 sprintf('%s is ready and no gate has picked it up.', $pull->reference()),
                 ['pull_request' => $pull->reference()],
+                true,
             ];
         }
 

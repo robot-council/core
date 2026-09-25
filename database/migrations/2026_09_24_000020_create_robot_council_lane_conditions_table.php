@@ -11,9 +11,9 @@ use Illuminate\Support\Facades\Schema;
  *
  * **Raised once, cleared when it stops holding, raised again if it recurs.** A condition is checked
  * on a schedule, so without a record of what was already said the coordinator would be told on
- * every run. An open row -- no `cleared_at` -- means the coordinator has been told and the
- * condition still holds; when it stops holding the row is cleared, and if it holds again a new row
- * and a new event follow.
+ * every run. An open row -- no `cleared_at` -- means the condition still holds, and `raised_at`
+ * says whether the coordinator has been told; when it stops holding the row is cleared, and if it
+ * holds again a new row and a new event follow.
  */
 return new class extends Migration
 {
@@ -34,7 +34,15 @@ return new class extends Migration
 
             // What the condition is about: `session:12`, `task:40`, `robot-council/core#318`
             $table->string('subject', 191);
-            $table->dateTime('raised_at');
+
+            // When a check first found it holding, which is the clock `lane_free` is measured on:
+            // nothing in the fleet records when a lane stopped holding work on every path that
+            // frees one, so the first sighting is the honest lower bound
+            $table->dateTime('observed_at');
+
+            // Null until the coordinator is told, which waits for the condition's window and for a
+            // coordinator to be live
+            $table->dateTime('raised_at')->nullable();
             $table->dateTime('cleared_at')->nullable();
 
             $table->index(['condition', 'subject', 'cleared_at'], 'robot_council_lane_conditions_open');

@@ -229,7 +229,8 @@ final class GitHubState
         // A gate running a pull request that has left the open set is running nothing (#336)
         $this->gates->endPullRequest($repository, $stored->number);
 
-        // A merge leaves every live session in that repository behind (#319)
+        // A merge leaves every live session in that repository behind (#319). Told after this
+        // delivery commits, so the raise neither holds these rows nor can undo the delivery
         if ($stored->merged) {
             $this->conditions->merged($repository, $stored->number);
         }
