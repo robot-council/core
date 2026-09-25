@@ -2,6 +2,13 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.6.9 — Agents and Locks (2026-09-25)
+
+The console's Presence page is now two pages, Agents and Locks, linked each way from a session to the locks it holds.
+
+### What's new
+- Split the Presence page into an Agents page and a Locks page [#388](https://github.com/robot-council/core/pull/388)
+
 ## v0.6.8 — Page Titles (2026-09-25)
 
 Each console page now carries its own title, and the fleet's name is configurable through `robot-council.dashboard.name`.
