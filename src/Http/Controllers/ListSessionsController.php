@@ -12,6 +12,7 @@ use RobotCouncil\Access\Role;
 use RobotCouncil\Access\Tokens;
 use RobotCouncil\Http\Principal;
 use RobotCouncil\Support\LiveSessions;
+use RobotCouncil\Support\Platform;
 use RobotCouncil\Support\WorkIdentity;
 
 /**
@@ -41,7 +42,8 @@ final class ListSessionsController
             $request->filled('repository') ? $request->string('repository')->value() : null,
             $request->filled('role') ? Role::tryFrom($request->string('role')->value()) : null,
             $request->integer('limit', LiveSessions::MAX_PAGE),
-            $request->filled('after') ? $request->integer('after') : null
+            $request->filled('after') ? $request->integer('after') : null,
+            $request->filled('os_family') ? $request->string('os_family')->value() : null
         ));
     }
 
@@ -57,6 +59,7 @@ final class ListSessionsController
             // what a session can hold and nothing else
             'repository' => ['sometimes', 'nullable', 'string', 'max:'.WorkIdentity::MAX_REPOSITORY, 'regex:'.WorkIdentity::REPOSITORY],
             'role' => ['sometimes', 'nullable', 'string', Rule::enum(Role::class)],
+            'os_family' => ['sometimes', 'nullable', 'string', Rule::in(Platform::OS_FAMILIES)],
             'limit' => ['sometimes', 'integer', 'min:1', 'max:'.LiveSessions::MAX_PAGE],
             'after' => ['sometimes', 'nullable', 'integer', 'min:1'],
         ];

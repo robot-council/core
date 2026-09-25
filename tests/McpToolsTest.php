@@ -909,6 +909,7 @@ it('lists the live sessions through the tool as the endpoint does', function ():
         ->and($ids($list(['limit' => 1, 'after' => $first['cursor'] ?? null])))->toBe([$this->session->id])
         ->and($ids($list(['role' => 'coordinator'])))->toBe([$coordinator->id])
         ->and($ids($list(['repository' => 'robot-council/core'])))->toBe([$this->session->id])
+        ->and($ids($list(['os_family' => 'Windows'])))->toBeEmpty()
         // Read as absent, as the endpoint reads `?repository=`
         ->and($ids($list(['repository' => ''])))->toBe([$coordinator->id, $this->session->id])
         ->and(toolError(callTool($this, $this->token, 'sessions_list', ['role' => 'admin'])))->toContain('role');

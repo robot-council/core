@@ -84,6 +84,7 @@ final class PackageMigrations
         '2026_09_24_000018_add_mentioned_paths_to_robot_council_github_items',
         '2026_09_24_000019_create_robot_council_github_branches_table',
         '2026_09_24_000020_create_robot_council_lane_conditions_table',
+        '2026_09_25_000001_add_platform_to_robot_council_agent_sessions',
 
         // Retired by #132, which dated the create so something dated could alter its table. Both
         // names stay here forever: a host that migrated before that change has a row for each.

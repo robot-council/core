@@ -154,7 +154,9 @@ protocol below is documented for anyone writing their own client.
    `DELETE {prefix}/api/sessions/{id}` ends one when its harness exits, so what it held is released
    at once rather than after the presence threshold. All three take the installation credential,
    because the token belonging to the process that just died is the one thing that may no longer
-   work. Ending is idempotent.
+   work. Ending is idempotent. A start may carry `platform`, with `os_family` (one of PHP's
+   `PHP_OS_FAMILY` values) and an optional `arch`, as the bridge reports them; an older bridge
+   that sends neither starts a session as before.
 
 Every response that carries a bearer token names it `token`, every expiry is an `expires_in` in
 seconds, and `abilities` always describes the token beside it. Where a response also names
@@ -482,9 +484,10 @@ developer has left the fleet stops rendering rather than moving to `General`. Bo
 ## Who is here
 
 `GET {prefix}/api/lanes` (or `sessions_list`), needing no ability, lists every `active` and `stale`
-session, newest first, with its developer, machine, role, repository, work location, status, last
-contact, and the tasks it holds. It reads the session table rather than the change feed, so it is
-complete however far back the feed has been pruned. `repository` and `role` narrow it, and `after`
+session, newest first, with its developer, machine, role, repository, work location, operating
+system, status, last contact, and the tasks it holds. It reads the session table rather than the
+change feed, so it is complete however far back the feed has been pruned. `repository`, `role` and
+`os_family` narrow it, and `after`
 takes the previous page's `cursor`, which is null on the last page. A held task's title and
 description appear only where the reader may act on that task, on the rule `task_list` applies.
 

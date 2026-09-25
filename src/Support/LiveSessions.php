@@ -52,6 +52,7 @@ final class LiveSessions
      * @param  bool  $asCoordinator  Whether the reader holds `coordinator:direct`.
      * @param  string|null  $repository  Only sessions working in this repository, or null for all.
      * @param  Role|null  $role  Only sessions holding this role, or null for every role.
+     * @param  string|null  $osFamily  Only sessions on this OS family (#351), or null for all.
      * @param  int  $limit  How many to return, clamped to `MAX_PAGE`.
      * @param  int|null  $after  The `cursor` from the previous page.
      * @return array{sessions: list<array<string, mixed>>, cursor: int|null}
@@ -63,7 +64,8 @@ final class LiveSessions
         ?string $repository,
         ?Role $role,
         int $limit,
-        ?int $after = null
+        ?int $after = null,
+        ?string $osFamily = null
     ): array {
         $size = max(1, min($limit, self::MAX_PAGE));
 
@@ -81,6 +83,7 @@ final class LiveSessions
             // default collation ignores case where SQLite and Postgres do not
             ->when($repository !== null, fn (Builder $query) => $query->whereRaw('lower(repository) = ?', [mb_strtolower((string) $repository)]))
             ->when($role instanceof Role, fn (Builder $query) => $query->where('role', $role?->value))
+            ->when($osFamily !== null, fn (Builder $query) => $query->where('os_family', $osFamily))
             ->when($after !== null, fn (Builder $query) => $query->where('id', '<', $after))
             ->orderByDesc('id')
             ->limit($size + 1)
@@ -115,6 +118,10 @@ final class LiveSessions
                 'role' => $session->role->value,
                 'repository' => $session->repository,
                 'work_location' => $session->work_location,
+
+                // As the bridge reported them at start (#351); null for an older bridge
+                'os_family' => $session->os_family,
+                'arch' => $session->arch,
 
                 // Read from the row, which is the decision the sweep made, rather than recomputed
                 // from the contact time -- a reader deriving it would disagree with every

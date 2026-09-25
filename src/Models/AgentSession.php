@@ -42,6 +42,8 @@ use RobotCouncil\Support\PresenceTimestamp;
  * @property Carbon $last_seen_at
  * @property string|null $repository
  * @property string|null $work_location
+ * @property string|null $os_family
+ * @property string|null $arch
  * @property Role|null $requested_role
  * @property Carbon|null $requested_at
  * @property int $feed_cursor
@@ -57,6 +59,8 @@ use RobotCouncil\Support\PresenceTimestamp;
     'last_seen_at',
     'repository',
     'work_location',
+    'os_family',
+    'arch',
     'requested_role',
     'requested_at',
 ])]

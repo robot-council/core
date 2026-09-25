@@ -158,6 +158,10 @@ final class FleetPresence
                 'repository' => $session->repository,
                 'work_location' => $session->work_location,
 
+                // As the bridge reported them at start (#351), charset-limited by `Platform`
+                'os_family' => $session->os_family,
+                'arch' => $session->arch,
+
                 // Read from the row rather than recomputed from `last_seen_at`. #24 made the row the
                 // decision, and a view that derived the status itself would disagree with the sweep
                 // for as long as the sweep had not run -- showing `stale` to a developer while every

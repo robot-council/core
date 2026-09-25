@@ -52,18 +52,23 @@ final class AgentSessions
      * @param  Installation  $installation  The installation the process is running under.
      * @param  string|null  $repository  The repository the process is working in, as `owner/name`.
      * @param  string|null  $workLocation  Which checkout of it, as a conventional label.
+     * @param  string|null  $osFamily  The OS family the bridge runs on, as `PHP_OS_FAMILY` (#351).
+     * @param  string|null  $arch  The architecture it runs on.
      * @return IssuedCredential<AgentSession> The session and its plaintext token.
      */
     public function start(
         Installation $installation,
         ?string $repository = null,
-        ?string $workLocation = null
+        ?string $workLocation = null,
+        ?string $osFamily = null,
+        ?string $arch = null
     ): IssuedCredential {
         // Bounded here as well as at the endpoint, because this is a public method a host may call
         // directly and the values reach other developers' agents through the enrollment event
         WorkIdentity::ensure($repository, $workLocation);
+        Platform::ensure($osFamily, $arch);
 
-        return DB::transaction(function () use ($installation, $repository, $workLocation): IssuedCredential {
+        return DB::transaction(function () use ($installation, $repository, $workLocation, $osFamily, $arch): IssuedCredential {
             $current = $this->locked($installation);
 
             // **Every session starts as `build`, and that is the decision rather than a default
@@ -89,6 +94,8 @@ final class AgentSessions
                 'last_seen_at' => PresenceClock::now(),
                 'repository' => $repository,
                 'work_location' => $workLocation,
+                'os_family' => $osFamily,
+                'arch' => $arch,
             ]);
 
             // In the same transaction as the session it describes, so a failure here leaves
@@ -105,6 +112,11 @@ final class AgentSessions
                     'installation_id' => $current->id,
                     'repository' => $repository,
                     'work_location' => $workLocation,
+
+                    // What a coordinator placing platform-bound work reads (#351), bounded by
+                    // `Support\Platform` for the same reason
+                    'os_family' => $osFamily,
+                    'arch' => $arch,
                 ]
             );
 

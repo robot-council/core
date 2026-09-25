@@ -48,6 +48,12 @@
                                     <td>
                                         <div>{{ $session['machine_label'] ?? 'an unknown machine' }}</div>
                                         <div class="text-xs opacity-60">{{ $session['harness'] ?? '' }}</div>
+
+                                        {{-- The operating system the bridge reported (#351), and
+                                             nothing for an older bridge that reported none --}}
+                                        @if (($session['os_family'] ?? null) !== null)
+                                            <div class="text-xs opacity-60">{{ $session['os_family'] }}{{ ($session['arch'] ?? null) !== null ? ' '.$session['arch'] : '' }}</div>
+                                        @endif
                                     </td>
 
                                     {{-- Where the session is working: the repository, and beneath it
