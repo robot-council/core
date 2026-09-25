@@ -167,9 +167,11 @@ it('serves light by default and dark to a system that asks for it', function ():
 });
 
 it('carries the brand primary in both themes', function (): void {
-    // Pinned on #184, and measured rather than picked: `oklch(57% 0.237 270)` is TailAdmin's
-    // `brand-500` converted, which is daisyUI's own stock hue family a step lighter.
-    expect(themeTokens(':where(:root)')['color-primary'] ?? null)->toBe('oklch(57% .237 270)')
+    // Pinned on #184, and measured rather than picked: `oklch(57% 0.237 270)` was TailAdmin's
+    // `brand-500` converted, daisyUI's own stock hue family a step lighter. #398 darkened the light
+    // theme's to `48%`, the same hue and chroma, so white on it reaches the AAA ratio (7.14:1); the
+    // operator decided that on #398.
+    expect(themeTokens(':where(:root)')['color-primary'] ?? null)->toBe('oklch(48% .237 270)')
         ->and(themeTokens('[data-theme=dark]')['color-primary'] ?? null)->toBe('oklch(69% .163 270)');
 });
 
@@ -189,6 +191,8 @@ it('keeps every pair it owns legible in both themes', function (string $theme, s
         'warning alert' => ['color-warning-content', 'color-warning'],
         'error alert' => ['color-error-content', 'color-error'],
         'error text on a card' => ['color-error', 'color-base-100'],
+        'error text on the page' => ['color-error', 'color-base-200'],
+        'active menu row' => ['color-neutral-content', 'color-neutral'],
     ];
 
     foreach ($pairs as $label => [$foreground, $background]) {
@@ -196,11 +200,13 @@ it('keeps every pair it owns legible in both themes', function (string $theme, s
 
         $ratio = contrastRatio($tokens[$foreground], $tokens[$background]);
 
-        // AA for normal text. The large-text bar of 3.0 is not used: a button label and a
-        // validation message are both normal text, and the theme cannot know which is which.
+        // AAA for normal text, per `.claude/rules/accessibility.md` (#398). The large-text bars are
+        // not used: a button label and a validation message are both 14px, and the theme cannot know
+        // which is which. No pair is excepted: the one #398 opened with, white on the light brand
+        // violet at 4.81:1, was settled by darkening the violet rather than by stopping at AA.
         expect($ratio)->toBeGreaterThanOrEqual(
-            4.5,
-            sprintf('%s theme, %s: %.2f:1 against a 4.5:1 bar', $theme, $label, $ratio)
+            7.0,
+            sprintf('%s theme, %s: %.2f:1 against a 7.0:1 bar', $theme, $label, $ratio)
         );
     }
 })->with([
@@ -381,6 +387,41 @@ function dimmedContrastRatio(string $foreground, string $background, float $alph
     $behind = relativeLuminance(linearRgb($background)) + 0.05;
 
     return $text > $behind ? $text / $behind : $behind / $text;
+}
+
+/**
+ * A colour mixed toward white or black in OKLab, as CSS `color-mix(in oklab, <colour>, <toward> N%)`
+ * paints it.
+ *
+ * White and black both sit at a = b = 0 in OKLab, so the mix moves lightness toward 1 or 0 and
+ * scales the chroma down by the same share; the hue does not change.
+ *
+ * @param  string  $color  An `oklch()` colour.
+ * @param  string  $toward  `#fff` or `#000`.
+ * @param  float  $share  How much of `$toward`, 0-1.
+ * @return string The mixed colour, as `oklch()`.
+ */
+function shadedToward(string $color, string $toward, float $share): string
+{
+    if (preg_match('/oklch\(\s*([\d.]+)(%?)\s+([\d.]+)\s+([\d.]+)/i', $color, $parts) !== 1) {
+        throw new InvalidArgumentException('Not an oklch() colour: '.$color);
+    }
+
+    $target = match (strtolower($toward)) {
+        '#fff', '#ffffff' => 1.0,
+        '#000', '#000000' => 0.0,
+        default => throw new InvalidArgumentException('Not white or black: '.$toward),
+    };
+
+    $lightness = (float) $parts[1];
+    $lightness = $parts[2] === '%' || $lightness > 1 ? $lightness / 100 : $lightness;
+
+    return sprintf(
+        'oklch(%F %F %F)',
+        $lightness * (1 - $share) + $target * $share,
+        (float) $parts[3] * (1 - $share),
+        (float) $parts[4]
+    );
 }
 
 /**
@@ -574,6 +615,121 @@ it('lifts every text daisyUI or the preflight dims below the bar, for everything
     $unlifted = array_values(array_filter($rendered, static fn (string $key): bool => ! isset($overridden[$key])));
 
     expect($unlifted)->toBeEmpty(implode(', ', $unlifted));
+});
+
+it("keeps a hovered or pressed button's label at the bar, in both themes", function (): void {
+    $css = stylesheet();
+
+    // **The fill a label sits on changes with the button's state, and the resting pair says nothing
+    // about it** (#398). daisyUI mixes 7% black into the fill on hover and 5% on press, and 5% at
+    // rest on anything carrying `aria-pressed="true"` -- every selected filter. The controls: both
+    // still ship, so the override below is answering something real.
+    expect($css)->toContain('.btn:hover{--btn-bg:color-mix(in oklab, var(--btn-color,var(--color-base-200)), #000 7%)}')
+        ->and($css)->toContain('.btn:is([aria-pressed=true],[aria-checked=true],[aria-current]:not([aria-current=false],[aria-current=""])){--btn-bg:color-mix(in oklab, var(--btn-color,var(--color-base-200)), #000 5%)}');
+
+    // The override's share and the warning button's direction, read out of the artifact. Captured
+    // outside `expect()`: Rector rewrites `expect(preg_match(...))->toBe(1)` into `toMatch()`, which
+    // keeps the assertion and drops the captures this reads.
+    $found = preg_match('/:where\(\.btn-primary,\.btn-warning\):is\(:hover,:active,\[aria-pressed=true\][^{]*\{--btn-bg:color-mix\(in oklab, ?var\(--btn-color\), ?var\(--btn-shade\) (\d+)%\)\}/', $css, $shareMatch);
+    $foundWarning = preg_match('/:where\(\.btn-warning\)\{--btn-shade:(#[0-9a-f]+)\}/i', $css, $warningMatch);
+
+    if ($found !== 1 || $foundWarning !== 1) {
+        throw new RuntimeException('The hovered-button override is missing from the built stylesheet.');
+    }
+
+    $share = (int) $shareMatch[1] / 100;
+    $warningShade = $warningMatch[1];
+
+    foreach (['light' => ':where(:root)', 'dark' => '[data-theme=dark]'] as $theme => $selector) {
+        $tokens = themeTokens($selector);
+
+        expect($tokens)->toHaveKey('primary-shade');
+
+        $pairs = [
+            'primary button' => [$tokens['color-primary-content'], shadedToward($tokens['color-primary'], $tokens['primary-shade'], $share)],
+            'warning alert' => [$tokens['color-warning-content'], shadedToward($tokens['color-warning'], $warningShade, $share)],
+        ];
+
+        foreach ($pairs as $label => [$text, $fill]) {
+            $ratio = contrastRatio($text, $fill);
+
+            expect($ratio)->toBeGreaterThanOrEqual(7.0, sprintf('%s theme, hovered or pressed %s: %.2f:1 against a 7.0:1 bar', $theme, $label, $ratio));
+        }
+    }
+});
+
+it('marks a pressed filter and the current page for forced colors, where their fill is lost', function (): void {
+    $css = stylesheet();
+
+    // **Two states the dashboard shows by fill** (#398). Under `forced-colors: active` the browser
+    // replaces every author background. A pressed `btn-primary` then reads exactly like its
+    // neighbours -- measured in headless Chrome with the forced-colors media feature emulated, before
+    // this rule: pressed and unpressed both painted black on a black canvas with the same white text.
+    // The current menu row kept one mark, a transparent outline daisyUI adds that forced colours make
+    // visible; the rule replaces it with the same fill as the filter, so both states read alike.
+    $at = strpos($css, '.btn[aria-pressed=true],.menu [aria-current=page]{forced-color-adjust:none;');
+
+    expect($at)->toBeInt();
+
+    $rule = substr($css, (int) $at, (int) strpos($css, '}', (int) $at) - (int) $at);
+
+    // `forced-color-adjust: none` releases every colour on the element, the focus ring's included,
+    // so the rule names the ring's colour too rather than leaving it the brand violet on the canvas
+    expect($rule)->toContain('background-color:highlight')
+        ->and($rule)->toContain('color:highlighttext')
+        ->and($rule)->toContain('outline-color:canvastext')
+        ->and(blocksEnclosing($css, (int) $at))->toBe(['@layer utilities', '@media (forced-colors:active)']);
+
+    // **And the rule reaches every such state the pages render.** It keys on the ARIA state, so a
+    // toggle built on something other than `.btn`, or a current-page marker outside a `.menu`, would
+    // announce its state and show nothing under forced colors. Read from the rendered pages rather
+    // than the source, where the attribute and the class sit in either order.
+    $this->migrateUsersTableWithPackageColumns();
+    $this->setAccessLists(developers: [4242], admins: [4242]);
+    $this->actingAs($this->enrollDeveloper(4242), 'web');
+
+    $pressed = 0;
+    $current = 0;
+
+    foreach (['dashboard', 'queue', 'agents', 'locks', 'lanes', 'feed', 'seats', 'administration'] as $page) {
+        $html = (string) $this->get(route('robot-council.'.$page))->assertOk()->getContent();
+
+        // An empty page parses to an empty document and would find nothing to check
+        if ($html === '') {
+            throw new RuntimeException(sprintf('The %s page rendered nothing.', $page));
+        }
+
+        $document = new DOMDocument;
+        $previous = libxml_use_internal_errors(true);
+        $document->loadHTML($html, LIBXML_NOERROR | LIBXML_NOWARNING);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        $xpath = new DOMXPath($document);
+
+        foreach ($xpath->query('//*[@aria-pressed]') ?: [] as $node) {
+            if ($node instanceof DOMElement) {
+                $pressed++;
+
+                expect(preg_split('/\s+/', $node->getAttribute('class')) ?: [])->toContain('btn');
+            }
+        }
+
+        foreach ($xpath->query('//*[@aria-current="page"]') ?: [] as $node) {
+            if ($node instanceof DOMElement) {
+                $current++;
+
+                $menus = $xpath->query('ancestor::ul[contains(concat(" ", normalize-space(@class), " "), " menu ")]', $node);
+
+                expect($menus instanceof DOMNodeList ? $menus->length : 0)->toBe(1);
+            }
+        }
+    }
+
+    // The controls: the Queue, Agents, Locks and Administration pages each render a filter row, and
+    // every page marks its sidebar entry, so zero of either is a read that saw nothing
+    expect($pressed)->toBeGreaterThanOrEqual(8)
+        ->and($current)->toBeGreaterThanOrEqual(8);
 });
 
 it('measures every dimmed step the views actually use', function (): void {
