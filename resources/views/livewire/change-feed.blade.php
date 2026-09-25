@@ -75,11 +75,11 @@
         @if ($before !== null || $hasOlder)
             <div class="flex items-center justify-end gap-2 pt-2">
                 @if ($before !== null)
-                    <button type="button" wire:click="showLatest" class="btn btn-sm btn-ghost">Latest</button>
+                    <button type="button" wire:click="showLatest" class="btn btn-sm btn-outline">Latest</button>
                 @endif
 
                 @if ($hasOlder && $oldest !== null)
-                    <button type="button" wire:click="showOlder({{ \RobotCouncil\Support\WireArgument::of($oldest) }})" class="btn btn-sm">Older</button>
+                    <button type="button" wire:click="showOlder({{ \RobotCouncil\Support\WireArgument::of($oldest) }})" class="btn btn-sm btn-outline">Older</button>
                 @endif
             </div>
         @endif

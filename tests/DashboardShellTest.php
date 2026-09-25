@@ -130,6 +130,10 @@ it('serves a stylesheet that carries the utilities the pages use, and not the on
         // the paging and scope controls #83 and #114 added
         'btn', 'btn-sm', 'btn-xs', 'btn-ghost', 'btn-primary', 'justify-between', 'flex-wrap',
 
+        // the resting boundary #309 gave every filter and pager, which is the only thing saying an
+        // unselected filter is a control
+        'btn-outline',
+
         // the admin panel
         'btn-warning', 'badge-warning', 'divide-y', 'space-y-1', 'items-start',
     ];

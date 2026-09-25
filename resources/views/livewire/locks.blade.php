@@ -10,17 +10,19 @@
         <div class="flex flex-wrap items-center justify-between gap-2">
             <h2 class="card-title">Locks</h2>
 
-            <div class="flex gap-1">
+            <div class="flex gap-1" role="group" aria-label="Filter by scope">
                 {{-- "Held" is held AND lapsed: a lease that has run out while the row still
                      names somebody is exactly what a developer is hunting, so it must not be
                      filtered away with the free ones. --}}
                 <button type="button" wire:click="show('{{ \RobotCouncil\Support\WireArgument::of(\RobotCouncil\Support\Scope::Live) }}')"
-                    class="btn btn-xs {{ $lockScope === \RobotCouncil\Support\Scope::Live ? 'btn-primary' : 'btn-ghost' }}">
+                    aria-pressed="{{ $lockScope === \RobotCouncil\Support\Scope::Live ? 'true' : 'false' }}"
+                    class="btn btn-xs {{ $lockScope === \RobotCouncil\Support\Scope::Live ? 'btn-primary' : 'btn-outline' }}">
                     Held ({{ $locks['held'] }})
                 </button>
 
                 <button type="button" wire:click="show('{{ \RobotCouncil\Support\WireArgument::of(\RobotCouncil\Support\Scope::All) }}')"
-                    class="btn btn-xs {{ $lockScope === \RobotCouncil\Support\Scope::All ? 'btn-primary' : 'btn-ghost' }}">
+                    aria-pressed="{{ $lockScope === \RobotCouncil\Support\Scope::All ? 'true' : 'false' }}"
+                    class="btn btn-xs {{ $lockScope === \RobotCouncil\Support\Scope::All ? 'btn-primary' : 'btn-outline' }}">
                     All ({{ $locks['held'] + $locks['free'] }})
                 </button>
             </div>
@@ -31,7 +33,7 @@
         @if ($holder !== null)
             <div class="flex flex-wrap items-center gap-2 text-sm">
                 <span>Showing locks held by session #{{ $holder }}.</span>
-                <button type="button" wire:click="showEveryHolder" class="btn btn-xs btn-ghost">Show all</button>
+                <button type="button" wire:click="showEveryHolder" class="btn btn-xs btn-outline">Show all</button>
             </div>
         @endif
 
@@ -113,12 +115,12 @@
         @if ($after !== null || $locks['more'])
             <div class="flex items-center justify-end gap-2 pt-2">
                 @if ($after !== null)
-                    <button type="button" wire:click="showFirst" class="btn btn-sm btn-ghost">First</button>
+                    <button type="button" wire:click="showFirst" class="btn btn-sm btn-outline">First</button>
                 @endif
 
                 @if ($locks['more'] && $locks['cursor'] !== null)
                     <button type="button" wire:click="showNext('{{ \RobotCouncil\Support\WireArgument::of($locks['cursor']) }}')"
-                        class="btn btn-sm">Next</button>
+                        class="btn btn-sm btn-outline">Next</button>
                 @endif
             </div>
         @endif

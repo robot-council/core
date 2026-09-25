@@ -213,6 +213,35 @@ it('keeps every pair it owns legible in both themes', function (string $theme, s
     ['dark, as a system preference', ':root:not([data-theme])'],
 ]);
 
+it('keeps every filter boundary and focus ring at 3:1 against the card, in both themes', function (string $theme, string $selector): void {
+    $tokens = themeTokens($selector);
+
+    // WCAG 1.4.11: what identifies a control needs 3:1 against what is next to it, and every
+    // filter and pager sits on a `bg-base-100` card (#309). daisyUI draws `btn-outline`'s border in
+    // `base-content`, a `btn-primary` fill in `primary`, and a focused button's 2px ring in
+    // `--btn-color` falling back to `base-content` -- so these two pairs are the unselected
+    // boundary, the selected fill, and both focus rings.
+    $pairs = [
+        'unselected filter border and its focus ring' => ['color-base-content', 'color-base-100'],
+        'selected filter fill and its focus ring' => ['color-primary', 'color-base-100'],
+    ];
+
+    foreach ($pairs as $label => [$foreground, $background]) {
+        expect($tokens)->toHaveKeys([$foreground, $background]);
+
+        $ratio = contrastRatio($tokens[$foreground], $tokens[$background]);
+
+        expect($ratio)->toBeGreaterThanOrEqual(
+            3.0,
+            sprintf('%s theme, %s: %.2f:1 against a 3:1 bar', $theme, $label, $ratio)
+        );
+    }
+})->with([
+    ['light', ':where(:root)'],
+    ['dark, as an explicit data-theme', '[data-theme=dark]'],
+    ['dark, as a system preference', ':root:not([data-theme])'],
+]);
+
 it('emits the same dark theme to both the attribute and the system preference', function (): void {
     // Asserted as equality rather than by checking each separately, so a divergence fails even on a
     // token neither the pairs above nor anything else names.
