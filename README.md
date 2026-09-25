@@ -449,7 +449,8 @@ stored is ignored, since GitHub does not promise order.
    - **Payload URL:** `https://your-fleet.example.com{prefix}/api/github/webhook`
    - **Content type:** `application/json` (form-encoded also works)
    - **Secret:** the same value
-   - **Events:** *Issues*, *Pull requests*, and *Issue dependencies*
+   - **Events:** *Issues*, *Pull requests*, *Issue dependencies*, and *Branch or tag creation* and
+     *Branch or tag deletion* -- the last two let a placement warn when a ticket's branch already exists
 3. GitHub sends a `ping`, which answers 200. Its *Recent Deliveries* tab shows each delivery's
    status: 401 is a signature mismatch, 422 a payload the service refused.
 4. **Backfill what was already open**, once, since a webhook reports only what happens afterwards.
@@ -593,7 +594,9 @@ The two ticket rules apply only to a task that names an issue. **Only the develo
 lane's seat can waive a refusal**, from their seats page, for one rule and one placement; the
 placement spends it. A coordinator cannot. A successful placement also returns `warnings` that do not
 block: a title naming an act that needs a human (delete, remove, retire, release, tag, publish,
-install, upgrade, rotate, spend), and an open ticket whose acceptance criteria are all ticked.
+install, upgrade, rotate, spend), an open ticket whose acceptance criteria are all ticked, a branch
+whose name carries the ticket's number with no open pull request (matched by name), and a
+`documentation` ticket placed while functionality tickets are on the shortlist.
 
 A task may name the GitHub issue it is for when it is filed, as `issue: "owner/name#N"`. A bare
 `#N` is refused, because the same number exists in every tracker. Each task reports `placed_by`
