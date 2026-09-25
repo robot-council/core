@@ -7,8 +7,8 @@ declare(strict_types=1);
  *
  * @command  vendor/bin/pest --compact tests/GateRunsTest.php
  */
-use Livewire\Livewire;
 use Illuminate\Support\Facades\DB;
+use Livewire\Livewire;
 use RobotCouncil\Access\Role;
 use RobotCouncil\Livewire\Lanes;
 use RobotCouncil\Models\GitHubItem;
@@ -140,8 +140,12 @@ it('marks the pull request running, shows the gate on it, and counts the queue w
 
     $html = Livewire::actingAs($this->developer)->test(Lanes::class)->html();
 
-    expect($html)->toMatch('/<span data-gate-run>(.*?)<\/span>/s')
-        ->and((string) preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($cell[1] ?? ''))))->toContain('validating robot-council/core#40 · 1 queued');
+    // Captured outside the expectation: inside it, Rector rewrites `preg_match(...) === 1` into
+    // `toMatch()` and the capture is lost
+    $found = preg_match('/<span data-gate-run>(.*?)<\/span>/s', $html, $cell);
+    $text = $found === 1 ? (string) preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($cell[1]))) : '';
+
+    expect($text)->toContain('validating robot-council/core#40 · 1 queued');
 });
 
 it('lets a gate end only its own run', function (): void {
