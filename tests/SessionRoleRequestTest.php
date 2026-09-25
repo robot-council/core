@@ -16,6 +16,8 @@ declare(strict_types=1);
  * @command  vendor/bin/pest --compact tests/SessionRoleRequestTest.php
  */
 
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use RobotCouncil\Access\Role;
 use RobotCouncil\Access\Tokens;
@@ -637,4 +639,184 @@ it('shows a role change to the whole fleet, which is what makes a demotion legib
         ->json('events')))->pluck('body')->filter()->all();
 
     expect($bodies)->toContain(sprintf('session %s approved from build to coordinator.', keyValue($this->session->getKey())));
+});
+
+it('withdraws a pending request when a session asks for the role it already holds', function (): void {
+    // **The bug on `robot-council/core#369`.** Asking for `build` while `coordinator` waited used to
+    // answer "nothing pending" and leave the request in the administrator's queue, where approving
+    // it promoted a session that believed it had withdrawn.
+    $this->machine($this->token)
+        ->postJson(route('robot-council.agent.role'), ['role' => Role::Coordinator->value])
+        ->assertStatus(202);
+
+    $this->machine($this->token)
+        ->postJson(route('robot-council.agent.role'), ['role' => Role::Build->value])
+        ->assertOk()
+        ->assertJsonPath('pending', false)
+        ->assertJsonPath('requested_role', null)
+        ->assertJsonPath('role', Role::Build->value);
+
+    $row = AgentSession::query()->whereKey($this->session->getKey())->sole();
+
+    expect($row->role)->toBe(Role::Build)
+        ->and($row->requested_role)->toBeNull()
+        ->and($row->requested_at)->toBeNull();
+
+    // Recorded once, as a withdrawal, with the session's developer as its subject and nobody as its
+    // actor -- no administrator decided anything
+    $event = FleetEvent::query()->where('type', FleetEventType::SessionRoleWithdrawn->value)->sole();
+
+    expect($event->body)->toBe(sprintf(
+        'session %s withdrew its request for coordinator and stays build.',
+        keyValue($this->session->getKey())
+    ))
+        ->and(arrayValue($event->meta)['withdrawn'] ?? null)->toBe(Role::Coordinator->value)
+        ->and(arrayValue($event->meta)['stays'] ?? null)->toBe(Role::Build->value)
+        ->and(arrayValue($event->meta)['installation_id'] ?? null)->toBe($this->installation->getKey())
+        ->and($event->actor_user_id)->toBeNull()
+        ->and($event->user_id)->toBe(keyValue($this->developer->getKey()));
+
+    // **Not a denial.** A denial is a `session.role_requested` carrying `refused`; the only one of
+    // those here is the original request.
+    $requested = FleetEvent::query()->where('type', FleetEventType::SessionRoleRequested->value)->sole();
+
+    expect(arrayValue($requested->meta))->not->toHaveKey('refused');
+
+    // And an administrator can no longer approve it: the store answers what it answers when
+    // nothing was ever requested, and the panel's control changes nothing
+    expect($this->service(RoleRequests::class)->approve($this->session, Role::Coordinator, keyValue($this->admin->getKey())))
+        ->toBeNull();
+
+    Livewire::actingAs($this->admin)
+        ->test(Administration::class)
+        ->call('approveRole', $this->session->getKey(), Role::Coordinator->value);
+
+    expect(AgentSession::query()->whereKey($this->session->getKey())->sole()->role)->toBe(Role::Build)
+        ->and(FleetEvent::query()->where('type', FleetEventType::SessionRoleChanged->value)->count())->toBe(0);
+
+    $this->machine($this->token)
+        ->postJson(route('robot-council.directives.store'), ['body' => 'everyone stop'])
+        ->assertForbidden();
+});
+
+it('writes nothing when a session asks for the role it holds with nothing pending', function (): void {
+    $before = FleetEvent::query()->count();
+
+    expect($this->service(RoleRequests::class)->request($this->session, Role::Build))->toBeFalse();
+
+    $row = AgentSession::query()->whereKey($this->session->getKey())->sole();
+
+    expect($row->requested_role)->toBeNull()
+        ->and($row->requested_at)->toBeNull()
+        ->and(FleetEvent::query()->count())->toBe($before);
+});
+
+it('withdraws nothing for a session that has gone', function (): void {
+    // A gone session has nothing an administrator could approve, so it has nothing pending to
+    // withdraw either -- and nothing to report as pending.
+    $requests = $this->service(RoleRequests::class);
+
+    expect($requests->request($this->session, Role::Coordinator))->toBeTrue();
+
+    $this->service(SessionPresence::class)->revoke($this->session);
+
+    expect($requests->request($this->session, Role::Build))->toBeFalse()
+        ->and($requests->request($this->session, Role::Coordinator))->toBeFalse()
+        ->and(FleetEvent::query()->where('type', FleetEventType::SessionRoleWithdrawn->value)->count())->toBe(0);
+});
+
+it('answers with the row after the call, not the request that was made', function (?string $pendingFirst, string $asked, int $status, ?string $after): void {
+    // Every path through the endpoint, read back against the ROW: the response is only truthful
+    // when `pending` and `requested_role` say what an administrator's queue now holds.
+    if ($pendingFirst !== null) {
+        $this->machine($this->token)
+            ->postJson(route('robot-council.agent.role'), ['role' => $pendingFirst])
+            ->assertStatus(202);
+    }
+
+    $this->machine($this->token)
+        ->postJson(route('robot-council.agent.role'), ['role' => $asked])
+        ->assertStatus($status)
+        ->assertJsonPath('pending', $after !== null)
+        ->assertJsonPath('requested_role', $after);
+
+    expect(AgentSession::query()->whereKey($this->session->getKey())->sole()->requested_role?->value)->toBe($after);
+})->with([
+    'nothing pending, asks for another role' => [null, 'coordinator', 202, 'coordinator'],
+    'another pending, asks for a third role' => ['coordinator', 'ci', 202, 'ci'],
+    'the same already pending' => ['coordinator', 'coordinator', 202, 'coordinator'],
+    'another pending, asks for its own role' => ['coordinator', 'build', 200, null],
+    'nothing pending, asks for its own role' => [null, 'build', 200, null],
+]);
+
+it('shows a withdrawal to the whole fleet, as it does the request it takes back', function (): void {
+    // The request reached every reader, so the withdrawal must too, or other developers' agents
+    // would see a request that never visibly left the queue.
+    expect(FleetEventType::SessionRoleWithdrawn->isRestricted())->toBeFalse()
+        ->and(FleetEventType::restrictedValues())->not->toContain(FleetEventType::SessionRoleWithdrawn->value);
+
+    $requests = $this->service(RoleRequests::class);
+
+    $requests->request($this->session, Role::Coordinator);
+    $requests->request($this->session, Role::Build);
+
+    $other = $this->enrollDeveloper(4244, login: 'thirddev');
+
+    $this->setAccessLists(developers: [4242, 4243, 4244], admins: [4242]);
+
+    [, $otherToken] = $this->startAgentSession($this->approveInstallation($other, machineLabel: 'theirs'));
+
+    $bodies = collect(arrayValue($this->machine($otherToken)
+        ->getJson(route('robot-council.events.index', ['after' => 0]))
+        ->assertOk()
+        ->json('events')))->pluck('body')->filter()->all();
+
+    expect($bodies)->toContain(sprintf(
+        'session %s withdrew its request for coordinator and stays build.',
+        keyValue($this->session->getKey())
+    ));
+});
+
+it('reports the role the row holds after the call, not the one the principal was loaded with', function (): void {
+    // Sanctum loads the session before the store's transaction locks it, so an administrator's
+    // decision can land in between. The hook imposes `ci` on the first session read made from
+    // inside `RoleRequests::request()` -- the locking read -- which is exactly that window.
+    $imposed = false;
+
+    DB::listen(function (QueryExecuted $query) use (&$imposed): void {
+        if (
+            $imposed
+            || ! str_starts_with(strtolower($query->sql), 'select')
+            || ! str_contains($query->sql, 'robot_council_agent_sessions')
+        ) {
+            return;
+        }
+
+        $insideRequest = collect(debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS))->contains(
+            static fn (array $frame): bool => ($frame['class'] ?? null) === RoleRequests::class
+                && $frame['function'] === 'request'
+        );
+
+        if (! $insideRequest) {
+            return;
+        }
+
+        $imposed = true;
+
+        app(RoleRequests::class)->impose($this->session, Role::Ci, keyValue($this->admin->getKey()));
+    });
+
+    $this->machine($this->token)
+        ->postJson(route('robot-council.agent.role'), ['role' => Role::Coordinator->value])
+        ->assertStatus(202)
+        ->assertJsonPath('pending', true)
+        ->assertJsonPath('requested_role', Role::Coordinator->value)
+        ->assertJsonPath('role', Role::Ci->value);
+
+    // The hook really landed in the window, and the response agrees with the row it left
+    $row = AgentSession::query()->whereKey($this->session->getKey())->sole();
+
+    expect($imposed)->toBeTrue()
+        ->and($row->role)->toBe(Role::Ci)
+        ->and($row->requested_role)->toBe(Role::Coordinator);
 });

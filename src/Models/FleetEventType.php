@@ -120,6 +120,15 @@ enum FleetEventType: string
     case SessionRoleChanged = 'session.role_changed';
 
     /**
+     * A session took back a role request it had made, by asking for the role it already holds.
+     *
+     * **Its own type, not a denial.** A denial is an administrator refusing; this is the session
+     * changing its mind, and an administrator reading why a request left the queue needs to tell
+     * the two apart (`robot-council/core#369`). Nothing about what the session may do changed.
+     */
+    case SessionRoleWithdrawn = 'session.role_withdrawn';
+
+    /**
      * A task was created and is waiting for somebody to claim it.
      */
     case TaskCreated = 'task.created';
