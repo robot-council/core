@@ -13,8 +13,10 @@ declare(strict_types=1);
  * @command  vendor/bin/pest --compact tests/LanesTest.php
  */
 
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
+use RobotCouncil\Livewire\Dashboard;
 use RobotCouncil\Livewire\Lanes;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\GitHubItem;
@@ -135,8 +137,10 @@ it('keeps the watcher its own column, so a working lane with no watcher reads as
 
     $html = Livewire::actingAs($this->developer)->test(Lanes::class)->html();
 
+    // The watcher's own cell, found by its marker: "not reported" alone also matches a working
+    // lane's "branch not reported", so asserting the text would pass with the column deleted
     expect($html)->toContain('data-state="Working"')
-        ->and($html)->toContain('not reported');
+        ->and($html)->toMatch('/<td[^>]*data-watcher[^>]*>\s*not reported\s*<\/td>/');
 });
 
 it('links a repository-qualified reference and never a bare number', function (): void {
@@ -188,7 +192,7 @@ it('shows take-up apart from placement, the branch, and where the placement came
     expect(boardRow($this, $lane)['on_what'])->toMatchArray(['taken_up' => true, 'branch' => 'feature/lanes']);
 });
 
-it('escapes a hostile machine label and repository on the board', function (string $payload, array $forbidden, ?string $escaped): void {
+it('escapes a hostile machine label on the board', function (string $payload, array $forbidden, ?string $escaped): void {
     expect(mb_strlen($payload))->toBeLessThanOrEqual(64);
 
     $this->installation->forceFill(['machine_label' => $payload])->save();
@@ -226,4 +230,86 @@ it('costs the same queries however many lanes it lists', function (): void {
 
     expect(DB::table('robot_council_seats')->count())->toBe(6)
         ->and($six)->toBe($two);
+});
+
+/**
+ * The text of every element carrying a marker attribute.
+ *
+ * @param  string  $html  The page.
+ * @param  string  $marker  The attribute, such as `data-pull-state`.
+ * @return list<string> The elements' text, trimmed.
+ */
+function markedText(string $html, string $marker): array
+{
+    // Closed by its own tag name, so a link nested inside the element does not end the match early
+    preg_match_all('/<([a-z]+)[^>]*\b'.preg_quote($marker, '/').'\b[^>]*>(.*?)<\/\1>/s', $html, $found);
+
+    return array_map(static fn (string $text): string => trim((string) preg_replace('/\s+/', ' ', strip_tags(html_entity_decode($text)))), $found[2]);
+}
+
+it('renders a parked lane and a held one as party and reason', function (): void {
+    $key = HostKey::from($this->developer->getAuthIdentifier());
+    boardLane($this, 'a');
+    $held = boardLane($this, 'b');
+
+    $seat = collect($this->service(Seats::class)->forDeveloper($key))->firstWhere('work_location', 'a');
+    $this->service(Seats::class)->park($key, $seat instanceof Seat ? $seat->id : 0);
+    $this->service(LaneHolds::class)->hold($this->coordinatorSession, $held->id, 'robot-council/core#9', HoldReason::TicketLands);
+
+    $cells = markedText(Livewire::actingAs($this->developer)->test(Lanes::class)->html(), 'data-on-what');
+    sort($cells);
+
+    expect($cells)->toBe(['octodev — parked this seat', 'robot-council/core#9 — that ticket to land']);
+});
+
+it('marks a hand-back, and says when a lane holds more than one task', function (): void {
+    $lane = boardLane($this, 'a');
+
+    foreach ([true, false] as $handBack) {
+        $task = $this->service(Tasks::class)->create($this->coordinatorSession, ['title' => 'Work'], true);
+        $this->service(Tasks::class)->transition($task->id, TaskTransition::Reassign, $this->coordinatorSession, true, $lane, directive: 'Take this.', handBack: $handBack);
+    }
+
+    $html = Livewire::actingAs($this->developer)->test(Lanes::class)->html();
+
+    expect(markedText($html, 'data-hand-back'))->toBe(['hand-back'])
+        ->and(markedText($html, 'data-also-holds'))->toBe(['and 1 more held'])
+        ->and(boardRow($this, $lane)['on_what'])->toMatchArray(['also_holds' => 1]);
+});
+
+it("lists a repository's open pull requests whatever case the lane reported it in", function (): void {
+    $this->service(AgentSessions::class)->start($this->installation, 'Robot-Council/Core', 'a');
+
+    foreach ([[40, false], [41, true]] as [$number, $draft]) {
+        GitHubItem::query()->insert([
+            'repository' => 'robot-council/core', 'number' => $number, 'is_pull_request' => true, 'state' => 'open', 'draft' => $draft,
+            'title' => 'Pull '.$number, 'labels' => '[]', 'github_updated_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
+    expect(markedText(Livewire::actingAs($this->developer)->test(Lanes::class)->html(), 'data-pull-state'))->toBe(['queued', 'draft']);
+});
+
+it('stamps the last change, not the read time', function (): void {
+    Carbon::setTestNow('2026-09-24 10:00:00');
+    $lane = boardLane($this, 'a');
+    $this->service(LaneHolds::class)->hold($this->coordinatorSession, $lane->id, 'octodev', HoldReason::Decision);
+
+    Carbon::setTestNow('2026-09-24 12:30:00');
+
+    expect($this->service(LaneBoard::class)->read()['last_change']?->format('H:i'))->toBe('10:00')
+        ->and(markedText(Livewire::actingAs($this->developer)->test(Lanes::class)->html(), 'data-last-change')[0] ?? '')
+        ->toContain('Last change 2026-09-24 10:00 UTC');
+});
+
+it('summarizes the lanes on the overview, counted by the same reader', function (): void {
+    boardLane($this, 'a');
+    $working = boardLane($this, 'b');
+    $task = $this->service(Tasks::class)->create($this->coordinatorSession, ['title' => 'Work'], true);
+    $this->service(Tasks::class)->transition($task->id, TaskTransition::Reassign, $this->coordinatorSession, true, $working, directive: 'Take this.');
+
+    $summary = markedText(Livewire::actingAs($this->developer)->test(Dashboard::class)->html(), 'data-lanes-summary');
+
+    // The coordinator's own session is a lane too, idle
+    expect($summary)->toBe(['1 working, 2 idle, 0 parked, 0 blocked, 0 not observed']);
 });

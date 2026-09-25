@@ -11,8 +11,9 @@
 <div wire:poll.{{ \RobotCouncil\Support\WireArgument::of($pollSeconds) }}s class="flex flex-col gap-6">
     <div class="flex flex-wrap items-baseline justify-between gap-2">
         <h1 class="text-2xl font-semibold">Lanes</h1>
-        <span class="text-sm opacity-70">
-            Read {{ $board['observed_at']->copy()->setTimezone($timezone)->format('Y-m-d H:i T') }}
+        <span class="text-sm opacity-70" data-last-change>
+            Last change {{ $board['last_change']?->copy()->setTimezone($timezone)->format('Y-m-d H:i T') ?? 'none recorded' }}
+            &middot; read {{ $board['observed_at']->copy()->setTimezone($timezone)->format('H:i T') }}
         </span>
     </div>
 
@@ -60,7 +61,7 @@
                                     </td>
                                     <td data-state="{{ $lane['state'] }}">{{ $lane['state'] }}</td>
                                     {{-- Its own column, separate from State: not reported until #337 --}}
-                                    <td class="opacity-70">not reported</td>
+                                    <td class="opacity-70" data-watcher>not reported</td>
                                     <td>
                                         @if ($lane['state'] === 'Working' && is_array($lane['on_what']))
                                             @php($work = $lane['on_what'])
@@ -73,7 +74,10 @@
                                                     task #{{ $work['task_id'] }}, no ticket
                                                 @endif
                                                 @if ($work['hand_back'])
-                                                    <span class="badge badge-sm badge-warning">hand-back</span>
+                                                    <span class="badge badge-sm badge-warning" data-hand-back>hand-back</span>
+                                                @endif
+                                                @if ($work['also_holds'] > 0)
+                                                    <span class="badge badge-sm" data-also-holds>and {{ $work['also_holds'] }} more held</span>
                                                 @endif
                                             </div>
                                             <div class="text-xs opacity-70">
@@ -82,12 +86,14 @@
                                                 &middot; {{ $work['provenance'] }}
                                             </div>
                                         @elseif (is_array($lane['on_what']))
+                                            <span data-on-what>
                                             @if (\RobotCouncil\Support\TicketLink::url($lane['on_what']['party']) !== null)
                                                 <a href="{{ \RobotCouncil\Support\TicketLink::url($lane['on_what']['party']) }}" class="link" rel="noopener noreferrer">{{ $lane['on_what']['party'] }}</a>
                                             @else
                                                 {{ $lane['on_what']['party'] }}
                                             @endif
                                             &mdash; {{ $lane['on_what']['what'] }}
+                                            </span>
                                         @else
                                             <span class="opacity-60">&mdash;</span>
                                         @endif
@@ -110,7 +116,7 @@
                                     <li wire:key="pull-{{ $repository }}-{{ $pull['number'] }}">
                                         <a href="{{ \RobotCouncil\Support\TicketLink::url($pull['reference']) }}" class="link" rel="noopener noreferrer">#{{ $pull['number'] }}</a>
                                         {{ $pull['title'] }}
-                                        <span class="badge badge-sm">{{ $pull['state'] }}</span>
+                                        <span class="badge badge-sm" data-pull-state>{{ $pull['state'] }}</span>
                                     </li>
                                 @endforeach
                             </ul>
