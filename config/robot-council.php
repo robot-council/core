@@ -259,6 +259,10 @@ return [
         // Every five minutes, and idempotent: takes each repository's baseline once local time
         // passes 08:00 in `dashboard.timezone` (#339)
         'backlog_baseline' => true,
+
+        // Every five minutes: tells the coordinators about a build lane that has authored nothing
+        // for an hour, once per quiet stretch (#332)
+        'quiet_lanes' => true,
     ],
 
     /*

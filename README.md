@@ -487,6 +487,15 @@ coordinator's. Each entry lists its blind spots: a `hitl` label, a title naming 
 human, every acceptance criterion ticked while still open, and the file paths its body mentions,
 which are unverified and are never compared between tickets.
 
+## Quiet lanes
+
+Every five minutes the scheduler checks each build lane for anything it has **authored**: a
+narration, a task transition, a lock acquired or released, or a directive it posted. A lane that has
+authored none of those for an hour -- a heartbeat, joining, and a directive it merely received do
+not count -- raises one `lane.quiet` event, addressed to the fleet's coordinators and restricted so
+no other session reads it. It is raised once per quiet stretch; the lane's next act starts a new one.
+A gate is exempt while it holds no pull request. `robot-council.schedule.quiet_lanes` turns it off.
+
 ## Lane holds
 
 A coordinator records why a lane -- an agent session -- is idle on purpose, which the lane board
