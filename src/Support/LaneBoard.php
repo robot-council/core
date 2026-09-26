@@ -296,13 +296,15 @@ final class LaneBoard
      */
     private function working(Task $task, array $issues): array
     {
-        $item = \is_string($task->issue) ? ($issues[mb_strtolower($task->issue)] ?? null) : null;
+        $ticket = self::ticketOf($task);
+
+        $item = $ticket !== null ? ($issues[mb_strtolower($ticket)] ?? null) : null;
 
         $packet = $item instanceof GitHubItem && \in_array('decision-fork', $item->labels, true);
 
         return [
             'task_id' => $task->id,
-            'ticket' => $task->issue,
+            'ticket' => $ticket,
             'title' => $task->title,
             'branch' => $task->branch ?? ($packet ? 'packet, no branch expected' : 'branch not reported'),
             'branch_reported' => $task->branch !== null,
@@ -326,6 +328,21 @@ final class LaneBoard
     }
 
     /**
+     * The ticket a task is about: its `issue`, or the reference its title begins with (#422).
+     *
+     * Coordinators stopped passing `issue` while the fleet held no GitHub data, because a placement
+     * naming an issue the fleet had no record of was refused (#320), and wrote the ticket at the
+     * start of the title instead. A task id says nothing to a person; the ticket does.
+     *
+     * @param  Task  $task  The task.
+     * @return string|null `owner/name#N`, or null when the task names none.
+     */
+    private static function ticketOf(Task $task): ?string
+    {
+        return $task->issue ?? IssueReference::leading($task->title);
+    }
+
+    /**
      * The stored issues the held tasks name, in one query.
      *
      * @param  array<array-key, mixed>  $tasks  The held tasks.
@@ -336,8 +353,10 @@ final class LaneBoard
         $numbers = [];
 
         foreach ($tasks as $task) {
-            if ($task instanceof Task && \is_string($task->issue)) {
-                $numbers[] = (int) explode('#', $task->issue, 2)[1];
+            $ticket = $task instanceof Task ? self::ticketOf($task) : null;
+
+            if ($ticket !== null) {
+                $numbers[] = (int) explode('#', $ticket, 2)[1];
             }
         }
 
