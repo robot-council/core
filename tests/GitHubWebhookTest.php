@@ -457,7 +457,7 @@ const MERGE_SHA = '0123456789abcdef0123456789abcdef01234567';
  * @param  TestCase  $case  The test case.
  * @param  string  $token  The session's token.
  * @param  int  $taskId  The task.
- * @param  array<string, mixed>  $result  What the lane reports.
+ * @param  array<array-key, mixed>  $result  What the lane reports.
  * @return TestResponse<Response> The response.
  */
 function completeOverHttp(TestCase $case, string $token, int $taskId, array $result): TestResponse
@@ -583,6 +583,17 @@ it('lets the lane GitHub beat to it add its result once, keeping the status and 
 
     expect(arrayValue(Task::query()->findOrFail($taskId)->result)['summary'] ?? null)->toBe('shipped')
         ->and(FleetEvent::query()->where('type', FleetEventType::TaskResultAdded->value)->count())->toBe(1);
+});
+
+it('keeps a list result under its own key rather than spreading it', function (): void {
+    $taskId = mergedUnderTheLane($this);
+
+    completeOverHttp($this, $this->token, $taskId, ['first', 'second'])->assertOk()->assertJson(['result_added' => true]);
+
+    $result = arrayValue(Task::query()->findOrFail($taskId)->result);
+
+    expect($result['reported'] ?? null)->toBe(['first', 'second'])
+        ->and(array_keys($result))->toBe(['reported', 'github']);
 });
 
 it('refuses a result from a session that did not hold the task GitHub finished', function (): void {

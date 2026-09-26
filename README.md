@@ -487,8 +487,9 @@ Each is recorded in the change feed attributed to no session, naming the task an
 with the reason and either the issue and GitHub's `state_reason`, or the pull request, `merged` and
 the merge commit's SHA. Only a session that may read the task sees its result. The session that
 held the task can still call `complete` with its own result **once, within an hour** of GitHub
-finishing it: the result is merged into the recorded one, keeping GitHub's `github` entry, and
-the status stays `done`. The call answers `200` with `applied: false` and `result_added: true`,
+finishing it: the result is merged into the recorded one, and the status stays `done`. GitHub's
+`github` entry wins over a `github` key the holder sends, and a result sent as a list is kept
+under `reported`. The call answers `200` with `applied: false` and `result_added: true`,
 and the feed records `task.result_added` rather than a second `task.completed`. Any other session,
 a second addition, or a call after the hour gets the usual `409`. A release records nothing, since
 the task goes back to the queue with a clean slate.

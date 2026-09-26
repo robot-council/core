@@ -235,7 +235,7 @@ final class TaskTransitionTool extends Tool
                 'status' => TaskStatus::Done->value,
                 'applied' => false,
                 'result_added' => true,
-                'note' => 'GitHub had already finished this task. Your result was added to what GitHub recorded; the status is unchanged.',
+                'note' => "GitHub had already finished this task. Your result was added beside what GitHub recorded, under its `github` key, which keeps GitHub's value; the status is unchanged.",
             ]);
         }
 

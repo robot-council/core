@@ -336,15 +336,13 @@ final class Tasks
      * **The event names the task and the reason, never the issue.** A task's issue is readable only
      * by sessions that may claim it (`TaskList`), and a state change reaches every session.
      *
-     * @param  int  $taskId  The task.
-     * @param  bool  $completed  True to finish it, false to release it.
-     * @param  string  $why  The reason, in words the feed shows.
-     *                       **A finished task keeps what GitHub said, in `result` (#433).** Before, it kept nothing: its
-     *                       holder's `task_complete` came moments later and was refused, because the task had already
-     *                       left `in_progress`. So the result records the reason and what the caller knows about the
-     *                       issue or pull request that finished it, under a `github` key, and the holder may add its own
-     *                       once, through `transition()`, within `RESULT_WINDOW_MINUTES`. A release records nothing: it
-     *                       gives the task back with a clean slate, and the next holder writes the result.
+     * **A finished task keeps what GitHub said, in `result` (#433).** Before, it kept nothing: its
+     * holder's `task_complete` came moments later and was refused, because the task had already
+     * left `in_progress`. So the result records the reason and what the caller knows about the
+     * issue or pull request that finished it, under a `github` key, and the holder may add its own
+     * once, through `transition()`, within `RESULT_WINDOW_MINUTES`. A release records nothing: it
+     * gives the task back with a clean slate, and the next holder writes the result.
+     *
      * @param  int  $taskId  The task.
      * @param  bool  $completed  True to finish it, false to release it.
      * @param  string  $why  The reason, in words the feed shows.
@@ -642,20 +640,27 @@ final class Tasks
     {
         $task = Task::query()->whereKey($taskId)->lockForUpdate()->first();
 
-        if (! $task instanceof Task || $task->github_finished_at === null) {
+        if (! $task instanceof Task) {
             return false;
         }
 
         $recorded = $task->result ?? [];
 
+        // A list has no keys to merge beside `github`, and spreading one would store `{"0": ...}`,
+        // a different shape from the same list completed the ordinary way. So it goes under a key.
+        $reported = array_is_list($result) ? ['reported' => $result] : $result;
+
         $changed = Task::query()
             ->whereKey($taskId)
+            // Implied today, since nothing moves a task out of `done`; kept so a later transition
+            // out of it cannot reopen this path without being read. No test can kill its removal,
+            // which is expected: it is an equivalent mutant today
             ->where('status', TaskStatus::Done->value)
             ->where('claimed_by', $actor->getKey())
             ->whereNull('result_added_at')
             ->where('github_finished_at', '>=', Carbon::now()->subMinutes(self::RESULT_WINDOW_MINUTES))
             ->update([
-                'result' => json_encode([...$result, ...array_intersect_key($recorded, ['github' => true])], JSON_THROW_ON_ERROR),
+                'result' => json_encode([...$reported, ...array_intersect_key($recorded, ['github' => true])], JSON_THROW_ON_ERROR),
 
                 // Always a change, so MySQL's rows-changed count cannot read this as a lost race
                 'result_added_at' => Carbon::now(),
