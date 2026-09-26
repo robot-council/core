@@ -136,6 +136,11 @@
                                     @class(['menu-active' => $currentRoute === 'robot-council.seats'])
                                     @if ($currentRoute === 'robot-council.seats') aria-current="page" @endif>My seats and hours</a>
                             </li>
+                            <li>
+                                <a href="{{ route('robot-council.waiting') }}"
+                                    @class(['menu-active' => $currentRoute === 'robot-council.waiting'])
+                                    @if ($currentRoute === 'robot-council.waiting') aria-current="page" @endif>Waiting on me</a>
+                            </li>
 
                             {{--
                                 Offered only to an admin, decided in `Http\ViewComposers\DashboardLayoutComposer`
