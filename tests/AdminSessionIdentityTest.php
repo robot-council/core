@@ -85,13 +85,16 @@ it("shows the same instants on a host whose clock is not UTC, in the dashboard's
     date_default_timezone_set('Asia/Kolkata');
 
     try {
-        $this->travelTo(CarbonImmutable::parse('2026-09-26 08:00:00', 'UTC'));
+        // The clock in the application's own zone, as a real one is: Carbon versions differ on which
+        // zone Eloquent stamps `created_at` in under a test clock pinned in another, which is the
+        // measurement's artifact rather than the page's (it failed one prefer-lowest cell alone)
+        $this->travelTo(CarbonImmutable::parse('2026-09-26 13:30:00', 'Asia/Kolkata'));
         $session = app(AgentSessions::class)->start($this->approveInstallation($this->admin, 'josh-office'), 'robot-council/core', 'robot-council-core-a')->owner;
-        $this->travelTo(CarbonImmutable::parse('2026-09-26 08:10:00', 'UTC'));
+        $this->travelTo(CarbonImmutable::parse('2026-09-26 13:40:00', 'Asia/Kolkata'));
 
         $row = adminSessionRows(Livewire::actingAs($this->admin)->test(Administration::class)->html())[$session->id] ?? '';
 
-        // 08:00 UTC is 03:00 in Chicago on that date
+        // 13:30 in Kolkata is 08:00 UTC, which is 03:00 in Chicago on that date
         expect($row)->toContain('joined 2026-09-26 03:00 CDT (10 minutes ago), last seen 2026-09-26 03:00 CDT (10 minutes ago)');
     } finally {
         date_default_timezone_set($zone);
