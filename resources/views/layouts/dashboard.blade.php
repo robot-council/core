@@ -205,6 +205,8 @@
             <main id="robot-council-main" tabindex="-1" class="focus:outline-none scroll-mt-20 mx-auto w-full max-w-7xl grow p-4 sm:p-6">
                 {{ $slot }}
             </main>
+
+            @include('robot-council::partials.version')
         </div>
     </div>
 
