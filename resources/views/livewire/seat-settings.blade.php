@@ -10,6 +10,8 @@
 --}}
 
 <div class="flex flex-col gap-6">
+    <h1 class="text-2xl font-semibold">My seats and hours</h1>
+
     @if ($notice !== null)
         <div role="alert" class="alert alert-warning">{{ $notice }}</div>
     @endif
@@ -33,12 +35,15 @@
                 <ul class="divide-y divide-base-200">
                     @foreach ($seats as $seat)
                         <li wire:key="seat-{{ $seat->id }}" class="flex flex-wrap items-center justify-between gap-2 py-3">
+                            {{-- Every control below names its seat to a screen reader (#400), since each
+                                 repeats once per seat and a list of identical names says nothing. --}}
+                            @php($seatName = $seat->repository.($seat->work_location !== '' ? ' / '.$seat->work_location : ''))
                             <div>
                                 <div class="font-medium">
-                                    {{ $seat->repository }}@if ($seat->work_location !== '') / {{ $seat->work_location }}@endif
+                                    <code>{{ $seat->repository }}</code>@if ($seat->work_location !== '') / <code>{{ $seat->work_location }}</code>@endif
                                 </div>
                                 <div class="text-meta opacity-90">
-                                    {{ $seat->installation->harness }} on {{ $seat->installation->machine_label }}
+                                    <code>{{ $seat->installation->harness }}</code> on <code>{{ $seat->installation->machine_label }}</code>
                                     &middot; <span data-seat-capacity>takes up to {{ $seat->max_capacity }} {{ $seat->max_capacity === 1 ? 'ticket' : 'tickets' }} at once</span>
                                     @if ($seat->parked_at !== null)
                                         &middot; parked {{ $seat->parked_at->diffForHumans() }}
@@ -49,23 +54,22 @@
                             <div class="flex flex-wrap items-center gap-2">
                                 @if ($seat->hours_exempt)
                                     <span class="badge badge-sm">exempt from hours</span>
-                                    <button type="button" wire:click="unexempt({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-ghost">Apply my hours</button>
+                                    <button type="button" wire:click="unexempt({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-ghost">Apply my hours<span class="sr-only"> for {{ $seatName }}</span></button>
                                 @else
-                                    <button type="button" wire:click="exempt({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-ghost">Exempt from hours</button>
+                                    <button type="button" wire:click="exempt({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-ghost">Exempt from hours<span class="sr-only"> for {{ $seatName }}</span></button>
                                 @endif
 
                                 @if ($seat->isParked())
                                     <span class="badge badge-sm badge-warning">parked</span>
-                                    <button type="button" wire:click="lift({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-primary">Lift</button>
+                                    <button type="button" wire:click="lift({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-primary">Lift<span class="sr-only"> for {{ $seatName }}</span></button>
                                 @else
-                                    <button type="button" wire:click="park({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-warning">Park</button>
+                                    <button type="button" wire:click="park({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-warning">Park<span class="sr-only"> for {{ $seatName }}</span></button>
                                 @endif
                             </div>
                             {{-- #409: the cap on what a session in this seat declares when it joins.
                                  Only a seat id reaches the `wire:` expressions, through `WireArgument`;
                                  the number is read back by the component as untrusted input. --}}
                             @php($capacityFailed = $capacitySeat === $seat->id && $capacityError !== null)
-                            @php($seatName = $seat->repository.($seat->work_location !== '' ? ' / '.$seat->work_location : ''))
                             <form wire:submit="setCapacity({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="flex w-full flex-wrap items-end gap-3">
                                 {{-- Each field and button names its seat to a screen reader, since every
                                      seat on the page has one and "Tickets at once" alone says which of
@@ -103,9 +107,9 @@
                                         <li wire:key="seat-{{ $seat->id }}-rule-{{ $rule->value }}" class="flex items-center justify-between gap-2">
                                             <span>Refused when {{ $rule->reads() }}</span>
                                             @if (in_array($rule, $waived[$seat->id], true))
-                                                <button type="button" wire:click="withdrawWaiver({{ \RobotCouncil\Support\WireArgument::of($seat->id) }}, '{{ \RobotCouncil\Support\WireArgument::of($rule) }}')" class="btn btn-target btn-ghost">Withdraw waiver</button>
+                                                <button type="button" wire:click="withdrawWaiver({{ \RobotCouncil\Support\WireArgument::of($seat->id) }}, '{{ \RobotCouncil\Support\WireArgument::of($rule) }}')" class="btn btn-target btn-ghost">Withdraw waiver<span class="sr-only"> for {{ $seatName }}</span></button>
                                             @else
-                                                <button type="button" wire:click="waive({{ \RobotCouncil\Support\WireArgument::of($seat->id) }}, '{{ \RobotCouncil\Support\WireArgument::of($rule) }}')" class="btn btn-target">Waive once</button>
+                                                <button type="button" wire:click="waive({{ \RobotCouncil\Support\WireArgument::of($seat->id) }}, '{{ \RobotCouncil\Support\WireArgument::of($rule) }}')" class="btn btn-target">Waive once<span class="sr-only"> for {{ $seatName }}</span></button>
                                             @endif
                                         </li>
                                     @endforeach

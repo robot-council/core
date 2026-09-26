@@ -104,8 +104,8 @@ it("shows where each of an installation's sessions is working", function (): voi
     // fragment is what discriminates.
     Livewire::actingAs($this->admin)
         ->test(Administration::class)
-        ->assertSeeHtml('<span class="opacity-90">robot-council/core</span>')
-        ->assertSeeHtml('<span class="opacity-80">ci</span>');
+        ->assertSeeHtml('<span class="opacity-90"><code>robot-council/core</code></span>')
+        ->assertSeeHtml('<span class="opacity-80"><code>ci</code></span>');
 });
 
 it('shows a session that named only a work location, rather than calling it no project', function (): void {
@@ -118,7 +118,7 @@ it('shows a session that named only a work location, rather than calling it no p
 
     Livewire::actingAs($this->admin)
         ->test(Administration::class)
-        ->assertSeeHtml('<span class="opacity-80">primary</span>')
+        ->assertSeeHtml('<span class="opacity-80"><code>primary</code></span>')
         ->assertDontSeeHtml('no project');
 });
 

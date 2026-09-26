@@ -10,6 +10,8 @@
     breakpoint, so on a phone this is the only way through.
 --}}
 <div class="grid gap-4">
+    <h1 class="text-2xl font-semibold">Dashboard</h1>
+
     <livewire:robot-council-fleet-totals :poll-seconds="$pollSeconds" />
 
     <div class="card bg-base-100 shadow-sm">
