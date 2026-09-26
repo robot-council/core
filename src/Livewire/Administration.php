@@ -14,6 +14,7 @@ use Livewire\Component;
 use RobotCouncil\Access\CurrentDeveloper;
 use RobotCouncil\Access\Role;
 use RobotCouncil\Models\AgentSession;
+use RobotCouncil\Models\AgentSessionStatus;
 use RobotCouncil\Models\Installation;
 use RobotCouncil\Support\InstallationList;
 use RobotCouncil\Support\Installations;
@@ -65,6 +66,30 @@ final class Administration extends Component
     public int $pollSeconds = PollInterval::DEFAULT;
 
     /**
+     * What the last action did, or why it did nothing, in words (#402).
+     *
+     * Locked, like every value here a client could otherwise set: the page prints it as the
+     * server's own account of what happened.
+     */
+    #[Locked]
+    public ?string $said = null;
+
+    /**
+     * The installation the last action was about, so the page shows `said` beside it, or null.
+     *
+     * A session's actions are shown on its installation rather than on the session's own row,
+     * because revoking a session takes that row out of the list.
+     */
+    #[Locked]
+    public ?int $saidAt = null;
+
+    /**
+     * Whether the last action was refused or changed nothing, which the page shows as an error.
+     */
+    #[Locked]
+    public bool $refused = false;
+
+    /**
      * Which installations are listed: those that can still act, or every row.
      */
     #[Url(as: 'installations', keep: false)]
@@ -105,6 +130,7 @@ final class Administration extends Component
         $this->authorizeAdmin();
 
         $this->after = max(0, $after);
+        $this->said = null;
     }
 
     /**
@@ -115,6 +141,7 @@ final class Administration extends Component
         $this->authorizeAdmin();
 
         $this->after = null;
+        $this->said = null;
     }
 
     /**
@@ -129,6 +156,7 @@ final class Administration extends Component
         $this->scope = Scope::orDefault($scope, Scope::Live)->value;
 
         $this->after = null;
+        $this->said = null;
     }
 
     /**
@@ -143,10 +171,24 @@ final class Administration extends Component
         $installation = Installation::query()->find($installationId);
 
         if (! $installation instanceof Installation) {
+            $this->say(null, 'Not found: that installation no longer exists. The list shows the ones that do.', refused: true);
+
+            return;
+        }
+
+        if ($installation->revoked_at !== null) {
+            $this->say($installation->id, sprintf('Already revoked: %s on %s was stopped before, so nothing changed.', $installation->harness, $installation->machine_label), refused: true);
+
             return;
         }
 
         $this->service(Installations::class)->revoke($installation, $this->actor());
+
+        $this->say($installation->id, sprintf(
+            'Revoked: %s on %s can no longer act, and neither can any session it started.',
+            $installation->harness,
+            $installation->machine_label
+        ));
     }
 
     /**
@@ -161,7 +203,7 @@ final class Administration extends Component
     {
         $this->authorizeAdmin();
 
-        $session = AgentSession::query()->find($sessionId);
+        $session = $this->session($sessionId);
 
         if (! $session instanceof AgentSession) {
             return;
@@ -169,7 +211,18 @@ final class Administration extends Component
 
         // Named, like the other three administrative actions. Killing another developer's
         // running agent was the one the feed could not attribute (#115).
+        // Decided from the status rather than from what `revoke()` returns, which counts the tokens
+        // it deleted: a live session whose installation was revoked has none left, and revoking it
+        // still ends it
+        if ($session->status === AgentSessionStatus::Gone) {
+            $this->say($session->installation_id, sprintf('Already gone: session #%d had already ended, so nothing changed.', $session->id), refused: true);
+
+            return;
+        }
+
         $this->service(SessionPresence::class)->revoke($session, $this->actor());
+
+        $this->say($session->installation_id, sprintf('Revoked: session #%d has ended, and its agent can no longer act.', $session->id));
     }
 
     /**
@@ -200,13 +253,23 @@ final class Administration extends Component
             ));
         }
 
-        $session = AgentSession::query()->find($sessionId);
+        $session = $this->session($sessionId);
 
         if (! $session instanceof AgentSession) {
             return;
         }
 
-        $this->service(RoleRequests::class)->approve($session, $expected, $this->actor());
+        if (! $this->service(RoleRequests::class)->approve($session, $expected, $this->actor()) instanceof Role) {
+            $this->unchanged($session, sprintf(
+                'Not approved: session #%d no longer asks to be %s. The list shows what it asks for now.',
+                $session->id,
+                $expected->value
+            ));
+
+            return;
+        }
+
+        $this->say($session->installation_id, sprintf('Approved: session #%d is now %s.', $session->id, $expected->value));
     }
 
     /**
@@ -218,13 +281,19 @@ final class Administration extends Component
     {
         $this->authorizeAdmin();
 
-        $session = AgentSession::query()->find($sessionId);
+        $session = $this->session($sessionId);
 
         if (! $session instanceof AgentSession) {
             return;
         }
 
-        $this->service(RoleRequests::class)->deny($session, $this->actor());
+        if (! $this->service(RoleRequests::class)->deny($session, $this->actor())) {
+            $this->unchanged($session, sprintf('Nothing to deny: session #%d has no request waiting now.', $session->id));
+
+            return;
+        }
+
+        $this->say($session->installation_id, sprintf('Denied: session #%d stays %s.', $session->id, $session->refresh()->role->value));
     }
 
     /**
@@ -256,13 +325,19 @@ final class Administration extends Component
             ));
         }
 
-        $session = AgentSession::query()->find($sessionId);
+        $session = $this->session($sessionId);
 
         if (! $session instanceof AgentSession) {
             return;
         }
 
-        $this->service(RoleRequests::class)->impose($session, $resolved, $this->actor());
+        if (! $this->service(RoleRequests::class)->impose($session, $resolved, $this->actor())) {
+            $this->unchanged($session, sprintf('No change: session #%d was already %s.', $session->id, $resolved->value));
+
+            return;
+        }
+
+        $this->say($session->installation_id, sprintf('Changed: session #%d is now %s.', $session->id, $resolved->value));
     }
 
     /**
@@ -297,6 +372,60 @@ final class Administration extends Component
             // day it exists rather than the day somebody remembers this file.
             'roles' => Role::cases(),
         ]);
+    }
+
+    /**
+     * The session an action names, or null having said that it no longer exists.
+     *
+     * @param  int  $sessionId  The session's id, as the page rendered it.
+     * @return AgentSession|null The session.
+     */
+    private function session(int $sessionId): ?AgentSession
+    {
+        $session = AgentSession::query()->find($sessionId);
+
+        if (! $session instanceof AgentSession) {
+            $this->say(null, sprintf('Not found: session #%d no longer exists. The list shows the ones that do.', $sessionId), refused: true);
+
+            return null;
+        }
+
+        return $session;
+    }
+
+    /**
+     * Say why a role action changed nothing, naming a session that has gone as the reason.
+     *
+     * The stores answer false both when the row already said what was asked and when the session
+     * ended in between, and only the second is something the administrator cannot fix by looking
+     * again, so it is read back rather than guessed.
+     *
+     * @param  AgentSession  $session  The session, as it was before the action.
+     * @param  string  $otherwise  What to say when it is still live.
+     */
+    private function unchanged(AgentSession $session, string $otherwise): void
+    {
+        // Through the model, so the cast applies: `value()` on an Eloquent query casts too, and
+        // comparing its answer with the enum's string would never match
+        $status = AgentSession::query()->whereKey($session->id)->first()?->status;
+
+        $this->say($session->installation_id, $status === AgentSessionStatus::Gone
+            ? sprintf('Gone: session #%d has ended, so its role can no longer be changed.', $session->id)
+            : $otherwise, refused: true);
+    }
+
+    /**
+     * Record what the last action did, for the page to show beside the installation it was about.
+     *
+     * @param  int|null  $installationId  The installation, or null to show it above the list.
+     * @param  string  $words  What happened, leading with the word that sums it up.
+     * @param  bool  $refused  Whether it was refused or changed nothing.
+     */
+    private function say(?int $installationId, string $words, bool $refused = false): void
+    {
+        $this->said = $words;
+        $this->saidAt = $installationId;
+        $this->refused = $refused;
     }
 
     /**

@@ -66,7 +66,7 @@ final class EnrollmentDecisionController
             throw new ConflictHttpException;
         }
 
-        return $this->back($code, 'Approved. The machine that asked for this code can now enroll.');
+        return $this->back($code, 'Approved: the machine that asked for this code can now enroll.');
     }
 
     /**
@@ -90,7 +90,7 @@ final class EnrollmentDecisionController
             throw new ConflictHttpException;
         }
 
-        return $this->back($code, 'Denied. Nothing was enrolled.');
+        return $this->back($code, 'Denied: nothing was enrolled, and the machine that asked cannot use this code.');
     }
 
     /**

@@ -112,9 +112,9 @@ it('marks a coordinator-created task without making the reader check who filed i
 
     // The count alone cannot say which row carries it, so the order is asserted too: the badge has
     // to fall between the coordinator's title and the ordinary one's.
-    $board->assertSeeHtmlInOrder(['Everyone stop', 'coordinator', 'An ordinary one']);
+    $board->assertSeeHtmlInOrder(['Everyone stop', '<span class="badge badge-sm badge-outline">coordinator</span>', 'An ordinary one']);
 
-    expect(substr_count($board->html(), 'coordinator'))->toBe(1);
+    expect(substr_count($board->html(), '<span class="badge badge-sm badge-outline">coordinator</span>'))->toBe(1);
 });
 
 it('reaches a task beyond the first page through the cursor', function (): void {
@@ -238,7 +238,7 @@ it('offers the way back from a page past the end of the queue', function (): voi
     $last = Task::query()->orderByDesc('id')->first();
 
     $board->call('showNext', $last?->priority, $last?->id)
-        ->assertSee('past the end of the queue')
+        ->assertSee('End of the queue: nothing comes after this page.')
         ->assertSeeHtml('First page');
 });
 

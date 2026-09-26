@@ -17,6 +17,8 @@
         </span>
     </div>
 
+    @include('robot-council::partials.glossary', ['terms' => ['lane', 'harness', 'working', 'idle', 'parked', 'blocked', 'not_observed', 'gate', 'watcher', 'tickets_held', 'task', 'ticket', 'hand_back', 'subagent', 'branch', 'taken_up', 'validating', 'pull_request_state', 'known_since', 'open_issues', 'waiting_on_developer']])
+
     @if ($board['meters'] !== [])
         <div class="flex flex-wrap gap-3">
             @foreach ($board['meters'] as $repository => $meter)
@@ -159,7 +161,7 @@
                     <div class="mt-2">
                         <h3 class="font-medium">Pull requests</h3>
                         @if (($board['pull_requests'][$repository] ?? []) === [])
-                            <p class="text-meta opacity-80">None open, as far as GitHub has told the fleet.</p>
+                            <p class="text-meta opacity-80">None open: GitHub has reported no open pull request for this repository.</p>
                         @else
                             <ul class="text-meta">
                                 @foreach ($board['pull_requests'][$repository] as $pull)
@@ -176,7 +178,7 @@
             </div>
         </div>
     @empty
-        <p class="py-6 text-center opacity-80">No lane is live.</p>
+        <p class="py-6 text-center opacity-80">No lanes: no session that can take work is connected. A lane appears here when an agent joins the fleet.</p>
     @endforelse
 
     @if ($board['truncated'])
@@ -206,7 +208,7 @@
                     </ul>
                 </div>
             @empty
-                <p class="text-meta opacity-80">Nothing is waiting on a developer.</p>
+                <p class="text-meta opacity-80">Nothing waiting: no agent has asked a developer for a decision or an action.</p>
             @endforelse
         </div>
     </div>

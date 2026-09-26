@@ -144,6 +144,8 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
             ->name('robot-council')
             ->hasConfigFile()
             ->hasViews()
+            // The dashboard's glossary (#402), which a host may reword by publishing it
+            ->hasTranslations()
             ->hasCommands([
                 InstallCommand::class,
                 RevokeInstallationCommand::class,
