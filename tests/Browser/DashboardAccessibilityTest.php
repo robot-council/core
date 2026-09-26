@@ -30,6 +30,7 @@ declare(strict_types=1);
 use Illuminate\Foundation\Auth\User;
 use Illuminate\Support\Carbon;
 use Pest\Browser\Api\PendingAwaitablePage;
+use RobotCouncil\Access\AccessList;
 use RobotCouncil\Access\Role;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
@@ -39,6 +40,7 @@ use RobotCouncil\Models\Lock;
 use RobotCouncil\Models\Task;
 use RobotCouncil\Models\TaskTransition;
 use RobotCouncil\Support\AgentSessions;
+use RobotCouncil\Support\AllowlistEntries;
 use RobotCouncil\Support\Backlog;
 use RobotCouncil\Support\DeveloperSettings;
 use RobotCouncil\Support\DeviceCodes;
@@ -99,6 +101,7 @@ function accessibilitySurfaces(): array
         'locks' => ['robot-council.locks', '', 'branch:vocabulary'],
         'feed' => ['robot-council.feed', '', 'Running the gate before opening the pull request.'],
         'administration' => ['robot-council.administration', '', 'gate-runner'],
+        'access' => ['robot-council.access', '', 'from configuration'],
         'seats' => ['robot-council.seats', '', 'robot-council-core-a'],
         'enrollment' => ['robot-council.enroll.show', 'code', 'What the machine says about itself'],
         'signed out' => ['robot-council.signed-out', 'guest', 'Signed out'],
@@ -180,6 +183,10 @@ function seedAccessibilityFleet(TestCase $case): array
     $settings = $case->service(DeveloperSettings::class);
     $settings->setHours(HostKey::from($developer->getAuthIdentifier()), 'America/Chicago', '08:00', '17:00', true);
     $settings->addHoliday(HostKey::from($developer->getAuthIdentifier()), '2026-12-25');
+
+    // A table entry on the access page, so it is scanned with a remove control and not only with
+    // the configuration entries (#407)
+    $case->service(AllowlistEntries::class)->add(AccessList::Developer, 5150, 'added-here');
 
     $code = app(DeviceCodes::class)->issue(['fleet:read', 'tasks:create'], 'claude-code', 'workbench', hash('sha256', 'accessibility-verifier'), null);
 
