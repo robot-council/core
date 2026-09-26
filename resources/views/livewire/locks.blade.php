@@ -47,21 +47,21 @@
             </p>
         @else
             <div class="overflow-x-auto">
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>Lock</th>
-                            <th>Held by</th>
-                            <th>Fence</th>
-                            <th>Lease</th>
+                <table class="table table-stack" role="table">
+                    <thead role="rowgroup">
+                        <tr role="row">
+                            <th role="columnheader">Lock</th>
+                            <th role="columnheader">Held by</th>
+                            <th role="columnheader">Fence</th>
+                            <th role="columnheader">Lease</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody role="rowgroup">
                         @foreach ($locks['locks'] as $lock)
-                            <tr wire:key="lock-{{ $lock['id'] }}">
-                                <td class="font-medium">{{ $lock['name'] }}</td>
+                            <tr role="row" wire:key="lock-{{ $lock['id'] }}">
+                                <td role="cell" data-label="Lock" class="font-medium">{{ $lock['name'] }}</td>
 
-                                <td>
+                                <td role="cell" data-label="Held by">
                                     {{-- Linked to the one session holding it, which is the
                                          diagnosis path #308 kept when it split this list from the
                                          agents. A session id rather than the login: one developer
@@ -81,7 +81,7 @@
                                     @endif
                                 </td>
 
-                                <td>{{ $lock['fence'] }}</td>
+                                <td role="cell" data-label="Fence">{{ $lock['fence'] }}</td>
 
                                 {{-- A lapsed lease is shown rather than hidden: a row that
                                      still names a holder whose lease has run out is exactly
@@ -98,7 +98,7 @@
                                      that was a defect rather than a reason: nothing could
                                      reach the dark theme at all. A released lock is the
                                      ordinary case and is not marked. --}}
-                                <td class="whitespace-nowrap text-meta">
+                                <td role="cell" data-label="Lease" class="whitespace-nowrap text-meta">
                                     @if ($lock['lapsed'])
                                         <span class="badge badge-sm badge-warning">{{ $lock['lease'] }}</span>
                                     @else

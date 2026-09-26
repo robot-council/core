@@ -79,7 +79,7 @@ function machineCell(string $label): string
  */
 function lockCell(string $name): string
 {
-    return '<td class="font-medium">'.$name.'</td>';
+    return '<td role="cell" data-label="Lock" class="font-medium">'.$name.'</td>';
 }
 
 /**
@@ -117,13 +117,13 @@ it('renders the agents on the Agents page and the locks on the Locks page, and n
 
     // Column headings rather than words. "Agents" and "Locks" are both in the sidebar on both pages,
     // so a bare string would discriminate nothing.
-    expect($agents)->toContain('<th>Last seen</th>')
+    expect($agents)->toContain('<th role="columnheader">Last seen</th>')
         ->toContain(machineCell('box-first'))
-        ->not->toContain('<th>Fence</th>')
+        ->not->toContain('<th role="columnheader">Fence</th>')
         ->not->toContain(lockCell('lock-first'))
-        ->and($locks)->toContain('<th>Fence</th>')
+        ->and($locks)->toContain('<th role="columnheader">Fence</th>')
         ->toContain(lockCell('lock-first'))
-        ->not->toContain('<th>Last seen</th>')
+        ->not->toContain('<th role="columnheader">Last seen</th>')
         ->not->toContain(machineCell('box-first'));
 });
 

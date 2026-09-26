@@ -74,7 +74,7 @@ it('reads a watcher that never reported as absent, and a reporting one by its ag
 it('shows the reading in the watcher column of the lane board', function (): void {
     $cell = function (): string {
         $html = Livewire::actingAs($this->developer)->test(Lanes::class)->html();
-        preg_match('/<td data-watcher="([a-z]+)">(.*?)<\/td>/s', $html, $found);
+        preg_match('/<td\b[^>]*\bdata-watcher="([a-z]+)">(.*?)<\/td>/s', $html, $found);
 
         return ($found[1] ?? '').': '.trim((string) preg_replace('/\s+/', ' ', strip_tags($found[2] ?? '')));
     };

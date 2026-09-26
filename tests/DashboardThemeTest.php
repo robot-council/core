@@ -851,6 +851,136 @@ it('holds every consequential control to the AAA target size, and every control 
         ->and($dense)->toBeGreaterThanOrEqual(15);
 });
 
+it('reflows every table into labelled rows where it would otherwise scroll sideways', function (): void {
+    $css = stylesheet();
+
+    // **The rule, from the artifact** (#401). Below 48rem each row is a block and each cell a line
+    // under its column's name; measured in headless Chrome at 320px before this, the Agents table
+    // was 710px wide in a 240px box and scrolled sideways inside its wrapper
+    $at = strpos($css, '@media not all and (min-width:48rem){.table-stack,.table-stack tbody,.table-stack tr,.table-stack td{display:block}');
+
+    expect($at)->toBeInt()
+        ->and(blocksEnclosing($css, (int) $at))->toBe(['@layer utilities'])
+        ->and($css)->toContain('.table-stack td:before{content:attr(data-label);content:attr(data-label) / "";');
+
+    $tables = 0;
+
+    foreach (bladeTemplatesIn(__DIR__.'/../resources/views') as $view) {
+        $source = sourceWithoutComments($view);
+
+        preg_match_all('/<table\b[^>]*>.*?<\/table>/s', $source, $found);
+
+        foreach ($found[0] as $table) {
+            $tables++;
+            $name = basename($view);
+
+            // The class that stacks it, and the roles that keep it a table to a screen reader once
+            // `display` has changed, which Safari otherwise stops reporting
+            expect($table)->toStartWith('<table class="table table-stack" role="table">', $name);
+
+            preg_match_all('/<th role="columnheader"[^>]*>(.*?)<\/th>/s', $table, $headers);
+            preg_match_all('/<td\b[^>]*>/', $table, $cells);
+
+            $labels = array_map(
+                static fn (string $cell): ?string => preg_match('/\bdata-label="([^"]*)"/', $cell, $label) === 1 ? $label[1] : null,
+                $cells[0]
+            );
+
+            // Every cell names its column, in the order the headers give them, so a stacked row
+            // reads the same as a table row
+            expect($labels)->toBe(array_map(
+                static fn (string $header): string => trim((string) preg_replace('/\s+/', ' ', strip_tags($header))),
+                $headers[1]
+            ), $name);
+
+            expect(substr_count($table, '<td role="cell"'))->toBe(count($cells[0]), $name);
+        }
+    }
+
+    // Exactly the four tables the dashboard has today, so a fifth that arrives unstacked cannot be
+    // offset by one that was removed
+    expect($tables)->toBe(4);
+});
+
+it('wraps text rather than cutting it off, and honours reduced motion', function (): void {
+    $css = stylesheet();
+
+    // **Nothing truncates** (#401). The header's name, tagline and login were cut off under the
+    // SC 1.4.12 text spacing at 320px; a long identifier now breaks instead of widening the page
+    $at = strpos($css, 'body{overflow-wrap:break-word}');
+
+    expect($at)->toBeInt()
+        ->and(blocksEnclosing($css, (int) $at))->toBe(['@layer base']);
+
+    foreach (bladeTemplatesIn(__DIR__.'/../resources/views') as $view) {
+        preg_match_all('/\b(?:truncate|line-clamp-\d+|text-ellipsis)\b/', sourceWithoutComments($view), $cut);
+
+        expect($cut[0])->toBeEmpty(basename($view));
+    }
+
+    // **Motion ends at once for a reader who asks for less of it**, from the artifact
+    $motion = strpos($css, '@media (prefers-reduced-motion:reduce){*,:before,:after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}');
+
+    expect($motion)->toBeInt()
+        ->and(blocksEnclosing($css, (int) $motion))->toBe(['@layer base']);
+});
+
+it('keys every repeated element in a view that polls, so a re-render keeps what the reader is on', function (): void {
+    // **A poll re-renders in place** (#401). Livewire matches the old DOM to the new by `wire:key`,
+    // and an unkeyed element in a loop is matched by position, so a row arriving above it gives a
+    // focused control to a different row. Measured in headless Chrome with Livewire's own morph:
+    // with every loop keyed, a focused control keeps focus across a re-render that adds a row.
+    $loops = 0;
+    $unkeyed = [];
+
+    foreach (bladeTemplatesIn(__DIR__.'/../resources/views/livewire') as $view) {
+        $source = sourceWithoutComments($view);
+
+        if (! str_contains($source, 'wire:poll')) {
+            continue;
+        }
+
+        $offset = 0;
+
+        // `@forelse` repeats its element exactly as `@foreach` does
+        while (preg_match('/@(?:foreach|forelse)\b/', $source, $loop, PREG_OFFSET_CAPTURE, $offset) === 1) {
+            $at = $loop[0][1];
+            $loops++;
+
+            // The element the loop repeats is the first tag after the directive's closing paren
+            $depth = 0;
+            $end = strpos($source, '(', $at);
+
+            for ($i = (int) $end; $i < strlen($source); $i++) {
+                $depth += match ($source[$i]) {
+                    '(' => 1,
+                    ')' => -1,
+                    default => 0,
+                };
+
+                if ($depth === 0) {
+                    break;
+                }
+            }
+
+            preg_match('/<([a-z]+)\b((?:->|=>|[^>])*)>/s', $source, $element, 0, $i);
+
+            // Collected rather than asserted here: `toContain()` is variadic, so a message passed to
+            // it is read as a second needle
+            if (! str_contains($element[2] ?? '', 'wire:key')) {
+                $unkeyed[] = sprintf('%s: %s', basename($view), trim((string) preg_replace('/\s+/', ' ', substr($source, $at, 60))));
+            }
+
+            $offset = $at + 1;
+        }
+    }
+
+    expect($unkeyed)->toBeEmpty(implode("\n", $unkeyed));
+
+    // The control: the polled views loop a dozen times between them
+    expect($loops)->toBeGreaterThanOrEqual(12);
+});
+
 it('measures every dimmed step the views actually use', function (): void {
     // **The half that keeps the test above honest.** Measuring a fixed list proves those two steps
     // are legible and says nothing about a third somebody adds later -- which is exactly how #197

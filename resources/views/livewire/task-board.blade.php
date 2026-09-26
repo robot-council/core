@@ -15,7 +15,7 @@
                     class="btn btn-xs {{ $shownStatus === '' ? 'btn-primary' : 'btn-outline' }}">All</button>
 
                 @foreach ($statuses as $option)
-                    <button type="button" wire:click="showStatus('{{ \RobotCouncil\Support\WireArgument::of($option) }}')"
+                    <button type="button" wire:key="status-{{ $option->value }}" wire:click="showStatus('{{ \RobotCouncil\Support\WireArgument::of($option) }}')"
                         aria-pressed="{{ $shownStatus === $option->value ? 'true' : 'false' }}"
                         class="btn btn-xs {{ $shownStatus === $option->value ? 'btn-primary' : 'btn-outline' }}">
                         {{ $option->value }}
@@ -30,21 +30,21 @@
             </p>
         @else
             <div class="overflow-x-auto">
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>Task</th>
-                            <th>Status</th>
-                            <th>Priority</th>
-                            <th>Filed by</th>
-                            <th>Held by</th>
-                            <th>Age</th>
+                <table class="table table-stack" role="table">
+                    <thead role="rowgroup">
+                        <tr role="row">
+                            <th role="columnheader">Task</th>
+                            <th role="columnheader">Status</th>
+                            <th role="columnheader">Priority</th>
+                            <th role="columnheader">Filed by</th>
+                            <th role="columnheader">Held by</th>
+                            <th role="columnheader">Age</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody role="rowgroup">
                         @foreach ($tasks as $task)
-                            <tr wire:key="task-{{ $task['id'] }}">
-                                <td>
+                            <tr role="row" wire:key="task-{{ $task['id'] }}">
+                                <td role="cell" data-label="Task">
                                     <div class="font-medium">{{ $task['title'] }}</div>
 
                                     @if ($task['project_id'])
@@ -52,11 +52,11 @@
                                     @endif
                                 </td>
 
-                                <td><span class="badge badge-sm">{{ $task['status'] }}</span></td>
+                                <td role="cell" data-label="Status"><span class="badge badge-sm">{{ $task['status'] }}</span></td>
 
-                                <td>{{ $task['priority'] }}</td>
+                                <td role="cell" data-label="Priority">{{ $task['priority'] }}</td>
 
-                                <td>
+                                <td role="cell" data-label="Filed by">
                                     @if ($task['created_by'])
                                         {{ $task['created_by']['github_login'] ?? 'an unknown account' }}
 
@@ -70,7 +70,7 @@
                                     @endif
                                 </td>
 
-                                <td>
+                                <td role="cell" data-label="Held by">
                                     @if ($task['claimed_by'])
                                         {{ $task['claimed_by']['github_login'] ?? 'an unknown account' }}
                                     @else
@@ -78,7 +78,7 @@
                                     @endif
                                 </td>
 
-                                <td class="whitespace-nowrap text-meta opacity-90">
+                                <td role="cell" data-label="Age" class="whitespace-nowrap text-meta opacity-90">
                                     {{ $task['age'] }}
                                 </td>
                             </tr>

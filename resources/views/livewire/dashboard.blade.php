@@ -26,21 +26,21 @@
                  theme. `DashboardThemeTest` measures both steps on this surface. --}}
             <ul class="menu w-full gap-1 p-0">
                 <li>
-                    <a href="{{ route('robot-council.agents') }}">
+                    <a href="{{ route('robot-council.agents') }}" class="flex flex-wrap gap-x-2">
                         <span class="grow">Agents</span>
                         <span class="text-meta opacity-90">Who is working, and where</span>
                     </a>
                 </li>
 
                 <li>
-                    <a href="{{ route('robot-council.locks') }}">
+                    <a href="{{ route('robot-council.locks') }}" class="flex flex-wrap gap-x-2">
                         <span class="grow">Locks</span>
                         <span class="text-meta opacity-90">What the fleet is holding, and who holds it</span>
                     </a>
                 </li>
 
                 <li>
-                    <a href="{{ route('robot-council.lanes') }}">
+                    <a href="{{ route('robot-council.lanes') }}" class="flex flex-wrap gap-x-2">
                         <span class="grow">Lanes</span>
                         {{-- The lane board's summary (#317): how many lanes are in each of its states --}}
                         <span class="text-meta opacity-90" data-lanes-summary>
@@ -49,14 +49,14 @@
                     </a>
                 </li>
                 <li>
-                    <a href="{{ route('robot-council.queue') }}">
+                    <a href="{{ route('robot-council.queue') }}" class="flex flex-wrap gap-x-2">
                         <span class="grow">Queue</span>
                         <span class="text-meta opacity-90">What the fleet has been asked to do</span>
                     </a>
                 </li>
 
                 <li>
-                    <a href="{{ route('robot-council.feed') }}">
+                    <a href="{{ route('robot-council.feed') }}" class="flex flex-wrap gap-x-2">
                         <span class="grow">Change feed</span>
                         <span class="text-meta opacity-90">What has happened, newest first</span>
                     </a>
@@ -70,7 +70,7 @@
                 --}}
                 @if ($isAdmin)
                     <li>
-                        <a href="{{ route('robot-council.administration') }}">
+                        <a href="{{ route('robot-council.administration') }}" class="flex flex-wrap gap-x-2">
                             <span class="grow">Administration</span>
                             <span class="text-meta opacity-90">Installations and their sessions</span>
                         </a>
