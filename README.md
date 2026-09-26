@@ -297,6 +297,15 @@ A finished task that still has another task filed under it is also left in place
 selected — possibly a task the fleet is still working on. It goes once its children have, which for
 a finished tree happens within the same run.
 
+**The dashboard's queue stops showing a finished task well before the prune removes it.** On the
+unfiltered queue a `done` or `cancelled` task is hidden 24 hours after it finished, and a `failed` one
+after 7 days, since a failure usually still needs somebody. Choosing a status on the queue shows every
+task in it, however old, and the queue says how many it is hiding. These are display windows, not
+retention: nothing is deleted. Each is set in hours under
+`robot-council.dashboard.hide_finished_after_hours`, with `ROBOT_COUNCIL_DASHBOARD_HIDE_DONE_AFTER_HOURS`,
+`ROBOT_COUNCIL_DASHBOARD_HIDE_CANCELLED_AFTER_HOURS` and `ROBOT_COUNCIL_DASHBOARD_HIDE_FAILED_AFTER_HOURS`;
+`0` never hides.
+
 Free locks have their own retention, `robot-council.retention.locks_days`, defaulting to **7** and
 set with `ROBOT_COUNCIL_LOCK_RETENTION_DAYS`. It is shorter than the other two because a lock row
 nobody holds carries a name, a previous holder and a number, none of which is read once the lease
