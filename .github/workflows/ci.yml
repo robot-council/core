@@ -15,7 +15,10 @@ permissions:
 jobs:
   tests:
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    # 19 minutes, derived as `postgres`'s budget is (#412): 3.1x the worst completed cell. The
+    # Windows cells set it -- 365s at worst across 36 runs on 2026-09-25/26, against 175s for the
+    # ubuntu ones -- which had left them at 1.6x under the old 10, not the 3.3x #278 measured.
+    timeout-minutes: 19
     strategy:
       fail-fast: false
       matrix:
@@ -123,18 +126,22 @@ jobs:
     name: postgres
     runs-on: ubuntu-latest
 
-    # 22 minutes, and the number is derived rather than picked (#278). Every other job in this
-    # workflow finishes well inside its 10, and `mysql` is the tightest at 3.1x its observed
-    # maximum; this job's worst COMPLETED run is 426s, so the same multiple is 1331s. At 10 it had
-    # no headroom at all: measured across 44 runs, two `postgres` jobs were killed at the budget
-    # with every test passing -- 618s on `f9cdfd9` and 607s on `ab801f2` -- while the worst run
-    # that finished took 426s and the median took 302s.
+    # 47 minutes, and the number is derived rather than picked (#278, re-derived for #412). It is
+    # 3.1x the worst COMPLETED run, the multiple #278 used: across 87 completed jobs from
+    # 2026-09-25 17:36Z to 2026-09-26 09:57Z the worst took 896s and the median 670s, so 2778s.
+    # The old 22 minutes was 1.5x that worst, and two jobs were killed at it with every test
+    # passing -- 1346s on run 36171427779 and 1367s on run 36233027635.
+    #
+    # **The growth is the suite's size, not any one file.** Read per file from a job's own log
+    # (#249's rule), every file costs about 0.37s a test, because every database test runs
+    # `migrate:fresh` on this engine; 2,159 tests is about thirteen minutes of it. So this budget
+    # erodes as tests are added, and making that per-test setup cheaper is #467.
     #
     # **A killed job reports no failing test.** The checks panel says only `postgres -> cancelled`,
     # which reads like a failure and is a timeout; `CLAUDE.md` records how to tell them apart.
     # This budget exists to catch a genuine hang, not a slow runner, so it sits far above the
     # slowest runner on record and far below GitHub's own 6-hour ceiling.
-    timeout-minutes: 22
+    timeout-minutes: 47
     services:
       postgres:
         image: postgres:17
@@ -209,7 +216,10 @@ jobs:
     # its first CI run: 21s for the test step, 65s for the whole job including the service
     # container, against 312s for `postgres` on the same run. Ten minutes is generous rather than
     # tight, and the headroom is what an added engine-semantics file spends.
-    timeout-minutes: 10
+    #
+    # Now 17 (#412): 3.1x its worst completed run, 319s across 39 runs on 2026-09-25/26, against a
+    # 95s median. The engine-semantics group has grown since that first run.
+    timeout-minutes: 17
     services:
       mysql:
         image: mysql:8.4
