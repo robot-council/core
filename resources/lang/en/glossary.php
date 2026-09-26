@@ -308,6 +308,28 @@ return [
         'means' => 'Stops the machine for good: its credential and every session token it issued stop working at once. It has to enroll again to rejoin.',
     ],
 
+    // Access (#407)
+    'allowlist' => [
+        'term' => 'Allowlist',
+        'means' => 'The list of GitHub accounts allowed in. There are two: developers and administrators.',
+    ],
+    'developer_list' => [
+        'term' => 'Developers',
+        'means' => 'Accounts that may sign in to this dashboard and connect their agents to the fleet.',
+    ],
+    'administrator_list' => [
+        'term' => 'Administrators',
+        'means' => 'Accounts that may also approve roles, revoke machines, and change these lists. An administrator can always sign in.',
+    ],
+    'from_configuration' => [
+        'term' => 'From configuration',
+        'means' => 'Named in the server\'s own settings rather than added on this page. Only whoever runs the server can remove it, which is why an administrator named there can always get back in.',
+    ],
+    'github_id' => [
+        'term' => 'GitHub user ID',
+        'means' => 'The number GitHub gives every account. It never changes, unlike a login, so it is what decides who is let in.',
+    ],
+
     // Seats and hours
     'seat' => [
         'term' => 'Seat',

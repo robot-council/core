@@ -39,8 +39,9 @@ final class AllowlistEntries
      * @param  int|null  $addedBy  The adding administrator's GitHub user ID, if one did.
      * @return bool True when it was added, false when the table already had it.
      *
-     * @throws InvalidArgumentException When the ID is not a positive whole number, or the login is
-     *                                  not a GitHub login.
+     * @throws InvalidArgumentException When the ID is not a positive whole number, the login is not
+     *                                  a GitHub login, or the host's configuration already puts the
+     *                                  account on that list.
      */
     public function add(AccessList $list, mixed $githubId, mixed $login, ?int $addedBy = null): bool
     {
@@ -52,6 +53,18 @@ final class AllowlistEntries
 
         if (! \is_string($login) || preg_match(LaneHolds::LOGIN, $login) !== 1) {
             throw new InvalidArgumentException('A GitHub login is 1 to 39 letters, digits and single hyphens, not leading or trailing.');
+        }
+
+        // Refused rather than stored (#407's review): a table row for an account the environment
+        // already names changes nothing today, and would quietly keep the account admitted after the
+        // host removed it from its configuration -- the one revocation the host believes it made
+        if (\in_array($id, $this->allowlist->configured($list), true)) {
+            throw new InvalidArgumentException(sprintf(
+                'GitHub user %d is already on the %s list through the host configuration (%s). Nothing changed.',
+                $id,
+                $list->value,
+                $list->variable()
+            ));
         }
 
         $added = DB::table('robot_council_allowlist_entries')->insertOrIgnore([
