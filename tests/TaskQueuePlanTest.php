@@ -25,10 +25,12 @@ declare(strict_types=1);
  */
 
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use RobotCouncil\Models\Task;
 use RobotCouncil\Models\TaskStatus;
+use RobotCouncil\Support\FinishedTaskWindows;
 use RobotCouncil\Support\TaskList;
 
 /**
@@ -149,8 +151,15 @@ function capturedQueueSql(?TaskStatus $status = null, ?array $after = null): arr
     DB::connection()->enableQueryLog();
 
     // `everything()` rather than the private query builder: the board's read is the one being
-    // measured, and the reads it makes afterwards touch other tables.
-    app(TaskList::class)->everything($status, 26, $after);
+    // measured, and the reads it makes afterwards touch other tables. Unfiltered, the board also
+    // leaves out finished tasks past their display window (#420), so the default cutoffs go in
+    // exactly as `Livewire\TaskBoard` passes them; filtered, it passes none.
+    app(TaskList::class)->everything(
+        $status,
+        26,
+        $after,
+        $status instanceof TaskStatus ? [] : app(FinishedTaskWindows::class)->cutoffs(Carbon::now()),
+    );
 
     DB::connection()->disableQueryLog();
 

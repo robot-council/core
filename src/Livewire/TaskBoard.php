@@ -14,6 +14,7 @@ use Livewire\Attributes\Url;
 use Livewire\Component;
 use RobotCouncil\Models\Task;
 use RobotCouncil\Models\TaskStatus;
+use RobotCouncil\Support\FinishedTaskWindows;
 use RobotCouncil\Support\PollInterval;
 use RobotCouncil\Support\TaskList;
 
@@ -141,19 +142,26 @@ final class TaskBoard extends Component
      * Render the queue.
      *
      * @param  TaskList  $tasks  The task store.
+     * @param  FinishedTaskWindows  $windows  How long a finished task stays on the unfiltered board (#420).
      * @return View The board.
      */
-    public function render(TaskList $tasks): View
+    public function render(TaskList $tasks, FinishedTaskWindows $windows): View
     {
+        // Finished tasks past their window leave only the unfiltered board; a status filter shows
+        // every task in that status, which is how finished work stays reachable (#420)
+        $status = $this->selectedStatus();
+        $cutoffs = $status instanceof TaskStatus ? [] : $windows->cutoffs(Carbon::now());
+
         // One more than the page, so that whether a next page exists is known rather than guessed.
         // Deciding it from `count($tasks) === PER_PAGE` is a page behind: on a queue that is an
         // exact multiple of the page size it offers a next page that turns out to be empty.
         $page = $tasks->everything(
-            $this->selectedStatus(),
+            $status,
             self::PER_PAGE + 1,
             $this->afterPriority === null || $this->afterId === null
                 ? null
                 : ['priority' => $this->afterPriority, 'id' => $this->afterId],
+            $cutoffs,
         );
 
         $rows = $page['tasks'];
@@ -178,6 +186,11 @@ final class TaskBoard extends Component
             // whatever the client sent, so comparing it to `''` never matched and a status that is
             // not one widened the list while marking no filter selected (#309).
             'shownStatus' => $this->selectedStatus()->value ?? '',
+
+            // How many finished tasks the unfiltered board is leaving out, by status, and each
+            // status's window in hours, so the page can say what it hid and how to see it
+            'hiddenFinished' => $tasks->hiddenFinished($cutoffs),
+            'finishedWindows' => $windows->hours(),
         ]);
     }
 

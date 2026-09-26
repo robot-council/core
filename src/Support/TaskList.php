@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RobotCouncil\Support;
 
+use DateTimeInterface;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use RobotCouncil\Models\AgentSession;
@@ -105,15 +106,23 @@ final class TaskList
      * The caller is responsible for having established that the reader is an allowlisted developer.
      * Nothing here checks that, because nothing here can: there is no session to ask.
      *
+     * **Finished tasks past their display window are left out of the unfiltered read** when the
+     * caller passes cutoffs (#420), and never out of a read filtered to one status: that is how a
+     * developer reaches finished work. The windows are `Support\FinishedTaskWindows`'s; this takes
+     * the cutoffs rather than reading configuration, so the board decides when it is read.
+     *
      * @param  TaskStatus|null  $status  The status to show, or null for every task.
      * @param  int  $limit  How many to return, clamped to `MAX_PAGE`.
      * @param  array{priority: int, id: int}|null  $after  The last row the reader has seen.
+     * @param  array<string, DateTimeInterface>  $hiddenBefore  By terminal status value, the moment before
+     *                                                          which a task in it is left out of an
+     *                                                          unfiltered read.
      * @return array{tasks: list<array<string, mixed>>, cursor: array{priority: int, id: int}|null}
      *                                                                                              The page, and where to read from next.
      */
-    public function everything(?TaskStatus $status, int $limit, ?array $after = null): array
+    public function everything(?TaskStatus $status, int $limit, ?array $after = null, array $hiddenBefore = []): array
     {
-        $tasks = $this->queue($status, $limit, $after);
+        $tasks = $this->queue($status, $limit, $after, $status instanceof TaskStatus ? [] : $this->terminalOnly($hiddenBefore));
 
         $logins = $this->logins->forSessions([
             ...$tasks->pluck('created_by')->all(),
@@ -132,6 +141,64 @@ final class TaskList
     }
 
     /**
+     * How many finished tasks an unfiltered read leaves out, by status (#420).
+     *
+     * One grouped count rather than one per status, because the board asks on every poll.
+     *
+     * @param  array<string, DateTimeInterface>  $hiddenBefore  By terminal status value, the cutoff `everything()` was given.
+     * @return array<string, int> By status value, only those leaving something out, in `TaskStatus` order.
+     */
+    public function hiddenFinished(array $hiddenBefore): array
+    {
+        $hiddenBefore = $this->terminalOnly($hiddenBefore);
+
+        if ($hiddenBefore === []) {
+            return [];
+        }
+
+        $counted = Task::query()
+            ->where(static function (Builder $query) use ($hiddenBefore): void {
+                foreach ($hiddenBefore as $status => $before) {
+                    $query->orWhere(static fn (Builder $older): Builder => $older->where('status', $status)->where('updated_at', '<', $before));
+                }
+            })
+            ->toBase()
+            ->selectRaw('status, count(*) as hidden')
+            ->groupBy('status')
+            ->pluck('hidden', 'status');
+
+        $hidden = [];
+
+        foreach (TaskStatus::terminal() as $status) {
+            $count = $counted[$status->value] ?? 0;
+
+            if (is_numeric($count) && (int) $count > 0) {
+                $hidden[$status->value] = (int) $count;
+            }
+        }
+
+        return $hidden;
+    }
+
+    /**
+     * The cutoffs for terminal statuses only.
+     *
+     * **An unfinished task is never hidden, whatever a caller passes.** The window is for finished
+     * work; a `pending` or `blocked` task older than any window is exactly what the board is for.
+     *
+     * @param  array<string, DateTimeInterface>  $hiddenBefore  Cutoffs by status value.
+     * @return array<string, DateTimeInterface> Those whose status is terminal.
+     */
+    private function terminalOnly(array $hiddenBefore): array
+    {
+        return array_filter(
+            $hiddenBefore,
+            static fn (string $status): bool => TaskStatus::tryFrom($status)?->isTerminal() === true,
+            ARRAY_FILTER_USE_KEY,
+        );
+    }
+
+    /**
      * One page of the queue, in the order the queue is read.
      *
      * Shared by both readers, so the ordering and the keyset predicate cannot drift between what an
@@ -140,12 +207,21 @@ final class TaskList
      * @param  TaskStatus|null  $status  The status to filter to, or null for every task.
      * @param  int  $limit  How many to return, clamped to `MAX_PAGE`.
      * @param  array{priority: int, id: int}|null  $after  The last row the reader has seen.
+     * @param  array<string, DateTimeInterface>  $hiddenBefore  By terminal status, the moment before which a task is left out.
      * @return Collection<int, Task> The page.
      */
-    private function queue(?TaskStatus $status, int $limit, ?array $after): Collection
+    private function queue(?TaskStatus $status, int $limit, ?array $after, array $hiddenBefore = []): Collection
     {
         return Task::query()
             ->when($status instanceof TaskStatus, fn (Builder $query) => $query->where('status', $status?->value))
+            ->when($hiddenBefore !== [], function (Builder $query) use ($hiddenBefore): void {
+                // One exclusion per status rather than a disjunction over them, so a task is kept
+                // unless it is BOTH in that status AND older than its window. `updated_at` is when
+                // it finished; a task exactly at the cutoff is kept
+                foreach ($hiddenBefore as $hidden => $before) {
+                    $query->whereNot(static fn (Builder $older): Builder => $older->where('status', $hidden)->where('updated_at', '<', $before));
+                }
+            })
             ->when($after !== null, function (Builder $query) use ($after): void {
                 $priority = \is_int($after['priority'] ?? null) ? $after['priority'] : 0;
                 $id = \is_int($after['id'] ?? null) ? $after['id'] : 0;

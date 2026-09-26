@@ -107,7 +107,8 @@ it('pays for one panel per page', function (string $section, int $queries): void
     // the holder's session and login, and one summary
     'agents: sessions, their installations, their logins and a summary' => ['agents', 7],
     "locks: the held locks, their holders' sessions and logins, and a summary" => ['locks', 7],
-    'the queue: the tasks, their sessions and their logins' => ['queue', 6],
+    // One more since #420: one grouped count of the finished tasks the unfiltered queue hides
+    'the queue: the tasks, their sessions, their logins and the hidden count' => ['queue', 7],
     'the feed: the events and their logins' => ['feed', 5],
     'administration: the installations, their sessions, their logins and a summary' => ['administration', 9],
 ]);

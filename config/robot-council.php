@@ -369,6 +369,16 @@ return [
         // The timezone the lane board's stamps are shown in and the backlog baseline is taken in
         // (#317, #339). An IANA name; anything else falls back to UTC rather than failing.
         'timezone' => env('ROBOT_COUNCIL_DASHBOARD_TIMEZONE', 'UTC'),
+
+        // How long a finished task stays on the queue's unfiltered view, in hours, by status (#420).
+        // A display window, not a retention: filtering the queue to a status shows every task in it,
+        // and `retention.tasks_days` is what deletes one. A failed task stays longer, because it
+        // usually still needs someone. Zero never hides.
+        'hide_finished_after_hours' => [
+            'done' => (int) env('ROBOT_COUNCIL_DASHBOARD_HIDE_DONE_AFTER_HOURS', 24),
+            'cancelled' => (int) env('ROBOT_COUNCIL_DASHBOARD_HIDE_CANCELLED_AFTER_HOURS', 24),
+            'failed' => (int) env('ROBOT_COUNCIL_DASHBOARD_HIDE_FAILED_AFTER_HOURS', 168),
+        ],
     ],
 
     /*
