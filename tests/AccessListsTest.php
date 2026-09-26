@@ -17,6 +17,8 @@ use Livewire\Livewire;
 use RobotCouncil\Access\AccessList;
 use RobotCouncil\Access\Allowlist;
 use RobotCouncil\Livewire\AccessLists;
+use RobotCouncil\Models\FleetEvent;
+use RobotCouncil\Models\FleetEventType;
 use RobotCouncil\Models\GithubIdentity;
 use RobotCouncil\Support\AllowlistEntries;
 
@@ -223,4 +225,16 @@ it("puts the self-removal warning on the administrator's own row and no other", 
 
     expect($byLabel['Remove yourself, GitHub user 4242, from the administrator list'] ?? null)->toStartWith('Remove yourself from this list?')
         ->and($byLabel['Remove GitHub user 6060 from the administrator list'] ?? null)->toBe('Remove this account from the list? It takes effect on their next request.');
+});
+
+it('records the administrator who made each change through the page (#408)', function (): void {
+    Livewire::actingAs($this->admin)->test(AccessLists::class)
+        ->set('list', 'developer')->set('githubId', '5150')->set('login', 'new-dev')->call('add')
+        ->call('remove', 'developer', 5150);
+
+    $added = FleetEvent::query()->where('type', FleetEventType::AllowlistEntryAdded)->sole();
+    $removed = FleetEvent::query()->where('type', FleetEventType::AllowlistEntryRemoved)->sole();
+
+    expect($added->actor_user_id)->toBe(keyValue($this->admin->getKey()))
+        ->and($removed->actor_user_id)->toBe(keyValue($this->admin->getKey()));
 });
