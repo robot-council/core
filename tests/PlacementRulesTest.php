@@ -233,6 +233,32 @@ it('gates new placements on assignment hours, and not an exempt seat', function 
     expect(placeOnLane($this, ticketTask($this), lane: $other))->toBe(Outcome::Applied);
 });
 
+it('reports the seat outside its hours exactly when a placement is refused for them (#440)', function (): void {
+    knownIssue(12);
+    $key = HostKey::from($this->developer->getAuthIdentifier());
+    $this->service(DeveloperSettings::class)->setHours($key, 'UTC', '13:00', '17:00', false);
+
+    // Recorded the way the board and a placement record it, so the read has a seat to report
+    $this->service(Seats::class)->forDeveloper($key);
+
+    $seatOf = function (): array {
+        $read = arrayValue($this->machine($this->coordinatorToken)->getJson(route('robot-council.developers.settings'))->assertOk()->json());
+        $seats = array_values(array_filter(arrayValue($read['seats'] ?? []), fn (mixed $seat): bool => arrayValue($seat)['github_login'] === 'octodev'));
+
+        return arrayValue($seats[0] ?? null);
+    };
+
+    // 12:00 UTC: outside, opening at 13:00, and a placement is refused on exactly that rule
+    expect($seatOf())->toMatchArray(['inside_hours' => false, 'next_opens_at' => '2026-09-24T13:00:00+00:00'])
+        ->and(refusedOn(fn (): Outcome => placeOnLane($this, ticketTask($this))))->toBe([PlacementRule::AssignmentHours]);
+
+    // 13:00 UTC: inside, and the same placement goes through
+    Carbon::setTestNow('2026-09-24 13:00:00');
+
+    expect($seatOf())->toMatchArray(['inside_hours' => true, 'next_opens_at' => null])
+        ->and(placeOnLane($this, ticketTask($this)))->toBe(Outcome::Applied);
+});
+
 it('does not gate a hand-back to the lane that started the task', function (): void {
     knownIssue(12);
     $key = HostKey::from($this->developer->getAuthIdentifier());
