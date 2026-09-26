@@ -11,7 +11,9 @@ declare(strict_types=1);
  */
 
 use RobotCouncil\Support\AgentSessions;
+use RobotCouncil\Support\DeviceCodes;
 use RobotCouncil\Support\Locks;
+use RobotCouncil\Support\Tasks;
 use RobotCouncil\Tests\TestCase;
 
 beforeEach(function (): void {
@@ -86,13 +88,16 @@ function keyboardElements(DOMXPath $xpath, string $expression): array
     return $elements;
 }
 
-function keyboardPage(mixed $test, string $route): DOMXPath
+/**
+ * @param  array<string, string>  $parameters
+ */
+function keyboardPage(mixed $test, string $route, array $parameters = []): DOMXPath
 {
     if (! $test instanceof TestCase) {
         throw new RuntimeException('Expected the test case.');
     }
 
-    return keyboardDocument((string) $test->get(route($route))->assertOk()->getContent());
+    return keyboardDocument((string) $test->get(route($route, $parameters))->assertOk()->getContent());
 }
 
 it('gives every page one heading, one main, and one navigation', function (string $route): void {
@@ -141,7 +146,7 @@ it('reaches a full-size skip link before anything else, and the sidebar before t
         ->and(trim($first->textContent))->toBe('Skip to content')
         // Parked off-screen and brought in on focus, never `sr-only`: a sighted keyboard user sees
         // it, and it keeps the 44px target size while it shows
-        ->and($classes)->toContain('btn-target', 'focus:top-4')
+        ->and($classes)->toContain('btn-target', 'fixed', '-top-24', 'focus:top-4')
         ->and($classes)->not->toContain('sr-only');
 
     // The drawer's sidebar comes before its content in source order, so Tab reaches the navigation
@@ -166,4 +171,56 @@ it('marks an identifier as code wherever a page prints one', function (): void {
 
     expect($codes(keyboardPage($this, 'robot-council.locks')))->toContain('branch:main')
         ->and($codes(keyboardPage($this, 'robot-council.agents')))->toContain('office-mac', 'robot-council-core-a');
+});
+
+it('gives the enrollment and signed-out pages one heading and one main as well', function (): void {
+    $code = app(DeviceCodes::class)->issue(['fleet:read'], 'claude-code', 'workbench', hash('sha256', 'keyboard-verifier'), null);
+
+    $this->actingAs($this->developer, 'web');
+    $enroll = keyboardPage($this, 'robot-council.enroll.show', ['user_code' => $code->record->user_code]);
+
+    // Enrollment renders inside the dashboard layout, so it carries the skip link and the sidebar too
+    expect(keyboardElements($enroll, '//h1'))->toHaveCount(1)
+        ->and(keyboardElements($enroll, '//main'))->toHaveCount(1)
+        ->and(keyboardElements($enroll, '//a[@href="#robot-council-main"]'))->toHaveCount(1);
+
+    auth()->guard('web')->logout();
+    $signedOut = keyboardPage($this, 'robot-council.signed-out');
+
+    expect(keyboardElements($signedOut, '//h1'))->toHaveCount(1)
+        ->and(keyboardElements($signedOut, '//main'))->toHaveCount(1);
+});
+
+it('marks an identifier as code on the queue and the seats page too', function (): void {
+    $this->service(Tasks::class)->create($this->session, ['title' => 'Port the rule', 'project_id' => 'robot-council/core'], false);
+
+    $this->actingAs($this->developer, 'web');
+
+    $codes = static fn (DOMXPath $xpath): array => array_map(
+        static fn (DOMElement $code): string => trim($code->textContent),
+        keyboardElements($xpath, '//code'),
+    );
+
+    expect($codes(keyboardPage($this, 'robot-council.queue')))->toContain('robot-council/core')
+        ->and($codes(keyboardPage($this, 'robot-council.seats')))->toContain('robot-council/core', 'robot-council-core-a', 'office-mac');
+});
+
+it('names the seat in every control a seat repeats', function (): void {
+    $this->actingAs($this->developer, 'web');
+
+    $buttons = keyboardElements(keyboardPage($this, 'robot-council.seats'), '//main//li//button');
+
+    expect($buttons)->not->toBeEmpty();
+
+    $unnamed = [];
+
+    foreach ($buttons as $button) {
+        $name = (string) preg_replace('/\s+/', ' ', trim($button->textContent));
+
+        if (! str_contains($name, ' for robot-council/core / robot-council-core-a')) {
+            $unnamed[] = $name;
+        }
+    }
+
+    expect($unnamed)->toBeEmpty(implode(', ', $unnamed));
 });

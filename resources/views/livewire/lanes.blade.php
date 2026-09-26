@@ -100,7 +100,7 @@
                                             <span data-gate-run>
                                                 validating
                                                 @if (\RobotCouncil\Support\TicketLink::url($lane['on_what']['gate_pull_request']) !== null)
-                                                    <a href="{{ \RobotCouncil\Support\TicketLink::url($lane['on_what']['gate_pull_request']) }}" class="link" rel="noopener noreferrer">{{ $lane['on_what']['gate_pull_request'] }}</a>
+                                                    <a href="{{ \RobotCouncil\Support\TicketLink::url($lane['on_what']['gate_pull_request']) }}" class="link" rel="noopener noreferrer"><code>{{ $lane['on_what']['gate_pull_request'] }}</code></a>
                                                 @endif
                                                 @if ($lane['repository'] !== null)
                                                     &middot; {{ $board['queue_depth'][$lane['repository']] ?? 0 }} queued
@@ -138,7 +138,7 @@
                                         @elseif (is_array($lane['on_what']))
                                             <span data-on-what>
                                             @if (\RobotCouncil\Support\TicketLink::url($lane['on_what']['party']) !== null)
-                                                <a href="{{ \RobotCouncil\Support\TicketLink::url($lane['on_what']['party']) }}" class="link" rel="noopener noreferrer">{{ $lane['on_what']['party'] }}</a>
+                                                <a href="{{ \RobotCouncil\Support\TicketLink::url($lane['on_what']['party']) }}" class="link" rel="noopener noreferrer"><code>{{ $lane['on_what']['party'] }}</code></a>
                                             @else
                                                 {{ $lane['on_what']['party'] }}
                                             @endif

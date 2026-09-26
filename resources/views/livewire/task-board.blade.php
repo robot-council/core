@@ -48,7 +48,7 @@
                                     <div class="font-medium">{{ $task['title'] }}</div>
 
                                     @if ($task['project_id'])
-                                        <div class="text-meta opacity-80">{{ $task['project_id'] }}</div>
+                                        <div class="text-meta opacity-80"><code>{{ $task['project_id'] }}</code></div>
                                     @endif
                                 </td>
 

@@ -294,7 +294,7 @@
      * paints a focused item only by the background it also uses for hover -- so tabbing through the
      * sidebar or the overview's sections showed no focus indicator at all. Measured in headless
      * Chrome by tabbing every page in both themes: every menu link reported `outline-style: none`
-     * when focused, which fails SC 2.4.7 (AA). A 2px outline in the text colour marks it; against
+     * when focused, which fails SC 2.4.7 (AA). A 2px outline in the text color marks it; against
      * the card it measures 17.73:1 in the light theme and 14.75:1 in the dark one, far above the
      * 3:1 SC 1.4.11 asks of a focus indicator. `:focus-visible`, so a mouse click draws nothing.
      */

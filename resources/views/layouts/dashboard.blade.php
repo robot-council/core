@@ -43,8 +43,9 @@
 </head>
 <body class="min-h-screen bg-base-200 font-sans antialiased">
     {{-- The first stop on every page, so a keyboard reader skips the navigation that now precedes
-         the content. Parked above the viewport until it is focused rather than made `sr-only`:
-         `not-sr-only` resets the height to `auto`, which undid `btn-target` and drew it 21px tall --}}
+         the content. Parked above the viewport until it is focused rather than made screen-reader
+         only: undoing that on focus resets the height to `auto`, which cancelled the 44px target
+         and drew it 21px tall. Name no class in this comment that the markup does not use. --}}
     <a href="#robot-council-main"
         class="btn btn-target btn-primary fixed left-4 -top-24 z-50 focus:top-4">Skip to content</a>
 
@@ -54,7 +55,7 @@
         {{--
             The navigation comes before the content in the source, and daisyUI's grid still draws it
             on the left (#400). Below `lg` it opens over the page, and a keyboard user who opens it
-            with the toggle above has to reach its links next -- with the content first, the next
+            with the checkbox above has to reach its links next -- with the content first, the next
             Tab went to "Sign out" behind the overlay. The skip link above the drawer is what keeps
             this from costing a desktop reader nine stops before every page.
         --}}
@@ -196,7 +197,7 @@
                 </div>
             </header>
 
-            <main id="robot-council-main" tabindex="-1" class="focus:outline-none mx-auto w-full max-w-7xl grow p-4 sm:p-6">
+            <main id="robot-council-main" tabindex="-1" class="focus:outline-none scroll-mt-20 mx-auto w-full max-w-7xl grow p-4 sm:p-6">
                 {{ $slot }}
             </main>
         </div>
