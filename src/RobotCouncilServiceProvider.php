@@ -184,6 +184,15 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
         // A singleton, because it is a registry: a release step registered from another service
         // provider has to be there for the sweep that runs later in the same process
         $this->app->singleton(SessionReleases::class);
+
+        // Scoped, so one request reads the added allowlist entries once however many checks it makes
+        // (#406): the middleware, the admin gate and the layout would otherwise each pay a query.
+        // Octane and the queue worker forget scoped instances between requests and jobs, and PHP-FPM
+        // starts every request fresh; the one process that changes the table in between is the one
+        // writing it, and `AllowlistEntries` forgets the instance after every change. **Resolve it
+        // through `app()`, never a captured `$this->app`**, which under Octane is the base
+        // application whose scoped instances nothing clears -- `registerAbilities()` says why.
+        $this->app->scoped(Allowlist::class);
     }
 
     /**
@@ -649,10 +658,14 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
      */
     private function registerAbilities(): void
     {
-        Gate::define(self::ADMIN_ABILITY, function (Authenticatable $user): bool {
-            $githubId = $this->app->make(HostUsers::class)->githubId($user);
+        // **Resolved through the current container, never `$this->app`** (#406). `Allowlist` is
+        // scoped, and under Octane `$this->app` is the application this provider was booted with,
+        // not the request's copy: a scoped instance resolved on it is cleared by nothing, so this
+        // gate would answer from the first request's read for the worker's whole life.
+        Gate::define(self::ADMIN_ABILITY, static function (Authenticatable $user): bool {
+            $githubId = app(HostUsers::class)->githubId($user);
 
-            return $githubId !== null && $this->app->make(Allowlist::class)->isAdmin($githubId);
+            return $githubId !== null && app(Allowlist::class)->isAdmin($githubId);
         });
     }
 
