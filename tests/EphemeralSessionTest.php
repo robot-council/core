@@ -14,7 +14,9 @@ declare(strict_types=1);
 
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
+use Livewire\Livewire;
 use RobotCouncil\Events\SessionGone;
+use RobotCouncil\Livewire\Administration;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
 use RobotCouncil\Models\FleetEvent;
@@ -28,6 +30,7 @@ use RobotCouncil\Support\AgentSessions;
 use RobotCouncil\Support\FleetEvents;
 use RobotCouncil\Support\FleetPresence;
 use RobotCouncil\Support\HostKey;
+use RobotCouncil\Support\InstallationList;
 use RobotCouncil\Support\LaneBoard;
 use RobotCouncil\Support\Locks;
 use RobotCouncil\Support\Scope;
@@ -301,6 +304,69 @@ it('records no seat for an ephemeral session, and one for an ordinary session in
 
     expect(array_map(static fn (Seat $seat): string => $seat->work_location, $seats))->toBe(['lane'])
         ->and(Seat::query()->count())->toBe(1);
+});
+
+it('lists a live ephemeral session on the administration panel, marked, and neither lists nor counts a gone one', function (): void {
+    $this->setAccessLists(developers: [4242], admins: [4242]);
+
+    $sessions = $this->service(AgentSessions::class);
+    $presence = $this->service(SessionPresence::class);
+
+    $ordinary = $sessions->start($this->installation)->owner;
+    $liveEphemeral = $sessions->start($this->installation, ephemeral: true)->owner;
+    $ordinaryGone = $sessions->start($this->installation)->owner;
+    $presence->end($ordinaryGone);
+
+    // A read loop's worth of churn
+    $churned = [];
+
+    foreach (range(1, 3) as $ignored) {
+        $read = $sessions->start($this->installation, ephemeral: true)->owner;
+        $presence->end($read);
+        $churned[] = $read->id;
+    }
+
+    $hydrated = [];
+    AgentSession::retrieved(static function (AgentSession $session) use (&$hydrated): void {
+        $hydrated[] = $session->id;
+    });
+
+    $listed = arrayValue($this->service(InstallationList::class)->everything(50, Scope::All)['installations'][0]['sessions']);
+    $shown = arrayValue($listed['shown']);
+
+    // The live ephemeral session stays where it can be revoked, and says what it is; the gone one
+    // of the ordinary kind is counted, and the churned reads are neither counted nor read at all
+    expect(array_column($shown, 'id'))->toBe([$ordinary->id, $liveEphemeral->id])
+        ->and(array_column($shown, 'ephemeral'))->toBe([false, true])
+        ->and($listed['gone'])->toBe(1)
+        ->and(array_intersect($churned, $hydrated))->toBeEmpty()
+        ->and($hydrated)->toContain($ordinaryGone->id);
+
+    Livewire::actingAs($this->developer)
+        ->test(Administration::class)
+        ->assertSeeHtml('<span class="opacity-80">ephemeral</span>');
+});
+
+it('marks nothing ephemeral on the administration panel when no session is', function (): void {
+    $this->setAccessLists(developers: [4242], admins: [4242]);
+
+    $this->service(AgentSessions::class)->start($this->installation);
+
+    Livewire::actingAs($this->developer)
+        ->test(Administration::class)
+        ->assertDontSeeHtml('<span class="opacity-80">ephemeral</span>');
+});
+
+it('shows an ephemeral session when it is asked for by id, as a lock holder links to it', function (): void {
+    $ephemeral = $this->service(AgentSessions::class)->start($this->installation, ephemeral: true)->owner;
+    $ordinary = $this->service(AgentSessions::class)->start($this->installation)->owner;
+
+    $presence = $this->service(FleetPresence::class);
+
+    // One session looked up by id is not a listing; the listing beside it still leaves it out
+    expect(array_column($presence->sessions(50, Scope::All, only: $ephemeral->id)['sessions'], 'id'))->toBe([$ephemeral->id])
+        ->and(array_column($presence->sessions(50, Scope::All, only: $ordinary->id)['sessions'], 'id'))->toBe([$ordinary->id])
+        ->and(array_column($presence->sessions(50, Scope::All)['sessions'], 'id'))->toBe([$ordinary->id]);
 });
 
 it('starts an ephemeral reader at the head of the feed, so it sees what follows and nothing before', function (): void {

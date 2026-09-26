@@ -270,6 +270,12 @@ final class FleetEvents
      * Its own transaction, which is a savepoint inside a caller's; the lock is then held until the
      * caller commits, which costs nothing the caller's own `record()` would not have.
      *
+     * **That guarantee assumes the caller has not already taken a snapshot.** A host calling
+     * `AgentSessions::start()` inside its own transaction that has already run a plain `SELECT` --
+     * on InnoDB, or on Postgres under `REPEATABLE READ` -- reads the head as of that snapshot, which
+     * can be below ids committed since. A reader starting there may replay those few events, but it
+     * never misses one: the lock still keeps every later id above them.
+     *
      * @return int The newest event's id, or zero when the feed is empty.
      *
      * @throws RuntimeException When the sentinel row is missing.

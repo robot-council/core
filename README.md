@@ -173,8 +173,11 @@ protocol below is documented for anyone writing their own client.
    A start may also carry `ephemeral: true`, for a process the fleet need not be told about:
    `robot-council api` sends it for a read (`robot-council/cli#298`). An ephemeral session writes
    no `session.joined`, `session.stale`, `session.resumed` or `session.gone` event however it ends,
-   and is left out of `sessions_list`, `GET {prefix}/api/lanes`, lane conditions and the dashboard's
-   session views and totals. Everything else is an ordinary session's: it authenticates, reads the
+   and is left out of `sessions_list`, `GET {prefix}/api/lanes`, the free-lane and merge-behind lane
+   conditions, and the dashboard's session views and totals. One that holds work and stops answering
+   is still named by the unobserved-lane condition, because that work is somebody's to recover. The
+   administration panel lists a live one, marked `ephemeral`, so it can be revoked there, and counts
+   no gone one. Everything else is an ordinary session's: it authenticates, reads the
    feed as its own developer's session, and whatever it claims or locks is released when it ends or
    is swept. JSON `true` and `false`, `1` and `0`, and `"1"` and `"0"` are accepted; anything else,
    the string `"true"` included, is refused with 422. Omitted, the session is an ordinary one.
@@ -990,7 +993,7 @@ Three things worth knowing before you enable it:
 
 ## Upgrading
 
-### To 0.7.1
+### Unreleased
 
 Run `php artisan migrate`: one migration adds `robot_council_agent_sessions.ephemeral`, defaulting
 to false, so every existing session stays an ordinary one (#424).

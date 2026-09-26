@@ -97,7 +97,16 @@ final class InstallationList
         // page are both taken from `$size` -- so that direction has no input that can kill it.
         // @pest-mutate-ignore: IncrementInteger
         $installations = Installation::query()
-            ->with(['sessions' => static fn (Relation $sessions): Relation => $sessions->orderByDesc('id')])
+            // **Every session but a gone ephemeral one** (#424). `robot-council api` starts one around
+            // each read, so a loop of reads leaves a gone row per read: counted, they would inflate
+            // this panel's "gone" by the length of the loop, and loaded, every one would be
+            // hydrated on each poll. A LIVE ephemeral session is kept, because this panel is where
+            // an administrator revokes one.
+            ->with(['sessions' => static fn (Relation $sessions): Relation => $sessions
+                ->where(static fn (Builder $session): Builder => $session
+                    ->where('ephemeral', false)
+                    ->orWhere('status', '<>', AgentSessionStatus::Gone->value))
+                ->orderByDesc('id')])
             ->when($scope === Scope::Live, fn (Builder $query) => $query->whereNull('revoked_at')->where('expires_at', '>', $now))
             ->when($after !== null, fn (Builder $query) => $query->where('id', '<', $after))
             ->orderByDesc('id')
@@ -187,6 +196,9 @@ final class InstallationList
      * no control on it, and it is the kind of row that accumulates forever because nothing deletes
      * a session.
      *
+     * A gone ephemeral session is neither listed nor counted: the eager load in `everything()`
+     * never reads one (#424).
+     *
      * @param  Installation  $installation  The installation to read.
      * @return array{shown: list<array<string, mixed>>, hidden: int, gone: int} The sessions to
      *                                                                          list, and the two
@@ -226,6 +238,10 @@ final class InstallationList
                 // the view like every other string that reached this package from a machine
                 'repository' => $session->repository,
                 'work_location' => $session->work_location,
+
+                // Listed here because it can be revoked here, and marked because it is on no other
+                // list an administrator reads (#424)
+                'ephemeral' => $session->isEphemeral(),
             ])->all()),
 
             // Said rather than left to be inferred from the length of the list. A truncated list

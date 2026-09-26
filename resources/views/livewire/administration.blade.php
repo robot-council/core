@@ -115,6 +115,11 @@
                                             <span class="opacity-80">no project</span>
                                         @endif
 
+                                        {{-- Started around one read and on no other list (#424) --}}
+                                        @if (($session['ephemeral'] ?? false) === true)
+                                            <span class="opacity-80">ephemeral</span>
+                                        @endif
+
                                         {{-- **What it ASKED to be, presented as information and
                                              never as a nomination.** With installations keyed on
                                              developer, harness and machine, the coordinator

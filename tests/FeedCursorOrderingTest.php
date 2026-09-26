@@ -153,7 +153,9 @@ it('cannot start an ephemeral session while another connection holds the feed, w
 
         // **An ephemeral start has no insert of its own to order it, so this is the only thing
         // making its cursor safe**: it waits for the writer rather than reading a head that an
-        // earlier id could still commit beneath
+        // earlier id could still commit beneath. What this proves is that `head()` TAKES the lock;
+        // it cannot show that the read happens after the lock rather than before it, because a
+        // `head()` that read first would still block on the lock afterwards and throw the same way
         expect(fn () => app(AgentSessions::class)->start($this->installation, ephemeral: true))
             ->toThrow(QueryException::class);
 
