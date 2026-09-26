@@ -86,6 +86,10 @@ it('returns every key a nested session row carries, including all three identifi
 
         // #424: listed here because it can be revoked here, and on no other list an admin reads
         'ephemeral',
+
+        // #419: what tells two sessions in one checkout apart
+        'joined_at',
+        'last_seen_at',
     ]);
 
     expect($sessions['hidden'])->toBe(0);
