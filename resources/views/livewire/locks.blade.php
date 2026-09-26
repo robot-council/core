@@ -66,10 +66,16 @@
                                 <td role="cell" data-label="Held by">
                                     {{-- Linked to the one session holding it, which is the
                                          diagnosis path #308 kept when it split this list from the
-                                         agents. A session id rather than the login: one developer
-                                         runs several sessions, and the question is which one. --}}
+                                         agents. Named by where the session works (#421): one developer
+                                         runs several sessions, and the question is which one. The login
+                                         stays visible beneath rather than in hover text. --}}
                                     @if ($lock['holder'])
-                                        <a href="{{ route('robot-council.agents', ['session' => $lock['holder']['session_id']]) }}" class="link inline-flex min-h-6 items-center">{{ $lock['holder']['github_login'] ?? 'an unknown account' }}</a>
+                                        @if (($lock['holder']['label'] ?? null) !== null)
+                                            <a href="{{ route('robot-council.agents', ['session' => $lock['holder']['session_id']]) }}" class="link inline-flex min-h-6 items-center"><code>{{ $lock['holder']['label'] }}</code></a>
+                                            <div class="text-meta opacity-80">{{ $lock['holder']['github_login'] ?? 'an unknown account' }}</div>
+                                        @else
+                                            <a href="{{ route('robot-council.agents', ['session' => $lock['holder']['session_id']]) }}" class="link inline-flex min-h-6 items-center">{{ $lock['holder']['github_login'] ?? 'an unknown account' }}</a>
+                                        @endif
                                     @else
                                         <span class="opacity-80">nobody</span>
                                     @endif
@@ -78,7 +84,11 @@
                                          lock is being handed round or has sat with one holder --}}
                                     @if ($lock['previous_holder'])
                                         <div class="text-meta opacity-80">
-                                            after {{ $lock['previous_holder']['github_login'] ?? 'an unknown account' }}
+                                            @if (($lock['previous_holder']['label'] ?? null) !== null)
+                                                after <code>{{ $lock['previous_holder']['label'] }}</code>
+                                            @else
+                                                after {{ $lock['previous_holder']['github_login'] ?? 'an unknown account' }}
+                                            @endif
                                         </div>
                                     @endif
                                 </td>
