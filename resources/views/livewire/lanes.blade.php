@@ -22,7 +22,7 @@
             @foreach ($board['meters'] as $repository => $meter)
                 <div wire:key="meter-{{ $repository }}" class="card bg-base-100 shadow-sm">
                     <div class="card-body p-4">
-                        <div class="text-meta opacity-90">{{ $repository }} open issues</div>
+                        <div class="text-meta opacity-90"><code>{{ $repository }}</code> open issues</div>
                         {{-- Unreadable is a dash and says so, never a number: no count reported,
                              or one older than `backlog.stale_after_minutes` (#339) --}}
                         @if ($meter['count'] === null)
@@ -72,8 +72,8 @@
                             @foreach ($lanes as $lane)
                                 <tr role="row" wire:key="lane-{{ $lane['id'] }}" @class(['bg-base-200' => $lane['is_gate']])>
                                     <td role="cell" data-label="Lane">
-                                        <div class="font-medium">{{ $lane['developer'] ?? 'unknown developer' }} &middot; {{ $lane['machine'] }}@if ($lane['slot'] !== null) / {{ $lane['slot'] }}@endif</div>
-                                        <div class="text-meta opacity-90">{{ $lane['harness'] }}@if ($lane['is_gate']) &middot; gate @endif</div>
+                                        <div class="font-medium">{{ $lane['developer'] ?? 'unknown developer' }} &middot; <code>{{ $lane['machine'] }}</code>@if ($lane['slot'] !== null) / <code>{{ $lane['slot'] }}</code>@endif</div>
+                                        <div class="text-meta opacity-90"><code>{{ $lane['harness'] }}</code>@if ($lane['is_gate']) &middot; gate @endif</div>
                                         {{-- Occupancy against capacity (#409): the number `lane_free` refuses a
                                              placement on once the two are equal --}}
                                         <div class="text-meta opacity-90"><span data-occupancy>{{ $lane['holding'] }} / {{ $lane['capacity'] }}</span> {{ $lane['holding'] === 1 ? 'ticket' : 'tickets' }} held</div>
@@ -114,11 +114,11 @@
                                                     <li wire:key="lane-{{ $lane['id'] }}-task-{{ $work['task_id'] }}" data-held-task>
                                                         <div>
                                                             @if (\RobotCouncil\Support\TicketLink::url($work['ticket']) !== null)
-                                                                <a href="{{ \RobotCouncil\Support\TicketLink::url($work['ticket']) }}" class="link" rel="noopener noreferrer">{{ $work['ticket'] }}</a>
+                                                                <a href="{{ \RobotCouncil\Support\TicketLink::url($work['ticket']) }}" class="link" rel="noopener noreferrer"><code>{{ $work['ticket'] }}</code></a>
                                                             @elseif ($work['ticket'] !== null)
-                                                                {{ $work['ticket'] }}
+                                                                <code>{{ $work['ticket'] }}</code>
                                                             @else
-                                                                task #{{ $work['task_id'] }}, no ticket
+                                                                task <code>#{{ $work['task_id'] }}</code>, no ticket
                                                             @endif
                                                             @if ($work['hand_back'])
                                                                 <span class="badge badge-sm badge-warning" data-hand-back>hand-back</span>
@@ -128,7 +128,7 @@
                                                             @endif
                                                         </div>
                                                         <div class="text-meta opacity-90">
-                                                            {{ $work['branch'] }}
+                                                            <code>{{ $work['branch'] }}</code>
                                                             &middot; {{ $work['taken_up'] ? 'taken up' : ($work['blocked'] ? 'taken up, blocked' : 'placed, not taken up') }}
                                                             &middot; {{ $work['provenance'] }}
                                                         </div>
@@ -164,7 +164,7 @@
                             <ul class="text-meta">
                                 @foreach ($board['pull_requests'][$repository] as $pull)
                                     <li wire:key="pull-{{ $repository }}-{{ $pull['number'] }}">
-                                        <a href="{{ \RobotCouncil\Support\TicketLink::url($pull['reference']) }}" class="link" rel="noopener noreferrer">#{{ $pull['number'] }}</a>
+                                        <a href="{{ \RobotCouncil\Support\TicketLink::url($pull['reference']) }}" class="link" rel="noopener noreferrer"><code>#{{ $pull['number'] }}</code></a>
                                         {{ $pull['title'] }}
                                         <span class="badge badge-sm" data-pull-state>{{ $pull['state'] }}</span>
                                     </li>
@@ -197,7 +197,7 @@
                         @foreach ($section['items'] as $item)
                             <li wire:key="owed-item-{{ $item['id'] }}" data-owed-item>
                                 @if (\RobotCouncil\Support\TicketLink::url($item['ticket']) !== null)
-                                    <a href="{{ \RobotCouncil\Support\TicketLink::url($item['ticket']) }}" class="link" rel="noopener noreferrer">{{ $item['ticket'] }}</a>
+                                    <a href="{{ \RobotCouncil\Support\TicketLink::url($item['ticket']) }}" class="link" rel="noopener noreferrer"><code>{{ $item['ticket'] }}</code></a>
                                 @endif
                                 &mdash; {{ $item['question'] }}
                                 <span class="opacity-90">{{ $item['why'] }} &middot; waiting {{ $item['recorded_at']->diffForHumans(syntax: \Carbon\CarbonInterface::DIFF_ABSOLUTE) }}</span>

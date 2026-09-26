@@ -8,7 +8,7 @@
 <div wire:poll.{{ \RobotCouncil\Support\WireArgument::of($pollSeconds) }}s class="card bg-base-100 shadow-sm">
     <div class="card-body">
         <div class="flex flex-wrap items-center justify-between gap-2">
-            <h2 class="card-title">Agents</h2>
+            <h1 class="card-title">Agents</h1>
 
             {{-- The scope, and what each one holds. A count beside the button is what stops a
                  narrowed list reading as an empty fleet. --}}
@@ -32,7 +32,7 @@
              one. The counts on the scope buttons stay the whole fleet's. --}}
         @if ($session !== null)
             <div class="flex flex-wrap items-center gap-2 text-meta">
-                <span>Showing one session, #{{ $session }}.</span>
+                <span>Showing one session, <code>#{{ $session }}</code>.</span>
                 <button type="button" wire:click="showEverySession" class="btn btn-xs btn-outline">Show all</button>
             </div>
         @endif
@@ -40,7 +40,7 @@
         @if ($sessions['sessions'] === [])
             <p class="py-6 text-center opacity-80">
                 @if ($session !== null)
-                    No session #{{ $session }} in this list.
+                    No session <code>#{{ $session }}</code> in this list.
                 @else
                     No agent has enrolled yet.
                 @endif
@@ -65,8 +65,14 @@
                                 <td role="cell" data-label="Developer">{{ $agent['github_login'] ?? 'an unknown account' }}</td>
 
                                 <td role="cell" data-label="Machine">
-                                    <div>{{ $agent['machine_label'] ?? 'an unknown machine' }}</div>
-                                    <div class="text-meta opacity-80">{{ $agent['harness'] ?? '' }}</div>
+                                    @if (($agent['machine_label'] ?? null) !== null)
+                                        <div><code>{{ $agent['machine_label'] }}</code></div>
+                                    @else
+                                        <div>an unknown machine</div>
+                                    @endif
+                                    @if (($agent['harness'] ?? '') !== '')
+                                        <div class="text-meta opacity-80"><code>{{ $agent['harness'] }}</code></div>
+                                    @endif
 
                                     {{-- The operating system the bridge reported (#351), and
                                          nothing for an older bridge that reported none --}}
@@ -96,7 +102,7 @@
                                     @php($where = $agent['repository'] ?? null)
 
                                     @if ($where !== null)
-                                        <div>{{ $where }}</div>
+                                        <div><code>{{ $where }}</code></div>
                                     @endif
 
                                     @if (($agent['work_location'] ?? null) !== null)
@@ -111,7 +117,7 @@
                                              and which `npm run check` caught. Tailwind scans
                                              this file whole and cannot tell a sentence from an
                                              attribute. --}}
-                                        <div class="opacity-80">{{ $agent['work_location'] }}</div>
+                                        <div class="opacity-80"><code>{{ $agent['work_location'] }}</code></div>
                                     @endif
 
                                     @if ($where === null && ($agent['work_location'] ?? null) === null)

@@ -7,7 +7,7 @@
 <div wire:poll.{{ \RobotCouncil\Support\WireArgument::of($pollSeconds) }}s class="card bg-base-100 shadow-sm">
     <div class="card-body">
         <div class="flex flex-wrap items-center justify-between gap-3">
-            <h2 class="card-title">Queue</h2>
+            <h1 class="card-title">Queue</h1>
 
             <div class="flex flex-wrap gap-1" role="group" aria-label="Filter by status">
                 <button type="button" wire:click="showStatus('')"

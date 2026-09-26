@@ -10,6 +10,8 @@
 --}}
 
 <div class="flex flex-col gap-6">
+    <h1 class="text-2xl font-semibold">My seats and hours</h1>
+
     @if ($notice !== null)
         <div role="alert" class="alert alert-warning">{{ $notice }}</div>
     @endif

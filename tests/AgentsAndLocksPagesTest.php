@@ -68,7 +68,7 @@ function sessionOn(string $machineLabel): AgentSession
  */
 function machineCell(string $label): string
 {
-    return '<div>'.$label.'</div>';
+    return '<div><code>'.$label.'</code></div>';
 }
 
 /**
@@ -79,7 +79,7 @@ function machineCell(string $label): string
  */
 function lockCell(string $name): string
 {
-    return '<td role="cell" data-label="Lock" class="font-medium">'.$name.'</td>';
+    return '<td role="cell" data-label="Lock" class="font-medium"><code>'.$name.'</code></td>';
 }
 
 /**
@@ -177,7 +177,7 @@ it('leads from a session to the locks it holds, and only those', function (): vo
         ->assertOk()
         ->assertSeeHtml(lockCell('lock-second'))
         ->assertDontSeeHtml(lockCell('lock-first'))
-        ->assertSeeHtml('<span>Showing locks held by session #'.sessionOn('box-second')->id.'.</span>');
+        ->assertSeeHtml('<span>Showing locks held by session <code>#'.sessionOn('box-second')->id.'</code>.</span>');
 });
 
 it('leads from a lock to the session holding it, and only that one', function (): void {
@@ -195,7 +195,7 @@ it('leads from a lock to the session holding it, and only that one', function ()
         ->assertOk()
         ->assertSeeHtml(machineCell('box-first'))
         ->assertDontSeeHtml(machineCell('box-second'))
-        ->assertSeeHtml('<span>Showing one session, #'.$this->session->id.'.</span>');
+        ->assertSeeHtml('<span>Showing one session, <code>#'.$this->session->id.'</code>.</span>');
 });
 
 it('still counts the whole fleet while narrowed to one row', function (): void {
@@ -228,13 +228,13 @@ it('says so when a link names a session that lists nothing, rather than calling 
     // A session long since pruned, or one that holds nothing now. Either is a stale link, and the
     // page naming the fleet as empty would be a false statement about everything else in it.
     Livewire::withQueryParams(['session' => 999999])->test(Agents::class)
-        ->assertSeeHtml('No session #999999 in this list.')
+        ->assertSeeHtml('No session <code>#999999</code> in this list.')
         ->assertDontSeeHtml('No agent has enrolled yet.');
 
     $this->service(Locks::class)->release($this->session, 'lock-first', false);
 
     Livewire::withQueryParams(['holder' => $this->session->id])->test(LocksPage::class)
-        ->assertSeeHtml('Session #'.$this->session->id.' holds no locks in this list.')
+        ->assertSeeHtml('Session <code>#'.$this->session->id.'</code> holds no locks in this list.')
         ->assertDontSeeHtml('Nothing is locked.');
 });
 
@@ -332,6 +332,6 @@ it('lists nothing for an id no session can have', function (): void {
     // did not name.
     $this->get(route('robot-council.agents', ['session' => -3]))
         ->assertOk()
-        ->assertSeeHtml('No session #-3 in this list.')
+        ->assertSeeHtml('No session <code>#-3</code> in this list.')
         ->assertDontSeeHtml(machineCell('box-first'));
 });

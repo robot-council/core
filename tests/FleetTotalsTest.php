@@ -228,7 +228,12 @@ it('appears on the overview, above the way into each section', function (): void
     $html = (string) $page->getContent();
 
     $totals = strpos($html, 'Live agents');
-    $panels = strpos($html, route('robot-council.agents'));
+
+    // Read from the main landmark on. The sidebar links to every section too, and it comes first in
+    // source order so that the keyboard reaches it first (#400), so a search from the top of the
+    // page would find the sidebar's link and compare the totals against the wrong thing.
+    $main = strpos($html, 'id="robot-council-main"');
+    $panels = \is_int($main) ? strpos($html, route('robot-council.agents'), $main) : false;
 
     // **Both positions are established before they are compared.** `strpos()` answers `false` when
     // the needle is absent, and PHP compares bool against int by casting the int to bool -- so
