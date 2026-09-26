@@ -446,6 +446,193 @@ it('completes the task when its pull request merges, matched on the branch the l
     expect(taskStatus($taskId))->toBe(TaskStatus::Done);
 });
 
+/**
+ * The SHA a merged pull request in these tests landed as.
+ */
+const MERGE_SHA = '0123456789abcdef0123456789abcdef01234567';
+
+/**
+ * Complete a task over HTTP, as its lane's `task_complete` does.
+ *
+ * @param  TestCase  $case  The test case.
+ * @param  string  $token  The session's token.
+ * @param  int  $taskId  The task.
+ * @param  array<string, mixed>  $result  What the lane reports.
+ * @return TestResponse<Response> The response.
+ */
+function completeOverHttp(TestCase $case, string $token, int $taskId, array $result): TestResponse
+{
+    return $case->machine($token)->postJson(
+        route('robot-council.tasks.transition', ['task' => $taskId, 'transition' => 'complete']),
+        ['result' => $result]
+    );
+}
+
+/**
+ * A task this test's session was working on, finished by its pull request merging.
+ *
+ * @param  TestCase  $case  The test case.
+ * @return int The task.
+ */
+function mergedUnderTheLane(TestCase $case): int
+{
+    $taskId = laneWorkingOn($case);
+
+    $delivery = pullDelivery('closed', 40, 'feature/lane-board', merged: true);
+    $delivery['pull_request'] = [...pullOf($delivery), 'merge_commit_sha' => MERGE_SHA];
+
+    deliver($case, 'pull_request', $delivery)->assertOk();
+
+    return $taskId;
+}
+
+it('records the merged pull request and its merge commit on the task it completes (#433)', function (): void {
+    $taskId = mergedUnderTheLane($this);
+
+    $task = Task::query()->findOrFail($taskId);
+
+    expect($task->status)->toBe(TaskStatus::Done)
+        ->and($task->result)->toBe(['github' => [
+            'reason' => 'its pull request merged on GitHub',
+            'pull_request' => 'robot-council/core#40',
+            'merged' => true,
+            'merge_commit_sha' => MERGE_SHA,
+        ]])
+        ->and($task->github_finished_at)->not->toBeNull();
+});
+
+it('records no merge commit that is not a hex object name', function (mixed $sha): void {
+    $taskId = laneWorkingOn($this);
+
+    $delivery = pullDelivery('closed', 40, 'feature/lane-board', merged: true);
+    $delivery['pull_request'] = [...pullOf($delivery), 'merge_commit_sha' => $sha];
+
+    deliver($this, 'pull_request', $delivery)->assertOk();
+
+    $github = arrayValue(arrayValue(Task::query()->findOrFail($taskId)->result)['github'] ?? null);
+
+    expect($github)->toHaveKey('merge_commit_sha')
+        ->and($github['merge_commit_sha'])->toBeNull();
+})->with([
+    'absent' => [null],
+    'one short' => [substr(MERGE_SHA, 1)],
+    'upper case' => [strtoupper(MERGE_SHA)],
+    'a trailing newline' => [MERGE_SHA."\n"],
+    'markup' => ['<b>'.MERGE_SHA.'</b>'],
+]);
+
+it('records the closed issue and why GitHub says it closed on the task it completes (#433)', function (mixed $given, ?string $recorded): void {
+    $taskId = laneWorkingOn($this);
+
+    $delivery = issueDelivery('closed', 12, 'closed');
+    $delivery['issue'] = [...issueOf($delivery), 'state_reason' => $given];
+
+    deliver($this, 'issues', $delivery)->assertOk();
+
+    expect(Task::query()->findOrFail($taskId)->result)->toBe(['github' => [
+        'reason' => 'its issue closed on GitHub',
+        'issue' => 'robot-council/core#12',
+        'state_reason' => $recorded,
+    ]]);
+})->with([
+    'completed' => ['completed', 'completed'],
+    'not planned' => ['not_planned', 'not_planned'],
+    'absent' => [null, null],
+    'something GitHub does not send' => ['<script>', null],
+]);
+
+it('records nothing on a task released by a pull request closed without merging', function (): void {
+    $taskId = laneWorkingOn($this);
+
+    deliver($this, 'pull_request', pullDelivery('closed', 40, 'feature/lane-board'))->assertOk();
+
+    $task = Task::query()->findOrFail($taskId);
+
+    expect($task->result)->toBeNull()
+        ->and($task->github_finished_at)->toBeNull();
+});
+
+it('lets the lane GitHub beat to it add its result once, keeping the status and what GitHub recorded (#433)', function (): void {
+    $taskId = mergedUnderTheLane($this);
+
+    completeOverHttp($this, $this->token, $taskId, ['summary' => 'shipped', 'github' => 'the lane may not rewrite this'])
+        ->assertOk()
+        ->assertExactJson(['task_id' => $taskId, 'status' => 'done', 'applied' => false, 'result_added' => true]);
+
+    $task = Task::query()->findOrFail($taskId);
+    $added = FleetEvent::query()->where('type', FleetEventType::TaskResultAdded->value)->sole();
+
+    expect($task->status)->toBe(TaskStatus::Done)
+        ->and($task->result)->toBe([
+            'summary' => 'shipped',
+            'github' => [
+                'reason' => 'its pull request merged on GitHub',
+                'pull_request' => 'robot-council/core#40',
+                'merged' => true,
+                'merge_commit_sha' => MERGE_SHA,
+            ],
+        ])
+        ->and($task->result_added_at)->not->toBeNull()
+        ->and($added->agent_session_id)->toBe($this->session->getKey())
+        ->and($added->body)->toBe(sprintf('Task #%d: its holder added a result after GitHub finished it.', $taskId))
+        ->and($added->meta)->toBe(['task_id' => $taskId, 'to' => 'done'])
+        ->and(FleetEvent::query()->where('type', FleetEventType::TaskCompleted->value)->count())->toBe(1);
+
+    // Once: the second is the ordinary refusal, and changes nothing
+    completeOverHttp($this, $this->token, $taskId, ['summary' => 'again'])->assertConflict();
+
+    expect(arrayValue(Task::query()->findOrFail($taskId)->result)['summary'] ?? null)->toBe('shipped')
+        ->and(FleetEvent::query()->where('type', FleetEventType::TaskResultAdded->value)->count())->toBe(1);
+});
+
+it('refuses a result from a session that did not hold the task GitHub finished', function (): void {
+    $taskId = mergedUnderTheLane($this);
+    [, $otherToken] = $this->startAgentSession($this->installation);
+
+    completeOverHttp($this, $otherToken, $taskId, ['summary' => 'not mine'])->assertConflict();
+
+    expect(Task::query()->findOrFail($taskId)->result_added_at)->toBeNull()
+        ->and(FleetEvent::query()->where('type', FleetEventType::TaskResultAdded->value)->exists())->toBeFalse();
+});
+
+it('takes the result up to the end of the window and refuses it after', function (int $minutes, bool $added): void {
+    $taskId = mergedUnderTheLane($this);
+
+    // The finish is moved back rather than the clock forward, which would also age out the
+    // session's own token and answer 401 before the window was ever asked about
+    Task::query()->whereKey($taskId)->update(['github_finished_at' => Carbon::now()->subMinutes($minutes)]);
+
+    $response = completeOverHttp($this, $this->token, $taskId, ['summary' => 'late']);
+
+    $added ? $response->assertOk() : $response->assertConflict();
+
+    expect(Task::query()->findOrFail($taskId)->result_added_at !== null)->toBe($added);
+})->with([
+    // A minute inside rather than on the boundary, which a second ticking between the backdate
+    // and the request would move
+    'a minute before the end' => [Tasks::RESULT_WINDOW_MINUTES - 1, true],
+    'a minute after' => [Tasks::RESULT_WINDOW_MINUTES + 1, false],
+]);
+
+it('refuses a second completion of a task its lane finished itself', function (): void {
+    $taskId = laneWorkingOn($this);
+
+    completeOverHttp($this, $this->token, $taskId, ['summary' => 'done'])->assertOk()->assertJson(['applied' => true]);
+    completeOverHttp($this, $this->token, $taskId, ['summary' => 'again'])->assertConflict();
+
+    expect(Task::query()->findOrFail($taskId)->result)->toBe(['summary' => 'done']);
+});
+
+it('refuses a completion with no result on a task GitHub finished, adding nothing', function (): void {
+    $taskId = mergedUnderTheLane($this);
+
+    $this->machine($this->token)
+        ->postJson(route('robot-council.tasks.transition', ['task' => $taskId, 'transition' => 'complete']))
+        ->assertConflict();
+
+    expect(Task::query()->findOrFail($taskId)->result_added_at)->toBeNull();
+});
+
 it('releases the task when its pull request closes without merging', function (): void {
     $taskId = laneWorkingOn($this);
 

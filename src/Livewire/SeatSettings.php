@@ -233,6 +233,9 @@ final class SeatSettings extends Component
             Outcome::Applied => null,
             Outcome::NotFound => 'That seat no longer exists.',
             Outcome::Conflict, Outcome::Forbidden => "Only a seat's own developer can change how many tickets it takes at once.",
+
+            // A task's alone (#433); `cap()` never answers it
+            Outcome::Added => null,
         };
     }
 
@@ -354,7 +357,8 @@ final class SeatSettings extends Component
     private function report(Outcome $outcome): void
     {
         $this->notice = match ($outcome) {
-            Outcome::Applied => null,
+            // `Added` is a task's alone (#433); no seat write answers it
+            Outcome::Applied, Outcome::Added => null,
             Outcome::NotFound => 'That seat no longer exists.',
             Outcome::Conflict => 'That seat was already in that state. The page has been refreshed.',
             Outcome::Forbidden => "Only the developer who parked a seat can lift it, and only a seat's own developer can change it.",

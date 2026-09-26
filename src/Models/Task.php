@@ -39,6 +39,8 @@ use Illuminate\Support\Carbon;
  * @property string|null $branch
  * @property string|null $sub_label
  * @property Placement|null $placed_by
+ * @property Carbon|null $github_finished_at
+ * @property Carbon|null $result_added_at
  * @property bool $hand_back
  * @property Carbon|null $created_at
  * @property-read AgentSession|null $claimant
@@ -151,6 +153,8 @@ final class Task extends Model
             'created_with_coordinator' => 'boolean',
             'placed_by' => Placement::class,
             'hand_back' => 'boolean',
+            'github_finished_at' => 'datetime',
+            'result_added_at' => 'datetime',
         ];
     }
 

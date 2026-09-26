@@ -170,7 +170,8 @@ final class LockTool extends Tool
                     $name
                 ),
             },
-            Outcome::Applied => 'Applied.',
+            // A lock never answers `Added`, which is a task's alone
+            Outcome::Applied, Outcome::Added => 'Applied.',
         };
     }
 }

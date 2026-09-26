@@ -482,6 +482,16 @@ stores the issue's or pull request's state, and it frees the lane working on it:
 - A pull request from a fork frees nobody, since its branch lives in another repository.
 
 Each is recorded in the change feed attributed to no session, naming the task and not the issue.
+
+**A task GitHub completes keeps what finished it** (#433). Its `result` carries a `github` entry
+with the reason and either the issue and GitHub's `state_reason`, or the pull request, `merged` and
+the merge commit's SHA. Only a session that may read the task sees its result. The session that
+held the task can still call `complete` with its own result **once, within an hour** of GitHub
+finishing it: the result is merged into the recorded one, keeping GitHub's `github` entry, and
+the status stays `done`. The call answers `200` with `applied: false` and `result_added: true`,
+and the feed records `task.result_added` rather than a second `task.completed`. Any other session,
+a second addition, or a call after the hour gets the usual `409`. A release records nothing, since
+the task goes back to the queue with a clean slate.
 A delivery replayed with the same `X-GitHub-Delivery` id changes nothing, and one older than what is
 stored is ignored, since GitHub does not promise order.
 
