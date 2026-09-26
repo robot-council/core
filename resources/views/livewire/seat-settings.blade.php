@@ -46,7 +46,7 @@
                                 </div>
                             </div>
 
-                            <div class="flex items-center gap-2">
+                            <div class="flex flex-wrap items-center gap-2">
                                 @if ($seat->hours_exempt)
                                     <span class="badge badge-sm">exempt from hours</span>
                                     <button type="button" wire:click="unexempt({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-ghost">Apply my hours</button>
@@ -91,7 +91,7 @@
                             {{-- #320: a waiver lets exactly one placement through one refusal on this
                                  seat. Only the seat's developer can grant it; a coordinator cannot. --}}
                             <details class="w-full text-meta">
-                                <summary class="cursor-pointer opacity-90">
+                                <summary class="cursor-pointer py-3 opacity-90">
                                     Waive a placement refusal
                                     @if ($waived[$seat->id] !== [])
                                         ({{ count($waived[$seat->id]) }} waived for the next placement)
