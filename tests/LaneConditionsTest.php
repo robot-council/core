@@ -264,6 +264,38 @@ it('reports a lane holding fewer tickets than its capacity as having room, with 
     expect(DB::table('robot_council_lane_conditions')->where('condition', LaneConditions::LANE_FREE)->whereNull('cleared_at')->count())->toBe(0);
 });
 
+it('keeps one occurrence while a lane with room takes work, and raises again after it fills and frees', function (): void {
+    laneOfThree($this);
+
+    conditionsAt($this, 0);
+    conditionsAt($this, 31);
+
+    expect(raisedConditions(LaneConditions::LANE_FREE))->toHaveCount(1);
+
+    // 0 of 3 becomes 1 of 3: still room, the same occurrence, not told again
+    $first = placeOnTheLane($this);
+    conditionsAt($this, 40);
+
+    expect(raisedConditions(LaneConditions::LANE_FREE))->toHaveCount(1);
+
+    // Filled, which clears it; then one finishes, which opens room and a new occurrence
+    placeOnTheLane($this);
+    placeOnTheLane($this);
+    conditionsAt($this, 45);
+    Carbon::setTestNow('2026-09-24 12:50:00');
+    $this->service(Tasks::class)->transition($first, TaskTransition::Start, $this->session, false);
+    $this->service(Tasks::class)->transition($first, TaskTransition::Complete, $this->session, false);
+    conditionsAt($this, 51);
+    conditionsAt($this, 51 + 29);
+
+    expect(raisedConditions(LaneConditions::LANE_FREE))->toHaveCount(1);
+
+    conditionsAt($this, 51 + 31);
+
+    expect(raisedConditions(LaneConditions::LANE_FREE))->toHaveCount(2)
+        ->and(raisedConditions(LaneConditions::LANE_FREE)[1])->toMatchArray(['holding' => 2, 'capacity' => 3]);
+});
+
 it('reports a lane with room for three holding nothing as free, with its occupancy', function (): void {
     laneOfThree($this);
 
