@@ -2,6 +2,21 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.7.1 — Task Results From GitHub, Live Settings for Coordinators, and Ephemeral Sessions (2026-09-26)
+
+Tasks GitHub finishes now keep what finished them, coordinators read developer hours and seat settings live, and a session can start ephemeral.
+
+### What's new
+- Give coordinators a `developer_settings` MCP tool that reads hours and seat settings live [#449](https://github.com/robot-council/core/pull/449)
+- Make the dashboard operable and legible by keyboard [#448](https://github.com/robot-council/core/pull/448)
+- Keep a result on a task GitHub finished, and let its holder add to it [#447](https://github.com/robot-council/core/pull/447)
+- Keep the dashboard usable at 400% zoom and forced text spacing, and key what a poll re-renders [#446](https://github.com/robot-council/core/pull/446)
+- Let a session start as ephemeral, with no join or end events and no listing [#443](https://github.com/robot-council/core/pull/443)
+- Bring the dashboard's consequential controls to the 44px AAA target size [#441](https://github.com/robot-council/core/pull/441)
+
+### Maintenance and tooling
+- Tag a release only after ci-passed succeeds on the merge commit itself [#445](https://github.com/robot-council/core/pull/445)
+
 ## v0.7.0 — Session Capacity (2026-09-25)
 
 A session can declare on join how many tickets it will hold at once, up to its seat's cap, and label each held task for the subagent working it; the wiki was refreshed for this release.
