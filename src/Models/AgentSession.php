@@ -41,6 +41,7 @@ use RobotCouncil\Support\PresenceTimestamp;
  * @property AgentSessionStatus $status
  * @property Role $role
  * @property Carbon $last_seen_at
+ * @property Carbon|null $created_at
  * @property string|null $repository
  * @property string|null $work_location
  * @property string|null $os_family
