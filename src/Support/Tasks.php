@@ -734,7 +734,8 @@ final class Tasks
      * @param  string|null  $subLabel  The sub-label a start reports, already bounded.
      * @param  bool  $sameHolder  Whether a reassignment re-places the task on the lane already
      *                            holding it, which keeps the label that lane gave it.
-     * @return int How many rows changed, which is one or none.
+     * @return int How many rows the write applied to, which is one or none -- a matched row already
+     *             as asked counts, whatever the engine reports (#435).
      */
     private function write(
         int $taskId,
@@ -833,7 +834,24 @@ final class Tasks
             // `sub_label` is cleared by `transition()` after it has read it for the event
         }
 
-        return $query->update($values);
+        $changed = $query->update($values);
+
+        // **MySQL answers rows CHANGED, not rows matched** (`CLAUDE.md`), so a write that matched its
+        // row and found it already as asked reports 0 there and 1 on SQLite and Postgres (#435). The
+        // one transition that can do that is a re-placement onto the lane already holding the task
+        // within the same second: every value it writes is the same, `claimed_at` included, since a
+        // `dateTime` is bound to the second. Read as a lost race, it answered Conflict on MySQL alone,
+        // and skipped the placement rules a full lane should have been refused by.
+        //
+        // So a write that changed nothing asks its own `where` once more, under the lock the update
+        // took. A row that still matches is one the write applied to; none is the lost race it looks
+        // like, and `diagnose()` says which. Nothing else reaches this on SQLite or Postgres, where a
+        // matched row always counts.
+        if ($changed === 0 && $query->lockForUpdate()->exists()) {
+            return 1;
+        }
+
+        return $changed;
     }
 
     /**
