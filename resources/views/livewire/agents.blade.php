@@ -152,7 +152,9 @@
                                      key, assigned by the server, and it reaches the URL only
                                      through `route()` with a literal name. --}}
                                 <td role="cell" data-label="Locks" class="whitespace-nowrap text-meta">
-                                    <a href="{{ route('robot-council.locks', ['holder' => $agent['id']]) }}" class="link">Locks held</a>
+                                    {{-- Alone in its cell, so it is a target rather than a link in a sentence: at least 24px tall
+                                         (SC 2.5.8), which the browser suite measures (#403) --}}
+                                    <a href="{{ route('robot-council.locks', ['holder' => $agent['id']]) }}" class="link inline-flex min-h-6 items-center">Locks held</a>
                                 </td>
                             </tr>
                         @endforeach

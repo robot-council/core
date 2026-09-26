@@ -69,7 +69,7 @@
                                          agents. A session id rather than the login: one developer
                                          runs several sessions, and the question is which one. --}}
                                     @if ($lock['holder'])
-                                        <a href="{{ route('robot-council.agents', ['session' => $lock['holder']['session_id']]) }}" class="link">{{ $lock['holder']['github_login'] ?? 'an unknown account' }}</a>
+                                        <a href="{{ route('robot-council.agents', ['session' => $lock['holder']['session_id']]) }}" class="link inline-flex min-h-6 items-center">{{ $lock['holder']['github_login'] ?? 'an unknown account' }}</a>
                                     @else
                                         <span class="opacity-80">nobody</span>
                                     @endif

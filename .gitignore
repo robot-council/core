@@ -6,6 +6,8 @@ composer.lock
 .phpunit.cache
 .phpunit.result.cache
 /build
+# pest-plugin-browser's screenshots of a failed browser test
+/tests/Browser/Screenshots
 __pycache__/
 
 # IDE Helper

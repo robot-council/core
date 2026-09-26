@@ -13,11 +13,19 @@
     failOnEmptyTestSuite="true"
     beStrictAboutOutputDuringTests="true"
     cacheDirectory=".phpunit.cache"
+    defaultTestSuite="RobotCouncil Test Suite"
     backupStaticProperties="false"
 >
     <testsuites>
         <testsuite name="RobotCouncil Test Suite">
             <directory>tests</directory>
+            <!-- Not merely a group excluded below: pest-plugin-browser starts Playwright while it
+                 collects the tests, as soon as it loads a browser test, and before any group filter
+                 applies. So a run that so much as loads these files needs Playwright installed. -->
+            <exclude>tests/Browser</exclude>
+        </testsuite>
+        <testsuite name="Browser">
+            <directory>tests/Browser</directory>
         </testsuite>
     </testsuites>
     <groups>

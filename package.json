@@ -1,7 +1,7 @@
 {
     "name": "robot-council-core",
     "private": true,
-    "description": "The dashboard stylesheet this package ships compiled, so a consuming application runs no asset build.",
+    "description": "The dashboard stylesheet this package ships compiled, so a consuming application runs no asset build, and the Playwright the browser tests drive.",
     "scripts": {
         "build": "tailwindcss --input resources/css/dashboard.css --output resources/dist/dashboard.css --minify",
         "check": "out=$(mktemp) && tailwindcss --input resources/css/dashboard.css --output \"$out\" --minify && cmp \"$out\" resources/dist/dashboard.css && rm -f \"$out\""
@@ -9,6 +9,7 @@
     "devDependencies": {
         "@tailwindcss/cli": "^4.1.0",
         "daisyui": "^5.0.0",
+        "playwright": "^1.63.0",
         "tailwindcss": "^4.1.0"
     }
 }
