@@ -93,6 +93,9 @@
                                 @foreach ($installation['sessions']['shown'] as $session)
                                     <li wire:key="admin-session-{{ $session['id'] }}"
                                         class="flex flex-wrap items-center gap-2 text-meta">
+                                        {{-- The session's own id, which is how agents name it in a
+                                             narration, a placement or `sessions_list` (#419) --}}
+                                        <code data-session-id>#{{ $session['id'] }}</code>
                                         <span class="badge badge-sm">{{ $session['status'] }}</span>
 
                                         {{-- The role, which is the whole of what this session may
@@ -127,6 +130,21 @@
                                         @if (($session['ephemeral'] ?? false) === true)
                                             <span class="opacity-80">ephemeral</span>
                                         @endif
+
+                                        {{-- When it joined and when it was last heard from (#419),
+                                             which is what tells a restarted agent's new session from
+                                             the old one beside it in the same checkout. The exact time
+                                             is in each element's `datetime`, for software; the words
+                                             are what a person reads. --}}
+                                        <span data-session-times>
+                                            joined
+                                            @if ($session['joined_at'] !== null)
+                                                <time datetime="{{ $session['joined_at'] }}">{{ \Illuminate\Support\Carbon::parse($session['joined_at'])->diffForHumans() }}</time>,
+                                            @else
+                                                at an unrecorded time,
+                                            @endif
+                                            last seen <time datetime="{{ $session['last_seen_at'] }}">{{ \Illuminate\Support\Carbon::parse($session['last_seen_at'])->diffForHumans() }}</time>
+                                        </span>
 
                                         {{-- **What it ASKED to be, presented as information and
                                              never as a nomination.** With installations keyed on

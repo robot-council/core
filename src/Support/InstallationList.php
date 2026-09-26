@@ -242,6 +242,12 @@ final class InstallationList
                 // Listed here because it can be revoked here, and marked because it is on no other
                 // list an administrator reads (#424)
                 'ephemeral' => $session->isEphemeral(),
+
+                // What tells two sessions in one checkout apart (#419): a restarted agent joins as a
+                // new session beside the old one, and an administrator revoking the stale one needs
+                // to see which is which. Already on the eager-loaded row, so no query is added.
+                'joined_at' => $session->created_at?->toIso8601String(),
+                'last_seen_at' => $session->last_seen_at->toIso8601String(),
             ])->all()),
 
             // Said rather than left to be inferred from the length of the list. A truncated list
