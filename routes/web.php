@@ -31,6 +31,7 @@ use RobotCouncil\Livewire\Lanes;
 use RobotCouncil\Livewire\Locks;
 use RobotCouncil\Livewire\SeatSettings;
 use RobotCouncil\Livewire\TaskBoard;
+use RobotCouncil\Livewire\WaitingOnMe;
 use RobotCouncil\RobotCouncilServiceProvider;
 
 Route::get('auth/github/redirect', GitHubRedirectController::class)->name('auth.redirect');
@@ -108,6 +109,7 @@ Route::middleware([EnsureAllowlistedDeveloper::class, DenyFraming::class])->grou
     Route::get('dashboard/administration', Administration::class)->name('administration');
     Route::get('dashboard/access', AccessLists::class)->name('access');
     Route::get('dashboard/seats', SeatSettings::class)->name('seats');
+    Route::get('dashboard/waiting', WaitingOnMe::class)->name('waiting');
 
     // Inside the gate, because signing out is something a signed-in developer does. A developer
     // whose account has left the access lists never reaches it -- the gate ends their session on
