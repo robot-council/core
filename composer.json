@@ -23,6 +23,7 @@
     },
     "require": {
         "php": "^8.4",
+        "composer-runtime-api": "^2.2",
         "illuminate/contracts": "^13.23.0",
         "laravel/mcp": "^1.0",
         "laravel/sanctum": "^4.3.1",

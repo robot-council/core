@@ -18,8 +18,8 @@
 <head>
     @include('robot-council::partials.head', ['title' => 'Signed out'])
 </head>
-<body class="min-h-screen bg-base-200 font-sans antialiased">
-    <main class="mx-auto flex min-h-screen max-w-lg items-center p-4">
+<body class="flex min-h-screen flex-col bg-base-200 font-sans antialiased">
+    <main class="mx-auto flex w-full max-w-lg grow items-center p-4">
         <div class="card w-full bg-base-100 shadow-sm">
             <div class="card-body">
                 <h1 class="card-title">Signed out</h1>
@@ -32,5 +32,7 @@
             </div>
         </div>
     </main>
+
+    @include('robot-council::partials.version')
 </body>
 </html>
