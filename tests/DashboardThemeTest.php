@@ -861,7 +861,7 @@ it('reflows every table into labelled rows where it would otherwise scroll sidew
 
     expect($at)->toBeInt()
         ->and(blocksEnclosing($css, (int) $at))->toBe(['@layer utilities'])
-        ->and($css)->toContain('.table-stack td:before{content:attr(data-label) / "";');
+        ->and($css)->toContain('.table-stack td:before{content:attr(data-label);content:attr(data-label) / "";');
 
     $tables = 0;
 
@@ -897,8 +897,9 @@ it('reflows every table into labelled rows where it would otherwise scroll sidew
         }
     }
 
-    // The control: the four tables the dashboard has today
-    expect($tables)->toBeGreaterThanOrEqual(4);
+    // Exactly the four tables the dashboard has today, so a fifth that arrives unstacked cannot be
+    // offset by one that was removed
+    expect($tables)->toBe(4);
 });
 
 it('wraps text rather than cutting it off, and honours reduced motion', function (): void {
@@ -941,7 +942,9 @@ it('keys every repeated element in a view that polls, so a re-render keeps what 
 
         $offset = 0;
 
-        while (($at = strpos($source, '@foreach', $offset)) !== false) {
+        // `@forelse` repeats its element exactly as `@foreach` does
+        while (preg_match('/@(?:foreach|forelse)\b/', $source, $loop, PREG_OFFSET_CAPTURE, $offset) === 1) {
+            $at = $loop[0][1];
             $loops++;
 
             // The element the loop repeats is the first tag after the directive's closing paren

@@ -192,7 +192,6 @@
         font-size: var(--text-meta);
     }
 
-
     :where(.input-xs, .input-sm) {
         --font-size-min: var(--text-meta);
     }
@@ -264,13 +263,24 @@
             padding-inline: 0;
             white-space: normal;
             overflow-wrap: anywhere;
+            border-bottom: 0;
         }
 
+        /* One rule between records, and none between a record's own fields, so a boundary reads
+           as a boundary; the inline padding keeps a tinted row's text off its edge */
         .table-stack tr {
             padding-block: 0.5rem;
+            padding-inline: 0.75rem;
         }
 
+        .table-stack tbody tr:not(:last-child) {
+            border-bottom: var(--border) solid var(--color-base-300);
+        }
+
+        /* The plain form first, for a browser that cannot parse the alternative-text one and would
+           drop the whole declaration, leaving a stacked cell with no column name */
         .table-stack td::before {
+            content: attr(data-label);
             content: attr(data-label) / "";
             display: block;
             font-weight: 600;
