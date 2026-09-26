@@ -95,7 +95,9 @@ final class IssueReference
      * character a reference cannot contain -- is accepted only if it passes the same pattern and
      * length `ensure()` holds an `issue` to. So a reference that only appears later in the title is
      * not read as the task's ticket, nor is a bare `#N`, which names no repository, nor a token such
-     * as `owner/name#12abc` that merely starts like one.
+     * as `owner/name#12abc` that merely starts like one. Some plausible titles are missed on purpose
+     * rather than parsed harder -- `owner/name#12. Fix`, a reference in backticks or brackets -- and
+     * each miss falls back to showing the title, so nothing is ever invented.
      *
      * @param  string|null  $title  The task's title.
      * @return string|null The reference, or null when the title does not begin with one.

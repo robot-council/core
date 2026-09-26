@@ -13,6 +13,7 @@ use Livewire\Livewire;
 use RobotCouncil\Livewire\Lanes;
 use RobotCouncil\Models\TaskTransition;
 use RobotCouncil\Support\AgentSessions;
+use RobotCouncil\Support\GitHubState;
 use RobotCouncil\Support\IssueReference;
 use RobotCouncil\Support\Tasks;
 use RobotCouncil\Support\TicketLink;
@@ -45,6 +46,9 @@ it('reads the reference a title begins with, and nothing else', function (?strin
     'no number' => ['robot-council/core: something', null],
     'a dot-only owner' => ['../core#1: escape', null],
     'too long' => [str_repeat('a', 200).'/core#1: long', null],
+    // Missed on purpose: the title is shown instead, and nothing is invented
+    'a trailing dot' => ['robot-council/core#422. Fix it', null],
+    'in backticks' => ['`robot-council/core#422`: show it', null],
     'no title' => [null, null],
     'an empty title' => ['', null],
 ]);
@@ -122,4 +126,28 @@ it('escapes a title it shows', function (): void {
 
     expect(onWhat()['html'])->toContain('&lt;script&gt;alert(1)&lt;/script&gt; title')
         ->not->toContain('<script>alert(1)</script>');
+});
+
+it("treats a title's ticket as a packet when its stored issue is a decision fork", function (): void {
+    // A decision needs no branch, so the board says so rather than that one was not reported;
+    // the title's ticket has to be in the one query that reads stored issues for that to hold
+    app(GitHubState::class)->import([
+        'repository_url' => 'https://api.github.com/repos/robot-council/core',
+        'number' => 430,
+        'state' => 'open',
+        'title' => 'Decide the thing',
+        'labels' => [['name' => 'decision-fork']],
+        'updated_at' => '2026-09-26T08:00:00Z',
+    ]);
+
+    $session = $this->service(AgentSessions::class)->start($this->approveInstallation($this->developer, 'josh-office'), 'robot-council/core', 'robot-council-core-a')->owner;
+
+    $tasks = $this->service(Tasks::class);
+    $task = $tasks->create($session, ['title' => 'robot-council/core#430: decide the thing'], false);
+    $tasks->transition($task->id, TaskTransition::Claim, $session, asCoordinator: false);
+    $tasks->transition($task->id, TaskTransition::Start, $session, asCoordinator: false);
+
+    Livewire::test(Lanes::class)
+        ->assertSee('packet, no branch expected')
+        ->assertDontSee('branch not reported');
 });
