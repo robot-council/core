@@ -88,6 +88,7 @@ final class PackageMigrations
         '2026_09_25_000002_allow_sessionless_robot_council_backlog_readings',
         '2026_09_25_000003_create_robot_council_backlog_fetches_table',
         '2026_09_25_000004_add_capacity_to_robot_council_sessions_seats_and_tasks',
+        '2026_09_25_000005_add_ephemeral_to_robot_council_agent_sessions',
 
         // Retired by #132, which dated the create so something dated could alter its table. Both
         // names stay here forever: a host that migrated before that change has a row for each.

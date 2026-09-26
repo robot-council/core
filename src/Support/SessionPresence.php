@@ -271,9 +271,9 @@ final class SessionPresence
                 return false;
             }
 
-            $this->events->record(
-                FleetEventType::SessionStale,
+            $this->announce(
                 $session,
+                FleetEventType::SessionStale,
                 sprintf('%s stopped answering.', $this->describe($session)),
                 ['installation_id' => $session->installation_id, 'quiet_since' => $quietSince->toIso8601String()]
             );
@@ -306,9 +306,9 @@ final class SessionPresence
                 return false;
             }
 
-            $this->events->record(
-                FleetEventType::SessionResumed,
+            $this->announce(
                 $session,
+                FleetEventType::SessionResumed,
                 sprintf('%s is answering again.', $this->describe($session)),
                 ['installation_id' => $session->installation_id]
             );
@@ -346,9 +346,9 @@ final class SessionPresence
                 return null;
             }
 
-            $this->events->record(
-                FleetEventType::SessionGone,
+            $this->announce(
                 $session,
+                FleetEventType::SessionGone,
                 sprintf('%s ended.', $this->describe($session)),
                 ['installation_id' => $session->installation_id, 'reason' => $reason],
 
@@ -372,6 +372,32 @@ final class SessionPresence
 
             return $deleted;
         });
+    }
+
+    /**
+     * Tell the fleet a session changed state, unless it is a session the fleet is not told about.
+     *
+     * **Only the feed event is withheld for an ephemeral session (#424), and nothing else a
+     * transition does.** The row still moves, the tokens still go, the coordinator's lane
+     * conditions are still raised, and `Events\SessionGone` still fires -- so whatever it held is
+     * released however it ended, which is the one thing a quiet session must not stop doing. The
+     * stale and resumed events are withheld with the joined and gone ones: a session no list shows
+     * reporting that it "stopped answering" is the crash-loop reading `robot-council/cli#298`
+     * was about.
+     *
+     * @param  AgentSession  $session  The session that moved.
+     * @param  FleetEventType  $type  The presence event describing the move.
+     * @param  string  $body  What a human reads.
+     * @param  array<string, mixed>  $meta  Structured detail.
+     * @param  string|null  $actor  The signed-in developer who moved it, when one did.
+     */
+    private function announce(AgentSession $session, FleetEventType $type, string $body, array $meta, ?string $actor = null): void
+    {
+        if ($session->isEphemeral()) {
+            return;
+        }
+
+        $this->events->record($type, $session, $body, $meta, actor: $actor);
     }
 
     /**

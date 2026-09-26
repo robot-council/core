@@ -78,7 +78,10 @@ final class LiveSessions
         // Fetching one MORE than one extra changes nothing observable, for the reason
         // `FleetPresence::sessions()` records; the exact-multiple test pins the other direction.
         // @pest-mutate-ignore: IncrementInteger
-        $sessions = AgentSession::query()
+        // `announced()`, so a session started ephemeral is not listed (#424): it is a process
+        // `robot-council api` starts around one read, and a loop of reads would otherwise fill
+        // this list with seats nobody sits in
+        $sessions = AgentSession::announced()
             ->with('installation')
             ->where('status', '<>', AgentSessionStatus::Gone->value)
 

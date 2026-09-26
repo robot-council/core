@@ -126,7 +126,9 @@ final class LaneBoard
      */
     private function lanes(): array
     {
-        $sessions = AgentSession::query()
+        // **An ephemeral session is not a lane** (#424). It is a process started around one read
+        // and ended with it, so it has no seat to show and no work a coordinator should place on it
+        $sessions = AgentSession::announced()
             ->with('installation')
             ->where('status', '!=', AgentSessionStatus::Gone->value)
             ->orderBy('id')

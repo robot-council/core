@@ -8,6 +8,7 @@ use Illuminate\Auth\Authenticatable;
 use Illuminate\Contracts\Auth\Authenticatable as AuthenticatableContract;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -48,6 +49,7 @@ use RobotCouncil\Support\PresenceTimestamp;
  * @property Role|null $requested_role
  * @property Carbon|null $requested_at
  * @property int $feed_cursor
+ * @property bool $ephemeral
  * @property-read Installation $installation
  *
  * @phpstan-use HasApiTokens<PersonalAccessToken>
@@ -65,6 +67,7 @@ use RobotCouncil\Support\PresenceTimestamp;
     'declared_capacity',
     'requested_role',
     'requested_at',
+    'ephemeral',
 ])]
 #[Table(name: 'robot_council_agent_sessions')]
 final class AgentSession extends Model implements AuthenticatableContract
@@ -83,7 +86,7 @@ final class AgentSession extends Model implements AuthenticatableContract
      *
      * @var array<string, mixed>
      */
-    public $attributes = ['declared_capacity' => 1];
+    public $attributes = ['declared_capacity' => 1, 'ephemeral' => false];
 
     /**
      * The attribute casts.
@@ -99,6 +102,7 @@ final class AgentSession extends Model implements AuthenticatableContract
             'installation_id' => 'integer',
             'feed_cursor' => 'integer',
             'declared_capacity' => 'integer',
+            'ephemeral' => 'boolean',
             'status' => AgentSessionStatus::class,
             // Cast like `status`, and carrying the same exposure: Laravel resolves an enum cast
             // through `from()`, so a row holding a name the enum no longer has raises a
@@ -159,6 +163,38 @@ final class AgentSession extends Model implements AuthenticatableContract
     public function heldLocks(): HasMany
     {
         return $this->hasMany(Lock::class, 'holder_id');
+    }
+
+    /**
+     * The sessions the fleet is told about: every one that was not started ephemeral (#424).
+     *
+     * **Every list of sessions or lanes reads through this, and nothing that acts on a session
+     * does.** An ephemeral session is a process `robot-council api` starts around one read, so a
+     * list that included it would show a seat nobody sits in, and a loop of reads would fill it
+     * (`robot-council/cli#298`). Authentication, claims, locks, releases and the sweep all still
+     * reach it through `query()`, because an ephemeral session that does take something has to give
+     * it back.
+     *
+     * @return Builder<static> The sessions that are not ephemeral.
+     */
+    public static function announced(): Builder
+    {
+        return self::query()->where('ephemeral', false);
+    }
+
+    /**
+     * Determine whether the session was started ephemeral (#424).
+     *
+     * Read off the instance rather than the row, which is safe here where it is not for `status`:
+     * the flag is written once, at start, and nothing in the package changes it afterwards.
+     * Compared rather than returned, so an instance hydrated from a partial select -- which holds no
+     * value for the column -- reads as the ordinary session it most likely is.
+     *
+     * @return bool True when the fleet is not to be told the session exists.
+     */
+    public function isEphemeral(): bool
+    {
+        return $this->ephemeral === true;
     }
 
     /**

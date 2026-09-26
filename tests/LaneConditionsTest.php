@@ -363,6 +363,22 @@ it('raises a merge with the live sessions in that repository, to the coordinator
         ->and(Task::query()->findOrFail($task->id)->status)->toBe(TaskStatus::Done);
 });
 
+it('raises no free lane and names no session behind for an ephemeral session, which is not a lane (#424)', function (): void {
+    $this->app?->make('config')->set('robot-council.github.webhook_secret', 'a-webhook-secret-long-enough-to-count');
+
+    // In the same repository and the same state as the lane from `beforeEach`, which is the control
+    $ephemeral = $this->service(AgentSessions::class)->start($this->installation, 'robot-council/core', 'b', ephemeral: true)->owner;
+
+    conditionsAt($this, 0);
+    conditionsAt($this, 31);
+
+    deliverMerge($this, 'merge-ephemeral');
+
+    expect(array_column(raisedConditions(LaneConditions::LANE_FREE), 'session_id'))->toBe([$this->session->id])
+        ->and(array_column(raisedConditions(LaneConditions::MERGE_BEHIND), 'session_ids'))->toBe([[$this->session->id]])
+        ->and($ephemeral->refresh()->status)->toBe(AgentSessionStatus::Active);
+});
+
 it('reaches the coordinator through the feed, and no other session', function (): void {
     conditionsAt($this, 0);
     conditionsAt($this, 31);

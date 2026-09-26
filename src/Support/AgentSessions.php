@@ -57,6 +57,9 @@ final class AgentSessions
      * @param  int  $capacity  How many tickets it declares it will hold at once (#409). Clamped to
      *                         `Capacity::DEFAULT`..`Capacity::MAX` rather than refused, since it is an
      *                         ordinal; its seat's cap applies on every read, not here.
+     * @param  bool  $ephemeral  Whether the fleet is not to be told the session exists (#424): it
+     *                           records no `session.joined`, and nothing that lists sessions or
+     *                           lanes shows it. Everything else it does is an ordinary session's.
      * @return IssuedCredential<AgentSession> The session and its plaintext token.
      */
     public function start(
@@ -65,7 +68,8 @@ final class AgentSessions
         ?string $workLocation = null,
         ?string $osFamily = null,
         ?string $arch = null,
-        int $capacity = Capacity::DEFAULT
+        int $capacity = Capacity::DEFAULT,
+        bool $ephemeral = false
     ): IssuedCredential {
         // Bounded here as well as at the endpoint, because this is a public method a host may call
         // directly and the values reach other developers' agents through the enrollment event
@@ -73,7 +77,7 @@ final class AgentSessions
         Platform::ensure($osFamily, $arch);
         $capacity = Capacity::clamp($capacity);
 
-        return DB::transaction(function () use ($installation, $repository, $workLocation, $osFamily, $arch, $capacity): IssuedCredential {
+        return DB::transaction(function () use ($installation, $repository, $workLocation, $osFamily, $arch, $capacity, $ephemeral): IssuedCredential {
             $current = $this->locked($installation);
 
             // **Every session starts as `build`, and that is the decision rather than a default
@@ -105,7 +109,30 @@ final class AgentSessions
                 // What it declared, not what is in effect: the seat's cap is read on every use, so
                 // a developer raising it reaches this session without a restart (`Capacity`)
                 'declared_capacity' => $capacity,
+                'ephemeral' => $ephemeral,
             ]);
+
+            // **An ephemeral session announces nothing, so it has no event to start from** (#424).
+            // Its cursor is the feed's head read under the same sentinel lock `record()` takes, so
+            // the guarantee below holds unchanged: every id at or below it had committed, and
+            // everything written after this start is above it. A reader starting there sees each
+            // later event once and nothing from before -- the same position a normal session is
+            // given, minus the join it would not have seen anyway.
+            //
+            // Taken after the insert, which is the lock order `record()` keeps: this transaction
+            // holds the installation and the session row, then the sentinel.
+            if ($ephemeral) {
+                $head = $this->events->head();
+
+                $this->cursors->seed($session, $head);
+
+                return new IssuedCredential(
+                    $session,
+                    $this->issueToken($session, $abilities),
+                    $abilities,
+                    $head,
+                );
+            }
 
             // In the same transaction as the session it describes, so a failure here leaves
             // neither the session nor a feed entry claiming one exists

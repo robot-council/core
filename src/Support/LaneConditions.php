@@ -159,7 +159,8 @@ final class LaneConditions
      */
     public function merged(string $repository, int $number): void
     {
-        $behind = AgentSession::query()
+        // Lanes only: an ephemeral session is a single read, not a checkout that falls behind (#424)
+        $behind = AgentSession::announced()
             ->where('status', '!=', AgentSessionStatus::Gone->value)
             ->whereRaw('lower(repository) = ?', [mb_strtolower($repository)])
             ->orderBy('id')
@@ -314,7 +315,8 @@ final class LaneConditions
         $window = $this->minutes('free_after_minutes', 30);
         $found = [];
 
-        $lanes = AgentSession::query()
+        // Lanes only, which an ephemeral session is not (#424)
+        $lanes = AgentSession::announced()
             ->where('role', Role::Build->value)
             ->where('status', AgentSessionStatus::Active->value)
             ->orderBy('id')
