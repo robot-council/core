@@ -46,19 +46,19 @@
                                 </div>
                             </div>
 
-                            <div class="flex items-center gap-2">
+                            <div class="flex flex-wrap items-center gap-2">
                                 @if ($seat->hours_exempt)
                                     <span class="badge badge-sm">exempt from hours</span>
-                                    <button type="button" wire:click="unexempt({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-sm btn-ghost">Apply my hours</button>
+                                    <button type="button" wire:click="unexempt({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-ghost">Apply my hours</button>
                                 @else
-                                    <button type="button" wire:click="exempt({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-sm btn-ghost">Exempt from hours</button>
+                                    <button type="button" wire:click="exempt({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-ghost">Exempt from hours</button>
                                 @endif
 
                                 @if ($seat->isParked())
                                     <span class="badge badge-sm badge-warning">parked</span>
-                                    <button type="button" wire:click="lift({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-sm btn-primary">Lift</button>
+                                    <button type="button" wire:click="lift({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-primary">Lift</button>
                                 @else
-                                    <button type="button" wire:click="park({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-sm btn-warning">Park</button>
+                                    <button type="button" wire:click="park({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-warning">Park</button>
                                 @endif
                             </div>
                             {{-- #409: the cap on what a session in this seat declares when it joins.
@@ -75,7 +75,7 @@
                                     <span class="label-text">Tickets at once<span class="sr-only"> for {{ $seatName }}</span></span>
                                     <input type="number" min="{{ \RobotCouncil\Support\Capacity::DEFAULT }}" max="{{ \RobotCouncil\Support\Capacity::MAX }}" step="1" inputmode="numeric" wire:model="capacities.{{ \RobotCouncil\Support\WireArgument::of($seat->id) }}" class="input input-bordered input-sm w-24" @if ($capacityFailed) aria-invalid="true" aria-describedby="seat-{{ $seat->id }}-capacity-error seat-{{ $seat->id }}-capacity-help" @else aria-describedby="seat-{{ $seat->id }}-capacity-help" @endif>
                                 </label>
-                                <button type="submit" class="btn btn-sm">Set tickets at once<span class="sr-only"> for {{ $seatName }}</span></button>
+                                <button type="submit" class="btn btn-target">Set tickets at once<span class="sr-only"> for {{ $seatName }}</span></button>
                                 @if ($capacityFailed)
                                     <p id="seat-{{ $seat->id }}-capacity-error" role="alert" class="font-semibold text-error" data-capacity-error>{{ $capacityError }}</p>
                                 @elseif ($capacitySeat === $seat->id)
@@ -91,7 +91,7 @@
                             {{-- #320: a waiver lets exactly one placement through one refusal on this
                                  seat. Only the seat's developer can grant it; a coordinator cannot. --}}
                             <details class="w-full text-meta">
-                                <summary class="cursor-pointer opacity-90">
+                                <summary class="cursor-pointer py-3 opacity-90">
                                     Waive a placement refusal
                                     @if ($waived[$seat->id] !== [])
                                         ({{ count($waived[$seat->id]) }} waived for the next placement)
@@ -103,9 +103,9 @@
                                         <li wire:key="seat-{{ $seat->id }}-rule-{{ $rule->value }}" class="flex items-center justify-between gap-2">
                                             <span>Refused when {{ $rule->reads() }}</span>
                                             @if (in_array($rule, $waived[$seat->id], true))
-                                                <button type="button" wire:click="withdrawWaiver({{ \RobotCouncil\Support\WireArgument::of($seat->id) }}, '{{ \RobotCouncil\Support\WireArgument::of($rule) }}')" class="btn btn-xs btn-ghost">Withdraw waiver</button>
+                                                <button type="button" wire:click="withdrawWaiver({{ \RobotCouncil\Support\WireArgument::of($seat->id) }}, '{{ \RobotCouncil\Support\WireArgument::of($rule) }}')" class="btn btn-target btn-ghost">Withdraw waiver</button>
                                             @else
-                                                <button type="button" wire:click="waive({{ \RobotCouncil\Support\WireArgument::of($seat->id) }}, '{{ \RobotCouncil\Support\WireArgument::of($rule) }}')" class="btn btn-xs">Waive once</button>
+                                                <button type="button" wire:click="waive({{ \RobotCouncil\Support\WireArgument::of($seat->id) }}, '{{ \RobotCouncil\Support\WireArgument::of($rule) }}')" class="btn btn-target">Waive once</button>
                                             @endif
                                         </li>
                                     @endforeach
@@ -147,14 +147,14 @@
                 </label>
 
                 <label class="label cursor-pointer gap-2">
-                    <input type="checkbox" wire:model="skipWeekends" class="checkbox checkbox-sm">
+                    <input type="checkbox" wire:model="skipWeekends" class="checkbox">
                     <span class="label-text">Skip weekends</span>
                 </label>
 
-                <button type="submit" class="btn btn-sm btn-primary">Save hours</button>
+                <button type="submit" class="btn btn-target btn-primary">Save hours</button>
 
                 @if ($hours !== null)
-                    <button type="button" wire:click="clearHours" class="btn btn-sm btn-ghost">Remove hours</button>
+                    <button type="button" wire:click="clearHours" class="btn btn-target btn-ghost">Remove hours</button>
                 @endif
             </form>
         </div>
@@ -175,15 +175,15 @@
                     <input type="date" wire:model="holiday" class="input input-bordered input-sm">
                 </label>
 
-                <button type="submit" class="btn btn-sm">Add day off</button>
+                <button type="submit" class="btn btn-target">Add day off</button>
             </form>
 
             @if ($holidays !== [])
                 <ul class="flex flex-wrap gap-2">
                     @foreach ($holidays as $day)
-                        <li wire:key="holiday-{{ $day }}" class="badge badge-lg gap-2">
+                        <li wire:key="holiday-{{ $day }}" class="flex items-center gap-1 rounded-box bg-base-200 pl-3">
                             {{ $day }}
-                            <button type="button" wire:click="removeHoliday('{{ \RobotCouncil\Support\WireArgument::of($day) }}')" class="btn btn-xs btn-ghost" aria-label="Remove {{ $day }}">&times;</button>
+                            <button type="button" wire:click="removeHoliday('{{ \RobotCouncil\Support\WireArgument::of($day) }}')" class="btn btn-square btn-target btn-ghost" aria-label="Remove {{ $day }}">&times;</button>
                         </li>
                     @endforeach
                 </ul>

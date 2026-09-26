@@ -42,7 +42,7 @@
                         >
                     </div>
 
-                    <button type="submit" class="btn">Look up</button>
+                    <button type="submit" class="btn btn-target">Look up</button>
                 </form>
 
                 @error('user_code')
@@ -156,7 +156,7 @@
                             <input type="hidden" name="user_code" value="{{ $code->user_code }}">
 
                             <label class="flex items-start gap-2">
-                                <input type="checkbox" name="confirmed" value="1" class="checkbox checkbox-sm mt-0.5">
+                                <input type="checkbox" name="confirmed" value="1" class="checkbox mt-0.5">
                                 <span>This code is displayed on a machine I control, and I started this enrollment.</span>
                             </label>
 
@@ -165,14 +165,14 @@
                             @enderror
 
                             <div class="card-actions mt-4">
-                                <button type="submit" class="btn btn-primary">Approve this machine</button>
+                                <button type="submit" class="btn btn-target btn-primary">Approve this machine</button>
                             </div>
                         </form>
 
                         <form method="POST" action="{{ route('robot-council.enroll.deny') }}" class="mt-2">
                             @csrf
                             <input type="hidden" name="user_code" value="{{ $code->user_code }}">
-                            <button type="submit" class="btn btn-ghost">Deny</button>
+                            <button type="submit" class="btn btn-target btn-ghost">Deny</button>
                         </form>
                     @endunless
                 </div>

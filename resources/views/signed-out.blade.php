@@ -27,7 +27,7 @@
                 <p>This session has ended. Nothing on the fleet was changed.</p>
 
                 <div class="card-actions mt-2">
-                    <a class="btn btn-primary" href="{{ route('robot-council.auth.redirect') }}">Sign in again</a>
+                    <a class="btn btn-target btn-primary" href="{{ route('robot-council.auth.redirect') }}">Sign in again</a>
                 </div>
             </div>
         </div>

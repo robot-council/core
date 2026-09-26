@@ -29,7 +29,7 @@
                 </p>
 
                 <div class="card-actions mt-2">
-                    <a class="btn btn-primary" href="{{ route('robot-council.auth.redirect') }}">Start again</a>
+                    <a class="btn btn-target btn-primary" href="{{ route('robot-council.auth.redirect') }}">Start again</a>
                 </div>
 
                 <p class="text-meta opacity-90">
