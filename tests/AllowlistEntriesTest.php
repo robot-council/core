@@ -20,8 +20,12 @@ use RobotCouncil\Access\AccessList;
 use RobotCouncil\Access\Allowlist;
 use RobotCouncil\Access\AllowlistRemoval;
 use RobotCouncil\Http\Middleware\EnsureAllowlistedDeveloper;
+use RobotCouncil\Models\FleetEvent;
+use RobotCouncil\Models\FleetEventType;
 use RobotCouncil\RobotCouncilServiceProvider;
 use RobotCouncil\Support\AllowlistEntries;
+use RobotCouncil\Support\FleetFeed;
+use RobotCouncil\Support\Installations;
 
 beforeEach(function (): void {
     $this->migrateUsersTableWithPackageColumns();
@@ -205,4 +209,69 @@ it('refuses to add an account the configuration already puts on that list, and s
 
     // The other list is a different question: an environment developer can be made an administrator
     expect($this->service(AllowlistEntries::class)->add(AccessList::Admin, 4242, 'octodev'))->toBeTrue();
+});
+
+it('records an add and a removal in the feed, attributed to the administrator (#408)', function (): void {
+    $admin = $this->enrollDeveloper(99, login: 'env-admin');
+    $key = keyValue($admin->getKey());
+    $entries = $this->service(AllowlistEntries::class);
+
+    $entries->add(AccessList::Admin, 6060, 'table-admin', addedBy: 99, actor: $key);
+    $entries->remove(AccessList::Admin, 6060, actor: $key);
+
+    // One of each: `sole()` fails on none and on two
+    $added = FleetEvent::query()->where('type', FleetEventType::AllowlistEntryAdded)->sole();
+    $removed = FleetEvent::query()->where('type', FleetEventType::AllowlistEntryRemoved)->sole();
+
+    expect($added->body)->toBe('table-admin (GitHub user 6060) was added to the administrator list.')
+        ->and($added->meta)->toBe(['list' => 'admin', 'github_id' => 6060, 'login' => 'table-admin'])
+        ->and($added->agent_session_id)->toBeNull()
+        ->and($added->actor_user_id)->toBe($key)
+        ->and($removed->body)->toBe('table-admin (GitHub user 6060) was removed from the administrator list.')
+        ->and($removed->actor_user_id)->toBe($key)
+        ->and($removed->id)->toBeGreaterThan($added->id);
+});
+
+it('writes no event for a refused, repeated or empty change', function (): void {
+    $entries = $this->service(AllowlistEntries::class);
+    $entries->add(AccessList::Developer, 5150, 'new-dev');
+
+    $before = FleetEvent::query()->count();
+
+    // Repeated add, an environment entry's removal, a removal of nothing, and an invalid add
+    $entries->add(AccessList::Developer, 5150, 'new-dev');
+    expect($entries->remove(AccessList::Developer, 4242))->toBe(AllowlistRemoval::FromConfiguration)
+        ->and($entries->remove(AccessList::Developer, 777))->toBe(AllowlistRemoval::NotListed)
+        ->and(fn () => $entries->add(AccessList::Developer, 0, 'x'))->toThrow(InvalidArgumentException::class)
+        ->and(FleetEvent::query()->count())->toBe($before);
+});
+
+it('rolls the row back when the event cannot be written, so the feed never misses a change', function (): void {
+    // The feed sentinel is what every writer locks first; without it, `record()` refuses to write
+    DB::table('robot_council_feed_lock')->delete();
+
+    expect(fn () => $this->service(AllowlistEntries::class)->add(AccessList::Developer, 5150, 'new-dev'))->toThrow(RuntimeException::class)
+        ->and(DB::table('robot_council_allowlist_entries')->count())->toBe(0);
+});
+
+it('shows both events to every session, exactly as installation.revoked is shown (#408)', function (): void {
+    // Two developers' sessions, neither a coordinator: an unrestricted event reaches both
+    $mine = $this->approveInstallation($this->enrollDeveloper(4242, login: 'octodev'));
+    [$session] = $this->startAgentSession($mine);
+    $other = $this->approveInstallation($this->enrollDeveloper(5555, login: 'someone-else'), 'other-box');
+    [$otherSession] = $this->startAgentSession($other);
+
+    $this->service(AllowlistEntries::class)->add(AccessList::Developer, 5150, 'new-dev');
+    $this->service(Installations::class)->revoke($other);
+
+    foreach ([$session, $otherSession] as $reader) {
+        $types = array_column(arrayValue($this->service(FleetFeed::class)->after($reader, 0, 100)['events']), 'type');
+
+        expect($types)->toContain(FleetEventType::AllowlistEntryAdded->value)
+            ->and($types)->toContain(FleetEventType::InstallationRevoked->value);
+    }
+
+    // And by the rule, not by chance: neither type is restricted
+    expect(FleetEventType::AllowlistEntryAdded->isRestricted())->toBe(FleetEventType::InstallationRevoked->isRestricted())
+        ->and(FleetEventType::AllowlistEntryRemoved->isRestricted())->toBe(FleetEventType::InstallationRevoked->isRestricted());
 });

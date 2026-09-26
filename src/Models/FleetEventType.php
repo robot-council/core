@@ -69,6 +69,21 @@ enum FleetEventType: string
     case InstallationRevoked = 'installation.revoked';
 
     /**
+     * An administrator added a GitHub account to the developer or administrator allowlist (#408).
+     *
+     * An administrative change like `installation.revoked`, and visible to the same readers: every
+     * session, since neither is restricted. `meta` names the list, the GitHub ID and the login, all
+     * bounded by `Support\AllowlistEntries`; `performed_by` names the administrator.
+     */
+    case AllowlistEntryAdded = 'allowlist.entry_added';
+
+    /**
+     * An administrator removed a GitHub account's table entry from an allowlist (#408). A refused
+     * removal, such as an entry the host configuration holds, writes nothing.
+     */
+    case AllowlistEntryRemoved = 'allowlist.entry_removed';
+
+    /**
      * An admin gave an installation an ability it did not have.
      *
      * **Nothing writes this any more, and it stays because rows already hold it.**
