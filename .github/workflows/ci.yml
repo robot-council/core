@@ -37,7 +37,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, imagick, fileinfo
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, soap, intl, gd, exif, iconv, imagick, fileinfo, sockets
           coverage: none
 
       - name: Setup problem matchers
@@ -164,7 +164,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.5'
-          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, pdo_pgsql, bcmath, intl, fileinfo
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, pdo_pgsql, bcmath, intl, fileinfo, sockets
           coverage: none
 
       - name: Install composer dependencies
@@ -244,7 +244,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.5'
-          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, pdo_mysql, bcmath, intl, fileinfo
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, pdo_mysql, bcmath, intl, fileinfo, sockets
           coverage: none
 
       - name: Install composer dependencies
@@ -318,6 +318,56 @@ jobs:
           fi
           echo "two builds agree: $(wc -c < /tmp/first.css) bytes"
 
+  # The dashboard's accessibility gate (#403): every surface in a real headless Chromium, scanned
+  # by axe-core, in both themes. It is a test suite of its own, which the default suite excludes,
+  # because pest-plugin-browser starts Playwright as soon as it loads a browser test, and nothing
+  # else here installs Playwright or a browser. `sockets` is the extension
+  # pestphp/pest-plugin-browser requires, which is also why the other jobs' lists carry it: the
+  # plugin is a dev dependency, so every job that installs dev dependencies needs it.
+  browser:
+    name: browser
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_sqlite, bcmath, intl, fileinfo, sockets
+          coverage: none
+
+      - name: Install composer dependencies
+        uses: ramsey/composer-install@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+
+      # `npm ci` installs Playwright at the version package-lock.json pins; the browser it drives
+      # is a separate download, with the system libraries it needs on this runner
+      - name: Install Playwright and Chromium
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Execute the browser tests
+        run: vendor/bin/pest --ci --testsuite=Browser
+
+      # The AAA findings are reported rather than enforced, so they are kept where a reader can
+      # find them after the run
+      - name: Keep the AAA report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: axe-aaa
+          path: build/axe-aaa.json
+          if-no-files-found: ignore
+
   generator:
     name: generator (Python ${{ matrix.python }})
     runs-on: ubuntu-latest
@@ -346,7 +396,7 @@ jobs:
   ci-passed:
     name: ci-passed
     if: always()
-    needs: [tests, phpstan, pint, rector, postgres, mysql, stylesheet, generator]
+    needs: [tests, phpstan, pint, rector, postgres, mysql, stylesheet, browser, generator]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -359,7 +409,8 @@ jobs:
           POSTGRES: ${{ needs.postgres.result }}
           MYSQL: ${{ needs.mysql.result }}
           STYLESHEET: ${{ needs.stylesheet.result }}
+          BROWSER: ${{ needs.browser.result }}
           GENERATOR: ${{ needs.generator.result }}
         run: |
-          echo "tests=$TESTS phpstan=$PHPSTAN pint=$PINT rector=$RECTOR postgres=$POSTGRES mysql=$MYSQL stylesheet=$STYLESHEET generator=$GENERATOR"
-          [ "$TESTS" = success ] && [ "$PHPSTAN" = success ] && [ "$PINT" = success ] && [ "$RECTOR" = success ] && [ "$POSTGRES" = success ] && [ "$MYSQL" = success ] && [ "$STYLESHEET" = success ] && [ "$GENERATOR" = success ]
+          echo "tests=$TESTS phpstan=$PHPSTAN pint=$PINT rector=$RECTOR postgres=$POSTGRES mysql=$MYSQL stylesheet=$STYLESHEET browser=$BROWSER generator=$GENERATOR"
+          [ "$TESTS" = success ] && [ "$PHPSTAN" = success ] && [ "$PINT" = success ] && [ "$RECTOR" = success ] && [ "$POSTGRES" = success ] && [ "$MYSQL" = success ] && [ "$STYLESHEET" = success ] && [ "$BROWSER" = success ] && [ "$GENERATOR" = success ]

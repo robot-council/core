@@ -113,6 +113,7 @@ A **Laravel package** (`robot-council/core`), not an application. It is the core
 | Tests | `composer test` (`vendor/bin/pest`); one file or test: `vendor/bin/pest --compact tests/ExampleTest.php --filter=...` |
 | Tests on Postgres | `DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=5432 DB_DATABASE=<db> DB_USERNAME=postgres DB_PASSWORD= vendor/bin/pest` |
 | Tests on MySQL | `DB_CONNECTION=mysql DB_HOST=127.0.0.1 DB_PORT=3306 DB_DATABASE=<db> DB_USERNAME=root DB_PASSWORD= vendor/bin/pest` |
+| Browser tests | `composer test:browser` (`vendor/bin/pest --testsuite=Browser`), after `npx playwright install chromium` once. The dashboard's axe-core accessibility gate (#403). A test suite of its own, outside the default one, because the browser plugin starts Playwright as soon as it loads a browser test, before any group filter applies |
 | Cross-connection tests | Add `--group=cross-connection` to either line above. Never SQLite. All seven run on Postgres; on MySQL six skip themselves, because they set `lock_timeout` and would stall rather than fail |
 | Coverage | `composer test-coverage` (needs PCOV or Xdebug; see the `pcov-setup` skill) |
 | Mutation | `vendor/bin/pest --mutate --path=src --class="RobotCouncil\<Class>"` |
@@ -258,6 +259,7 @@ A **Laravel package** (`robot-council/core`), not an application. It is the core
   - `tests` runs `vendor/bin/pest --ci` on ubuntu and windows × PHP 8.5 and 8.4 × Laravel 13 × `prefer-lowest` and `prefer-stable`, with `fail-fast: false`, on Pest 5 and PHPUnit 13.
   - `phpstan` runs PHPStan on PHP 8.5, and `pint` runs `vendor/bin/pint --test`, which **fails on a style problem instead of fixing it**. Run `vendor/bin/pint --dirty` before pushing.
   - `rector` runs `vendor/bin/rector --dry-run`, which fails when Rector would change a file. Run `composer refactor` before pushing, and review what it changed.
+  - `browser` runs the `Browser` test suite on ubuntu with PHP 8.5, after `npm ci` and `npx playwright install --with-deps chromium`: every dashboard surface in headless Chromium, in both themes, failing on any serious or critical axe-core violation among the WCAG A and AA rules (#403). It uploads the AAA findings as the `axe-aaa` artifact. `pestphp/pest-plugin-browser` requires `ext-sockets`, and because it is a dev dependency every job that installs dev dependencies needs it; the jobs that name their extensions list it for that reason.
   - `stylesheet` runs `npm ci` and then `npm run check`, which rebuilds the dashboard stylesheet and `cmp`s it against the committed one, so a view added without a rebuild fails the build instead of shipping half-styled (#66). It reads the exit status rather than piping it. What it cannot catch is an artifact that matches its sources and should not, which is #230.
   - `postgres` runs on ubuntu with PHP 8.5 against a `postgres:17` service container. It runs `vendor/bin/pest --ci` with `DB_CONNECTION=pgsql`, then `vendor/bin/pest --ci --group=cross-connection`.
 

@@ -187,7 +187,7 @@ it('leads from a lock to the session holding it, and only that one', function ()
 
     // The holder's login is the link text, so the link is to THIS lock's holder rather than merely
     // to some session
-    expect($locks)->toContain('<a href="'.e($link).'" class="link">octodev</a>');
+    expect($locks)->toContain('<a href="'.e($link).'" class="link inline-flex min-h-6 items-center">octodev</a>');
 
     $this->get(route('robot-council.agents'))->assertSeeHtml(machineCell('box-first'))->assertSeeHtml(machineCell('box-second'));
 
