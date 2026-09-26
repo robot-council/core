@@ -11,6 +11,7 @@ declare(strict_types=1);
  *
  * @command  vendor/bin/pest --compact tests/AllowlistEntriesTest.php
  */
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Route;
@@ -167,4 +168,27 @@ it('reads the environment lists alone when the table has not been migrated yet',
 
     expect(app(Allowlist::class)->developers())->toBe([4242])
         ->and(app(Allowlist::class)->admits(99))->toBeTrue();
+});
+
+it('reads only a missing table as empty, on each engine, and nothing else', function (string $state, string $message, bool $missing): void {
+    // Tested at the classifier rather than through a broken table, because SQLite answers a
+    // misshapen table with no error at all: it reads a double-quoted name that is not a column as a
+    // string literal, so `select "list"` on a table without one succeeds
+    $pdo = new PDOException($message);
+    $pdo->errorInfo = [$state, 0, $message];
+
+    expect(Allowlist::isMissingTable(new QueryException('testing', 'select 1', [], $pdo)))->toBe($missing);
+})->with([
+    'Postgres, undefined table' => ['42P01', 'relation "robot_council_allowlist_entries" does not exist', true],
+    'MySQL, no such table' => ['42S02', "Table 'x.robot_council_allowlist_entries' doesn't exist", true],
+    'SQLite, no such table' => ['HY000', 'no such table: robot_council_allowlist_entries', true],
+    'SQLite, no such column' => ['HY000', 'no such column: list', false],
+    'a lost connection' => ['08006', 'server closed the connection unexpectedly', false],
+    'permission denied' => ['42501', 'permission denied for table robot_council_allowlist_entries', false],
+]);
+
+it('reads the environment lists by the same rule as the table, refusing zero and a number past a bigint', function (): void {
+    config()->set('robot-council.access.developers', '0, 4242, 007, 99999999999999999999');
+
+    expect(app(Allowlist::class)->developers())->toBe([4242, 7]);
 });

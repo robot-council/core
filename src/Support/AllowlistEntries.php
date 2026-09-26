@@ -74,6 +74,11 @@ final class AllowlistEntries
      * also holds it: the account keeps that list while the environment names it, so deleting the
      * table's copy would report a revocation that had not happened.
      *
+     * **`Removed` is about this list, not about the account's access.** An account taken off the
+     * developer list while it is still an administrator, from either source, is still admitted,
+     * because an administrator is. A page reporting a removal reads `Allowlist::admits()` afterwards
+     * rather than taking `Removed` to mean the account is out (#407).
+     *
      * @param  AccessList  $list  The list.
      * @param  int  $githubId  The account's numeric GitHub user ID.
      * @return AllowlistRemoval What came of it.

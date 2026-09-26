@@ -94,8 +94,10 @@ final class Allowlist
     /**
      * Read a GitHub user ID the way the lists are read: a whole number, or nothing.
      *
-     * Shared with `Support\AllowlistEntries`, so the table can hold no ID the environment list
-     * would have ignored.
+     * The one rule both sources are read by -- `ids()` for the environment lists and
+     * `Support\AllowlistEntries` for the table -- so neither holds an ID the other would ignore. It
+     * refuses `0`, which no GitHub account has, and a number past what a bigint holds, which
+     * `(int)` would otherwise clamp to `PHP_INT_MAX` and so name a different account.
      *
      * @param  mixed  $value  The candidate.
      * @return int|null The ID, or null when it is not a positive whole number that fits.
@@ -120,6 +122,23 @@ final class Allowlist
         $id = (int) $candidate;
 
         return $id > 0 ? $id : null;
+    }
+
+    /**
+     * Whether a query failed because its table does not exist, on each engine the package supports.
+     *
+     * Postgres answers SQLSTATE `42P01`, MySQL and MariaDB `42S02`, and SQLite a general error whose
+     * message says `no such table`.
+     *
+     * @param  QueryException  $queryException  The failure.
+     * @return bool True for a missing table.
+     */
+    public static function isMissingTable(QueryException $queryException): bool
+    {
+        $state = $queryException->errorInfo[0] ?? $queryException->getCode();
+
+        return \in_array($state, ['42P01', '42S02'], true)
+            || str_contains($queryException->getMessage(), 'no such table');
     }
 
     /**
@@ -149,7 +168,13 @@ final class Allowlist
 
             try {
                 $rows = DB::table('robot_council_allowlist_entries')->orderBy('id')->get(['list', 'github_id']);
-            } catch (QueryException) {
+            } catch (QueryException $queryException) {
+                // Only a missing table reads as empty. Anything else -- a lost connection, a denied
+                // permission, a lock timeout -- is rethrown rather than silently shrinking the list
+                if (! self::isMissingTable($queryException)) {
+                    throw $queryException;
+                }
+
                 $rows = [];
             }
 
@@ -184,21 +209,16 @@ final class Allowlist
         // Split an environment string into entries, and take an array as it stands
         $entries = \is_array($configured) ? $configured : explode(',', $configured);
 
-        // Keep only the entries that are whole numbers, since GitHub user IDs are integers
+        // Keep only the entries that are GitHub user IDs, read by the one rule the table's entries
+        // are read by too
         $ids = [];
 
         foreach ($entries as $entry) {
-            if (! \is_scalar($entry)) {
-                continue;
+            $id = self::githubId(\is_int($entry) ? $entry : (\is_scalar($entry) ? (string) $entry : null));
+
+            if ($id !== null) {
+                $ids[] = $id;
             }
-
-            $candidate = trim((string) $entry);
-
-            if ($candidate === '' || ctype_digit($candidate) === false) {
-                continue;
-            }
-
-            $ids[] = (int) $candidate;
         }
 
         return array_values(array_unique($ids));

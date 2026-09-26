@@ -53,7 +53,7 @@ beforeEach(function (): void {
     $this->setAccessLists(developers: [4242, 77], admins: [4242]);
 });
 
-it('polls on five queries, and mounts on six', function (): void {
+it('polls on five queries plus the allowlist read, and mounts on seven', function (): void {
     $admin = $this->enrollDeveloper(4242);
     approveInstallations($this, $admin, $this->enrollDeveloper(77, login: 'otherdev'), 3);
     $this->actingAs($admin, 'web');
