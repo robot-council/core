@@ -26,12 +26,29 @@
 
         @include('robot-council::partials.glossary', ['terms' => ['task', 'ticket', 'pending', 'claimed', 'in_progress', 'blocked_task', 'done', 'failed', 'cancelled', 'priority', 'filed_by', 'project', 'held_by_task', 'lane', 'coordinator']])
 
+        {{-- What the unfiltered board is leaving out (#420): finished tasks past their display window,
+             by status, each linking to the filter that shows every task in that status. A window is
+             not a deletion; `retention.tasks_days` is. --}}
+        @if ($hiddenFinished !== [])
+            @php($windowFor = fn (int $hours): string => $hours >= 48 && $hours % 24 === 0 ? ($hours / 24).' days' : $hours.' '.($hours === 1 ? 'hour' : 'hours'))
+            <p class="max-w-xl text-meta leading-relaxed" data-hidden-finished>
+                Hidden, {{ array_sum($hiddenFinished) === 1 ? 'a finished task past its' : 'finished tasks past their' }} display window:
+                @foreach ($hiddenFinished as $hiddenStatus => $hiddenCount)
+                    <a wire:key="hidden-{{ $hiddenStatus }}" href="{{ route('robot-council.queue', ['status' => $hiddenStatus]) }}" class="link">{{ $hiddenCount }} {{ $hiddenStatus }}<span class="sr-only"> {{ $hiddenCount === 1 ? 'task' : 'tasks' }}, show every {{ $hiddenStatus }} task</span></a>{{ $loop->last ? '' : ($loop->remaining === 1 ? ' and' : ',') }}
+                @endforeach
+                ({{ collect($hiddenFinished)->keys()->map(fn (string $hiddenStatus): string => $hiddenStatus.' after '.$windowFor($finishedWindows[$hiddenStatus] ?? 0))->implode(', ') }}).
+                Choose one to see every task in that status.
+            </p>
+        @endif
+
         @if ($tasks === [])
             <p class="py-6 text-center opacity-80">
                 @if ($afterId !== null)
                     End of the queue: nothing comes after this page. Choose First page to go back.
                 @elseif ($shownStatus !== '')
                     No {{ $shownStatus }} tasks. Choose All to see every task.
+                @elseif ($hiddenFinished !== [])
+                    Nothing open: every task still on the queue is finished and past its display window.
                 @else
                     Queue empty: the fleet has not been asked to do anything yet.
                 @endif
