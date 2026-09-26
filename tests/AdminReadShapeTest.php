@@ -83,6 +83,9 @@ it('returns every key a nested session row carries, including all three identifi
         'requested_at',
         'repository',
         'work_location',
+
+        // #424: listed here because it can be revoked here, and on no other list an admin reads
+        'ephemeral',
     ]);
 
     expect($sessions['hidden'])->toBe(0);
