@@ -106,9 +106,15 @@ final class TransitionTaskController
 
         $body = [
             'task_id' => (int) $task,
-            'status' => $outcome === Outcome::Applied ? $move->to()->value : null,
+            'status' => \in_array($outcome, [Outcome::Applied, Outcome::Added], true) ? $move->to()->value : null,
             'applied' => $outcome === Outcome::Applied,
         ];
+
+        // #433: GitHub finished the task first, and the result was added to it rather than refused.
+        // Only a completion reaches this, so `to()` above is the `done` GitHub left it in.
+        if ($outcome === Outcome::Added) {
+            $body['result_added'] = true;
+        }
 
         // Soft invariants (#320) do not block; they say why a coordinator might think again
         if ($move === TaskTransition::Reassign && $outcome === Outcome::Applied) {

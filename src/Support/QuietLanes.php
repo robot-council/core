@@ -52,6 +52,7 @@ final class QuietLanes
         FleetEventType::TaskReleased,
         FleetEventType::TaskReassigned,
         FleetEventType::TaskCancelled,
+        FleetEventType::TaskResultAdded,
         FleetEventType::LockAcquired,
         FleetEventType::LockTakenOver,
         FleetEventType::LockReleased,

@@ -68,7 +68,7 @@ final class TaskTransitionTool extends Tool
 
         return sprintf(
             'Move a task to `%s`. Works only from %s, and answers a conflict from anywhere else -- '
-                .'including when another agent got there first. Needs `%s`.%s%s',
+                .'including when another agent got there first. Needs `%s`.%s%s%s',
             $this->transition->to()->value,
             $from,
             $this->transition->ability()->value,
@@ -77,6 +77,10 @@ final class TaskTransitionTool extends Tool
                 : '',
             $this->transition === TaskTransition::Reassign
                 ? ' Pass `expect: "pending"` when placing unclaimed work, so a lane that claimed it first keeps it.'
+                : '',
+            // #433: the case a lane meets most, since the merge usually lands before its call does
+            $this->transition === TaskTransition::Complete
+                ? sprintf(' If GitHub already finished the task, because its pull request merged or its issue closed, the session that held it may still send its `result` once, within %d minutes: it is added to what GitHub recorded, the status stays `done`, and the answer says `result_added: true` instead of `applied: true`.', Tasks::RESULT_WINDOW_MINUTES)
                 : ''
         );
     }
@@ -222,6 +226,19 @@ final class TaskTransitionTool extends Tool
             return Response::error($placementRefused->getMessage()." The developer who owns the lane's seat can waive one of these for a single placement from their seats page, once that page has recorded the seat; a coordinator cannot.");
         }
 
+        // #433: GitHub finished the task before this completion arrived, and the result was added to
+        // it instead. Not an error, since what the lane reported is now on the task, and not
+        // `applied`, since the lane did not move it.
+        if ($outcome === Outcome::Added) {
+            return Response::structured([
+                'task_id' => $taskId,
+                'status' => TaskStatus::Done->value,
+                'applied' => false,
+                'result_added' => true,
+                'note' => "GitHub had already finished this task. Your result was added beside what GitHub recorded, under its `github` key, which keeps GitHub's value; the status is unchanged.",
+            ]);
+        }
+
         // A refusal is an error, not a result. A client cannot tell a result that describes a
         // failure from one that describes success, so anything the service refused has to arrive
         // marked as an error or the model reads it as having worked.
@@ -264,7 +281,8 @@ final class TaskTransitionTool extends Tool
             Outcome::Forbidden => $this->transition === TaskTransition::Reassign
                 ? 'That session could not have claimed this task itself, so it cannot be handed it. The task belongs to another developer and was not filed by a coordinator.'
                 : 'This session may not do that to that task.',
-            Outcome::Applied => 'Applied.',
+            // Both returned before this is asked
+            Outcome::Applied, Outcome::Added => 'Applied.',
         };
     }
 }

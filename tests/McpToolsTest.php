@@ -27,7 +27,9 @@ use RobotCouncil\Models\Lock;
 use RobotCouncil\Models\Placement;
 use RobotCouncil\Models\Task;
 use RobotCouncil\Models\TaskStatus;
+use RobotCouncil\Models\TaskTransition;
 use RobotCouncil\Support\FleetFeed;
+use RobotCouncil\Support\Tasks;
 use RobotCouncil\Tests\TestCase;
 
 /**
@@ -1003,4 +1005,22 @@ it('says what events_read limit caps, with the bounds the feed actually uses', f
         ->toContain((string) FleetFeed::MAX_PAGE)
         ->toContain((string) FleetFeed::EXAMINE_CAP)
         ->not->toContain('examine,');
+});
+
+it('answers a completion GitHub beat to it with the result added, not as an error and not as applied (#433)', function (): void {
+    $tasks = $this->service(Tasks::class);
+    $task = $tasks->create($this->session, ['title' => 'Work', 'issue' => 'robot-council/core#12'], withCoordinator: false);
+
+    $tasks->transition($task->id, TaskTransition::Claim, $this->session, asCoordinator: false);
+    $tasks->transition($task->id, TaskTransition::Start, $this->session, asCoordinator: false);
+    $tasks->finishFromGitHub($task->id, completed: true, why: 'its issue closed on GitHub', finished: ['issue' => 'robot-council/core#12', 'state_reason' => 'completed']);
+
+    $answer = toolResult(callTool($this, $this->token, 'task_complete', ['task_id' => $task->id, 'result' => ['summary' => 'shipped']]));
+
+    expect($answer)->toMatchArray(['task_id' => $task->id, 'status' => 'done', 'applied' => false, 'result_added' => true])
+        ->and(arrayValue(Task::query()->findOrFail($task->id)->result)['summary'] ?? null)->toBe('shipped');
+
+    // A second is the ordinary refusal, marked as an error
+    expect(toolError(callTool($this, $this->token, 'task_complete', ['task_id' => $task->id, 'result' => ['summary' => 'again']])))
+        ->toContain('not in a status');
 });
