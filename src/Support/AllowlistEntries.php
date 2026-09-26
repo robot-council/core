@@ -11,6 +11,7 @@ use RobotCouncil\Access\AccessList;
 use RobotCouncil\Access\Allowlist;
 use RobotCouncil\Access\AllowlistRemoval;
 use RobotCouncil\Models\FleetEventType;
+use RobotCouncil\Models\GithubIdentity;
 
 /**
  * The allowlist entries an administrator adds beside the environment lists (#406, #312's decision).
@@ -168,12 +169,17 @@ final class AllowlistEntries
      */
     private function record(FleetEventType $type, string $happened, AccessList $list, int $githubId, string $login, ?string $actor): void
     {
+        // The account the change is about, when it has signed in, as `installation.revoked` names its
+        // installation's owner; otherwise the feed shows no subject rather than a wrong one
+        $subject = GithubIdentity::query()->where('github_id', $githubId)->value('user_id');
+
         $this->events->record(
             $type,
             null,
             sprintf('%s (GitHub user %d) was %s the %s list.', $login, $githubId, $happened, $list === AccessList::Admin ? 'administrator' : 'developer'),
             ['list' => $list->value, 'github_id' => $githubId, 'login' => $login],
-            actor: $actor
+            actor: $actor,
+            subject: HostKey::tryFrom($subject)
         );
     }
 

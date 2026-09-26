@@ -262,16 +262,30 @@ it('shows both events to every session, exactly as installation.revoked is shown
     [$otherSession] = $this->startAgentSession($other);
 
     $this->service(AllowlistEntries::class)->add(AccessList::Developer, 5150, 'new-dev');
+    $this->service(AllowlistEntries::class)->remove(AccessList::Developer, 5150);
     $this->service(Installations::class)->revoke($other);
 
     foreach ([$session, $otherSession] as $reader) {
         $types = array_column(arrayValue($this->service(FleetFeed::class)->after($reader, 0, 100)['events']), 'type');
 
         expect($types)->toContain(FleetEventType::AllowlistEntryAdded->value)
+            ->and($types)->toContain(FleetEventType::AllowlistEntryRemoved->value)
             ->and($types)->toContain(FleetEventType::InstallationRevoked->value);
     }
 
     // And by the rule, not by chance: neither type is restricted
     expect(FleetEventType::AllowlistEntryAdded->isRestricted())->toBe(FleetEventType::InstallationRevoked->isRestricted())
         ->and(FleetEventType::AllowlistEntryRemoved->isRestricted())->toBe(FleetEventType::InstallationRevoked->isRestricted());
+});
+
+it('names the account as the subject when it has signed in, and nobody when it has not', function (): void {
+    $known = $this->enrollDeveloper(5150, login: 'new-dev');
+
+    $this->service(AllowlistEntries::class)->add(AccessList::Developer, 5150, 'new-dev');
+    $this->service(AllowlistEntries::class)->add(AccessList::Developer, 6060, 'stranger');
+
+    $events = FleetEvent::query()->where('type', FleetEventType::AllowlistEntryAdded)->get()->keyBy(static fn (FleetEvent $event): int => intValue(arrayValue($event->meta)['github_id'] ?? null));
+
+    expect($events->get(5150)?->user_id)->toBe(keyValue($known->getKey()))
+        ->and($events->get(6060)?->user_id)->toBeNull();
 });
