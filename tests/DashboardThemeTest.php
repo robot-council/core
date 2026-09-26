@@ -747,6 +747,19 @@ const DENSE_ACTIONS = [
     'showFirst', 'showNext', 'showLatest', 'showOlder',
 ];
 
+it('draws a focus indicator on the navigation that daisyUI leaves without one', function (): void {
+    $css = stylesheet();
+
+    // #400. What is being corrected: daisyUI takes the outline off a focused menu item
+    expect($css)->toContain(':focus-visible{color:var(--color-base-content);--tw-outline-style:none;outline-style:none}');
+
+    // The correction, directly in `utilities`, where it beats daisyUI's sublayers
+    $at = strpos($css, '.menu :where(li)>:is(a,button,summary):focus-visible{outline:2px solid var(--color-base-content);outline-offset:2px}');
+
+    expect($at)->toBeInt()
+        ->and(blocksEnclosing($css, (int) $at))->toBe(['@layer utilities']);
+});
+
 it('holds every consequential control to the AAA target size, and every control to the floor', function (): void {
     $css = stylesheet();
 

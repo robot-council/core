@@ -79,7 +79,7 @@ it('shows where a session is working, as a repository and the checkout within it
 
     Livewire::test(AgentsPage::class)
         ->assertSee('UAMS-Web/uams-statamic')
-        ->assertSeeHtml('<div class="opacity-80">ci</div>');
+        ->assertSeeHtml('<div class="opacity-80"><code>ci</code></div>');
 });
 
 it('shows a session that named only a work location, rather than calling it none', function (): void {
@@ -97,7 +97,7 @@ it('shows a session that named only a work location, rather than calling it none
     ])->save();
 
     Livewire::test(AgentsPage::class)
-        ->assertSeeHtml('<div class="opacity-80">primary</div>')
+        ->assertSeeHtml('<div class="opacity-80"><code>primary</code></div>')
         ->assertDontSeeHtml('<span class="opacity-80">none</span>');
 });
 
@@ -323,8 +323,8 @@ it('tells two worktrees on one machine and harness apart', function (): void {
         ->and(array_unique(array_map(stringValue(...), array_column($rows, 'harness'))))->toHaveCount(1);
 
     Livewire::test(AgentsPage::class)
-        ->assertSeeHtml('<div class="opacity-80">a</div>')
-        ->assertSeeHtml('<div class="opacity-80">ci</div>');
+        ->assertSeeHtml('<div class="opacity-80"><code>a</code></div>')
+        ->assertSeeHtml('<div class="opacity-80"><code>ci</code></div>');
 });
 
 // **The hostile-repository guard this file used to hold twice now lives once, above.** It was a

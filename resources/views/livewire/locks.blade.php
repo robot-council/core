@@ -8,7 +8,7 @@
 <div wire:poll.{{ \RobotCouncil\Support\WireArgument::of($pollSeconds) }}s class="card bg-base-100 shadow-sm">
     <div class="card-body">
         <div class="flex flex-wrap items-center justify-between gap-2">
-            <h2 class="card-title">Locks</h2>
+            <h1 class="card-title">Locks</h1>
 
             <div class="flex gap-1" role="group" aria-label="Filter by scope">
                 {{-- "Held" is held AND lapsed: a lease that has run out while the row still
@@ -32,7 +32,7 @@
              reason the Agents page says its own narrowing. --}}
         @if ($holder !== null)
             <div class="flex flex-wrap items-center gap-2 text-meta">
-                <span>Showing locks held by session #{{ $holder }}.</span>
+                <span>Showing locks held by session <code>#{{ $holder }}</code>.</span>
                 <button type="button" wire:click="showEveryHolder" class="btn btn-xs btn-outline">Show all</button>
             </div>
         @endif
@@ -40,7 +40,7 @@
         @if ($locks['locks'] === [])
             <p class="py-6 text-center opacity-80">
                 @if ($holder !== null)
-                    Session #{{ $holder }} holds no locks in this list.
+                    Session <code>#{{ $holder }}</code> holds no locks in this list.
                 @else
                     Nothing is locked.
                 @endif
@@ -59,7 +59,7 @@
                     <tbody role="rowgroup">
                         @foreach ($locks['locks'] as $lock)
                             <tr role="row" wire:key="lock-{{ $lock['id'] }}">
-                                <td role="cell" data-label="Lock" class="font-medium">{{ $lock['name'] }}</td>
+                                <td role="cell" data-label="Lock" class="font-medium"><code>{{ $lock['name'] }}</code></td>
 
                                 <td role="cell" data-label="Held by">
                                     {{-- Linked to the one session holding it, which is the

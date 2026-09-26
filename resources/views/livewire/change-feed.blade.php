@@ -10,7 +10,7 @@
 
 <div wire:poll.{{ \RobotCouncil\Support\WireArgument::of($pollSeconds) }}s class="card bg-base-100 shadow-sm">
     <div class="card-body">
-        <h2 class="card-title">Change feed</h2>
+        <h1 class="card-title">Change feed</h1>
 
         @if ($events === [])
             <p class="py-6 text-center opacity-80">

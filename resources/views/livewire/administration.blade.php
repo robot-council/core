@@ -14,7 +14,7 @@
 <div wire:poll.{{ \RobotCouncil\Support\WireArgument::of($pollSeconds) }}s class="card bg-base-100 shadow-sm">
     <div class="card-body">
         <div class="flex flex-wrap items-center justify-between gap-2">
-            <h2 class="card-title">Installations</h2>
+            <h1 class="card-title">Installations</h1>
 
             {{-- A revoked or expired installation is behind a scope rather than sorted below a
                  live one. Sorting would put a mutable column in the ordering, and a cursor over
@@ -53,7 +53,7 @@
                             <div>
                                 {{-- Agent-supplied, escaped, and rendered as text --}}
                                 <div class="font-medium">
-                                    {{ $installation['harness'] }} on {{ $installation['machine_label'] }}
+                                    <code>{{ $installation['harness'] }}</code> on <code>{{ $installation['machine_label'] }}</code>
                                 </div>
 
                                 <div class="text-meta opacity-90">
@@ -104,11 +104,11 @@
                                         @php($where = $session['repository'] ?? null)
 
                                         @if ($where !== null)
-                                            <span class="opacity-90">{{ $where }}</span>
+                                            <span class="opacity-90"><code>{{ $where }}</code></span>
                                         @endif
 
                                         @if (($session['work_location'] ?? null) !== null)
-                                            <span class="opacity-80">{{ $session['work_location'] }}</span>
+                                            <span class="opacity-80"><code>{{ $session['work_location'] }}</code></span>
                                         @endif
 
                                         @if ($where === null && ($session['work_location'] ?? null) === null)

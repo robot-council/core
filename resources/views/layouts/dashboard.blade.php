@@ -42,48 +42,23 @@
     @endif
 </head>
 <body class="min-h-screen bg-base-200 font-sans antialiased">
+    {{-- The first stop on every page, so a keyboard reader skips the navigation that now precedes
+         the content. Parked above the viewport until it is focused rather than made screen-reader
+         only: undoing that on focus resets the height to `auto`, which cancelled the 44px target
+         and drew it 21px tall. Name no class in this comment that the markup does not use. --}}
+    <a href="#robot-council-main"
+        class="btn btn-target btn-primary fixed left-4 -top-24 z-50 focus:top-4">Skip to content</a>
+
     <div class="drawer lg:drawer-open">
         <input id="robot-council-navigation" type="checkbox" class="drawer-toggle">
 
-        <div class="drawer-content flex min-h-screen min-w-0 flex-col">
-            <header class="navbar sticky top-0 z-30 gap-2 border-b border-base-300 bg-base-100 px-4">
-                <label for="robot-council-navigation"
-                    class="btn btn-square btn-target btn-ghost drawer-button lg:hidden"
-                    aria-label="Show navigation">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
-                        stroke="currentColor" stroke-width="2" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16">
-                    </svg>
-                </label>
-
-                <div class="min-w-0 grow">
-                    <p class="font-semibold break-words">{{ \RobotCouncil\Support\DashboardName::value() }}</p>
-                    <p class="text-meta opacity-90 break-words">Fleet coordination</p>
-                </div>
-
-                <div class="flex shrink-0 items-center gap-2">
-                    @if ($developerLogin !== null)
-                        <span class="hidden max-w-40 break-all text-meta opacity-90 sm:inline">{{ $developerLogin }}</span>
-                    @endif
-
-                    {{--
-                        POST, like approve and deny. A sign-out reachable by following a link is one
-                        another site can trigger with an embedded image and a link prefetcher can
-                        trigger with nobody clicking anything.
-                    --}}
-                    <form method="POST" action="{{ route('robot-council.sign-out') }}">
-                        @csrf
-
-                        <button type="submit" class="btn btn-target btn-ghost">Sign out</button>
-                    </form>
-                </div>
-            </header>
-
-            <main class="mx-auto w-full max-w-7xl grow p-4 sm:p-6">
-                {{ $slot }}
-            </main>
-        </div>
-
+        {{--
+            The navigation comes before the content in the source, and daisyUI's grid still draws it
+            on the left (#400). Below `lg` it opens over the page, and a keyboard user who opens it
+            with the checkbox above has to reach its links next -- with the content first, the next
+            Tab went to "Sign out" behind the overlay. The skip link above the drawer is what keeps
+            this from costing a desktop reader nine stops before every page.
+        --}}
         <div class="drawer-side z-40">
             <label for="robot-council-navigation" class="drawer-overlay" aria-label="Hide navigation"></label>
 
@@ -186,6 +161,45 @@
                     </li>
                 </ul>
             </nav>
+        </div>
+
+        <div class="drawer-content flex min-h-screen min-w-0 flex-col">
+            <header class="navbar sticky top-0 z-30 gap-2 border-b border-base-300 bg-base-100 px-4">
+                <label for="robot-council-navigation"
+                    class="btn btn-square btn-target btn-ghost drawer-button lg:hidden"
+                    aria-label="Show navigation">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16">
+                    </svg>
+                </label>
+
+                <div class="min-w-0 grow">
+                    <p class="font-semibold break-words">{{ \RobotCouncil\Support\DashboardName::value() }}</p>
+                    <p class="text-meta opacity-90 break-words">Fleet coordination</p>
+                </div>
+
+                <div class="flex shrink-0 items-center gap-2">
+                    @if ($developerLogin !== null)
+                        <span class="hidden max-w-40 break-all text-meta opacity-90 sm:inline">{{ $developerLogin }}</span>
+                    @endif
+
+                    {{--
+                        POST, like approve and deny. A sign-out reachable by following a link is one
+                        another site can trigger with an embedded image and a link prefetcher can
+                        trigger with nobody clicking anything.
+                    --}}
+                    <form method="POST" action="{{ route('robot-council.sign-out') }}">
+                        @csrf
+
+                        <button type="submit" class="btn btn-target btn-ghost">Sign out</button>
+                    </form>
+                </div>
+            </header>
+
+            <main id="robot-council-main" tabindex="-1" class="focus:outline-none scroll-mt-20 mx-auto w-full max-w-7xl grow p-4 sm:p-6">
+                {{ $slot }}
+            </main>
         </div>
     </div>
 
