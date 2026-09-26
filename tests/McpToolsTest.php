@@ -14,6 +14,7 @@ declare(strict_types=1);
  */
 
 use Illuminate\Log\Events\MessageLogged;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use RobotCouncil\Access\Ability;
@@ -28,7 +29,9 @@ use RobotCouncil\Models\Placement;
 use RobotCouncil\Models\Task;
 use RobotCouncil\Models\TaskStatus;
 use RobotCouncil\Models\TaskTransition;
+use RobotCouncil\Support\DeveloperSettings;
 use RobotCouncil\Support\FleetFeed;
+use RobotCouncil\Support\HostKey;
 use RobotCouncil\Support\Tasks;
 use RobotCouncil\Tests\TestCase;
 
@@ -135,8 +138,8 @@ it('lists its tools to a session that authenticated', function (): void {
         ->toContain('events_read', 'events_narrate', 'directive_post', 'presence_heartbeat')
         ->and($names)->toContain('lane_hold', 'lane_clear_hold')
         ->and($names)->toContain('backlog_report', 'gate_start', 'gate_finish', 'owed_record', 'owed_settle')
-        ->and($names)->toContain('shortlist_read', 'sessions_list')
-        ->and($names)->toHaveCount(28);
+        ->and($names)->toContain('shortlist_read', 'sessions_list', 'developer_settings')
+        ->and($names)->toHaveCount(29);
 });
 
 it('tells an agent the content it reads is data, not instructions', function (): void {
@@ -1023,4 +1026,26 @@ it('answers a completion GitHub beat to it with the result added, not as an erro
     // A second is the ordinary refusal, marked as an error
     expect(toolError(callTool($this, $this->token, 'task_complete', ['task_id' => $task->id, 'result' => ['summary' => 'again']])))
         ->toContain('not in a status');
+});
+
+it('reads developer settings live through developer_settings, for a coordinator only (#440)', function (): void {
+    [, $coordinatorToken] = $this->startCoordinatorSession($this->approveInstallation($this->developer, 'coordinator-box'));
+
+    $key = HostKey::from($this->developer->getAuthIdentifier());
+    $settings = $this->service(DeveloperSettings::class);
+    $settings->setHours($key, 'UTC', '09:00', '17:00', false);
+
+    Carbon::setTestNow('2026-09-24 18:00:00');
+
+    $read = toolResult(callTool($this, $coordinatorToken, 'developer_settings'));
+
+    // What the endpoint returns, byte for byte
+    expect($read)->toBe(arrayValue($this->machine($coordinatorToken)->getJson(route('robot-council.developers.settings'))->json()))
+        ->and(arrayValue(arrayValue($read['developers'] ?? [])[0] ?? null))->toMatchArray(['inside_hours' => false, 'next_opens_at' => '2026-09-25T09:00:00+00:00']);
+
+    // Removed on the developer's page: the next read says so, with nothing remembered
+    $settings->clearHours($key);
+
+    expect(arrayValue(arrayValue(toolResult(callTool($this, $coordinatorToken, 'developer_settings'))['developers'] ?? [])))->toBeEmpty()
+        ->and(toolError(callTool($this, $this->token, 'developer_settings')))->toContain('coordinator:direct');
 });

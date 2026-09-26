@@ -465,6 +465,33 @@ it("closes a holiday from the developer's own midnight, not UTC's", function ():
         ->and(AssignmentWindow::isOpen($auckland, [], CarbonImmutable::parse('2026-12-24 11:30:00 UTC')))->toBeTrue();
 });
 
+it('finds when a closed window next opens, past weekends and days off (#440)', function (string $hours, array $holidays, string $at, ?string $opens): void {
+    [$zone, $from, $until, $skip] = explode(' ', $hours);
+
+    $next = AssignmentWindow::nextOpening(hoursOf($zone, $from, $until, $skip === 'skip'), array_values(array_map(stringValue(...), $holidays)), CarbonImmutable::parse($at));
+
+    expect($next?->utc()->format('Y-m-d H:i'))->toBe($opens);
+})->with([
+    // Friday evening, skipping weekends: Monday morning
+    'past a weekend' => ['UTC 09:00 17:00 skip', [], '2026-09-25 18:00:00 UTC', '2026-09-28 09:00'],
+    'before the start today' => ['UTC 09:00 17:00 skip', [], '2026-09-24 07:00:00 UTC', '2026-09-24 09:00'],
+    'past a day off and the weekend after it' => ['UTC 09:00 17:00 skip', ['2026-09-25'], '2026-09-24 18:00:00 UTC', '2026-09-28 09:00'],
+    'the same weekend, not skipped' => ['UTC 09:00 17:00 keep', [], '2026-09-25 18:00:00 UTC', '2026-09-26 09:00'],
+    // An overnight window reopens at its evening start, or at a date's own midnight when the
+    // evening before was closed: Sunday 22:00 is a weekend, so Monday opens at 00:00
+    'overnight, later today' => ['UTC 22:00 06:00 skip', [], '2026-09-25 12:00:00 UTC', '2026-09-25 22:00'],
+    'overnight, past a weekend' => ['UTC 22:00 06:00 skip', [], '2026-09-26 03:00:00 UTC', '2026-09-28 00:00'],
+    // Chicago springs forward on 8 March 2026: 02:00 local does not happen, and the window
+    // opens at 03:00 CDT, which is 08:00 UTC
+    'a window starting in the skipped hour' => ['America/Chicago 02:00 04:00 keep', [], '2026-03-08 07:00:00 UTC', '2026-03-08 08:00'],
+    // And falls back on 1 November: a 09:00 start after the change is 15:00 UTC, not 14:00
+    'across the fall-back change' => ['America/Chicago 09:00 17:00 keep', [], '2026-10-31 23:00:00 UTC', '2026-11-01 15:00'],
+]);
+
+it('reads no next opening for a developer with no hours, since nothing is closed', function (): void {
+    expect(AssignmentWindow::nextOpening(null, ['2026-12-25'], CarbonImmutable::parse('2026-12-25 12:00:00 UTC')))->toBeNull();
+});
+
 it('gates nothing for a developer with no hours set, holidays included', function (): void {
     expect(AssignmentWindow::isOpen(null, ['2026-12-25'], CarbonImmutable::parse('2026-12-25 12:00:00 UTC')))->toBeTrue();
 });
@@ -626,6 +653,9 @@ it('escapes a hostile repository and machine label on the page', function (strin
 // --- The coordinator reads and never writes -------------------------------------------------------
 
 it("lets a coordinator read every developer's settings and seats", function (): void {
+    // Monday 28 September 2026, 13:00 in London, inside bob's hours
+    Carbon::setTestNow('2026-09-28 12:00:00');
+
     [$installation] = seatedSession($this, $this->alice);
     $seat = onlySeatOf($this, $installation);
     $this->service(Seats::class)->park(keyOf($this->alice), $seat->id);
@@ -645,10 +675,15 @@ it("lets a coordinator read every developer's settings and seats", function (): 
                 'github_login' => 'alice-dev',
                 'hours' => null,
                 'holidays' => ['2026-11-26'],
+                // No hours, so nothing gates her, days off included
+                'inside_hours' => 'ungated',
+                'next_opens_at' => null,
             ], [
                 'github_login' => 'bob-dev',
                 'hours' => ['timezone' => 'Europe/London', 'starts_at' => '10:00', 'ends_at' => '18:00', 'skip_weekends' => true],
                 'holidays' => ['2026-12-26'],
+                'inside_hours' => true,
+                'next_opens_at' => null,
             ]],
             'seats' => [[
                 'id' => $seat->id,
@@ -662,8 +697,37 @@ it("lets a coordinator read every developer's settings and seats", function (): 
                 'parked_by' => 'alice-dev',
                 'parked_at' => seatRow($seat)->parked_at?->toIso8601String(),
                 'hours_exempt' => true,
+                'max_capacity' => 1,
+                'inside_hours' => 'ungated',
+                'next_opens_at' => null,
             ]],
         ]);
+});
+
+it("reads an exempt seat as ungated while its developer's hours are closed, and the rest as closed (#440)", function (): void {
+    // Saturday 26 September 2026, noon in London: bob skips weekends
+    Carbon::setTestNow('2026-09-26 11:00:00');
+
+    [$exempt] = seatedSession($this, $this->bob, location: 'a');
+    [$gated] = seatedSession($this, $this->bob, location: 'b');
+    $seats = collect($this->service(Seats::class)->forDeveloper(keyOf($this->bob)));
+    $this->service(Seats::class)->exempt(keyOf($this->bob), $seats->firstWhere('installation_id', $exempt->id)->id ?? 0, true);
+    $this->service(DeveloperSettings::class)->setHours(keyOf($this->bob), 'Europe/London', '10:00', '18:00', true);
+
+    [, $token] = $this->startCoordinatorSession($this->approveInstallation($this->alice, 'coordinator-box'));
+    $read = arrayValue($this->machine($token)->getJson(route('robot-council.developers.settings'))->assertOk()->json());
+
+    $byInstallation = [];
+
+    foreach (arrayValue($read['seats'] ?? []) as $seat) {
+        $seat = arrayValue($seat);
+        $byInstallation[intValue($seat['installation_id'] ?? null)] = [$seat['inside_hours'] ?? null, $seat['next_opens_at'] ?? null];
+    }
+
+    // Monday 10:00 in London is 09:00 UTC
+    expect($byInstallation[$exempt->id])->toBe(['ungated', null])
+        ->and($byInstallation[$gated->id])->toBe([false, '2026-09-28T10:00:00+01:00'])
+        ->and(arrayValue(arrayValue($read['developers'] ?? [])[0] ?? null))->toMatchArray(['inside_hours' => false]);
 });
 
 it('refuses the read to a session that is not a coordinator', function (): void {

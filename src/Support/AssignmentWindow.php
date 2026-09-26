@@ -48,6 +48,14 @@ final class AssignmentWindow
     public const int MAX_TIMEZONE = 64;
 
     /**
+     * How far ahead `nextOpening()` looks, in days.
+     *
+     * Longer than `DeveloperSettings::MAX_HOLIDAYS` days off in a row plus the weekends around
+     * them, so a developer who listed every day they may is still found open again.
+     */
+    public const int LOOKAHEAD_DAYS = 400;
+
+    /**
      * Refuse hours the package will not store.
      *
      * @param  mixed  $timezone  An IANA zone name, such as `America/Chicago`.
@@ -144,6 +152,50 @@ final class AssignmentWindow
         return $start < $end
             ? $minute >= $start && $minute < $end
             : $minute >= $start || $minute < $end;
+    }
+
+    /**
+     * The next moment after `$at` that a developer's seats take new placements in (#440).
+     *
+     * **Only two moments of any date can be the first open one**: the window's start, and -- for a
+     * window running overnight -- the date's own midnight, where the part carried over from the
+     * evening before resumes. Everything else open on that date follows one of them without a
+     * gap. So each date is tried at those moments, earliest first, and `isOpen()` decides, which
+     * is what keeps this and the placement check from disagreeing about a holiday, a weekend, or
+     * a clock change. A start inside a skipped hour is moved forward by the clock, and `isOpen()`
+     * then judges the moment that actually exists.
+     *
+     * @param  AssignmentHours|null  $hours  The developer's hours, or null when none are set.
+     * @param  list<string>  $holidays  The developer's own days off, as `YYYY-MM-DD`.
+     * @param  DateTimeInterface  $at  The moment to look forward from.
+     * @return CarbonImmutable|null The moment, in the developer's timezone; null when no hours are
+     *                              set, since nothing is closed then, or when nothing opens within
+     *                              `LOOKAHEAD_DAYS`.
+     */
+    public static function nextOpening(?AssignmentHours $hours, array $holidays, DateTimeInterface $at): ?CarbonImmutable
+    {
+        if (! $hours instanceof AssignmentHours) {
+            return null;
+        }
+
+        $local = CarbonImmutable::instance($at)->setTimezone($hours->timezone);
+        $times = self::minutes($hours->starts_at) > self::minutes($hours->ends_at) && $hours->ends_at !== '00:00'
+            ? ['00:00', $hours->starts_at]
+            : [$hours->starts_at];
+
+        for ($day = 0; $day <= self::LOOKAHEAD_DAYS; $day++) {
+            $date = $local->startOfDay()->addDays($day)->format('Y-m-d');
+
+            foreach ($times as $time) {
+                $candidate = CarbonImmutable::parse($date.' '.$time, $hours->timezone);
+
+                if ($candidate->greaterThan($local) && self::isOpen($hours, $holidays, $candidate)) {
+                    return $candidate;
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
