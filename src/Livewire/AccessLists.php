@@ -112,14 +112,14 @@ final class AccessLists extends Component
         $id = Allowlist::githubId($this->githubId);
 
         if (! $added) {
-            $this->say('add', sprintf('Already listed: GitHub user %d is on the %s list already. Nothing changed.', $id, $list->value), true);
+            $this->say('add', sprintf('Already listed: GitHub user %d is on the %s list already. Nothing changed.', $id, self::named($list)), true);
 
             return;
         }
 
         $this->githubId = '';
         $this->login = '';
-        $this->say('add', sprintf('Added: GitHub user %d is on the %s list from their next request.', $id, $list->value));
+        $this->say('add', sprintf('Added: GitHub user %d is on the %s list from their next request.', $id, self::named($list)));
     }
 
     /**
@@ -135,7 +135,8 @@ final class AccessLists extends Component
         $access = AccessList::tryFrom($list);
 
         if (! $access instanceof AccessList) {
-            $this->say(null, 'Not removed: that is not a list.', true);
+            // Shown above the lists, where the add form's words go: there is no list to show it by
+            $this->say('add', 'Not removed: that is not a list.', true);
 
             return;
         }
@@ -144,8 +145,31 @@ final class AccessLists extends Component
 
         match ($outcome) {
             AllowlistRemoval::FromConfiguration => $this->say($access->value, 'Not removed: '.AllowlistEntries::fromConfiguration($access, $githubId), true),
-            AllowlistRemoval::NotListed => $this->say($access->value, sprintf('Not removed: GitHub user %d is not on the %s list here. Nothing changed.', $githubId, $access->value), true),
-            AllowlistRemoval::Removed => $this->say($access->value, sprintf('Removed: GitHub user %d is off the %s list. %s', $githubId, $access->value, $this->accessRemaining($githubId))),
+            AllowlistRemoval::NotListed => $this->say($access->value, sprintf('Not removed: GitHub user %d is not on the %s list here. Nothing changed.', $githubId, self::named($access)), true),
+            AllowlistRemoval::Removed => $this->say($access->value, sprintf('Removed: GitHub user %d is off the %s list. %s', $githubId, self::named($access), $this->accessRemaining($githubId))),
+        };
+
+        // **An administrator who removed their own administrator access has lost this page within
+        // this request** (#407's review): the store forgot the read, so the `render()` that follows
+        // would refuse them with a 403 in place of the words above. Sent to the dashboard instead,
+        // which they may still use as a developer or which refuses them in the ordinary way.
+        if ($outcome === AllowlistRemoval::Removed && ! $this->service(CurrentDeveloper::class)->isAdmin()) {
+            $this->skipRender();
+            $this->redirectRoute('robot-council.dashboard');
+        }
+    }
+
+    /**
+     * A list's name in the words the page uses.
+     *
+     * @param  AccessList  $list  The list.
+     * @return string `developer` or `administrator`.
+     */
+    private static function named(AccessList $list): string
+    {
+        return match ($list) {
+            AccessList::Developer => 'developer',
+            AccessList::Admin => 'administrator',
         };
     }
 
@@ -226,18 +250,25 @@ final class AccessLists extends Component
     private function knownLogins(array $lists): array
     {
         $ids = [];
+        $logins = [];
 
         foreach ($lists as $list) {
             foreach ($list['configured'] as $entry) {
                 $ids[] = $entry['github_id'];
             }
+
+            // A table row the configuration also names, from before the store refused one: its
+            // login is shown on the configuration row, and a signed-in identity overrides it below
+            foreach ($list['stored'] as $entry) {
+                if (($entry['also_configured'] ?? false) === true && \is_int($entry['github_id'] ?? null) && \is_string($entry['login'] ?? null)) {
+                    $logins['id:'.$entry['github_id']] = $entry['login'];
+                }
+            }
         }
 
         if ($ids === []) {
-            return [];
+            return $logins;
         }
-
-        $logins = [];
 
         foreach (GithubIdentity::query()->whereIn('github_id', array_values(array_unique($ids)))->get(['github_id', 'github_login']) as $identity) {
             $logins['id:'.$identity->github_id] = $identity->github_login;

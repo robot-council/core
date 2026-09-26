@@ -80,8 +80,10 @@ it('grants the admin ability to an administrator added to the table, exactly as 
         // An administrator is admitted, as an environment administrator is
         ->and(app(Allowlist::class)->admits(6060))->toBeTrue();
 
-    // The union, environment first, with no duplicate for an ID in both
-    $this->service(AllowlistEntries::class)->add(AccessList::Admin, 99, 'env-admin');
+    // The union, environment first, with no duplicate for an ID in both -- a row written past the
+    // store, which now refuses an ID the configuration already names
+    DB::table('robot_council_allowlist_entries')->insert(['github_id' => 99, 'list' => 'admin', 'login' => 'env-admin', 'added_by' => null, 'created_at' => now()]);
+    app()->forgetInstance(Allowlist::class);
 
     expect(app(Allowlist::class)->admins())->toBe([99, 6060]);
 });
@@ -89,8 +91,9 @@ it('grants the admin ability to an administrator added to the table, exactly as 
 it('refuses to remove an entry that comes from configuration, says so, and leaves the account on the list', function (): void {
     $entries = $this->service(AllowlistEntries::class);
 
-    // Also in the table: the refusal is the same, because the environment still holds it
-    $entries->add(AccessList::Developer, 4242, 'octodev');
+    // Also in the table, from before the store refused such a row: the refusal is the same,
+    // because the environment still holds it
+    DB::table('robot_council_allowlist_entries')->insert(['github_id' => 4242, 'list' => 'developer', 'login' => 'octodev', 'added_by' => null, 'created_at' => now()]);
 
     expect($entries->remove(AccessList::Developer, 4242))->toBe(AllowlistRemoval::FromConfiguration)
         ->and($entries->remove(AccessList::Admin, 99))->toBe(AllowlistRemoval::FromConfiguration)
@@ -191,4 +194,15 @@ it('reads the environment lists by the same rule as the table, refusing zero and
     config()->set('robot-council.access.developers', '0, 4242, 007, 99999999999999999999');
 
     expect(app(Allowlist::class)->developers())->toBe([4242, 7]);
+});
+
+it('refuses to add an account the configuration already puts on that list, and stores nothing', function (): void {
+    // A row here would change nothing today, and would keep the account admitted after the host
+    // took it out of its configuration
+    expect(fn () => $this->service(AllowlistEntries::class)->add(AccessList::Developer, 4242, 'octodev'))
+        ->toThrow(InvalidArgumentException::class, 'GitHub user 4242 is already on the developer list through the host configuration (ROBOT_COUNCIL_DEVELOPERS). Nothing changed.')
+        ->and(DB::table('robot_council_allowlist_entries')->count())->toBe(0);
+
+    // The other list is a different question: an environment developer can be made an administrator
+    expect($this->service(AllowlistEntries::class)->add(AccessList::Admin, 4242, 'octodev'))->toBeTrue();
 });

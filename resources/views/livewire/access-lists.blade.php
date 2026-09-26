@@ -16,7 +16,8 @@
             @include('robot-council::partials.glossary', ['terms' => ['allowlist', 'developer_list', 'administrator_list', 'from_configuration', 'github_id']])
 
             <p class="max-w-xl leading-relaxed">
-                Who may sign in to this dashboard and connect agents, and who may administer it.
+                The two allowlists: who may sign in to this dashboard and connect agents, and who
+                may administer it.
                 Entries added here take effect on the next request. Entries marked
                 <strong>from configuration</strong> come from the server's settings and can only be
                 changed there, so an administrator named there can always get back in.
@@ -90,7 +91,7 @@
                                     @if ($entry['is_self'])
                                         <button type="button"
                                             wire:click="remove('{{ \RobotCouncil\Support\WireArgument::of($key) }}', {{ \RobotCouncil\Support\WireArgument::of($entry['github_id']) }})"
-                                            wire:confirm="Remove yourself from this list? You may lose that access on your next request, unless the server configuration names you."
+                                            wire:confirm="Remove yourself from this list? If this is your only way onto it, you lose that access immediately, and an administrator from the server configuration will have to add you back."
                                             aria-label="Remove yourself, GitHub user {{ $entry['github_id'] }}, from the {{ $key === 'admin' ? 'administrator' : 'developer' }} list"
                                             class="btn btn-target btn-warning">
                                             Remove

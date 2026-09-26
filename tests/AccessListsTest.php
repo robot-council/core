@@ -149,7 +149,7 @@ it('warns before an administrator removes themselves', function (): void {
     $html = Livewire::actingAs($this->admin)->test(AccessLists::class)->html();
 
     expect($html)->toContain('(you)')
-        ->and($html)->toContain('wire:confirm="Remove yourself from this list? You may lose that access on your next request, unless the server configuration names you."');
+        ->and($html)->toContain('wire:confirm="Remove yourself from this list? If this is your only way onto it, you lose that access immediately, and an administrator from the server configuration will have to add you back."');
 });
 
 it('warns before the last administrator added here is removed', function (): void {
@@ -185,3 +185,42 @@ it('renders a login carrying markup as text, from the table and from a signed-in
     'an attribute break' => ['"><img src=x onerror=alert(1)>'],
     'a Livewire directive' => ['<a wire:click="add">x</a>'],
 ]);
+
+it('sends an administrator who removes their own administrator access to the dashboard, rather than a 403', function (): void {
+    // An administrator through the table alone
+    $this->setAccessLists(developers: [4242, 4243], admins: [99]);
+    app(AllowlistEntries::class)->add(AccessList::Admin, 4242, 'octoadmin');
+
+    Livewire::actingAs($this->admin)->test(AccessLists::class)
+        ->call('remove', 'admin', 4242)
+        ->assertRedirect(route('robot-council.dashboard'));
+
+    expect(tableEntries(AccessList::Admin, 4242))->toBe(0)
+        ->and(app(Allowlist::class)->isAdmin(4242))->toBeFalse()
+        // Still a developer, so the dashboard it is sent to admits it
+        ->and(app(Allowlist::class)->admits(4242))->toBeTrue();
+});
+
+it('refuses on the page to add an account the configuration already lists', function (): void {
+    Livewire::actingAs($this->admin)->test(AccessLists::class)
+        ->set('list', 'developer')->set('githubId', '4243')->set('login', 'octodev')->call('add')
+        ->assertSet('refused', true)
+        ->assertSet('said', 'Not added: GitHub user 4243 is already on the developer list through the host configuration (ROBOT_COUNCIL_DEVELOPERS). Nothing changed.');
+
+    expect(DB::table('robot_council_allowlist_entries')->count())->toBe(0);
+});
+
+it("puts the self-removal warning on the administrator's own row and no other", function (): void {
+    $this->setAccessLists(developers: [4243], admins: [99]);
+    app(AllowlistEntries::class)->add(AccessList::Admin, 4242, 'octoadmin');
+    app(AllowlistEntries::class)->add(AccessList::Admin, 6060, 'other-admin');
+
+    $html = Livewire::actingAs($this->admin)->test(AccessLists::class)->html();
+
+    // Each row's button, read in order: the warning belongs to the button naming 4242
+    preg_match_all('/<button[^>]*wire:confirm="([^"]+)"[^>]*aria-label="([^"]+)"/', $html, $found, PREG_SET_ORDER);
+    $byLabel = array_column($found, 1, 2);
+
+    expect($byLabel['Remove yourself, GitHub user 4242, from the administrator list'] ?? null)->toStartWith('Remove yourself from this list?')
+        ->and($byLabel['Remove GitHub user 6060 from the administrator list'] ?? null)->toBe('Remove this account from the list? It takes effect on their next request.');
+});
