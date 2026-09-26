@@ -93,23 +93,25 @@ it('pays for one panel per page', function (string $section, int $queries): void
     // of its case, because a second request in the same test reuses what the first resolved.
     expect(queriesIssuedBy(fn () => $this->get(route('robot-council.'.$section))->assertOk()))->toBe($queries);
 })->with([
-    // The fixture holds one session, one held lock and one task, so no panel reads an empty table
+    // The fixture holds one session, one held lock and one task, so no panel reads an empty table.
+    // Every page also pays one read of the added allowlist entries (#406), once per request however
+    // many checks the page makes, since `Access\Allowlist` is scoped
     // The overview's lane summary (#317) adds six: the live sessions, their installations, their
     // held tasks, their holds, their logins and the gates' runs (#336). This fixture's session names no repository, so the
     // seat, issue and pull-request reads are skipped; each is one query when it runs, whatever the
     // number of lanes or repositories -- `LanesTest` holds that
-    'the overview: the gate, the layout, three counts and the lane summary' => ['dashboard', 13],
+    'the overview: the gate, the layout, three counts and the lane summary' => ['dashboard', 14],
     // Two more for what the fleet waits on developers for (#335): the open items, and the logins that
     // decide whether each still names someone
-    'the lanes: the same six, three last-change reads, two for owed items, the gate and the layout' => ['lanes', 14],
+    'the lanes: the same six, three last-change reads, two for owed items, the gate and the layout' => ['lanes', 15],
     // #308 split presence in two. Each half pays the gate and the layout plus its own four: the
     // agents their page, its installations, their logins and one summary; the locks their page,
     // the holder's session and login, and one summary
-    'agents: sessions, their installations, their logins and a summary' => ['agents', 7],
-    "locks: the held locks, their holders' sessions and logins, and a summary" => ['locks', 7],
-    'the queue: the tasks, their sessions and their logins' => ['queue', 6],
-    'the feed: the events and their logins' => ['feed', 5],
-    'administration: the installations, their sessions, their logins and a summary' => ['administration', 9],
+    'agents: sessions, their installations, their logins and a summary' => ['agents', 8],
+    "locks: the held locks, their holders' sessions and logins, and a summary" => ['locks', 8],
+    'the queue: the tasks, their sessions and their logins' => ['queue', 7],
+    'the feed: the events and their logins' => ['feed', 6],
+    'administration: the installations, their sessions, their logins and a summary' => ['administration', 10],
 ]);
 
 it('mounts the totals and no panel on the overview', function (): void {

@@ -595,8 +595,10 @@ it('stops on the page the admitted coordinator is on, rather than reading the re
         ->and(matchingCoordinators()->where('user_id', $admitted->user_id)->count())->toBe(1);
 
     // Two: the first page, and the one identity read that settles it. The second page is never
-    // asked for, because the callback has already said to stop.
-    expect(queriesIssuedBy(fn () => $fleet->anyLiveSessionHolds(Ability::CoordinatorDirect)))->toBe(2)
+    // asked for, because the callback has already said to stop. Plus the read of the added
+    // allowlist entries (#406), which this is the first check in the test to pay; the costs below
+    // come after it and do not
+    expect(queriesIssuedBy(fn () => $fleet->anyLiveSessionHolds(Ability::CoordinatorDirect)))->toBe(3)
         ->and($fleet->anyLiveSessionHolds(Ability::CoordinatorDirect))->toBeTrue();
 });
 
