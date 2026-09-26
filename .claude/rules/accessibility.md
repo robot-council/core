@@ -13,6 +13,7 @@ Every surface this package renders **targets [WCAG 2.2](https://www.w3.org/TR/WC
 | Administration | `dashboard/administration` | [`livewire/administration.blade.php`](../../resources/views/livewire/administration.blade.php) |
 | Access | `dashboard/access` | [`livewire/access-lists.blade.php`](../../resources/views/livewire/access-lists.blade.php) |
 | Seat settings | `dashboard/seats` | [`livewire/seat-settings.blade.php`](../../resources/views/livewire/seat-settings.blade.php) |
+| Waiting on me | `dashboard/waiting` | [`livewire/waiting-on-me.blade.php`](../../resources/views/livewire/waiting-on-me.blade.php) |
 | Enrollment | `enroll` | [`enroll.blade.php`](../../resources/views/enroll.blade.php) |
 | Signed out / sign-in expired | `signed-out`, and the callback's failure path | [`signed-out.blade.php`](../../resources/views/signed-out.blade.php), [`sign-in-expired.blade.php`](../../resources/views/sign-in-expired.blade.php) |
 

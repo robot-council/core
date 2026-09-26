@@ -103,6 +103,7 @@ function accessibilitySurfaces(): array
         'administration' => ['robot-council.administration', '', 'gate-runner'],
         'access' => ['robot-council.access', '', 'from configuration'],
         'seats' => ['robot-council.seats', '', 'robot-council-core-a'],
+        'waiting' => ['robot-council.waiting', '', 'Run the screen-reader pass'],
         'enrollment' => ['robot-council.enroll.show', 'code', 'What the machine says about itself'],
         'signed out' => ['robot-council.signed-out', 'guest', 'Signed out'],
         'sign-in expired' => ['robot-council.auth.callback', 'guest', 'That sign-in attempt expired'],
@@ -134,7 +135,7 @@ function seedAccessibilityFleet(TestCase $case): array
     [$coordinator] = $case->startCoordinatorSession($case->approveInstallation($developer, 'coordinator-mac'));
     $working = $sessions->start($case->approveInstallation($developer, 'office-mac'), 'robot-council/core', 'robot-council-core-a')->owner;
     $blocked = $sessions->start($case->approveInstallation($developer, 'home-windows'), 'robot-council/core', 'robot-council-core-b')->owner;
-    $sessions->start($case->approveInstallation($colleague, 'colleague-laptop'), 'robot-council/core', 'robot-council-core-c');
+    $colleagueLane = $sessions->start($case->approveInstallation($colleague, 'colleague-laptop'), 'robot-council/core', 'robot-council-core-c')->owner;
     $stale = $sessions->start($case->approveInstallation($colleague, 'colleague-desktop'), 'robot-council/cli', 'robot-council-cli-a')->owner;
     $gate = $sessions->start($case->approveInstallation($developer, 'gate-runner'), 'robot-council/core', 'robot-council-core-ci')->owner;
 
@@ -158,7 +159,9 @@ function seedAccessibilityFleet(TestCase $case): array
     $tasks->transition($done->id, TaskTransition::Complete, $working, asCoordinator: false, result: ['pull_request' => 448]);
 
     // Lanes in the other states
-    expect($case->service(LaneHolds::class)->hold($coordinator, $blocked->id, 'robot-council/core#403', HoldReason::TicketLands))->toBe(Outcome::Applied);
+    expect($case->service(LaneHolds::class)->hold($coordinator, $blocked->id, 'robot-council/core#403', HoldReason::TicketLands))->toBe(Outcome::Applied)
+        // A lane held on the signed-in developer, so the waiting page (#411) is scanned with one
+        ->and($case->service(LaneHolds::class)->hold($coordinator, $colleagueLane->id, 'octodev', HoldReason::Decision))->toBe(Outcome::Applied);
     $parkedSeat = $case->service(Seats::class)->forDeveloper(HostKey::from($colleague->getAuthIdentifier()))[0];
     expect($case->service(Seats::class)->park(HostKey::from($colleague->getAuthIdentifier()), $parkedSeat->id))->toBe(Outcome::Applied);
     AgentSession::query()->whereKey($stale->id)->update(['status' => AgentSessionStatus::Stale->value]);
