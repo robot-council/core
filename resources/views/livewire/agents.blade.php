@@ -27,6 +27,8 @@
             </div>
         </div>
 
+        @include('robot-council::partials.glossary', ['terms' => ['agent', 'session', 'live_scope', 'harness', 'machine_label', 'working_in', 'role', 'coordinator', 'active', 'stale', 'gone', 'lock']])
+
         {{-- Narrowed to one session, which is where a lock's holder link lands. Said in words,
              with the way back beside it, because a list of one otherwise reads as a fleet of
              one. The counts on the scope buttons stay the whole fleet's. --}}
@@ -40,9 +42,9 @@
         @if ($sessions['sessions'] === [])
             <p class="py-6 text-center opacity-80">
                 @if ($session !== null)
-                    No session <code>#{{ $session }}</code> in this list.
+                    Not in this list: session <code>#{{ $session }}</code> is not among these sessions. Choose Show all to see every one.
                 @else
-                    No agent has enrolled yet.
+                    No agents yet: a machine's sessions appear here once a developer approves its enrollment and an agent joins.
                 @endif
             </p>
         @else

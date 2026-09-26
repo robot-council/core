@@ -28,6 +28,8 @@
             </div>
         </div>
 
+        @include('robot-council::partials.glossary', ['terms' => ['lock', 'held_scope', 'held_by_lock', 'fence', 'lease', 'session']])
+
         {{-- Narrowed to one holder, which is where a session's link lands. Said in words for the
              reason the Agents page says its own narrowing. --}}
         @if ($holder !== null)
@@ -40,9 +42,9 @@
         @if ($locks['locks'] === [])
             <p class="py-6 text-center opacity-80">
                 @if ($holder !== null)
-                    Session <code>#{{ $holder }}</code> holds no locks in this list.
+                    No locks: session <code>#{{ $holder }}</code> holds none in this list. Choose Show all to see every lock.
                 @else
-                    Nothing is locked.
+                    Nothing locked: no agent holds a lock right now.
                 @endif
             </p>
         @else

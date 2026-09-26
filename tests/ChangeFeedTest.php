@@ -137,7 +137,7 @@ it('shows an event with its type, body, actor and age', function (): void {
         // Asserted absent, because nothing else in this file does. Without it the badge's condition
         // could be deleted -- rendering `coordinator` against every row -- and the whole suite
         // would stay green, including the test that exists to prove the flag is not retroactive.
-        ->assertDontSee('coordinator');
+        ->assertDontSeeHtml('<span class="badge badge-sm badge-outline">coordinator</span>');
 });
 
 it("shows another developer's narration, which is what #73 decided", function (): void {
@@ -180,14 +180,14 @@ it('keeps the coordinator flag as it was when the event was written', function (
         withCoordinator: true,
     );
 
-    Livewire::test(ChangeFeed::class)->assertSee('coordinator');
+    Livewire::test(ChangeFeed::class)->assertSeeHtml('<span class="badge badge-sm badge-outline">coordinator</span>');
 
     // Revoking the ability afterwards does not rewrite history: #23 records what was true at write
     // time precisely so that a later revocation is not retroactive
 
     Livewire::test(ChangeFeed::class)
         ->assertSee('Everyone pause.')
-        ->assertSee('coordinator');
+        ->assertSeeHtml('<span class="badge badge-sm badge-outline">coordinator</span>');
 });
 
 it('shows an event an agent commits without the page being reloaded', function (): void {

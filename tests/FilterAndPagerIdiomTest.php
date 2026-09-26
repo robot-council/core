@@ -225,6 +225,6 @@ it('tells an admin whose every machine is retired where the others are', functio
         ->forceFill(['revoked_at' => now()])->save();
 
     Livewire::actingAs($this->developer)->test(Administration::class)
-        ->assertSeeText('No machine is currently usable. Choose All to see the revoked and expired ones.')
-        ->assertDontSeeText('No machine has enrolled yet.');
+        ->assertSeeText('None usable: no machine can act right now. Choose All to see the revoked and expired ones.')
+        ->assertDontSeeText('No machines yet:');
 });

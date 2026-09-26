@@ -380,7 +380,7 @@ it("grants and withdraws a waiver from the seat's own page", function (): void {
 
     Livewire::actingAs($this->developer)->test(SeatSettings::class)
         ->call('waive', $seat->id, 'lane_not_parked')
-        ->assertSet('notice', null)
+        ->assertSet('refused', false)
         ->assertSee('Withdraw waiver');
 
     expect($this->service(PlacementWaivers::class)->waivedOn($seat->id))->toBe([PlacementRule::LaneNotParked]);
@@ -400,7 +400,7 @@ it("refuses a waiver on another developer's seat through the page, whatever seat
 
     Livewire::actingAs($other)->test(SeatSettings::class)
         ->call('waive', $seat->id, 'assignment_hours')
-        ->assertSet('notice', "Only the developer who parked a seat can lift it, and only a seat's own developer can change it.");
+        ->assertSet('said', "Not allowed: only the developer who parked a seat can lift it, and only a seat's own developer can change it.");
 
     expect(PlacementWaiver::query()->count())->toBe(0);
 });

@@ -536,14 +536,14 @@ it('parks and lifts through the page, and refuses a seat belonging to somebody e
     [$installation] = seatedSession($this, $this->alice);
     $seat = onlySeatOf($this, $installation);
 
-    Livewire::actingAs($this->alice)->test(SeatSettings::class)->call('park', $seat->id)->assertSet('notice', null);
+    Livewire::actingAs($this->alice)->test(SeatSettings::class)->call('park', $seat->id)->assertSet('refused', false);
 
     expect(seatRow($seat)->parked_by)->toBe(keyOf($this->alice));
 
     // Bob's page is handed Alice's seat id: a Livewire action is a POST a client can shape freely
     Livewire::actingAs($this->bob)->test(SeatSettings::class)
         ->call('lift', $seat->id)
-        ->assertSet('notice', "Only the developer who parked a seat can lift it, and only a seat's own developer can change it.");
+        ->assertSet('said', "Not allowed: only the developer who parked a seat can lift it, and only a seat's own developer can change it.");
 
     expect(seatRow($seat)->parked_by)->toBe(keyOf($this->alice));
 
@@ -559,7 +559,7 @@ it('saves hours and days off through the page, and reports a refused value inste
         ->set('endsAt', '16:00')
         ->set('skipWeekends', false)
         ->call('saveHours')
-        ->assertSet('notice', null)
+        ->assertSet('refused', false)
         ->set('holiday', '2026-12-25')
         ->call('addHoliday')
         ->assertSet('holiday', '');
@@ -572,7 +572,7 @@ it('saves hours and days off through the page, and reports a refused value inste
         ->and($this->service(DeveloperSettings::class)->holidays(keyOf($this->alice)))->toBe(['2026-12-25']);
 
     $component->set('timezone', 'EST')->call('saveHours')
-        ->assertSet('notice', 'A timezone is an IANA zone name, such as America/Chicago.');
+        ->assertSet('said', 'Not saved: A timezone is an IANA zone name, such as America/Chicago.');
 
     expect(AssignmentHours::query()->find(keyOf($this->alice))?->timezone)->toBe('America/Chicago');
 

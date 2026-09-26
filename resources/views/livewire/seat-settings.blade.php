@@ -12,9 +12,12 @@
 <div class="flex flex-col gap-6">
     <h1 class="text-2xl font-semibold">My seats and hours</h1>
 
-    @if ($notice !== null)
-        <div role="alert" class="alert alert-warning">{{ $notice }}</div>
-    @endif
+    {{-- A seat action about a seat this page does not list -- somebody else's, or one that has
+         gone -- has no row to be shown beside, so its words are shown here instead (#402) --}}
+    @include('robot-council::partials.said', ['show' => $said !== null && ! in_array($saidAt, ['hours', 'days-off', ...array_map(static fn ($seat): string => 'seat-'.$seat->id, $seats)], true)])
+
+    @include('robot-council::partials.glossary', ['terms' => ['seat', 'harness', 'machine_label', 'park', 'exempt', 'tickets_at_once', 'placement', 'waive', 'assignment_hours', 'days_off', 'gate', 'hand_back', 'coordinator']])
+
 
     <div class="card bg-base-100 shadow-sm">
         <div class="card-body">
@@ -29,7 +32,7 @@
 
             @if ($seats === [])
                 <p class="py-6 text-center opacity-80">
-                    None of your sessions has reported a repository yet. Seats appear here once one does.
+                    No seats yet: a seat appears once one of your sessions reports the repository it works in.
                 </p>
             @else
                 <ul class="divide-y divide-base-200">
@@ -69,6 +72,9 @@
                             {{-- #409: the cap on what a session in this seat declares when it joins.
                                  Only a seat id reaches the `wire:` expressions, through `WireArgument`;
                                  the number is read back by the component as untrusted input. --}}
+                            {{-- What the last action on this seat did (#402), beside its buttons --}}
+                            @include('robot-council::partials.said', ['show' => $said !== null && $saidAt === 'seat-'.$seat->id, 'class' => 'w-full'])
+
                             @php($capacityFailed = $capacitySeat === $seat->id && $capacityError !== null)
                             <form wire:submit="setCapacity({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="flex w-full flex-wrap items-end gap-3">
                                 {{-- Each field and button names its seat to a screen reader, since every
@@ -161,6 +167,8 @@
                     <button type="button" wire:click="clearHours" class="btn btn-target btn-ghost">Remove hours</button>
                 @endif
             </form>
+
+            @include('robot-council::partials.said', ['show' => $said !== null && $saidAt === 'hours', 'class' => ''])
         </div>
     </div>
 
@@ -181,6 +189,8 @@
 
                 <button type="submit" class="btn btn-target">Add day off</button>
             </form>
+
+            @include('robot-council::partials.said', ['show' => $said !== null && $saidAt === 'days-off', 'class' => ''])
 
             @if ($holidays !== [])
                 <ul class="flex flex-wrap gap-2">

@@ -305,7 +305,7 @@ it('sets the cap from the seats page, and refuses an entry outside the bound in 
         ->assertSet('capacities.'.$seat->id, 1)
         ->set('capacities.'.$seat->id, '4')
         ->call('setCapacity', $seat->id)
-        ->assertSet('notice', null)
+        ->assertSet('said', null)
         ->assertSet('capacityError', null)
         ->assertSeeHtml('takes up to 4 tickets at once')
         ->html();
@@ -319,14 +319,14 @@ it('sets the cap from the seats page, and refuses an entry outside the bound in 
         $html = Livewire::actingAs($this->developer)->test(SeatSettings::class)
             ->set('capacities.'.$seat->id, $typed)
             ->call('setCapacity', $seat->id)
-            ->assertSet('notice', null)
-            ->assertSet('capacityError', 'Enter a whole number from 1 to 16.')
+            ->assertSet('said', null)
+            ->assertSet('capacityError', 'Not saved: enter a whole number from 1 to 16.')
             ->html();
 
         // Next to the field, which is marked invalid and described by the error first
         $id = sprintf('seat-%d-capacity-error', $seat->id);
 
-        expect(capacityMarked($html, 'data-capacity-error'))->toBe(['Enter a whole number from 1 to 16.'])
+        expect(capacityMarked($html, 'data-capacity-error'))->toBe(['Not saved: enter a whole number from 1 to 16.'])
             ->and($html)->toContain(sprintf('id="%s"', $id))
             ->and($html)->toMatch(sprintf('/<input[^>]*aria-invalid="true"[^>]*aria-describedby="%s seat-%d-capacity-help"/', $id, $seat->id));
     }
@@ -356,7 +356,7 @@ it("refuses a cap on another developer's seat through the page, whatever seat id
     Livewire::actingAs($other)->test(SeatSettings::class)
         ->set('capacities.'.$seat->id, '9')
         ->call('setCapacity', $seat->id)
-        ->assertSet('capacityError', "Only a seat's own developer can change how many tickets it takes at once.");
+        ->assertSet('capacityError', "Not allowed: only a seat's own developer can change how many tickets it takes at once.");
 
     expect(Seat::query()->whereKey($seat->id)->value('max_capacity'))->toBe(1);
 });

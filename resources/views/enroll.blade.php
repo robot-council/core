@@ -17,11 +17,9 @@
         <header class="mb-6">
             <h1 class="text-xl font-semibold">Approve a machine</h1>
             <p class="mt-1 text-meta opacity-90">A machine has asked to enroll with robot-council. Approve it only if you started it yourself.</p>
+            @include('robot-council::partials.glossary', ['terms' => ['enrollment', 'enrollment_code', 'harness', 'machine_label', 'abilities', 'installation', 'task', 'lock', 'narration']])
         </header>
 
-        @if (session('status'))
-            <div role="status" class="alert mb-6">{{ session('status') }}</div>
-        @endif
 
         <div class="card bg-base-100 shadow-sm">
             <div class="card-body">
@@ -62,7 +60,11 @@
                 <div class="card-body">
                     <p class="font-mono text-2xl tracking-widest">{{ $code->user_code }}</p>
 
-                    @if ($code->isDecided())
+                    {{-- What the decision just did, where its buttons were (#402); otherwise, for a
+                         request decided earlier, that it was --}}
+                    @if (session('status'))
+                        <div role="status" class="alert mt-2" data-said>{{ session('status') }}</div>
+                    @elseif ($code->isDecided())
                         <div role="status" class="alert mt-2">
                             <span>This request was already {{ $code->approved_at !== null ? 'approved' : 'denied' }}. Nothing further will happen to it.</span>
                         </div>
