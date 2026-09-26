@@ -63,7 +63,7 @@ return [
     ],
     'ticket' => [
         'term' => 'Ticket',
-        'means' => 'The GitHub issue a task is about, written as owner/repository#number.',
+        'means' => 'The GitHub issue a task is about, written as owner/repository#number. When a task names none, the lane board takes it from the start of the task\'s title, or shows the title itself with the task\'s number.',
     ],
     'lock' => [
         'term' => 'Lock',
