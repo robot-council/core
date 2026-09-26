@@ -50,7 +50,9 @@ use Throwable;
 final class LaneConditions
 {
     /**
-     * A build lane idle, unparked and unheld for longer than its window.
+     * A build lane with room for more work, unparked and unheld, for longer than its window: one
+     * holding nothing, or, since #409 lets a lane hold several tickets, one holding fewer than its
+     * capacity (#436).
      */
     public const string LANE_FREE = 'lane_free';
 
@@ -297,8 +299,15 @@ final class LaneConditions
     }
 
     /**
-     * Build lanes free -- live, holding nothing, not parked, not held -- and whether each has been
-     * free for longer than its window.
+     * Build lanes free -- live, holding fewer tasks than their capacity, not parked, not held --
+     * and whether each has been free for longer than its window.
+     *
+     * **Free means room for another placement, which is what `PlacementRules` asks** (#436): a
+     * lane holding 1 of 3 is placeable, so it is reported, with how many it holds of how many.
+     * Capacity is `Capacity::effective()`, the same number the placement refuses on. A lane at
+     * capacity 1 holding nothing reads exactly as it did before #409 -- the same body, the same
+     * `meta` -- so a coordinator that never raised a cap sees no change. The occupancy goes in
+     * `meta` only where the capacity is above 1, since it is the only case it says anything.
      *
      * **Measured from when a check first saw the lane free**, not from the lane's history. A lane
      * is freed by its own completion, by a pull request merging, by a coordinator moving its work,
@@ -336,7 +345,11 @@ final class LaneConditions
         }
 
         foreach ($lanes as $lane) {
-            if (isset($working[$lane->id]) || \in_array($lane->id, $held, true) || ($seats[$lane->id] ?? null)?->isParked() === true) {
+            $seat = $seats[$lane->id] ?? null;
+            $holding = \count($working[$lane->id] ?? []);
+            $capacity = Capacity::effective($lane, $seat);
+
+            if ($holding >= $capacity || \in_array($lane->id, $held, true) || $seat?->isParked() === true) {
                 continue;
             }
 
@@ -347,8 +360,14 @@ final class LaneConditions
             $found[] = [
                 self::LANE_FREE,
                 $subject,
-                sprintf('Session #%d has been free, with no stated hold, for at least %d minutes.', $lane->id, $minutes),
-                ['session_id' => $lane->id, 'free_since' => $since->toIso8601String()],
+                $holding === 0
+                    ? sprintf('Session #%d has been free, with no stated hold, for at least %d minutes.', $lane->id, $minutes)
+                    : sprintf('Session #%d has had room for more work, holding %d of %d, with no stated hold, for at least %d minutes.', $lane->id, $holding, $capacity, $minutes),
+                [
+                    'session_id' => $lane->id,
+                    'free_since' => $since->toIso8601String(),
+                    ...($capacity > 1 ? ['holding' => $holding, 'capacity' => $capacity] : []),
+                ],
                 $minutes >= $window,
             ];
         }

@@ -27,9 +27,12 @@ use RobotCouncil\Support\AgentSessions;
 use RobotCouncil\Support\FleetFeed;
 use RobotCouncil\Support\GateRuns;
 use RobotCouncil\Support\GitHubState;
+use RobotCouncil\Support\HostKey;
 use RobotCouncil\Support\LaneConditions;
 use RobotCouncil\Support\LaneHolds;
+use RobotCouncil\Support\Outcome;
 use RobotCouncil\Support\RoleRequests;
+use RobotCouncil\Support\Seats;
 use RobotCouncil\Support\SessionPresence;
 use RobotCouncil\Support\Tasks;
 use RobotCouncil\Tests\TestCase;
@@ -193,6 +196,96 @@ it('does not start the free clock at what the lane last did itself, when a merge
     conditionsAt($this, 152);
 
     expect(raisedConditions(LaneConditions::LANE_FREE))->toHaveCount(1);
+});
+
+/**
+ * Give the lane room for three tickets: declared at 3, and its seat capped at 3.
+ *
+ * @param  TestCase  $case  The test case.
+ */
+function laneOfThree(TestCase $case): void
+{
+    AgentSession::query()->whereKey($case->session->id)->update(['declared_capacity' => 3]);
+
+    $key = HostKey::from($case->installation->user_id);
+    $seat = $case->service(Seats::class)->forDeveloper($key)[0];
+
+    expect($case->service(Seats::class)->cap($key, $seat->id, 3))->toBe(Outcome::Applied);
+
+    // The placement reads the lane it is handed, as the endpoint hands it one read fresh
+    $case->session->refresh();
+}
+
+/**
+ * The one `lane_free` event raised, whole.
+ *
+ * @return FleetEvent The event.
+ */
+function laneFreeEvent(): FleetEvent
+{
+    return FleetEvent::query()->where('type', FleetEventType::LaneCondition->value)->get()
+        ->filter(static fn (FleetEvent $event): bool => ($event->meta['condition'] ?? null) === LaneConditions::LANE_FREE)
+        ->sole();
+}
+
+it('reads a lane of capacity 1 holding nothing exactly as before capacity existed (#436)', function (): void {
+    conditionsAt($this, 0);
+    conditionsAt($this, 31);
+
+    $event = laneFreeEvent();
+
+    expect($event->body)->toBe(sprintf('Session #%d has been free, with no stated hold, for at least 31 minutes.', $this->session->id))
+        ->and($event->meta)->toBe([
+            'condition' => LaneConditions::LANE_FREE,
+            'subject' => 'session:'.$this->session->id,
+            'session_id' => $this->session->id,
+            'free_since' => '2026-09-24T12:00:00+00:00',
+        ]);
+});
+
+it('reports a lane holding fewer tickets than its capacity as having room, with its occupancy (#436)', function (): void {
+    laneOfThree($this);
+    $first = placeOnTheLane($this);
+    $this->service(Tasks::class)->transition($first, TaskTransition::Start, $this->session, false);
+
+    conditionsAt($this, 0);
+    conditionsAt($this, 31);
+
+    $event = laneFreeEvent();
+
+    expect($event->body)->toBe(sprintf('Session #%d has had room for more work, holding 1 of 3, with no stated hold, for at least 31 minutes.', $this->session->id))
+        ->and($event->meta)->toMatchArray(['session_id' => $this->session->id, 'holding' => 1, 'capacity' => 3]);
+
+    // Filled to its capacity: no longer free, and the condition clears
+    placeOnTheLane($this);
+    placeOnTheLane($this);
+    conditionsAt($this, 35);
+
+    expect(DB::table('robot_council_lane_conditions')->where('condition', LaneConditions::LANE_FREE)->whereNull('cleared_at')->count())->toBe(0);
+});
+
+it('reports a lane with room for three holding nothing as free, with its occupancy', function (): void {
+    laneOfThree($this);
+
+    conditionsAt($this, 0);
+    conditionsAt($this, 31);
+
+    $event = laneFreeEvent();
+
+    expect($event->body)->toBe(sprintf('Session #%d has been free, with no stated hold, for at least 31 minutes.', $this->session->id))
+        ->and($event->meta)->toMatchArray(['holding' => 0, 'capacity' => 3]);
+});
+
+it('reports a lane whose declared room its seat has not granted as full once it holds one', function (): void {
+    // Declared 3, but the seat's cap is still 1, so one ticket fills it
+    AgentSession::query()->whereKey($this->session->id)->update(['declared_capacity' => 3]);
+    $task = placeOnTheLane($this);
+    $this->service(Tasks::class)->transition($task, TaskTransition::Start, $this->session, false);
+
+    conditionsAt($this, 0);
+    conditionsAt($this, 60);
+
+    expect(raisedConditions(LaneConditions::LANE_FREE))->toBeEmpty();
 });
 
 it('does not raise a free lane that is held on purpose or parked', function (): void {
