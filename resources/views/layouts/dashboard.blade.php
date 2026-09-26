@@ -150,6 +150,11 @@
                                         @class(['menu-active' => $currentRoute === 'robot-council.administration'])
                                         @if ($currentRoute === 'robot-council.administration') aria-current="page" @endif>Administration</a>
                                 </li>
+                                <li>
+                                    <a href="{{ route('robot-council.access') }}"
+                                        @class(['menu-active' => $currentRoute === 'robot-council.access'])
+                                        @if ($currentRoute === 'robot-council.access') aria-current="page" @endif>Access</a>
+                                </li>
                             @endif
                         </ul>
                     </li>

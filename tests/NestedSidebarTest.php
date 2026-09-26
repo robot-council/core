@@ -173,7 +173,7 @@ it('puts the sections inside the dashboard entry and leaves enrollment beside it
 
     // The console's own link, then its sections beneath it
     expect(trim(elementMatching($xpath, './a', $console)->textContent))->toBe('Dashboard')
-        ->and(childLabels($xpath, $console))->toBe(['Agents', 'Locks', 'Lanes', 'Queue', 'Change feed', 'My seats and hours', 'Administration']);
+        ->and(childLabels($xpath, $console))->toBe(['Agents', 'Locks', 'Lanes', 'Queue', 'Change feed', 'My seats and hours', 'Administration', 'Access']);
 
     // And enrollment is a sibling with no children of its own, which is the half that fails if the
     // whole list were simply wrapped one level deeper
@@ -246,5 +246,5 @@ it('keeps the whole tree on a page that is not part of the console', function ()
 
     // The sections were fragments once, and vanished everywhere but the dashboard. They are routes
     // now, so the tree has the same shape on every page.
-    expect(childLabels($xpath, $console))->toBe(['Agents', 'Locks', 'Lanes', 'Queue', 'Change feed', 'My seats and hours', 'Administration']);
+    expect(childLabels($xpath, $console))->toBe(['Agents', 'Locks', 'Lanes', 'Queue', 'Change feed', 'My seats and hours', 'Administration', 'Access']);
 });

@@ -11,6 +11,7 @@ Every surface this package renders **targets [WCAG 2.2](https://www.w3.org/TR/WC
 | Locks | `dashboard/locks` | [`livewire/locks.blade.php`](../../resources/views/livewire/locks.blade.php) |
 | Change feed | `dashboard/feed` | [`livewire/change-feed.blade.php`](../../resources/views/livewire/change-feed.blade.php) |
 | Administration | `dashboard/administration` | [`livewire/administration.blade.php`](../../resources/views/livewire/administration.blade.php) |
+| Access | `dashboard/access` | [`livewire/access-lists.blade.php`](../../resources/views/livewire/access-lists.blade.php) |
 | Seat settings | `dashboard/seats` | [`livewire/seat-settings.blade.php`](../../resources/views/livewire/seat-settings.blade.php) |
 | Enrollment | `enroll` | [`enroll.blade.php`](../../resources/views/enroll.blade.php) |
 | Signed out / sign-in expired | `signed-out`, and the callback's failure path | [`signed-out.blade.php`](../../resources/views/signed-out.blade.php), [`sign-in-expired.blade.php`](../../resources/views/sign-in-expired.blade.php) |

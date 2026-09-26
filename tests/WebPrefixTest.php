@@ -142,6 +142,7 @@ it('mounts every web route at the application root when the prefix is empty', fu
     // beside to rule out. It also fails when a route is ADDED without being accounted for here,
     // which a subset assertion cannot do.
     expect($web)->toBe([
+        'access' => 'dashboard/access',
         'administration' => 'dashboard/administration',
         'agents' => 'dashboard/agents',
         'auth.callback' => 'auth/github/callback',
