@@ -23,6 +23,7 @@
     <groups>
         <exclude>
             <group>cross-connection</group>
+            <group>browser</group>
         </exclude>
     </groups>
     <logging>

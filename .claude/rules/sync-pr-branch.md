@@ -20,6 +20,7 @@ Before a branch is validated and before its pull request is opened, bring it **c
    | `phpunit.xml.dist` | the `tests` and `postgres` jobs, `composer test`; its `<groups>` exclusion decides which runs skip the `cross-connection` group |
    | `rector.php` | the `rector` job, `composer refactor`, `composer test:refactor` |
    | `tests/Pest.php`, `tests/TestCase.php` | every test: they bind the base test case and register the service provider |
+   | `package.json`, `package-lock.json` | the `stylesheet` job's build toolchain, and the Playwright version the `browser` job drives |
    | `.github/workflows/ci.yml` | the checks themselves: triggers, matrix, flags, and which jobs `ci-passed` requires |
    | `pint.json` *(does not exist yet)* | Pint. Today Pint runs the Laravel preset defaults, so the only input that moves is Pint's resolved version. Once a `pint.json` is committed, it is an interacting input like the rest. |
 
@@ -28,7 +29,7 @@ Before a branch is validated and before its pull request is opened, bring it **c
    ```bash
    git log --oneline "$(git merge-base HEAD origin/main)"..origin/main -- \
      composer.json phpstan.neon.dist phpunit.xml.dist rector.php \
-     tests/Pest.php tests/TestCase.php .github/workflows pint.json
+     tests/Pest.php tests/TestCase.php .github/workflows pint.json package.json package-lock.json
    ```
 
    **Syncing cannot fix the lockfile row.** `composer.lock` is gitignored, so being current with `main` pins the source but not the toolchain. The same commit resolves different Pest, PHPStan, and Laravel versions on different days, even when `main` has not moved. The `tests` matrix also resolves each PHP, Laravel, and OS combination twice, once with `prefer-lowest` (the floor of each constraint) and once with `prefer-stable`. The `postgres` job's `postgres:17` service image is a floating tag, so it moves the same way. A branch that was green last week can go red without a commit anywhere. When that happens, compare what the failing run resolved, shown in its `List Installed Dependencies` step (`composer show -D`, direct dependencies only), with your local `composer show -D`. Do not assume the branch caused it. See [`measurement-parity`](measurement-parity.md).
