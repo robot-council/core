@@ -73,7 +73,7 @@
                                     <button type="button"
                                         wire:click="revokeInstallation({{ \RobotCouncil\Support\WireArgument::of($installation['id']) }})"
                                         wire:confirm="Revoke this installation? Its credential and every session token it issued stop working immediately."
-                                        class="btn btn-sm btn-warning">
+                                        class="btn btn-target btn-warning">
                                         Revoke installation
                                     </button>
                                 @endif
@@ -132,13 +132,13 @@
                                                 @if ($session['requested_role'] === \RobotCouncil\Access\Role::Coordinator->value)
                                                     wire:confirm="Approve coordinator? This session will be able to release, reassign or cancel any developer's task, and post directives to the whole fleet."
                                                 @endif
-                                                class="btn btn-xs btn-primary">
+                                                class="btn btn-target btn-primary">
                                                 Approve
                                             </button>
 
                                             <button type="button"
                                                 wire:click="denyRole({{ \RobotCouncil\Support\WireArgument::of($session['id']) }})"
-                                                class="btn btn-xs btn-ghost">
+                                                class="btn btn-target btn-ghost">
                                                 Deny
                                             </button>
                                         @endif
@@ -153,7 +153,7 @@
                                                     @if ($role === \RobotCouncil\Access\Role::Coordinator)
                                                         wire:confirm="Make this session a coordinator? It will be able to release, reassign or cancel any developer's task, and post directives to the whole fleet."
                                                     @endif
-                                                    class="btn btn-xs btn-ghost">
+                                                    class="btn btn-target btn-ghost">
                                                     Make {{ $role->value }}
                                                 </button>
                                             @endif
@@ -164,7 +164,7 @@
                                              view hiding rows. --}}
                                         <button type="button"
                                             wire:click="revokeSession({{ \RobotCouncil\Support\WireArgument::of($session['id']) }})"
-                                            class="btn btn-xs btn-ghost">
+                                            class="btn btn-target btn-ghost">
                                             Revoke session
                                         </button>
                                     </li>

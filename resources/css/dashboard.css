@@ -226,6 +226,26 @@
     }
 
     /*
+     * The AAA target size, for the controls that act on the fleet (#399).
+     *
+     * `.claude/rules/accessibility.md` asks 44 by 44 CSS px of a consequential or touch-primary
+     * control (SC 2.5.5, AAA) and 24 by 24 of everything else (SC 2.5.8, AA). daisyUI's sizes fall
+     * short of the first: measured in this build, `btn` is 40px tall, `btn-sm` 32px and `btn-xs`
+     * 24px. So a control that approves, denies, revokes, parks, waives, saves or signs out carries
+     * `btn-target` in place of a size modifier, and is 44px here -- tall through daisyUI's own
+     * `--size`, which also sets a `btn-square`'s width, and never narrower than it is tall.
+     *
+     * A class a view writes rather than a size it picks, so what counts as consequential is said
+     * once per control and the size once here; `DashboardThemeTest` holds each consequential action
+     * to it. Filters, pagination and "show every" toggles are dense desktop controls, and stay at
+     * `btn-xs` or `btn-sm`, which are 24px and 32px: on or above the floor.
+     */
+    :where(.btn-target) {
+        --size: 2.75rem;
+        min-width: 2.75rem;
+    }
+
+    /*
      * A button's fill moves AWAY from its label when hovered, pressed, or held pressed (#398).
      *
      * daisyUI mixes 7% black into a button's fill on hover, and 5% while it is pressed or carries
