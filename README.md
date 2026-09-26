@@ -646,7 +646,7 @@ event, restricted and addressed to the live coordinators, is raised for:
 
 | `meta.condition` | when |
 | --- | --- |
-| `lane_free` | a build lane holding nothing, not parked and not held has been seen free for longer than `lane_conditions.free_after_minutes` (30), measured from the first check that saw it free |
+| `lane_free` | a build lane with room for another placement -- holding fewer tasks than its capacity (#436), which for most lanes means holding nothing -- not parked and not held, has been seen free for longer than `lane_conditions.free_after_minutes` (30), measured from the first check that saw it free. A lane of capacity above 1 carries `holding` and `capacity` in `meta`; one of capacity 1 reads as it always has. A lane holding any work cannot be held, so one kept partly full on purpose is raised once for each stretch it has room |
 | `not_taken_up` | a coordinator's placement is still unstarted past `take_up_within_minutes` (15) -- a hand-back owed says so |
 | `working_unobserved` | a lane holding work goes `stale` or `gone`, raised on that transition itself, and on the next check for a stale one no coordinator heard |
 | `pull_request_unpicked` | a ready pull request no gate is on, in a repository a live gate works in, unchanged past `gate_pickup_within_minutes` (30) |
