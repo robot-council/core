@@ -87,7 +87,12 @@ final class FleetPresence
         // page are both taken from `$size` -- so that direction has no input that can kill it. The
         // other direction, fetching no extra, is what the exact-multiple test pins.
         // @pest-mutate-ignore: IncrementInteger
-        $sessions = AgentSession::query()
+        // `announced()` in every scope, and in the totals below with it (#424): an ephemeral
+        // session is not a seat on this page whether it is live or gone, and a count that included
+        // what the list leaves out would disagree with it. **Except for `$only`**, which is one
+        // session looked up by id rather than a listing: the Locks page links a lock's holder
+        // here, and a lock an ephemeral session holds has to lead somewhere that shows it.
+        $sessions = ($only !== null ? AgentSession::query() : AgentSession::announced())
             ->with('installation')
             ->when($scope === Scope::Live, fn (Builder $query) => $query->where('status', '!=', AgentSessionStatus::Gone->value))
             ->when($after !== null, fn (Builder $query) => $query->where('id', '<', $after))
@@ -115,7 +120,7 @@ final class FleetPresence
         // Both totals in one pass. They were two `count()` queries, and the second was only ever
         // `total - live`, so the table was scanned twice to answer one question. `sum(case when)`
         // rather than `count(*) filter (where)`, which Postgres and SQLite have and MySQL does not.
-        $totals = AgentSession::query()
+        $totals = AgentSession::announced()
             ->toBase()
             ->selectRaw('count(*) as total, sum(case when status <> ? then 1 else 0 end) as live', [AgentSessionStatus::Gone->value])
             ->first();
@@ -304,7 +309,7 @@ final class FleetPresence
      */
     public function liveSessions(): int
     {
-        return AgentSession::query()
+        return AgentSession::announced()
             ->where('status', '<>', AgentSessionStatus::Gone->value)
             ->count();
     }

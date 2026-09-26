@@ -62,6 +62,16 @@ final class SessionStartController
             // no capacity rather than a small one; above `Capacity::MAX` is accepted and clamped by
             // the store, the way the seat's cap is -- both mean "as many as this lane will take".
             'capacity' => ['sometimes', 'nullable', 'integer', 'min:'.Capacity::DEFAULT],
+
+            // A session the fleet is not told about (#424): `robot-council api` sends `true` for a
+            // read, which holds nothing and so has nothing to announce. Optional, so an older
+            // client starts an ordinary session as it always has. **Laravel's `boolean` rule, and
+            // not the words `acknowledge` takes (#354)**: this is a JSON body, where the client
+            // sends a real `true`, and a `Rule::in` over strings refuses a JSON `false` -- it
+            // compares `(string) false`, which is empty. So `true`/`false`, `1`/`0` and `"1"`/`"0"`
+            // are accepted and anything else, the string `"true"` and `null` included, is a 422
+            // naming the field rather than a guess at which kind of session was meant.
+            'ephemeral' => ['sometimes', 'boolean'],
         ]);
 
         $projectId = $request->filled('project_id') ? $request->string('project_id')->value() : null;
@@ -93,7 +103,8 @@ final class SessionStartController
             $workLocation,
             \is_string($osFamily) ? $osFamily : null,
             \is_string($arch) ? $arch : null,
-            $request->filled('capacity') ? $request->integer('capacity') : Capacity::DEFAULT
+            $request->filled('capacity') ? $request->integer('capacity') : Capacity::DEFAULT,
+            $request->boolean('ephemeral')
         );
 
         return new JsonResponse([

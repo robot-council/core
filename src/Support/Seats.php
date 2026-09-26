@@ -45,7 +45,9 @@ final class Seats
     {
         $developer = HostKey::from($developer);
 
-        $places = AgentSession::query()
+        // Not from an ephemeral session (#424): a read through `robot-council api` from a checkout
+        // is not a place anybody sits, and would otherwise leave a seat behind every such read
+        $places = AgentSession::announced()
             ->where('user_id', $developer)
             ->where('status', '!=', AgentSessionStatus::Gone->value)
             ->whereNotNull('repository')

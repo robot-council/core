@@ -252,6 +252,46 @@ final class FleetEvents
     }
 
     /**
+     * The id of the newest event, read under the feed's writer lock: a position a reader can start
+     * from without missing an event or replaying one.
+     *
+     * For a reader that needs a starting cursor and records no event of its own to take it from --
+     * an ephemeral session (#424). Every other start takes the id `record()` returns, and this is
+     * the same guarantee reached without an insert.
+     *
+     * **The lock is what makes the number safe, and it is taken before the read.** Every writer
+     * holds the sentinel from before it draws an id until it commits, so while this holds it no
+     * writer is part-way through: every id at or below the one read has committed, and every id a
+     * writer draws after the lock is released is higher. A `MAX(id)` read without it could see 6
+     * committed while 5 was still in flight, and a reader paging `id > cursor` from 6 would never see
+     * 5. A feed with no events reads as zero, which a reader takes as the whole history -- and there
+     * is none.
+     *
+     * Its own transaction, which is a savepoint inside a caller's; the lock is then held until the
+     * caller commits, which costs nothing the caller's own `record()` would not have.
+     *
+     * **That guarantee assumes the caller has not already taken a snapshot.** A host calling
+     * `AgentSessions::start()` inside its own transaction that has already run a plain `SELECT` --
+     * on InnoDB, or on Postgres under `REPEATABLE READ` -- reads the head as of that snapshot, which
+     * can be below ids committed since. A reader starting there may replay those few events, but it
+     * never misses one: the lock still keeps every later id above them.
+     *
+     * @return int The newest event's id, or zero when the feed is empty.
+     *
+     * @throws RuntimeException When the sentinel row is missing.
+     */
+    public function head(): int
+    {
+        return DB::transaction(function (): int {
+            $this->holdTheFeed();
+
+            $newest = FleetEvent::query()->max('id');
+
+            return is_numeric($newest) ? (int) $newest : 0;
+        });
+    }
+
+    /**
      * Take the feed's writer lock for the rest of the transaction.
      *
      * Taken **before** the insert, which is the whole point: an ID drawn before the lock is an ID

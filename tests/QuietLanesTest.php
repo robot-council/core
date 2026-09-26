@@ -93,6 +93,16 @@ it('tells the coordinator once about a lane quiet past the hour, and not one tha
     expect(quietNotices($this->lane))->toBe(1);
 });
 
+it('does not tell the coordinator about an ephemeral session gone quiet, which is not a lane (#424)', function (): void {
+    $ephemeral = $this->service(AgentSessions::class)->start($this->lane->installation, 'robot-council/core', 'c', ephemeral: true)->owner;
+
+    quietCheckAt($this, 61);
+
+    // The lane started at the same moment and has authored as little, so it is the control
+    expect(quietNotices($this->lane))->toBe(1)
+        ->and(quietNotices($ephemeral))->toBe(0);
+});
+
 it('lets a heartbeat, a join and a received directive leave the clock running', function (string $what): void {
     actAt($this, 30, function () use ($what): void {
         match ($what) {

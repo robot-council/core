@@ -33,6 +33,7 @@ declare(strict_types=1);
 
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\FleetEventType;
 use RobotCouncil\Support\AgentSessions;
@@ -102,6 +103,63 @@ it('cannot start a session while another connection holds the feed, so it sees n
         // And it refused rather than half-committing: no session row and no enrollment event.
         expect(FleetEvent::query()->where('type', FleetEventType::SessionJoined->value)->count())->toBe(1)
             ->and((int) (\is_numeric($inFlight) ? $inFlight : 0))->toBeGreaterThan(0);
+    } finally {
+        DB::statement('set lock_timeout = default');
+
+        if (DB::transactionLevel() > 0) {
+            DB::rollBack();
+        }
+
+        if ($other->transactionLevel() > 0) {
+            $other->rollBack();
+        }
+
+        DB::purge("{$default}_other");
+    }
+})->group('cross-connection')
+    ->skip(notPostgres(...), 'Postgres only: this file sets `lock_timeout`, which MySQL spells differently, so elsewhere it stalls rather than failing.');
+
+it('cannot start an ephemeral session while another connection holds the feed, which records no event of its own (#424)', function (): void {
+    $default = DB::getDefaultConnection();
+    config()->set("database.connections.{$default}_other", config("database.connections.{$default}"));
+    $other = DB::connection("{$default}_other");
+
+    try {
+        // The control: with nobody holding the sentinel, an ephemeral start succeeds and is handed
+        // the head. It writes no event, so the head is the join of the ordinary session before it.
+        $ordinary = app(AgentSessions::class)->start($this->installation);
+        $first = app(AgentSessions::class)->start($this->installation, ephemeral: true);
+
+        expect($first->feedCursor)->toBe($ordinary->feedCursor);
+
+        // Held SHARED, for the reason the test above gives: a `head()` that read without its
+        // exclusive lock, or downgraded it, would sail past a shared holder
+        $other->beginTransaction();
+        $other->select(
+            sprintf('select * from %s where id = ? for share', FleetEvents::LOCK_TABLE),
+            [FleetEvents::LOCK_ROW]
+        );
+        $other->table('robot_council_events')->insert([
+            'type' => FleetEventType::Narration->value,
+            'body' => 'in flight while an ephemeral session starts',
+            'agent_session_id' => null,
+            'user_id' => null,
+            'posted_with_coordinator' => false,
+            'meta' => '[]',
+            'created_at' => now(),
+        ]);
+
+        DB::statement("set lock_timeout = '750ms'");
+
+        // **An ephemeral start has no insert of its own to order it, so this is the only thing
+        // making its cursor safe**: it waits for the writer rather than reading a head that an
+        // earlier id could still commit beneath. What this proves is that `head()` TAKES the lock;
+        // it cannot show that the read happens after the lock rather than before it, because a
+        // `head()` that read first would still block on the lock afterwards and throw the same way
+        expect(fn () => app(AgentSessions::class)->start($this->installation, ephemeral: true))
+            ->toThrow(QueryException::class);
+
+        expect(AgentSession::query()->where('ephemeral', true)->count())->toBe(1);
     } finally {
         DB::statement('set lock_timeout = default');
 

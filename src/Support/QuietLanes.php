@@ -91,7 +91,8 @@ final class QuietLanes
         $running = $this->gates->running();
         $told = 0;
 
-        $lanes = AgentSession::query()
+        // Lanes only, which an ephemeral session is not (#424)
+        $lanes = AgentSession::announced()
             ->whereIn('role', [Role::Build->value, Role::Ci->value])
             ->where('status', '!=', AgentSessionStatus::Gone->value)
             ->orderBy('id')
