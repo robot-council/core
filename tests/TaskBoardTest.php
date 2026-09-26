@@ -72,7 +72,7 @@ it('lists a task with its content, status, priority and both sides of its proven
         ->assertSee('Rebuild the search index')
         ->assertSee('acme/search')
         ->assertSeeHtml('<span class="badge badge-sm">'.TaskStatus::Claimed->value.'</span>')
-        ->assertSeeHtml('<td>7</td>')
+        ->assertSeeHtml('<td role="cell" data-label="Priority">7</td>')
         ->assertSee('octodev');
 
     expect($theirs)->not->toBeNull();

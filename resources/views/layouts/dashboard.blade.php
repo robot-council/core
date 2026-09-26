@@ -57,13 +57,13 @@
                 </label>
 
                 <div class="min-w-0 grow">
-                    <p class="truncate font-semibold">{{ \RobotCouncil\Support\DashboardName::value() }}</p>
-                    <p class="truncate text-meta opacity-90">Fleet coordination</p>
+                    <p class="font-semibold break-words">{{ \RobotCouncil\Support\DashboardName::value() }}</p>
+                    <p class="text-meta opacity-90 break-words">Fleet coordination</p>
                 </div>
 
                 <div class="flex shrink-0 items-center gap-2">
                     @if ($developerLogin !== null)
-                        <span class="hidden max-w-40 truncate text-meta opacity-90 sm:inline">{{ $developerLogin }}</span>
+                        <span class="hidden max-w-40 break-all text-meta opacity-90 sm:inline">{{ $developerLogin }}</span>
                     @endif
 
                     {{--

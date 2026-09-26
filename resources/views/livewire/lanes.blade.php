@@ -58,29 +58,29 @@
                 <h2 class="card-title">{{ $repository === '' ? 'No repository reported' : $repository }}</h2>
 
                 <div class="overflow-x-auto">
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>Lane</th>
-                                <th>State</th>
-                                <th>Watcher</th>
-                                <th>On what</th>
-                                <th>Known since</th>
+                    <table class="table table-stack" role="table">
+                        <thead role="rowgroup">
+                            <tr role="row">
+                                <th role="columnheader">Lane</th>
+                                <th role="columnheader">State</th>
+                                <th role="columnheader">Watcher</th>
+                                <th role="columnheader">On what</th>
+                                <th role="columnheader">Known since</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody role="rowgroup">
                             @foreach ($lanes as $lane)
-                                <tr wire:key="lane-{{ $lane['id'] }}" @class(['bg-base-200' => $lane['is_gate']])>
-                                    <td>
+                                <tr role="row" wire:key="lane-{{ $lane['id'] }}" @class(['bg-base-200' => $lane['is_gate']])>
+                                    <td role="cell" data-label="Lane">
                                         <div class="font-medium">{{ $lane['developer'] ?? 'unknown developer' }} &middot; {{ $lane['machine'] }}@if ($lane['slot'] !== null) / {{ $lane['slot'] }}@endif</div>
                                         <div class="text-meta opacity-90">{{ $lane['harness'] }}@if ($lane['is_gate']) &middot; gate @endif</div>
                                         {{-- Occupancy against capacity (#409): the number `lane_free` refuses a
                                              placement on once the two are equal --}}
                                         <div class="text-meta opacity-90"><span data-occupancy>{{ $lane['holding'] }} / {{ $lane['capacity'] }}</span> {{ $lane['holding'] === 1 ? 'ticket' : 'tickets' }} held</div>
                                     </td>
-                                    <td data-state="{{ $lane['state'] }}">{{ $lane['state'] }}</td>
+                                    <td role="cell" data-label="State" data-state="{{ $lane['state'] }}">{{ $lane['state'] }}</td>
                                     {{-- Its own column, separate from State, from the watcher's own heartbeat (#337) --}}
-                                    <td data-watcher="{{ $lane['watcher']['state'] }}">
+                                    <td role="cell" data-label="Watcher" data-watcher="{{ $lane['watcher']['state'] }}">
                                         @switch ($lane['watcher']['state'])
                                             @case('alive')
                                                 alive <span class="text-meta opacity-90">{{ $lane['watcher']['age_seconds'] }}s ago</span>
@@ -95,7 +95,7 @@
                                                 <span class="opacity-90">absent</span>
                                         @endswitch
                                     </td>
-                                    <td>
+                                    <td role="cell" data-label="On what">
                                         @if ($lane['state'] === 'Working' && is_array($lane['on_what']) && isset($lane['on_what']['gate_pull_request']))
                                             <span data-gate-run>
                                                 validating
@@ -148,7 +148,7 @@
                                             <span class="opacity-80">&mdash;</span>
                                         @endif
                                     </td>
-                                    <td class="text-meta opacity-90">{{ $lane['known_since']?->diffForHumans() ?? 'never' }}</td>
+                                    <td role="cell" data-label="Known since" class="text-meta opacity-90">{{ $lane['known_since']?->diffForHumans() ?? 'never' }}</td>
                                 </tr>
                             @endforeach
                         </tbody>

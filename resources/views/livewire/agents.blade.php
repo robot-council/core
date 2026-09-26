@@ -47,24 +47,24 @@
             </p>
         @else
             <div class="overflow-x-auto">
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>Developer</th>
-                            <th>Machine</th>
-                            <th>Working in</th>
-                            <th>Role</th>
-                            <th>Status</th>
-                            <th>Last seen</th>
-                            <th>Locks</th>
+                <table class="table table-stack" role="table">
+                    <thead role="rowgroup">
+                        <tr role="row">
+                            <th role="columnheader">Developer</th>
+                            <th role="columnheader">Machine</th>
+                            <th role="columnheader">Working in</th>
+                            <th role="columnheader">Role</th>
+                            <th role="columnheader">Status</th>
+                            <th role="columnheader">Last seen</th>
+                            <th role="columnheader">Locks</th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody role="rowgroup">
                         @foreach ($sessions['sessions'] as $agent)
-                            <tr wire:key="session-{{ $agent['id'] }}">
-                                <td>{{ $agent['github_login'] ?? 'an unknown account' }}</td>
+                            <tr role="row" wire:key="session-{{ $agent['id'] }}">
+                                <td role="cell" data-label="Developer">{{ $agent['github_login'] ?? 'an unknown account' }}</td>
 
-                                <td>
+                                <td role="cell" data-label="Machine">
                                     <div>{{ $agent['machine_label'] ?? 'an unknown machine' }}</div>
                                     <div class="text-meta opacity-80">{{ $agent['harness'] ?? '' }}</div>
 
@@ -92,7 +92,7 @@
                                      one field the split exists for the least visible of the
                                      two. Absent is still shown as absent, and both are
                                      agent-supplied and escaped. --}}
-                                <td class="text-meta">
+                                <td role="cell" data-label="Working in" class="text-meta">
                                     @php($where = $agent['repository'] ?? null)
 
                                     @if ($where !== null)
@@ -125,17 +125,17 @@
                                      nothing here saying so. A fixed set of three, so it cannot
                                      carry anything a developer supplied -- escaped anyway,
                                      because nothing on this page is not. --}}
-                                <td>
+                                <td role="cell" data-label="Role">
                                     <span class="badge badge-sm badge-outline">{{ $agent['role'] }}</span>
                                 </td>
 
                                 {{-- Read from the row, which #24 made the decision, rather than
                                      re-derived from the contact time --}}
-                                <td>
+                                <td role="cell" data-label="Status">
                                     <span class="badge badge-sm">{{ $agent['status'] }}</span>
                                 </td>
 
-                                <td class="whitespace-nowrap text-meta opacity-90">
+                                <td role="cell" data-label="Last seen" class="whitespace-nowrap text-meta opacity-90">
                                     {{ $agent['last_seen'] }}
                                 </td>
 
@@ -143,7 +143,7 @@
                                      kept: what this process is blocking. The id is the row's own
                                      key, assigned by the server, and it reaches the URL only
                                      through `route()` with a literal name. --}}
-                                <td class="whitespace-nowrap text-meta">
+                                <td role="cell" data-label="Locks" class="whitespace-nowrap text-meta">
                                     <a href="{{ route('robot-council.locks', ['holder' => $agent['id']]) }}" class="link">Locks held</a>
                                 </td>
                             </tr>

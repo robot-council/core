@@ -141,7 +141,7 @@ it('keeps the watcher its own column, so a working lane with no watcher reads as
 
     // The watcher's own cell, found by its marker rather than by text another cell could supply
     expect($html)->toContain('data-state="Working"')
-        ->and($html)->toContain('<td data-watcher="absent">');
+        ->and($html)->toContain('<td role="cell" data-label="Watcher" data-watcher="absent">');
 });
 
 it('links a repository-qualified reference and never a bare number', function (): void {

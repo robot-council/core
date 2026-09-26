@@ -98,7 +98,7 @@ it('serves a stylesheet that carries the utilities the pages use, and not the on
 
         // the sidebar and header #183 added. `menu-active` is what marks the page being shown, so
         // a build that dropped it would render every entry identically with nothing reporting it.
-        'menu-active', 'btn-square', 'truncate', 'sticky', 'min-w-0', 'grow',
+        'menu-active', 'btn-square', 'break-words', 'sticky', 'min-w-0', 'grow',
 
         // **Two entries came out when #215 split the panels onto their own routes**, and for
         // different reasons worth keeping apart. `scroll-mt-20` offset a jumped-to panel from the
@@ -118,11 +118,13 @@ it('serves a stylesheet that carries the utilities the pages use, and not the on
         // screen, so a build that dropped it would render three tiles side by side at phone width.
         'stats-vertical', 'stat-title', 'stat-value', 'stat-desc', 'text-3xl',
 
-        // And the modifier that unstacks it again at `sm`. Escaped, because that is how the class
-        // appears in the artifact -- a literal `sm:stats-horizontal` matches nothing, so the guard
-        // would pass whether or not the rule shipped. `stats-vertical` alone guards only one
-        // direction: drop this one and the row stacks at EVERY width with nothing reporting it.
-        'sm\\:stats-horizontal',
+        // And the modifier that unstacks it again at `lg`, where #401 moved it from `sm`: at 640px,
+        // a 1280px screen at 200% zoom, three tiles side by side scrolled sideways. Escaped, because
+        // that is how the class appears in the artifact -- a literal `lg:stats-horizontal` matches
+        // nothing, so the guard would pass whether or not the rule shipped. `stats-vertical` alone
+        // guards only one direction: drop this one and the row stacks at EVERY width with nothing
+        // reporting it.
+        'lg\\:stats-horizontal',
 
         // every panel's frame
         'card', 'card-body', 'card-title', 'table', 'badge', 'badge-sm',

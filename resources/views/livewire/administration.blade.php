@@ -154,6 +154,7 @@
                                         @foreach ($roles as $role)
                                             @if ($role->value !== $session['role'])
                                                 <button type="button"
+                                                    wire:key="impose-{{ $session['id'] }}-{{ $role->value }}"
                                                     wire:click="imposeRole({{ \RobotCouncil\Support\WireArgument::of($session['id']) }}, '{{ \RobotCouncil\Support\WireArgument::of($role) }}')"
                                                     @if ($role === \RobotCouncil\Access\Role::Coordinator)
                                                         wire:confirm="Make this session a coordinator? It will be able to release, reassign or cancel any developer's task, and post directives to the whole fleet."
