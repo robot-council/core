@@ -125,7 +125,11 @@
                                                             @elseif ($work['ticket'] !== null)
                                                                 <code>{{ $work['ticket'] }}</code>
                                                             @else
-                                                                task <code>#{{ $work['task_id'] }}</code>, no ticket
+                                                                {{-- A task that names no ticket, in its issue or at the start of
+                                                                     its title, is shown by its title (#422), whole: a task id says
+                                                                     nothing to a person, and no text here is cut short (#401) --}}
+                                                                {{ $work['title'] }}
+                                                                <span class="text-meta opacity-90">(task <code>#{{ $work['task_id'] }}</code>)</span>
                                                             @endif
                                                             @if ($work['hand_back'])
                                                                 <span class="badge badge-sm badge-warning" data-hand-back>hand-back</span>

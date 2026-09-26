@@ -86,4 +86,30 @@ final class IssueReference
             ));
         }
     }
+
+    /**
+     * The reference a title begins with, when it begins with one (#422).
+     *
+     * Coordinators write a task's title as `owner/name#N: what`, and a task placed without an
+     * `issue` still names its ticket there. The title's first token -- everything before the first
+     * character a reference cannot contain -- is accepted only if it passes the same pattern and
+     * length `ensure()` holds an `issue` to. So a reference that only appears later in the title is
+     * not read as the task's ticket, nor is a bare `#N`, which names no repository, nor a token such
+     * as `owner/name#12abc` that merely starts like one. Some plausible titles are missed on purpose
+     * rather than parsed harder -- `owner/name#12. Fix`, a reference in backticks or brackets -- and
+     * each miss falls back to showing the title, so nothing is ever invented.
+     *
+     * @param  string|null  $title  The task's title.
+     * @return string|null The reference, or null when the title does not begin with one.
+     */
+    public static function leading(?string $title): ?string
+    {
+        if ($title === null || preg_match('/^\s*([A-Za-z0-9._\/#-]+)/', $title, $token) !== 1) {
+            return null;
+        }
+
+        $candidate = $token[1];
+
+        return mb_strlen($candidate) <= self::MAX && preg_match(self::PATTERN, $candidate) === 1 ? $candidate : null;
+    }
 }
