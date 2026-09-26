@@ -47,6 +47,7 @@ use RobotCouncil\Support\GateRuns;
 use RobotCouncil\Support\HostKey;
 use RobotCouncil\Support\LaneHolds;
 use RobotCouncil\Support\Locks;
+use RobotCouncil\Support\Outcome;
 use RobotCouncil\Support\OwedItems;
 use RobotCouncil\Support\RoleRequests;
 use RobotCouncil\Support\Seats;
@@ -58,40 +59,59 @@ pest()->group('browser');
 /**
  * The WCAG A and AA rule tags, which are the gate. axe's own default run adds its best-practice
  * rules, which are advice rather than conformance, so the tags are named rather than left to it.
+ * The axe the plugin bundles (4.10.3) files WCAG 2.2's one AA rule, `target-size`, under `wcag22aa`
+ * and has no `wcag22a` rule, so that tag is not listed.
  */
-const AXE_GATE = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'];
+const AXE_GATE = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 
 /**
- * The AAA rule tags, which are reported and never fail the run.
+ * The AAA rule tags, which are reported and never fail the run. axe 4.10.3 files every AAA rule it
+ * has under `wcag2aaa`.
  */
-const AXE_AAA = ['wcag2aaa', 'wcag21aaa', 'wcag22aaa'];
+const AXE_AAA = ['wcag2aaa'];
 
 /**
- * Every surface, by the route that renders it and what it needs in the URL.
+ * Where the AAA findings are written.
+ */
+function axeAaaReport(): string
+{
+    return dirname(__DIR__, 2).'/build/axe-aaa.json';
+}
+
+/**
+ * Every surface: the route that renders it, what it needs in the URL, and a string only that
+ * surface draws from the seeded fleet.
  *
- * @return array<string, array{string, string}> The route name, and `code` for the enrollment page.
+ * **The string is how a scan knows it scanned the right page.** The browser reports no status
+ * code, and the plugin's server answers an exception with an error page, so a surface that failed
+ * to render, or bounced to sign-in, would otherwise be scanned in its place -- and a bare error page
+ * passes every check here. `guest` visits signed out; `code` passes the seeded enrollment code.
+ *
+ * @return array<string, array{string, string, string}> The route, the parameter, and the string.
  */
 function accessibilitySurfaces(): array
 {
     return [
-        'overview' => ['robot-council.dashboard', ''],
-        'lanes' => ['robot-council.lanes', ''],
-        'queue' => ['robot-council.queue', ''],
-        'agents' => ['robot-council.agents', ''],
-        'locks' => ['robot-council.locks', ''],
-        'feed' => ['robot-council.feed', ''],
-        'administration' => ['robot-council.administration', ''],
-        'seats' => ['robot-council.seats', ''],
-        'enrollment' => ['robot-council.enroll.show', 'code'],
+        'overview' => ['robot-council.dashboard', '', 'Live agents'],
+        'lanes' => ['robot-council.lanes', '', 'Run the screen-reader pass'],
+        'queue' => ['robot-council.queue', '', 'Everyone stop and sync'],
+        'agents' => ['robot-council.agents', '', 'coordinator-mac'],
+        'locks' => ['robot-council.locks', '', 'branch:vocabulary'],
+        'feed' => ['robot-council.feed', '', 'Running the gate before opening the pull request.'],
+        'administration' => ['robot-council.administration', '', 'gate-runner'],
+        'seats' => ['robot-council.seats', '', 'robot-council-core-a'],
+        'enrollment' => ['robot-council.enroll.show', 'code', 'What the machine says about itself'],
+        'signed out' => ['robot-council.signed-out', 'guest', 'Signed out'],
+        'sign-in expired' => ['robot-council.auth.callback', 'guest', 'That sign-in attempt expired'],
     ];
 }
 
 /**
  * A fleet with something in every panel, so each page is scanned populated rather than empty.
  *
- * Every state a page draws differently is here: a working lane with a branch and a hand-back, an
- * idle one, a blocked one, a parked one, a stale one and a gate running a pull request; a lock held,
- * one lapsed and one free; tasks in several statuses, one of them a coordinator's; a narration, a
+ * Every state a page draws differently is here: a working lane with a branch and a hand-back, a
+ * blocked one, a parked one, a stale one and a gate validating a pull request; a lock held, one
+ * lapsed and one released; tasks in several statuses, one of them a coordinator's; a narration, a
  * directive and a role request; an owed item; a meter reading; hours and a day off.
  *
  * @return array{developer: User, code: string} Who to sign in, and a live enrollment code.
@@ -115,8 +135,11 @@ function seedAccessibilityFleet(TestCase $case): array
     $stale = $sessions->start($case->approveInstallation($colleague, 'colleague-desktop'), 'robot-council/cli', 'robot-council-cli-a')->owner;
     $gate = $sessions->start($case->approveInstallation($developer, 'gate-runner'), 'robot-council/core', 'robot-council-core-ci')->owner;
 
-    $case->service(RoleRequests::class)->impose($gate, Role::Ci, 'test-administrator');
-    $case->service(RoleRequests::class)->request($blocked, Role::Coordinator);
+    // Every seeding write is checked: a refused one would leave a panel empty and its scan vacuous
+    expect($case->service(RoleRequests::class)->impose($gate, Role::Ci, 'test-administrator'))->toBeTrue()
+        ->and($case->service(RoleRequests::class)->request($blocked, Role::Coordinator))->toBeTrue();
+
+    $gate->refresh();
 
     // Work: one task held and started on a branch, flagged as a hand-back; others in other states
     $held = $tasks->create($working, ['title' => 'Explain the vocabulary', 'priority' => 7, 'issue' => 'robot-council/core#402'], false);
@@ -132,11 +155,11 @@ function seedAccessibilityFleet(TestCase $case): array
     $tasks->transition($done->id, TaskTransition::Complete, $working, asCoordinator: false, result: ['pull_request' => 448]);
 
     // Lanes in the other states
-    $case->service(LaneHolds::class)->hold($coordinator, $blocked->id, 'robot-council/core#403', HoldReason::TicketLands);
+    expect($case->service(LaneHolds::class)->hold($coordinator, $blocked->id, 'robot-council/core#403', HoldReason::TicketLands))->toBe(Outcome::Applied);
     $parkedSeat = $case->service(Seats::class)->forDeveloper(HostKey::from($colleague->getAuthIdentifier()))[0];
-    $case->service(Seats::class)->park(HostKey::from($colleague->getAuthIdentifier()), $parkedSeat->id);
+    expect($case->service(Seats::class)->park(HostKey::from($colleague->getAuthIdentifier()), $parkedSeat->id))->toBe(Outcome::Applied);
     AgentSession::query()->whereKey($stale->id)->update(['status' => AgentSessionStatus::Stale->value]);
-    $case->service(GateRuns::class)->start($gate, 'robot-council/core#453');
+    expect($case->service(GateRuns::class)->start($gate, 'robot-council/core#453'))->toBe(Outcome::Applied);
 
     // Locks: one held, one lapsed, one released
     $locks = $case->service(Locks::class);
@@ -164,26 +187,37 @@ function seedAccessibilityFleet(TestCase $case): array
 }
 
 /**
- * Visit one surface as the seeded developer, in one theme.
+ * Visit one surface in one theme, and prove it is that surface before anything scans it.
+ *
+ * @param  array<string, mixed>  $options  Browser context options, such as `forcedColors`.
  */
-function visitSurface(TestCase $case, string $route, string $parameter, string $theme): PendingAwaitablePage
+function visitSurface(TestCase $case, string $route, string $parameter, string $expect, string $theme, array $options = []): PendingAwaitablePage
 {
     $fleet = seedAccessibilityFleet($case);
 
-    $case->actingAs($fleet['developer'], 'web');
+    if ($parameter !== 'guest') {
+        $case->actingAs($fleet['developer'], 'web');
+    }
 
     $url = route($route, $parameter === 'code' ? ['user_code' => $fleet['code']] : []);
-    $page = visit($url);
+    $page = visit($url, $options);
+    $page = $theme === 'dark' ? $page->inDarkMode() : $page->inLightMode();
 
-    return $theme === 'dark' ? $page->inDarkMode() : $page->inLightMode();
+    // Still on the page asked for, with its main landmark and the words only it draws
+    $where = $page->script('() => ({ path: location.pathname, main: document.querySelectorAll("main").length })');
+
+    expect($where)->toBe(['path' => (string) parse_url($url, PHP_URL_PATH), 'main' => 1]);
+
+    $page->assertSee($expect);
+
+    return $page;
 }
 
 /**
  * The violations axe finds on a page, for the rule tags given.
  *
  * **Run through `script()` rather than the plugin's `assertNoAccessibilityIssues()`**, which turns an
- * absent or failed axe run into an empty list and so a pass. Here an axe that did not run is a
- * failure: the page returns a string, and the caller's expectation refuses anything but a list.
+ * absent or failed axe run into an empty list and so a pass. Here an axe that did not run throws.
  *
  * @param  list<string>  $tags  The axe rule tags to run.
  * @return list<array{id: string, impact: string, help: string, nodes: list<string>}> What it found.
@@ -212,73 +246,6 @@ function axeViolations(PendingAwaitablePage $page, array $tags): array
 }
 
 /**
- * Every element whose color carries a meaning and that shows no word to carry it too.
- *
- * A semantic color -- a badge, `text-error`, an alert -- reaches no assistive technology and no
- * reader who cannot tell the hues apart, so each must carry its meaning as visible text as well: two
- * letters at least, which a dot, an icon or an empty box does not have.
- *
- * @return list<string> The start of each such element's markup.
- */
-function colorOnlyElements(PendingAwaitablePage $page): array
-{
-    $bare = $page->script(<<<'JS'
-        () => {
-            const semantic = /(^|\s)(badge|badge-[a-z]+|text-(error|success|warning|info)|alert-[a-z]+|bg-(error|success|warning|info))(\s|$)/;
-            return [...document.querySelectorAll('body *')]
-                .filter(el => typeof el.className === 'string' && semantic.test(el.className) && el.getClientRects().length > 0)
-                .filter(el => !/[A-Za-z]{2,}/.test(el.textContent))
-                .map(el => el.outerHTML.slice(0, 120));
-        }
-    JS);
-
-    if (! is_array($bare)) {
-        throw new RuntimeException('The color check did not run on the page: '.json_encode($bare));
-    }
-
-    /** @var list<string> $bare */
-    return $bare;
-}
-
-/**
- * Every control smaller than its target: 44px for a consequential one (`btn-target`), 24px for the
- * rest (SC 2.5.5 and SC 2.5.8).
- *
- * Measured as rendered. A link inside running text is exempt under SC 2.5.8's inline exception, and
- * a `label` is measured only where it is itself the control, as the drawer's toggle is; otherwise
- * the control it names is measured.
- *
- * @return list<string> Each undersized control, with its size.
- */
-function undersizedControls(PendingAwaitablePage $page): array
-{
-    $small = $page->script(<<<'JS'
-        () => {
-            const out = [];
-            const describe = el => (el.getAttribute('aria-label') || el.textContent || el.tagName).trim().replace(/\s+/g, ' ').slice(0, 40);
-            for (const el of document.querySelectorAll('button, a[href], summary, input:not([type=hidden]), select, textarea, label.btn')) {
-                const rect = el.getBoundingClientRect();
-                if (rect.width === 0 && rect.height === 0) continue;
-                const side = el.closest('.drawer-side');
-                if (side && getComputedStyle(side).visibility === 'hidden') continue;
-                if (el.matches('a.link') || el.closest('p')) continue;
-                if (el.matches('.drawer-toggle')) continue;
-                const floor = el.matches('.btn-target') ? 44 : 24;
-                if (rect.width < floor - 0.5 || rect.height < floor - 0.5) out.push(`${describe(el)} ${Math.round(rect.width)}x${Math.round(rect.height)} < ${floor}`);
-            }
-            return out;
-        }
-    JS);
-
-    if (! is_array($small)) {
-        throw new RuntimeException('The target-size check did not run on the page: '.json_encode($small));
-    }
-
-    /** @var list<string> $small */
-    return $small;
-}
-
-/**
  * The violations that fail the gate: serious or critical.
  *
  * @param  list<array{id: string, impact: string, help: string, nodes: list<string>}>  $violations
@@ -292,21 +259,125 @@ function blockingViolations(array $violations): array
     ));
 }
 
-it('meets the A and AA gate on every surface, in both themes', function (string $route, string $parameter, string $theme): void {
-    $page = visitSurface($this, $route, $parameter, $theme);
+/**
+ * The selector for every element whose color carries a meaning: badges, status dots, alerts, and
+ * the semantic text, background, border and progress colors.
+ */
+const SEMANTIC_COLOR = '/(^|\s)(badge|badge-[a-z]+|status|status-[a-z]+|alert-[a-z]+|progress-[a-z]+|(text|bg|border)-(error|success|warning|info))(\s|$)/';
+
+/**
+ * Run a check in the page that returns a list, or throw when it did not run.
+ *
+ * @return list<string>
+ */
+function pageList(PendingAwaitablePage $page, string $check, string $script): array
+{
+    $found = $page->script($script);
+
+    if (! is_array($found)) {
+        throw new RuntimeException(sprintf('The %s check did not run on the page: %s', $check, json_encode($found)));
+    }
+
+    /** @var list<string> $found */
+    return $found;
+}
+
+/**
+ * Every element whose color carries a meaning and that shows no word to carry it too.
+ *
+ * A semantic color reaches no assistive technology and no reader who cannot tell the hues apart,
+ * so each must carry its meaning as VISIBLE text as well: two letters at least, which a dot, an icon
+ * or an empty box does not have, and not counting `sr-only` text, which a sighted reader never sees.
+ *
+ * @return list<string> The start of each such element's markup.
+ */
+function colorOnlyElements(PendingAwaitablePage $page): array
+{
+    return pageList($page, 'color', sprintf(<<<'JS'
+        () => {
+            const semantic = %s;
+            const visibleText = el => [...el.childNodes].map(n => n.nodeType === 3 ? n.textContent : (n.nodeType === 1 && !n.classList.contains('sr-only') ? visibleText(n) : '')).join('');
+            return [...document.querySelectorAll('body *')]
+                .filter(el => typeof el.className === 'string' && semantic.test(el.className) && el.getClientRects().length > 0)
+                .filter(el => !/[A-Za-z]{2,}/.test(visibleText(el)))
+                .map(el => el.outerHTML.slice(0, 120));
+        }
+    JS, SEMANTIC_COLOR));
+}
+
+/**
+ * Every element with a semantic color whose word a forced-colors user cannot see: hidden,
+ * transparent, or drawn in its own background's color once the system's colors replace the theme's.
+ *
+ * @return list<string>
+ */
+function wordsLostToForcedColors(PendingAwaitablePage $page): array
+{
+    return pageList($page, 'forced-colors', sprintf(<<<'JS'
+        () => {
+            const semantic = %s;
+            return [...document.querySelectorAll('body *')]
+                .filter(el => typeof el.className === 'string' && semantic.test(el.className) && el.getClientRects().length > 0)
+                .filter(el => { const cs = getComputedStyle(el); return cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0 || cs.color === 'rgba(0, 0, 0, 0)' || cs.color === cs.backgroundColor; })
+                .map(el => el.outerHTML.slice(0, 120));
+        }
+    JS, SEMANTIC_COLOR));
+}
+
+/**
+ * Every control smaller than its target: 44px for a consequential one (`btn-target`), 24px for the
+ * rest (SC 2.5.5 and SC 2.5.8).
+ *
+ * Measured as rendered. **Only a link inside a sentence is exempt**, under SC 2.5.8's inline
+ * exception: a link whose enclosing block holds text of its own beside it. A link alone in a table
+ * cell is a target like any other. A `label` is measured only where it is itself the control, as the
+ * drawer's toggle is; otherwise the control it names is measured.
+ *
+ * @return list<string> Each undersized control, with its size.
+ */
+function undersizedControls(PendingAwaitablePage $page): array
+{
+    return pageList($page, 'target-size', <<<'JS'
+        () => {
+            const out = [];
+            const describe = el => (el.getAttribute('aria-label') || el.textContent || el.tagName).trim().replace(/\s+/g, ' ').slice(0, 40);
+            const inSentence = el => {
+                if (el.tagName !== 'A') return false;
+                const block = el.parentElement.closest('p, li, dd, td, span, div');
+                return block !== null && block.textContent.replace(el.textContent, '').trim().length > 0;
+            };
+            for (const el of document.querySelectorAll('button, a[href], summary, input:not([type=hidden]), select, textarea, label.btn, [role=button]')) {
+                const rect = el.getBoundingClientRect();
+                if (rect.width === 0 && rect.height === 0) continue;
+                const side = el.closest('.drawer-side');
+                if (side && getComputedStyle(side).visibility === 'hidden') continue;
+                if (el.matches('.drawer-toggle') || inSentence(el)) continue;
+                const floor = el.matches('.btn-target') ? 44 : 24;
+                if (rect.width < floor - 0.5 || rect.height < floor - 0.5) out.push(`${describe(el)} ${Math.round(rect.width)}x${Math.round(rect.height)} < ${floor}`);
+            }
+            return out;
+        }
+    JS);
+}
+
+beforeAll(function (): void {
+    // A report, not an accumulation: an earlier run's findings for a page that has since been
+    // fixed would otherwise survive in it
+    @unlink(axeAaaReport());
+});
+
+it('meets the A and AA gate on every surface, in both themes', function (string $route, string $parameter, string $expect, string $theme): void {
+    $page = visitSurface($this, $route, $parameter, $expect, $theme);
 
     $blocking = blockingViolations(axeViolations($page, AXE_GATE));
 
     expect($blocking)->toBeEmpty(implode("\n", $blocking));
 })->with(accessibilitySurfaces())->with(['light', 'dark']);
 
-it('reports the AAA findings on every surface without failing on them', function (string $route, string $parameter, string $theme): void {
-    $page = visitSurface($this, $route, $parameter, $theme);
+it('reports the AAA findings on every surface without failing on them', function (string $route, string $parameter, string $expect, string $theme): void {
+    $violations = axeViolations(visitSurface($this, $route, $parameter, $expect, $theme), AXE_AAA);
 
-    $violations = axeViolations($page, AXE_AAA);
-
-    // Accumulated across the dataset into one file, read by whoever triages AAA work
-    $path = dirname(__DIR__, 2).'/build/axe-aaa.json';
+    $path = axeAaaReport();
     $report = is_file($path) ? json_decode((string) file_get_contents($path), true) : [];
     $report = is_array($report) ? $report : [];
     $report[$route.' '.$theme] = $violations;
@@ -318,129 +389,68 @@ it('reports the AAA findings on every surface without failing on them', function
         fwrite(STDERR, sprintf("AAA %s %s: %s [%s] x%d\n", $route, $theme, $violation['id'], $violation['impact'], count($violation['nodes'])));
     }
 
-    expect($path)->toBeFile();
+    $written = json_decode((string) file_get_contents($path), true);
+
+    expect($written)->toBeArray()->toHaveKey($route.' '.$theme);
 })->with(accessibilitySurfaces())->with(['light', 'dark']);
 
-it('fails on a planted violation, so a clean run means axe looked', function (): void {
-    $page = visitSurface($this, 'robot-council.dashboard', '', 'light');
+it('draws every seeded state, so the scans above are of populated pages', function (): void {
+    // The lane board: a working lane on its branch with a hand-back, a blocked, a parked and a
+    // stale lane, a gate validating a pull request, the owed item and the meter
+    visitSurface($this, 'robot-council.lanes', '', 'Run the screen-reader pass', 'light')
+        ->assertSee('vocabulary')
+        ->assertSee('hand-back')
+        ->assertSee('Blocked')
+        ->assertSee('Parked')
+        ->assertSee('not observed')
+        ->assertSee('validating')
+        ->assertSee('42');
 
-    // Two plants: an image with no text alternative (critical), and a button with no name (critical)
+    // Locks: one held, one lapsed and shown as a warning
+    visitSurface($this, 'robot-council.locks', '', 'branch:vocabulary', 'light')
+        ->assertSee('deploy:production')
+        ->assertPresent('.badge-warning');
+
+    // The queue: a coordinator's task and a finished one
+    visitSurface($this, 'robot-council.queue', '', 'Everyone stop and sync', 'light')
+        ->assertSee('Port the rule')
+        ->assertPresent('.badge-outline');
+
+    // Administration: a role request waiting
+    visitSurface($this, 'robot-council.administration', '', 'gate-runner', 'light')
+        ->assertSee('asked for coordinator');
+});
+
+it('fails on a planted violation, so a clean run means axe looked', function (): void {
+    $page = visitSurface($this, 'robot-council.dashboard', '', 'Live agents', 'light');
+
+    // Two plants: an image with no text alternative, and a button with no name, both critical
     $page->script(<<<'JS'
         () => {
             const main = document.querySelector('main');
             const image = document.createElement('img');
             image.src = 'data:image/gif;base64,R0lGODlhAQABAAAAACw=';
             main.appendChild(image);
-            const button = document.createElement('button');
-            main.appendChild(button);
+            main.appendChild(document.createElement('button'));
         }
     JS);
 
-    $ids = array_column(axeViolations($page, AXE_GATE), 'id');
-
-    expect($ids)->toContain('image-alt', 'button-name')
+    expect(array_column(axeViolations($page, AXE_GATE), 'id'))->toContain('image-alt', 'button-name')
         ->and(blockingViolations(axeViolations($page, AXE_GATE)))->not->toBeEmpty();
 });
 
 it('fails on a planted contrast failure, so the stylesheet is what axe measured', function (): void {
-    $page = visitSurface($this, 'robot-council.dashboard', '', 'dark');
+    $page = visitSurface($this, 'robot-council.dashboard', '', 'Live agents', 'dark');
 
-    $page->script(<<<'JS'
-        () => {
-            // About 1.3:1 on the dark theme's page, below even the 3:1 large-text bar. Not the
-            // background's own color: axe files identical colors as undecidable, not as a failure
-            document.querySelector('h1').style.color = 'rgb(60, 60, 60)';
-        }
-    JS);
+    // About 1.3:1 on the dark theme's page, below even the 3:1 large-text bar. Not the background's
+    // own color: axe files identical colors as undecidable, not as a failure
+    $page->script('() => { document.querySelector("h1").style.color = "rgb(60, 60, 60)"; }');
 
     expect(array_column(axeViolations($page, AXE_GATE), 'id'))->toContain('color-contrast');
 });
 
-it('carries every status in a word, never in color alone', function (string $route, string $parameter, string $theme): void {
-    $bare = colorOnlyElements(visitSurface($this, $route, $parameter, $theme));
-
-    expect($bare)->toBe([], implode("\n", $bare));
-})->with(accessibilitySurfaces())->with(['light', 'dark']);
-
-it('finds a status carried by color alone, so the check above is not blind', function (): void {
-    $page = visitSurface($this, 'robot-council.lanes', '', 'light');
-
-    $page->script(<<<'JS'
-        () => {
-            const main = document.querySelector('main');
-            const dot = document.createElement('span');
-            dot.className = 'badge badge-error';
-            main.appendChild(dot);
-            const icon = document.createElement('span');
-            icon.className = 'text-error';
-            icon.textContent = '\u25CF';
-            main.appendChild(icon);
-        }
-    JS);
-
-    expect(colorOnlyElements($page))->toHaveCount(2);
-});
-
-it('keeps every status word under forced colors, where every color is replaced', function (string $route, string $parameter): void {
-    $fleet = seedAccessibilityFleet($this);
-
-    $this->actingAs($fleet['developer'], 'web');
-
-    $page = visit(route($route, $parameter === 'code' ? ['user_code' => $fleet['code']] : []), ['forcedColors' => 'active']);
-
-    $state = $page->script(<<<'JS'
-        () => ({
-            active: window.matchMedia('(forced-colors: active)').matches,
-            hidden: [...document.querySelectorAll('.badge')]
-                .filter(el => { const cs = getComputedStyle(el); return el.getClientRects().length > 0 && (cs.visibility === 'hidden' || cs.color === cs.backgroundColor || parseFloat(cs.opacity) === 0); })
-                .map(el => el.textContent.trim()),
-        })
-    JS);
-
-    if (! is_array($state)) {
-        throw new RuntimeException('The forced-colors check did not run on the page: '.json_encode($state));
-    }
-
-    // The emulation is live, or every assertion after it passes against ordinary colors
-    expect($state['active'] ?? null)->toBeTrue()
-        ->and($state['hidden'] ?? null)->toBe([]);
-})->with(accessibilitySurfaces());
-
-it('holds every control to its target size, 44px for the consequential ones and 24px for the rest', function (string $route, string $parameter): void {
-    $page = visitSurface($this, $route, $parameter, 'light');
-
-    $page->resize(390, 900);
-
-    $small = undersizedControls($page);
-
-    expect($small)->toBe([], implode("\n", $small));
-})->with(accessibilitySurfaces());
-
-it('finds an undersized control, so the check above is not blind', function (): void {
-    $page = visitSurface($this, 'robot-council.seats', '', 'light');
-
-    $page->resize(390, 900);
-
-    $page->script(<<<'JS'
-        () => {
-            const main = document.querySelector('main');
-            const small = document.createElement('button');
-            small.textContent = 'x';
-            small.style.cssText = 'width:16px;height:16px;padding:0;font-size:10px';
-            main.appendChild(small);
-            const target = document.createElement('button');
-            target.className = 'btn btn-sm btn-target';
-            target.textContent = 'Revoke';
-            target.style.cssText = 'height:32px;min-height:0';
-            main.appendChild(target);
-        }
-    JS);
-
-    expect(undersizedControls($page))->toHaveCount(2);
-});
-
 it('reports an AAA-only failure, so an empty AAA report means the rules ran', function (): void {
-    $page = visitSurface($this, 'robot-council.dashboard', '', 'light');
+    $page = visitSurface($this, 'robot-council.dashboard', '', 'Live agents', 'light');
 
     // About 5:1 on the light page: past the AA bar of 4.5:1, short of the AAA one of 7:1
     $page->script(<<<'JS'
@@ -454,4 +464,102 @@ it('reports an AAA-only failure, so an empty AAA report means the rules ran', fu
 
     expect(array_column(axeViolations($page, AXE_AAA), 'id'))->toContain('color-contrast-enhanced')
         ->and(blockingViolations(axeViolations($page, AXE_GATE)))->toBeEmpty();
+});
+
+it('carries every status in a word, never in color alone', function (string $route, string $parameter, string $expect, string $theme): void {
+    $bare = colorOnlyElements(visitSurface($this, $route, $parameter, $expect, $theme));
+
+    expect($bare)->toBe([], implode("\n", $bare));
+})->with(accessibilitySurfaces())->with(['light', 'dark']);
+
+it('finds a status carried by color alone, so the check above is not blind', function (): void {
+    $page = visitSurface($this, 'robot-council.lanes', '', 'Run the screen-reader pass', 'light');
+
+    // An empty badge, a colored dot, and a badge whose only word is for screen readers
+    $page->script(<<<'JS'
+        () => {
+            const main = document.querySelector('main');
+            const empty = document.createElement('span');
+            empty.className = 'badge badge-error';
+            main.appendChild(empty);
+            const dot = document.createElement('span');
+            dot.className = 'text-error';
+            dot.textContent = '●';
+            main.appendChild(dot);
+            const unseen = document.createElement('span');
+            unseen.className = 'badge badge-warning';
+            unseen.innerHTML = '<span class="sr-only">stale</span>';
+            main.appendChild(unseen);
+        }
+    JS);
+
+    expect(colorOnlyElements($page))->toHaveCount(3);
+});
+
+it('keeps every status word under forced colors, where every color is replaced', function (string $route, string $parameter, string $expect): void {
+    $page = visitSurface($this, $route, $parameter, $expect, 'light', ['forcedColors' => 'active']);
+
+    // The emulation is live, or every assertion after it passes against ordinary colors
+    expect($page->script("() => window.matchMedia('(forced-colors: active)').matches"))->toBeTrue();
+
+    $lost = wordsLostToForcedColors($page);
+
+    expect($lost)->toBe([], implode("\n", $lost));
+})->with(accessibilitySurfaces());
+
+it('finds a status word lost under forced colors, so the check above is not blind', function (): void {
+    $page = visitSurface($this, 'robot-council.lanes', '', 'Run the screen-reader pass', 'light', ['forcedColors' => 'active']);
+
+    // A badge whose word is hidden only when forced colors are on
+    $page->script(<<<'JS'
+        () => {
+            const style = document.createElement('style');
+            style.textContent = '@media (forced-colors: active) { .fc-probe { visibility: hidden } }';
+            document.head.appendChild(style);
+            const badge = document.createElement('span');
+            badge.className = 'badge badge-error fc-probe';
+            badge.textContent = 'failed';
+            document.querySelector('main').appendChild(badge);
+        }
+    JS);
+
+    expect(wordsLostToForcedColors($page))->toHaveCount(1);
+});
+
+it('holds every control to its target size, 44px for the consequential ones and 24px for the rest', function (string $route, string $parameter, string $expect, int $width): void {
+    $page = visitSurface($this, $route, $parameter, $expect, 'light');
+
+    // At a phone's width, where the sidebar is closed, and at a desktop's, where it is open
+    $page->resize($width, 900);
+
+    $small = undersizedControls($page);
+
+    expect($small)->toBe([], implode("\n", $small));
+})->with(accessibilitySurfaces())->with([390, 1280]);
+
+it('finds an undersized control, so the check above is not blind', function (): void {
+    $page = visitSurface($this, 'robot-council.seats', '', 'robot-council-core-a', 'light');
+
+    $page->resize(390, 900);
+
+    // A 16px button, a consequential control at 32px, and a lone link in a table cell
+    $page->script(<<<'JS'
+        () => {
+            const main = document.querySelector('main');
+            const small = document.createElement('button');
+            small.textContent = 'x';
+            small.style.cssText = 'width:16px;height:16px;padding:0;font-size:10px';
+            main.appendChild(small);
+            const target = document.createElement('button');
+            target.className = 'btn btn-sm btn-target';
+            target.textContent = 'Revoke';
+            target.style.cssText = 'height:32px;min-height:0';
+            main.appendChild(target);
+            const cell = document.createElement('div');
+            cell.innerHTML = '<a href="#" class="link" style="font-size:10px;line-height:1">held</a>';
+            main.appendChild(cell);
+        }
+    JS);
+
+    expect(undersizedControls($page))->toHaveCount(3);
 });
