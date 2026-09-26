@@ -17,6 +17,7 @@
         <header class="mb-6">
             <h1 class="text-xl font-semibold">Approve a machine</h1>
             <p class="mt-1 text-meta opacity-90">A machine has asked to enroll with robot-council. Approve it only if you started it yourself.</p>
+            @include('robot-council::partials.glossary', ['terms' => ['enrollment', 'enrollment_code', 'harness', 'machine_label', 'abilities', 'installation', 'task', 'lock', 'narration']])
         </header>
 
         @if (session('status'))

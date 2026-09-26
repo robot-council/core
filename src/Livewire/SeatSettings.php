@@ -78,7 +78,7 @@ final class SeatSettings extends Component
     /**
      * The seat whose ticket limit the last save was about, or null.
      *
-     * Locked, like `notice`: the page shows its confirmation or its error next to that seat's field,
+     * Locked, like `said`: the page shows its confirmation or its error next to that seat's field,
      * and only the server says which seat that is.
      */
     #[Locked]
@@ -91,13 +91,29 @@ final class SeatSettings extends Component
     public ?string $capacityError = null;
 
     /**
-     * What the last action did not do, in words, or null when it did what was asked.
+     * What the last action did, or why it did nothing, in words (#402).
      *
      * Locked, so only the server sets it: a client could otherwise put any sentence it liked in
-     * the page's alert, which is harmless on its own page and still not the page's to say.
+     * the page's own account of what happened, which is harmless on its own page and still not the
+     * page's to say.
      */
     #[Locked]
-    public ?string $notice = null;
+    public ?string $said = null;
+
+    /**
+     * Where the page shows `said`: `seat-` and a seat id, `hours`, or `days-off`.
+     *
+     * Each action's words appear beside the control that caused them rather than in one alert at
+     * the top, so a reader hears the answer where they are (`.claude/rules/accessibility.md`).
+     */
+    #[Locked]
+    public ?string $saidAt = null;
+
+    /**
+     * Whether the last action was refused or changed nothing, which the page shows as an error.
+     */
+    #[Locked]
+    public bool $refused = false;
 
     /**
      * Refuse anyone the guard does not resolve, and fill the form from what is stored.
@@ -119,13 +135,23 @@ final class SeatSettings extends Component
      */
     public function saveHours(): void
     {
-        $this->attempt(fn () => $this->service(DeveloperSettings::class)->setHours(
+        $saved = $this->attempt('hours', 'Not saved:', fn () => $this->service(DeveloperSettings::class)->setHours(
             $this->developer(),
             trim($this->timezone),
             $this->startsAt,
             $this->endsAt,
             $this->skipWeekends
         ));
+
+        if ($saved) {
+            $this->say('hours', sprintf(
+                'Saved: your seats take new work from %s until %s, %s time, %s.',
+                $this->startsAt,
+                $this->endsAt,
+                trim($this->timezone),
+                $this->skipWeekends ? 'on weekdays only' : 'every day of the week'
+            ));
+        }
     }
 
     /**
@@ -135,7 +161,7 @@ final class SeatSettings extends Component
     {
         $this->service(DeveloperSettings::class)->clearHours($this->developer());
 
-        $this->notice = null;
+        $this->say('hours', 'Removed: your seats take new work at any time. Your days off apply again once you set hours.');
     }
 
     /**
@@ -145,10 +171,20 @@ final class SeatSettings extends Component
     {
         $developer = $this->developer();
 
-        $this->attempt(function () use ($developer): void {
-            $this->service(DeveloperSettings::class)->addHoliday($developer, trim($this->holiday));
+        $day = trim($this->holiday);
+        $added = null;
+
+        $this->attempt('days-off', 'Not added:', function () use ($developer, $day, &$added): void {
+            $added = $this->service(DeveloperSettings::class)->addHoliday($developer, $day);
             $this->holiday = '';
         });
+
+        // Only a real date reaches either branch: the store refuses anything else before it writes
+        if ($added === true) {
+            $this->say('days-off', sprintf('Added: %s is a day off.', $day));
+        } elseif ($added === false) {
+            $this->say('days-off', sprintf('Already listed: %s was already a day off, so nothing changed.', $day));
+        }
     }
 
     /**
@@ -158,9 +194,15 @@ final class SeatSettings extends Component
      */
     public function removeHoliday(string $day): void
     {
-        $this->service(DeveloperSettings::class)->removeHoliday($this->developer(), $day);
+        // The day is repeated back only once the store matched it, since until then it is whatever
+        // a client chose to send
+        if ($this->service(DeveloperSettings::class)->removeHoliday($this->developer(), $day)) {
+            $this->say('days-off', sprintf('Removed: %s is no longer a day off.', $day));
 
-        $this->notice = null;
+            return;
+        }
+
+        $this->say('days-off', 'Not listed: that date was not a day off, so nothing changed.', refused: true);
     }
 
     /**
@@ -170,7 +212,7 @@ final class SeatSettings extends Component
      */
     public function park(int $seatId): void
     {
-        $this->report($this->service(Seats::class)->park($this->developer(), $seatId));
+        $this->report($seatId, $this->service(Seats::class)->park($this->developer(), $seatId), 'Parked: %s takes no new work until you lift it.');
     }
 
     /**
@@ -180,7 +222,7 @@ final class SeatSettings extends Component
      */
     public function lift(int $seatId): void
     {
-        $this->report($this->service(Seats::class)->lift($this->developer(), $seatId));
+        $this->report($seatId, $this->service(Seats::class)->lift($this->developer(), $seatId), 'Lifted: %s can take new work again.');
     }
 
     /**
@@ -190,7 +232,7 @@ final class SeatSettings extends Component
      */
     public function exempt(int $seatId): void
     {
-        $this->report($this->service(Seats::class)->exempt($this->developer(), $seatId, true));
+        $this->report($seatId, $this->service(Seats::class)->exempt($this->developer(), $seatId, true), 'Exempted: %s takes new work at any time, whatever your hours say.');
     }
 
     /**
@@ -200,7 +242,7 @@ final class SeatSettings extends Component
      */
     public function unexempt(int $seatId): void
     {
-        $this->report($this->service(Seats::class)->exempt($this->developer(), $seatId, false));
+        $this->report($seatId, $this->service(Seats::class)->exempt($this->developer(), $seatId, false), 'Hours apply: %s takes new work only inside your assignment hours.');
     }
 
     /**
@@ -218,21 +260,21 @@ final class SeatSettings extends Component
         $typed = $this->capacities[$seatId] ?? null;
         $capacity = \is_int($typed) ? $typed : (\is_string($typed) && preg_match('/^[0-9]{1,3}$/D', trim($typed)) === 1 ? (int) trim($typed) : null);
 
-        // Reported beside the field it is about, not in the page's alert, so a reader of that seat
-        // hears the answer where they are (`.claude/rules/accessibility.md`)
-        $this->notice = null;
+        // Reported beside the field it is about, so a reader of that seat hears the answer where they
+        // are (`.claude/rules/accessibility.md`); the field has its own message, so any other clears
+        $this->said = null;
         $this->capacitySeat = $seatId;
 
         if ($capacity === null || $capacity < Capacity::DEFAULT || $capacity > Capacity::MAX) {
-            $this->capacityError = sprintf('Enter a whole number from %d to %d.', Capacity::DEFAULT, Capacity::MAX);
+            $this->capacityError = sprintf('Not saved: enter a whole number from %d to %d.', Capacity::DEFAULT, Capacity::MAX);
 
             return;
         }
 
         $this->capacityError = match ($this->service(Seats::class)->cap($developer, $seatId, $capacity)) {
             Outcome::Applied => null,
-            Outcome::NotFound => 'That seat no longer exists.',
-            Outcome::Conflict, Outcome::Forbidden => "Only a seat's own developer can change how many tickets it takes at once.",
+            Outcome::NotFound => 'Not found: that seat no longer exists. Reload the page to see your seats as they are now.',
+            Outcome::Conflict, Outcome::Forbidden => "Not allowed: only a seat's own developer can change how many tickets it takes at once.",
 
             // A task's alone (#433); `cap()` never answers it
             Outcome::Added => null,
@@ -250,7 +292,9 @@ final class SeatSettings extends Component
      */
     public function waive(int $seatId, string $rule): void
     {
-        $this->report($this->service(PlacementWaivers::class)->grant($this->developer(), $seatId, $this->rule($rule)));
+        $resolved = $this->rule($rule);
+
+        $this->report($seatId, $this->service(PlacementWaivers::class)->grant($this->developer(), $seatId, $resolved), 'Waived once: the next placement on %s goes ahead even when '.$resolved->reads().'.');
     }
 
     /**
@@ -261,9 +305,15 @@ final class SeatSettings extends Component
      */
     public function withdrawWaiver(int $seatId, string $rule): void
     {
-        $this->service(PlacementWaivers::class)->withdraw($this->developer(), $seatId, $this->rule($rule));
+        $resolved = $this->rule($rule);
 
-        $this->notice = null;
+        if ($this->service(PlacementWaivers::class)->withdraw($this->developer(), $seatId, $resolved)) {
+            $this->say('seat-'.$seatId, sprintf('Withdrawn: placements on %s are refused again when %s.', $this->seatName($seatId), $resolved->reads()));
+
+            return;
+        }
+
+        $this->say('seat-'.$seatId, 'Nothing withdrawn: that waiver was already used or withdrawn. The list shows what is waived now.', refused: true);
     }
 
     /**
@@ -337,32 +387,78 @@ final class SeatSettings extends Component
     /**
      * Run a write, turning a refused value into a message on the page rather than a 500.
      *
+     * @param  string  $at  Where the page shows the refusal.
+     * @param  string  $refusal  The word the refusal leads with, such as `Not saved:`.
      * @param  callable(): mixed  $write  The write.
+     * @return bool Whether it was written.
      */
-    private function attempt(callable $write): void
+    private function attempt(string $at, string $refusal, callable $write): bool
     {
         try {
             $write();
-            $this->notice = null;
+
+            return true;
         } catch (InvalidArgumentException $invalidArgumentException) {
-            $this->notice = $invalidArgumentException->getMessage();
+            $this->say($at, $refusal.' '.$invalidArgumentException->getMessage(), refused: true);
+
+            return false;
         }
     }
 
     /**
-     * Say why a seat write did not happen.
+     * Say what a seat write did, or why it did nothing.
      *
+     * @param  int  $seatId  The seat.
      * @param  Outcome  $outcome  What came of it.
+     * @param  string  $applied  What to say when it was applied, with `%s` for the seat's name.
      */
-    private function report(Outcome $outcome): void
+    private function report(int $seatId, Outcome $outcome, string $applied): void
     {
-        $this->notice = match ($outcome) {
+        $at = 'seat-'.$seatId;
+
+        match ($outcome) {
             // `Added` is a task's alone (#433); no seat write answers it
-            Outcome::Applied, Outcome::Added => null,
-            Outcome::NotFound => 'That seat no longer exists.',
-            Outcome::Conflict => 'That seat was already in that state. The page has been refreshed.',
-            Outcome::Forbidden => "Only the developer who parked a seat can lift it, and only a seat's own developer can change it.",
+            Outcome::Applied, Outcome::Added => $this->say($at, sprintf($applied, $this->seatName($seatId))),
+            Outcome::NotFound => $this->say($at, 'Not found: that seat no longer exists. Reload the page to see your seats as they are now.', refused: true),
+            Outcome::Conflict => $this->say($at, sprintf('No change: %s was already in that state. The page shows where it stands now.', $this->seatName($seatId)), refused: true),
+            Outcome::Forbidden => $this->say($at, "Not allowed: only the developer who parked a seat can lift it, and only a seat's own developer can change it.", refused: true),
         };
+    }
+
+    /**
+     * A seat of this developer's, named as the page names it, or `that seat`.
+     *
+     * Read from this developer's own seats, so a refused write about somebody else's seat never
+     * learns that seat's repository.
+     *
+     * @param  int  $seatId  The seat.
+     * @return string Its repository and working folder.
+     */
+    private function seatName(int $seatId): string
+    {
+        foreach ($this->service(Seats::class)->forDeveloper($this->developer()) as $seat) {
+            if ($seat->id === $seatId) {
+                return $seat->repository.($seat->work_location !== '' ? ' / '.$seat->work_location : '');
+            }
+        }
+
+        return 'that seat';
+    }
+
+    /**
+     * Record what the last action did, for the page to show beside the control that caused it.
+     *
+     * @param  string  $at  Where: `seat-` and a seat id, `hours`, or `days-off`.
+     * @param  string  $words  What happened, leading with the word that sums it up.
+     * @param  bool  $refused  Whether it was refused or changed nothing.
+     */
+    private function say(string $at, string $words, bool $refused = false): void
+    {
+        $this->said = $words;
+        $this->saidAt = $at;
+        $this->refused = $refused;
+        $this->capacitySeat = null;
+        $this->capacityError = null;
     }
 
     /**

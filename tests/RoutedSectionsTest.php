@@ -122,7 +122,7 @@ it('mounts the totals and no panel on the overview', function (): void {
     // The overview is a way in, not a fifth panel: the totals row and the links, and nothing that
     // reads a session, a task or an event.
     expect(array_values(array_unique($found[1])))->toBe(['robot-council-fleet-totals'])
-        ->and($html)->toContain('Live agents')
+        ->and($html)->toContain('<div class="stat-title">Live agents</div>')
         ->and($html)->not->toContain('Ship it');
 });
 

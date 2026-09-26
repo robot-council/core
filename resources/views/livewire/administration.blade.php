@@ -34,16 +34,28 @@
             </div>
         </div>
 
+        @include('robot-council::partials.glossary', ['terms' => ['installation', 'harness', 'machine_label', 'usable', 'revoked', 'expired', 'session', 'active', 'stale', 'gone', 'role', 'coordinator', 'ephemeral', 'asked_for_role', 'make_role', 'revoke_session', 'revoke_installation']])
+
         <p class="text-meta opacity-90">
             What each machine may do, and which of its sessions are alive. Changes take effect on
             the next request, not on the next renewal.
         </p>
 
+        {{-- What the last action did (#402). Beside the installation it was about when that is still
+             listed, and here when it is not: a revoked installation leaves the Usable list. --}}
+        @if ($said !== null && ! in_array($saidAt, array_column($installations, 'id'), true))
+            @if ($refused)
+                <p role="alert" class="font-semibold text-error" data-said>{{ $said }}</p>
+            @else
+                <p role="status" class="font-medium" data-said>{{ $said }}</p>
+            @endif
+        @endif
+
         @if ($installations === [])
             <p class="py-6 text-center opacity-80">
                 {{ $installationScope === \RobotCouncil\Support\Scope::Live && $page['retired'] > 0
-                    ? 'No machine is currently usable. Choose All to see the revoked and expired ones.'
-                    : 'No machine has enrolled yet.' }}
+                    ? 'None usable: no machine can act right now. Choose All to see the revoked and expired ones.'
+                    : 'No machines yet: a machine appears here once a developer approves its enrollment.' }}
             </p>
         @else
             <ul class="divide-y divide-base-200">
@@ -79,6 +91,14 @@
                                 @endif
                             </div>
                         </div>
+
+                        @if ($said !== null && $saidAt === $installation['id'])
+                            @if ($refused)
+                                <p role="alert" class="mt-2 font-semibold text-error" data-said>{{ $said }}</p>
+                            @else
+                                <p role="status" class="mt-2 font-medium" data-said>{{ $said }}</p>
+                            @endif
+                        @endif
 
                         @if ($installation['sessions']['shown'] !== [])
                             <ul class="mt-3 space-y-1">

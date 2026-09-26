@@ -24,9 +24,17 @@
             </div>
         </div>
 
+        @include('robot-council::partials.glossary', ['terms' => ['task', 'ticket', 'pending', 'claimed', 'in_progress', 'blocked_task', 'done', 'failed', 'cancelled', 'priority', 'held_by_task', 'lane', 'coordinator']])
+
         @if ($tasks === [])
             <p class="py-6 text-center opacity-80">
-                {{ $afterId === null ? 'Nothing in the queue.' : 'Nothing further -- this is past the end of the queue.' }}
+                @if ($afterId !== null)
+                    End of the queue: nothing comes after this page. Choose First page to go back.
+                @elseif ($shownStatus !== '')
+                    No {{ $shownStatus }} tasks. Choose All to see every task.
+                @else
+                    Queue empty: the fleet has not been asked to do anything yet.
+                @endif
             </p>
         @else
             <div class="overflow-x-auto">

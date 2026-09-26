@@ -12,9 +12,15 @@
     <div class="card-body">
         <h1 class="card-title">Change feed</h1>
 
+        @include('robot-council::partials.glossary', ['terms' => ['change_feed', 'entry_type', 'narration', 'directive', 'placement_instruction', 'coordinator', 'session', 'task', 'lock', 'lane']])
+
         @if ($events === [])
             <p class="py-6 text-center opacity-80">
-                {{ $before === null ? 'Nothing has happened yet.' : 'Nothing older than this.' }}
+                @if ($before === null)
+                    No entries yet: the feed fills as agents join, take work and report.
+                @else
+                    Start of the feed: nothing is older than this. Choose Latest to go back.
+                @endif
             </p>
         @else
             <ul class="divide-y divide-base-200">

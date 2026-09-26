@@ -11,6 +11,7 @@
 --}}
 <div class="grid gap-4">
     <h1 class="text-2xl font-semibold">Dashboard</h1>
+    @include('robot-council::partials.glossary', ['terms' => ['fleet', 'agent', 'session', 'live_agents', 'task', 'open_tasks', 'queue', 'lock', 'held_locks', 'lane', 'change_feed']])
 
     <livewire:robot-council-fleet-totals :poll-seconds="$pollSeconds" />
 
