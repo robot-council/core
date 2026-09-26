@@ -46,6 +46,17 @@ use Throwable;
 final class Tasks
 {
     /**
+     * How long after GitHub finished a task the session that held it may still add its result
+     * (#433), in minutes.
+     *
+     * A lane usually calls `task_complete` moments after the merge that finished its task, having
+     * been beaten to it by the webhook. An hour covers a lane that was mid-turn, or reading its
+     * checks, when the merge landed, and stops a session that happens to hold the same id much
+     * later -- session ids are reused -- from writing onto work that is long settled.
+     */
+    public const int RESULT_WINDOW_MINUTES = 60;
+
+    /**
      * @param  FleetEvents  $events  The change feed.
      * @param  Credentials  $credentials  The configured bounds.
      */
@@ -201,6 +212,12 @@ final class Tasks
 
             $changed = $this->write($taskId, $transition, $actor, $asCoordinator, $holder, $result, $handBack, $branch, $expect, $subLabel, $sameHolder);
 
+            // #433: a completion GitHub beat to it adds the holder's result instead of being refused
+            if ($changed !== 1 && $transition === TaskTransition::Complete && $result !== null
+                && $this->addResult($taskId, $actor, $result)) {
+                return Outcome::Added;
+            }
+
             if ($changed !== 1) {
                 return $this->diagnose($taskId, $transition, $actor, $asCoordinator, $holder, $expect);
             }
@@ -319,6 +336,13 @@ final class Tasks
      * **The event names the task and the reason, never the issue.** A task's issue is readable only
      * by sessions that may claim it (`TaskList`), and a state change reaches every session.
      *
+     * **A finished task keeps what GitHub said, in `result` (#433).** Before, it kept nothing: its
+     * holder's `task_complete` came moments later and was refused, because the task had already
+     * left `in_progress`. So the result records the reason and what the caller knows about the
+     * issue or pull request that finished it, under a `github` key, and the holder may add its own
+     * once, through `transition()`, within `RESULT_WINDOW_MINUTES`. A release records nothing: it
+     * gives the task back with a clean slate, and the next holder writes the result.
+     *
      * @param  int  $taskId  The task.
      * @param  bool  $completed  True to finish it, false to release it.
      * @param  string  $why  The reason, in words the feed shows.
@@ -327,11 +351,15 @@ final class Tasks
      *                                        because a coordinator can re-place the task between the
      *                                        read that found it and this, and the new lane must not
      *                                        be finished by the previous one's pull request.
+     * @param  array<string, bool|int|string|null>  $finished  What finished it -- the issue or pull
+     *                                                         request, as the caller read it off the
+     *                                                         delivery -- recorded beside the reason.
+     *                                                         Ignored on a release.
      * @return bool True when it moved.
      */
-    public function finishFromGitHub(int $taskId, bool $completed, string $why, array $still = []): bool
+    public function finishFromGitHub(int $taskId, bool $completed, string $why, array $still = [], array $finished = []): bool
     {
-        return DB::transaction(function () use ($taskId, $completed, $why, $still): bool {
+        return DB::transaction(function () use ($taskId, $completed, $why, $still, $finished): bool {
             $to = $completed ? TaskStatus::Done : TaskStatus::Pending;
 
             // Who held it, and the label its holder gave it, for the event -- read under the lock
@@ -344,7 +372,14 @@ final class Tasks
                 ->where($still)
                 ->whereIn('status', TaskStatus::values(TaskStatus::held()))
                 ->update($completed
-                    ? ['status' => $to->value, 'updated_at' => Carbon::now()]
+                    ? [
+                        'status' => $to->value,
+                        // Hand-encoded, as `write()` does, because a query-builder update applies no casts
+                        'result' => json_encode(['github' => ['reason' => $why, ...$finished]], JSON_THROW_ON_ERROR),
+                        'github_finished_at' => Carbon::now(),
+                        'result_added_at' => null,
+                        'updated_at' => Carbon::now(),
+                    ]
                     : [
                         'status' => $to->value,
                         'claimed_by' => null,
@@ -582,6 +617,72 @@ final class Tasks
     private static function labelled(?string $label): array
     {
         return $label === null ? [] : ['sub_label' => $label];
+    }
+
+    /**
+     * Add the result of the session GitHub displaced to a task the webhook finished (#433).
+     *
+     * Once, by the session that held the task when GitHub finished it, within
+     * `RESULT_WINDOW_MINUTES`. **All four conditions are in the write's own `where`**, like every
+     * other task write, so the row decides rather than a read before it; the read under the lock
+     * is only for what to merge. The status is left as GitHub set it.
+     *
+     * **What GitHub recorded is kept over anything the holder sends under the same key**: the
+     * holder's result is merged first and the `github` entry second, so a lane cannot rewrite
+     * what the webhook said finished its work.
+     *
+     * @param  int  $taskId  The task.
+     * @param  AgentSession  $actor  The session adding its result.
+     * @param  array<array-key, mixed>  $result  What it reports.
+     * @return bool True when it was added and the event recorded.
+     */
+    private function addResult(int $taskId, AgentSession $actor, array $result): bool
+    {
+        $task = Task::query()->whereKey($taskId)->lockForUpdate()->first();
+
+        if (! $task instanceof Task) {
+            return false;
+        }
+
+        $recorded = $task->result ?? [];
+
+        // A list has no keys to merge beside `github`, and spreading one would store `{"0": ...}`,
+        // a different shape from the same list completed the ordinary way. So it goes under a key.
+        $reported = array_is_list($result) ? ['reported' => $result] : $result;
+
+        $changed = Task::query()
+            ->whereKey($taskId)
+            // Implied today, since nothing moves a task out of `done`; kept so a later transition
+            // out of it cannot reopen this path without being read. No test can kill its removal,
+            // which is expected: it is an equivalent mutant today
+            ->where('status', TaskStatus::Done->value)
+            ->where('claimed_by', $actor->getKey())
+            ->whereNull('result_added_at')
+            ->where('github_finished_at', '>=', Carbon::now()->subMinutes(self::RESULT_WINDOW_MINUTES))
+            ->update([
+                'result' => json_encode([...$reported, ...array_intersect_key($recorded, ['github' => true])], JSON_THROW_ON_ERROR),
+
+                // Always a change, so MySQL's rows-changed count cannot read this as a lost race
+                'result_added_at' => Carbon::now(),
+                'updated_at' => Carbon::now(),
+            ]);
+
+        if ($changed !== 1) {
+            return false;
+        }
+
+        $this->events->record(
+            FleetEventType::TaskResultAdded,
+            $actor,
+            sprintf('Task #%d: its holder added a result after GitHub finished it.', $taskId),
+            [
+                'task_id' => $taskId,
+                'to' => TaskStatus::Done->value,
+                ...self::labelled($task->sub_label),
+            ]
+        );
+
+        return true;
     }
 
     /**

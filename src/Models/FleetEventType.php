@@ -174,6 +174,12 @@ enum FleetEventType: string
     case TaskCancelled = 'task.cancelled';
 
     /**
+     * The session that held a task GitHub finished added its own result to it afterwards (#433).
+     * Not a second completion: the task's status is whatever GitHub's delivery left it.
+     */
+    case TaskResultAdded = 'task.result_added';
+
+    /**
      * A session took a free lock.
      */
     case LockAcquired = 'lock.acquired';

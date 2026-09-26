@@ -114,6 +114,9 @@ final class TaskBranchTool extends Tool
                 Outcome::NotFound => 'No task with that id.',
                 Outcome::Conflict => 'That task is not in progress or blocked. Report a branch after starting the task.',
                 Outcome::Forbidden => 'This session does not hold that task.',
+
+                // `reportBranch()` never answers it; only a completion does
+                Outcome::Added => 'Applied.',
             });
         }
 

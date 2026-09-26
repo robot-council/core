@@ -194,7 +194,15 @@ final class GitHubState
         foreach ($tasks as $task) {
             // Filtered to a string above; checked again because the analyzer cannot see into the filter
             if (\is_string($task->issue)) {
-                $this->tasks->finishFromGitHub($task->id, completed: true, why: 'its issue closed on GitHub', still: ['issue' => $task->issue]);
+                $this->tasks->finishFromGitHub(
+                    $task->id,
+                    completed: true,
+                    why: 'its issue closed on GitHub',
+                    still: ['issue' => $task->issue],
+                    // The task's own reference rather than the delivery's, so the case matches what
+                    // the task was filed with
+                    finished: ['issue' => $task->issue, 'state_reason' => self::stateReason($issue)]
+                );
             }
         }
 
@@ -262,11 +270,48 @@ final class GitHubState
                 $task->id,
                 completed: $merged,
                 why: $merged ? 'its pull request merged on GitHub' : 'its pull request closed on GitHub without merging',
-                still: ['branch' => $branch]
+                still: ['branch' => $branch],
+                finished: [
+                    'pull_request' => $repository.'#'.$stored->number,
+                    'merged' => $merged,
+                    'merge_commit_sha' => $merged ? self::mergeCommit($pull) : null,
+                ]
             );
         }
 
         return 'applied';
+    }
+
+    /**
+     * Why GitHub says an issue closed, from the delivery (#433).
+     *
+     * One of the values GitHub documents, or null for anything else: it reaches a task's result,
+     * which other developers' agents read, so it is not copied through unchecked.
+     *
+     * @param  array<array-key, mixed>  $issue  The issue object.
+     * @return string|null The reason.
+     */
+    private static function stateReason(array $issue): ?string
+    {
+        $reason = $issue['state_reason'] ?? null;
+
+        return \in_array($reason, ['completed', 'not_planned', 'duplicate', 'reopened'], true) ? $reason : null;
+    }
+
+    /**
+     * The commit a merged pull request landed as, from the delivery (#433).
+     *
+     * A hex object name, SHA-1 or SHA-256, or null for anything else, for the reason
+     * `stateReason()` gives.
+     *
+     * @param  array<array-key, mixed>  $pull  The pull request object.
+     * @return string|null The commit.
+     */
+    private static function mergeCommit(array $pull): ?string
+    {
+        $sha = $pull['merge_commit_sha'] ?? null;
+
+        return \is_string($sha) && preg_match('/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/D', $sha) === 1 ? $sha : null;
     }
 
     /**
