@@ -484,7 +484,12 @@ it('finds when a closed window next opens, past weekends and days off (#440)', f
     // Chicago springs forward on 8 March 2026: 02:00 local does not happen, and the window
     // opens at 03:00 CDT, which is 08:00 UTC
     'a window starting in the skipped hour' => ['America/Chicago 02:00 04:00 keep', [], '2026-03-08 07:00:00 UTC', '2026-03-08 08:00'],
-    // And falls back on 1 November: a 09:00 start after the change is 15:00 UTC, not 14:00
+    // A start inside the skipped hour is open from the change itself, 03:00 CDT, not 03:30
+    'a start half an hour into the skipped hour' => ['America/Chicago 02:30 09:00 keep', [], '2026-03-08 07:00:00 UTC', '2026-03-08 08:00'],
+    // Chicago falls back on 1 November: 01:00-02:00 local happens at 06:00 UTC (CDT) and again at
+    // 07:00 UTC (CST). From 01:10 CST, a 01:30 start's second occurrence is 07:30 UTC that day
+    'the second pass through the repeated hour' => ['America/Chicago 01:30 02:00 keep', [], '2026-11-01 07:10:00 UTC', '2026-11-01 07:30'],
+    // And a 09:00 start after the change is 15:00 UTC, not 14:00
     'across the fall-back change' => ['America/Chicago 09:00 17:00 keep', [], '2026-10-31 23:00:00 UTC', '2026-11-01 15:00'],
 ]);
 
