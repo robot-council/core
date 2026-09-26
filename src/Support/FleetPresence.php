@@ -39,9 +39,6 @@ final class FleetPresence
 
     /**
      * @param  AgentLogins  $logins  Resolves the GitHub account behind a session.
-     */
-    /**
-     * @param  AgentLogins  $logins  Who each session belongs to.
      * @param  SessionLabels  $labels  Each session named for a person (#421).
      */
     public function __construct(private readonly AgentLogins $logins, private readonly SessionLabels $labels) {}

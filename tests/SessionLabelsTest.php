@@ -10,6 +10,8 @@ declare(strict_types=1);
  */
 
 use Livewire\Livewire;
+use RobotCouncil\Livewire\Agents;
+use RobotCouncil\Livewire\Lanes;
 use RobotCouncil\Livewire\Locks as LocksPage;
 use RobotCouncil\Livewire\TaskBoard;
 use RobotCouncil\Models\AgentSession;
@@ -143,3 +145,58 @@ it('adds no query per row to the queue', function (int $tasks): void {
     // The tasks, the sessions with their installations, the logins, and the hidden count
     expect(queriesIssuedBy(fn () => Livewire::test(TaskBoard::class)))->toBe(4);
 })->with([1, 5, 20]);
+
+it('cuts the slot in characters, so a letter whose lower case is shorter in bytes cannot split another', function (): void {
+    // KELVIN SIGN lowers to a one-byte `k` from three bytes. Nothing a session can store reaches
+    // this -- work locations are lower-case ASCII -- but the helper is public
+    expect(SessionLabels::of('kit/kit', 'box', "\u{212A}it-a"))->toBe('kit/box/a');
+});
+
+it('names a session the same way on the lane board and the agents list', function (): void {
+    $session = labelledSession($this, 'josh-office', 'robot-council/core', 'robot-council-core-a');
+
+    Livewire::test(Lanes::class)
+        ->assertSeeHtml('<div class="font-medium"><code>core/josh-office/a</code> &middot; octodev</div>');
+
+    Livewire::test(Agents::class)
+        ->assertSeeHtml('<th role="columnheader">Session</th>')
+        ->assertSeeHtml('<div><code>core/josh-office/a</code></div>');
+
+    // A link to one session names it rather than its id
+    Livewire::withQueryParams(['session' => $session->id])->test(Agents::class)
+        ->assertSeeHtml('<span>Showing one session, <code>core/josh-office/a</code>.</span>');
+});
+
+it('keeps the login on the lane board and the agents list for a session with no repository', function (): void {
+    labelledSession($this, 'josh-office', null, null);
+
+    Livewire::test(Lanes::class)->assertDontSee('josh-office/');
+
+    $html = Livewire::test(Agents::class)->html();
+
+    preg_match('/data-label="Session">(.*?)<\/td>/s', $html, $cell);
+
+    expect(trim(strip_tags($cell[1] ?? '')))->toBe('octodev');
+});
+
+it('names a previous holder by login when it has no label', function (): void {
+    $first = labelledSession($this, 'josh-office', null, null);
+    $second = labelledSession($this, 'josh-home', 'robot-council/core', 'robot-council-core-b');
+
+    $locks = app(Locks::class);
+    $locks->acquire($first, 'branch:main', 300, false);
+    $locks->forceRelease($second, 'branch:main');
+    $locks->acquire($second, 'branch:main', 300, false);
+
+    $html = Livewire::test(LocksPage::class)->html();
+
+    // Read as text, since Livewire marks the `@if` inside the element with comments
+    preg_match_all('/<div class="text-meta opacity-80">(.*?)<\/div>/s', $html, $cells);
+
+    $after = array_values(array_filter(
+        array_map(static fn (string $cell): string => trim((string) preg_replace('/\s+/', ' ', strip_tags($cell))), $cells[1]),
+        static fn (string $text): bool => str_starts_with($text, 'after '),
+    ));
+
+    expect($after)->toBe(['after octodev']);
+});

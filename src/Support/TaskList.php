@@ -42,9 +42,6 @@ final class TaskList
 
     /**
      * @param  AgentLogins  $logins  Who each session belongs to.
-     */
-    /**
-     * @param  AgentLogins  $logins  Who each session belongs to.
      * @param  SessionLabels  $labels  Each session named for a person, for the dashboard's read only (#421).
      */
     public function __construct(private readonly AgentLogins $logins, private readonly SessionLabels $labels) {}

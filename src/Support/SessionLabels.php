@@ -124,8 +124,10 @@ final readonly class SessionLabels
         foreach ($owner === '' ? [$name.'-'] : [$owner.'-'.$name.'-', $name.'-'] as $prefix) {
             // Without regard to case: an owner such as `UAMS-Web` is often written lower-case in the
             // name of a checkout
-            if (str_starts_with(mb_strtolower($workLocation), mb_strtolower($prefix)) && \strlen($workLocation) > \strlen($prefix)) {
-                return substr($workLocation, \strlen($prefix));
+            // Measured and cut in characters, so a letter whose lower case is shorter in bytes cannot
+            // move the cut into the middle of another
+            if (str_starts_with(mb_strtolower($workLocation), mb_strtolower($prefix)) && mb_strlen($workLocation) > mb_strlen($prefix)) {
+                return mb_substr($workLocation, mb_strlen($prefix));
             }
         }
 

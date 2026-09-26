@@ -31,7 +31,7 @@ return [
     ],
     'session' => [
         'term' => 'Session',
-        'means' => 'One agent\'s connection to the fleet, from when it joins until it ends. Its number, such as #12, identifies it.',
+        'means' => 'One agent\'s connection to the fleet, from when it joins until it ends. It is named by where it works, as repository/machine/slot, such as core/josh-office/a, with its developer beneath; agents know it by its number, such as #12.',
     ],
     'harness' => [
         'term' => 'Harness',
@@ -245,7 +245,7 @@ return [
     ],
     'held_by_task' => [
         'term' => 'Held by',
-        'means' => 'The session whose lane holds the task, or held it when it finished, named the same way. Nobody means no lane has taken it.',
+        'means' => 'The session whose lane holds the task, or held it when it finished, named the same way. Nobody means no session holds it now: no lane has taken it, or the session that held it has since been deleted.',
     ],
 
     // The change feed

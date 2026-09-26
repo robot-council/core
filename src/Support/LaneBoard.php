@@ -26,7 +26,7 @@ use RobotCouncil\Models\TaskStatus;
  * **`Parked` is `Seats::of()`, the rule a placement refuses on (#320)**, so the label and the
  * refusal cannot disagree.
  *
- * @phpstan-type LaneRow array{id: int, repository: string|null, developer: string|null, machine: string, harness: string, slot: string|null, is_gate: bool, state: string, watcher: array{state: string, age_seconds: int|null}, holding: int, capacity: int, on_what: array<string, mixed>|null, known_since: Carbon}
+ * @phpstan-type LaneRow array{id: int, repository: string|null, developer: string|null, machine: string, harness: string, slot: string|null, label: string|null, is_gate: bool, state: string, watcher: array{state: string, age_seconds: int|null}, holding: int, capacity: int, on_what: array<string, mixed>|null, known_since: Carbon}
  *
  * The reader is for a developer on the dashboard, who #73 decided sees the whole fleet, so issue
  * references and branches are shown here though `TaskList` withholds them from agents that may not
@@ -265,6 +265,9 @@ final class LaneBoard
             'machine' => $session->installation->machine_label,
             'harness' => $session->installation->harness,
             'slot' => $session->work_location,
+
+            // The session named as the queue and the locks page name it (#421), from the one helper
+            'label' => SessionLabels::of($session->repository, $session->installation->machine_label, $session->work_location),
             'is_gate' => $session->role === Role::Ci,
             'state' => $state,
 
