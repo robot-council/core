@@ -102,7 +102,7 @@ final class AccessLists extends Component
         }
 
         try {
-            $added = $this->service(AllowlistEntries::class)->add($list, $this->githubId, trim($this->login), $this->adminGithubId());
+            $added = $this->service(AllowlistEntries::class)->add($list, $this->githubId, trim($this->login), $this->adminGithubId(), $this->service(CurrentDeveloper::class)->key());
         } catch (InvalidArgumentException $invalidArgumentException) {
             $this->say('add', 'Not added: '.$invalidArgumentException->getMessage(), true);
 
@@ -141,7 +141,7 @@ final class AccessLists extends Component
             return;
         }
 
-        $outcome = $this->service(AllowlistEntries::class)->remove($access, $githubId);
+        $outcome = $this->service(AllowlistEntries::class)->remove($access, $githubId, $this->service(CurrentDeveloper::class)->key());
 
         match ($outcome) {
             AllowlistRemoval::FromConfiguration => $this->say($access->value, 'Not removed: '.AllowlistEntries::fromConfiguration($access, $githubId), true),
