@@ -210,7 +210,12 @@ final class AccessLists extends Component
             static fn (array $entry): bool => ! $entry['also_configured']
         );
 
-        return view('robot-council::livewire.access-lists', [
+        // Pinned, as every panel pins it: whether the analyzer resolves a package view depends on
+        // whether it could boot the application, which differs between a developer's machine and CI
+        /** @var view-string $template */
+        $template = 'robot-council::livewire.access-lists';
+
+        return view($template, [
             'lists' => $lists,
             'logins' => $this->knownLogins($lists),
             'lastTableAdmin' => \count($tableAdmins) === 1 ? array_values($tableAdmins)[0]['github_id'] : null,
