@@ -133,17 +133,19 @@
 
                                         {{-- When it joined and when it was last heard from (#419),
                                              which is what tells a restarted agent's new session from
-                                             the old one beside it in the same checkout. The exact time
-                                             is in each element's `datetime`, for software; the words
-                                             are what a person reads. --}}
+                                             the old one beside it in the same checkout. Each is shown
+                                             as a date and clock time a person can match to their own
+                                             terminal, in the dashboard's zone, and then how long ago;
+                                             the exact instant is also in `datetime`, for software. --}}
+                                        @php($when = fn (string $instant): string => \Illuminate\Support\Carbon::parse($instant)->setTimezone($timezone)->format('Y-m-d H:i T').' ('.\Illuminate\Support\Carbon::parse($instant)->diffForHumans().')')
                                         <span data-session-times>
                                             joined
                                             @if ($session['joined_at'] !== null)
-                                                <time datetime="{{ $session['joined_at'] }}">{{ \Illuminate\Support\Carbon::parse($session['joined_at'])->diffForHumans() }}</time>,
+                                                <time datetime="{{ $session['joined_at'] }}">{{ $when($session['joined_at']) }}</time>,
                                             @else
                                                 at an unrecorded time,
                                             @endif
-                                            last seen <time datetime="{{ $session['last_seen_at'] }}">{{ \Illuminate\Support\Carbon::parse($session['last_seen_at'])->diffForHumans() }}</time>
+                                            last seen <time datetime="{{ $session['last_seen_at'] }}">{{ $when($session['last_seen_at']) }}</time>
                                         </span>
 
                                         {{-- **What it ASKED to be, presented as information and

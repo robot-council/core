@@ -70,11 +70,32 @@ it('tells apart two live sessions in the same checkout with the same role', func
         ->and($rows[$old->id])->toContain('#'.$old->id)
         ->and($rows[$new->id])->toContain('#'.$new->id)
         // And when it joined and was last seen
-        ->and($rows[$old->id])->toContain('joined 1 hour ago, last seen 20 minutes ago')
-        ->and($rows[$new->id])->toContain('joined 30 seconds ago, last seen 30 seconds ago')
+        ->and($rows[$old->id])->toContain('joined 2026-09-26 08:00 UTC (1 hour ago), last seen 2026-09-26 08:40 UTC (20 minutes ago)')
+        ->and($rows[$new->id])->toContain('joined 2026-09-26 09:00 UTC (30 seconds ago), last seen 2026-09-26 09:00 UTC (30 seconds ago)')
         // The exact time is in the markup, for software rather than for hover
         ->and($html)->toContain('<time datetime="2026-09-26T08:00:00+00:00">')
-        ->not->toContain('title=');
+        ->toContain('<time datetime="2026-09-26T08:40:00+00:00">');
+});
+
+it("shows the same instants on a host whose clock is not UTC, in the dashboard's zone", function (): void {
+    // `created_at` is written on the application's clock and `last_seen_at` on the presence
+    // clock, which is UTC (#51); both must still name the right instant
+    $zone = date_default_timezone_get();
+    config(['app.timezone' => 'Asia/Kolkata', 'robot-council.dashboard.timezone' => 'America/Chicago']);
+    date_default_timezone_set('Asia/Kolkata');
+
+    try {
+        $this->travelTo(CarbonImmutable::parse('2026-09-26 08:00:00', 'UTC'));
+        $session = app(AgentSessions::class)->start($this->approveInstallation($this->admin, 'josh-office'), 'robot-council/core', 'robot-council-core-a')->owner;
+        $this->travelTo(CarbonImmutable::parse('2026-09-26 08:10:00', 'UTC'));
+
+        $row = adminSessionRows(Livewire::actingAs($this->admin)->test(Administration::class)->html())[$session->id] ?? '';
+
+        // 08:00 UTC is 03:00 in Chicago on that date
+        expect($row)->toContain('joined 2026-09-26 03:00 CDT (10 minutes ago), last seen 2026-09-26 03:00 CDT (10 minutes ago)');
+    } finally {
+        date_default_timezone_set($zone);
+    }
 });
 
 // Showing these adds no query: the id and both times are on the session rows the page already
