@@ -14,7 +14,8 @@
 
     <p class="max-w-xl leading-relaxed">
         What the fleet's agents have asked you for, and which lanes are held until you act. Everyone's
-        items are on the Lanes page; this shows only yours.
+        items are on the <a href="{{ route('robot-council.lanes') }}" class="link">Lanes page</a>; this
+        shows only yours.
     </p>
 
     @if ($waiting['owed'] === [] && $waiting['holds'] === [])
@@ -33,7 +34,7 @@
                 @else
                     <ul class="divide-y divide-base-200">
                         @foreach ($waiting['owed'] as $item)
-                            <li wire:key="owed-item-{{ $item['id'] }}" class="py-3" data-owed-item>
+                            <li wire:key="owed-item-{{ $item['id'] }}" class="max-w-xl py-3 leading-relaxed" data-owed-item>
                                 @if (\RobotCouncil\Support\TicketLink::url($item['ticket']) !== null)
                                     <a href="{{ \RobotCouncil\Support\TicketLink::url($item['ticket']) }}" class="link" rel="noopener noreferrer"><code>{{ $item['ticket'] }}</code></a>
                                 @else
@@ -57,10 +58,10 @@
                 @else
                     <ul class="divide-y divide-base-200">
                         @foreach ($waiting['holds'] as $hold)
-                            <li wire:key="held-lane-{{ $hold['session_id'] }}" class="py-3" data-held-lane>
+                            <li wire:key="held-lane-{{ $hold['session_id'] }}" class="max-w-xl py-3 leading-relaxed" data-held-lane>
                                 <code>{{ $hold['label'] ?? $hold['machine'] }}</code>
                                 <span class="badge badge-outline">Blocked</span>
-                                &mdash; waiting on you for {{ $hold['reason'] }}
+                                &mdash; {{ $hold['waiting'] }}
                                 <div class="text-meta opacity-90">held {{ $hold['held_at']->diffForHumans(syntax: \Carbon\CarbonInterface::DIFF_ABSOLUTE) }}</div>
                             </li>
                         @endforeach

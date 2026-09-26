@@ -7,6 +7,7 @@ declare(strict_types=1);
  *
  * @command  vendor/bin/pest --compact tests/WaitingOnMeTest.php
  */
+use RobotCouncil\Models\GithubIdentity;
 use RobotCouncil\Models\HoldReason;
 use RobotCouncil\Support\AgentSessions;
 use RobotCouncil\Support\LaneHolds;
@@ -99,4 +100,46 @@ it('renders a question carrying markup as text', function (): void {
     expect($html)->not->toContain('<script>alert(1)</script>')
         ->and($html)->toContain(e('<script>alert(1)</script>'))
         ->and($html)->not->toContain('<b>why</b>');
+});
+
+it('shows no lane held on another developer, nor on a lane that has gone or is ephemeral', function (): void {
+    $sessions = $this->service(AgentSessions::class);
+    $holds = $this->service(LaneHolds::class);
+
+    $onBob = $sessions->start($this->approveInstallation($this->bob, 'bob-laptop'), 'robot-council/core', 'b')->owner;
+    $gone = $sessions->start($this->approveInstallation($this->bob, 'bob-old'), 'robot-council/core', 'd')->owner;
+    $ephemeral = $sessions->start($this->approveInstallation($this->bob, 'bob-api'), 'robot-council/core', 'e', ephemeral: true)->owner;
+
+    $holds->hold($this->coordinatorSession, $onBob->id, 'bob-dev', HoldReason::Decision);
+    $holds->hold($this->coordinatorSession, $gone->id, 'alice-dev', HoldReason::Decision);
+    $holds->hold($this->coordinatorSession, $ephemeral->id, 'alice-dev', HoldReason::Decision);
+    $this->markSessionGone($gone);
+
+    $this->actingAs($this->alice)->get(route('robot-council.waiting'))
+        ->assertOk()
+        ->assertDontSee('core/bob-laptop/b')
+        ->assertDontSee('core/bob-old/d')
+        ->assertDontSee('core/bob-api/e');
+});
+
+it('matches the developer without regard to case, as items and holds are grouped', function (): void {
+    $lane = $this->service(AgentSessions::class)->start($this->approveInstallation($this->bob, 'bob-laptop'), 'robot-council/core', 'b')->owner;
+    $this->service(LaneHolds::class)->hold($this->coordinatorSession, $lane->id, 'Alice-Dev', HoldReason::Action);
+    $this->owed->record($this->coordinatorSession, 'ALICE-DEV', 'robot-council/core#470', 'Shouted question', 'case test');
+
+    $this->actingAs($this->alice)->get(route('robot-council.waiting'))
+        ->assertOk()
+        ->assertSee('core/bob-laptop/b')
+        ->assertSee('waiting on you for an action only you can take')
+        ->assertSee('Shouted question');
+});
+
+it('shows the empty state to a signed-in developer the fleet has no login for', function (): void {
+    // Allowlisted by ID, but with the identity's login cleared, so nothing can be matched to them
+    GithubIdentity::query()->where('github_id', 5101)->update(['github_login' => '']);
+
+    $this->actingAs($this->alice)->get(route('robot-council.waiting'))
+        ->assertOk()
+        ->assertSee('Nothing is waiting on you')
+        ->assertDontSee('Run the screen-reader pass');
 });
