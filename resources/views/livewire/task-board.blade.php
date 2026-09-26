@@ -82,8 +82,18 @@
                                 <td role="cell" data-label="Priority">{{ $task['priority'] }}</td>
 
                                 <td role="cell" data-label="Filed by">
+                                    {{-- The session by where it works, `<repository>/<machine>/<slot>` (#421): one
+                                         developer runs many sessions, so the login alone names none of
+                                         them. The login stays visible beneath, rather than in hover text
+                                         a keyboard or touch reader cannot reach. Name no class in this
+                                         comment that the markup does not use. --}}
                                     @if ($task['created_by'])
-                                        {{ $task['created_by']['github_login'] ?? 'an unknown account' }}
+                                        @if (($task['created_by']['label'] ?? null) !== null)
+                                            <div><code>{{ $task['created_by']['label'] }}</code></div>
+                                            <div class="text-meta opacity-80">{{ $task['created_by']['github_login'] ?? 'an unknown account' }}</div>
+                                        @else
+                                            {{ $task['created_by']['github_login'] ?? 'an unknown account' }}
+                                        @endif
 
                                         {{-- #16 decides who may claim this, and the flag is what was
                                              true when the task was filed rather than now --}}
@@ -97,7 +107,12 @@
 
                                 <td role="cell" data-label="Held by">
                                     @if ($task['claimed_by'])
-                                        {{ $task['claimed_by']['github_login'] ?? 'an unknown account' }}
+                                        @if (($task['claimed_by']['label'] ?? null) !== null)
+                                            <div><code>{{ $task['claimed_by']['label'] }}</code></div>
+                                            <div class="text-meta opacity-80">{{ $task['claimed_by']['github_login'] ?? 'an unknown account' }}</div>
+                                        @else
+                                            {{ $task['claimed_by']['github_login'] ?? 'an unknown account' }}
+                                        @endif
                                     @else
                                         <span class="opacity-80">nobody</span>
                                     @endif
