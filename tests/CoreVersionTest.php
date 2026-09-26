@@ -54,7 +54,7 @@ it('reads the running version from the install record, with no request made', fu
  */
 function versionFooter(string $html): ?string
 {
-    if (preg_match('/<footer [^>]*data-core-version>(.*?)<\/footer>/s', $html, $footer) !== 1) {
+    if (preg_match('/<footer [^>]*data-core-version[^>]*>(.*?)<\/footer>/s', $html, $footer) !== 1) {
         return null;
     }
 
@@ -78,3 +78,12 @@ it('shows the version at the foot of an authenticated page and the standalone pa
     'signed out' => ['robot-council.signed-out', false],
     'sign-in expired' => ['robot-council.auth.callback', false],
 ]);
+
+it('says "version unknown" rather than failing when the package is not in the install record', function (): void {
+    // What `InstalledVersions` does for a package it has no record of
+    $absent = static function (string $package): never {
+        throw new OutOfBoundsException(sprintf('Package "%s" is not installed', $package));
+    };
+
+    expect(CoreVersion::current($absent, $absent))->toBe('robot-council/core, version unknown');
+});

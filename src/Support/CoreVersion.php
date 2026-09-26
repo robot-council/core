@@ -19,6 +19,12 @@ use OutOfBoundsException;
  * **A version that is not a tag says so.** Installed from a branch (`dev-main`, `1.x-dev`) or with no
  * version at all, the page shows that name with the short commit, rather than showing nothing or
  * passing a branch off as a release.
+ *
+ * **The commit is the one Composer recorded when it last installed the package**, not one read from
+ * the running code. For a tag, a VCS branch or a deployment that installs on every release, the two
+ * are the same. For a path repository they can differ until the next `composer install`, and where
+ * the path has no `.git` directory Composer records a hash of the package's `composer.json` in its
+ * place, which this cannot tell from a commit.
  */
 final class CoreVersion
 {
@@ -35,15 +41,17 @@ final class CoreVersion
     /**
      * The running version, as the page prints it.
      *
+     * @param  (callable(string): ?string)|null  $version  How to read the package's version; Composer's install record when null.
+     * @param  (callable(string): ?string)|null  $reference  How to read its commit reference; Composer's install record when null.
      * @return string For example `robot-council/core v0.7.1`, or `robot-council/core dev-main (0924157)`.
      */
-    public static function current(): string
+    public static function current(?callable $version = null, ?callable $reference = null): string
     {
+        $version ??= InstalledVersions::getPrettyVersion(...);
+        $reference ??= InstalledVersions::getReference(...);
+
         try {
-            return self::describe(
-                InstalledVersions::getPrettyVersion(self::PACKAGE),
-                InstalledVersions::getReference(self::PACKAGE),
-            );
+            return self::describe($version(self::PACKAGE), $reference(self::PACKAGE));
         } catch (OutOfBoundsException) {
             // Not in the install record at all, which a host could only arrange by loading the
             // package some other way. The page says so rather than failing to render.
