@@ -42,8 +42,9 @@ final class TaskList
 
     /**
      * @param  AgentLogins  $logins  Who each session belongs to.
+     * @param  SessionLabels  $labels  Each session named for a person, for the dashboard's read only (#421).
      */
-    public function __construct(private readonly AgentLogins $logins) {}
+    public function __construct(private readonly AgentLogins $logins, private readonly SessionLabels $labels) {}
 
     /**
      * Read a page of tasks, most urgent first, from a cursor.
@@ -124,16 +125,23 @@ final class TaskList
     {
         $tasks = $this->queue($status, $limit, $after, $status instanceof TaskStatus ? [] : $this->terminalOnly($hiddenBefore));
 
-        $logins = $this->logins->forSessions([
+        // The dashboard names a session by where it works as well as by its developer's login
+        // (#421), read in the same two queries the login alone cost. The label is added here and
+        // not in `describe()`, which the agents' read shares: they keep the ids and logins they
+        // pass back in tool calls.
+        $people = $this->labels->forSessions([
             ...$tasks->pluck('created_by')->all(),
             ...$tasks->pluck('claimed_by')->all(),
         ]);
+
+        $logins = array_filter(array_map(static fn (array $person): ?string => $person['login'], $people), is_string(...));
+        $labels = array_filter(array_map(static fn (array $person): ?string => $person['label'], $people), is_string(...));
 
         $last = $tasks->last();
 
         return [
             'tasks' => array_values(array_map(
-                fn (Task $task): array => $this->describe($task, $logins, readable: true),
+                fn (Task $task): array => $this->labelled($this->describe($task, $logins, readable: true), $labels),
                 $tasks->all()
             )),
             'cursor' => $last instanceof Task ? ['priority' => $last->priority, 'id' => $last->id] : null,
@@ -304,6 +312,28 @@ final class TaskList
             'created_by' => $this->actor($task->created_by, $logins, $task->created_with_coordinator),
             'claimed_by' => $this->actor($task->claimed_by, $logins, null),
         ];
+    }
+
+    /**
+     * A described task with a `label` on each session it names, where that session has one.
+     *
+     * @param  array<string, mixed>  $described  The task, as `describe()` put it.
+     * @param  array<int, string>  $labels  Labels, keyed by agent session id.
+     * @return array<string, mixed> The same task.
+     */
+    private function labelled(array $described, array $labels): array
+    {
+        foreach (['created_by', 'claimed_by'] as $side) {
+            $actor = $described[$side] ?? null;
+
+            if (\is_array($actor)) {
+                $session = $actor['session_id'] ?? null;
+                $actor['label'] = \is_int($session) ? ($labels[$session] ?? null) : null;
+                $described[$side] = $actor;
+            }
+        }
+
+        return $described;
     }
 
     /**

@@ -31,7 +31,7 @@ return [
     ],
     'session' => [
         'term' => 'Session',
-        'means' => 'One agent\'s connection to the fleet, from when it joins until it ends. Its number, such as #12, identifies it.',
+        'means' => 'One agent\'s connection to the fleet, from when it joins until it ends. It is named by where it works, as repository/machine/slot, such as core/josh-office/a, with its developer beneath; agents know it by its number, such as #12.',
     ],
     'harness' => [
         'term' => 'Harness',
@@ -187,7 +187,7 @@ return [
     // Locks
     'held_by_lock' => [
         'term' => 'Held by',
-        'means' => 'The session holding the lock now. After names the one that held it before.',
+        'means' => 'The session holding the lock now, named by where it works as repository/machine/slot, with its developer beneath. After names the one that held it before.',
     ],
     'fence' => [
         'term' => 'Fence',
@@ -237,7 +237,7 @@ return [
     ],
     'filed_by' => [
         'term' => 'Filed by',
-        'means' => 'The developer whose agent created the task.',
+        'means' => 'The session that created the task, named by where it works as repository/machine/slot, such as core/josh-office/a, with its developer beneath.',
     ],
     'project' => [
         'term' => 'Project',
@@ -245,7 +245,7 @@ return [
     ],
     'held_by_task' => [
         'term' => 'Held by',
-        'means' => 'The developer whose lane holds the task, or held it when it finished. Nobody means no lane has taken it.',
+        'means' => 'The session whose lane holds the task, or held it when it finished, named the same way. Nobody means no session holds it now: no lane has taken it, or the session that held it has since been deleted.',
     ],
 
     // The change feed

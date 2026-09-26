@@ -34,7 +34,10 @@
              one. The counts on the scope buttons stay the whole fleet's. --}}
         @if ($session !== null)
             <div class="flex flex-wrap items-center gap-2 text-meta">
-                <span>Showing one session, <code>#{{ $session }}</code>.</span>
+                {{-- The session named as the list names it, once the page has it (#421); its id otherwise --}}
+                @php($shown = collect($sessions['sessions'])->firstWhere('id', $session))
+                @php($shownLabel = is_array($shown) ? \RobotCouncil\Support\SessionLabels::of($shown['repository'] ?? null, $shown['machine_label'] ?? null, $shown['work_location'] ?? null) : null)
+                <span>Showing one session, <code>{{ $shownLabel ?? '#'.$session }}</code>.</span>
                 <button type="button" wire:click="showEverySession" class="btn btn-xs btn-outline">Show all</button>
             </div>
         @endif
@@ -52,7 +55,7 @@
                 <table class="table table-stack" role="table">
                     <thead role="rowgroup">
                         <tr role="row">
-                            <th role="columnheader">Developer</th>
+                            <th role="columnheader">Session</th>
                             <th role="columnheader">Machine</th>
                             <th role="columnheader">Working in</th>
                             <th role="columnheader">Role</th>
@@ -64,7 +67,17 @@
                     <tbody role="rowgroup">
                         @foreach ($sessions['sessions'] as $agent)
                             <tr role="row" wire:key="session-{{ $agent['id'] }}">
-                                <td role="cell" data-label="Developer">{{ $agent['github_login'] ?? 'an unknown account' }}</td>
+                                {{-- Named as the queue, the locks page and the lane board name a session
+                                     (#421), with its developer beneath --}}
+                                @php($label = \RobotCouncil\Support\SessionLabels::of($agent['repository'] ?? null, $agent['machine_label'] ?? null, $agent['work_location'] ?? null))
+                                <td role="cell" data-label="Session">
+                                    @if ($label !== null)
+                                        <div><code>{{ $label }}</code></div>
+                                        <div class="text-meta opacity-80">{{ $agent['github_login'] ?? 'an unknown account' }}</div>
+                                    @else
+                                        {{ $agent['github_login'] ?? 'an unknown account' }}
+                                    @endif
+                                </td>
 
                                 <td role="cell" data-label="Machine">
                                     @if (($agent['machine_label'] ?? null) !== null)

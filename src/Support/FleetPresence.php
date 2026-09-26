@@ -39,8 +39,9 @@ final class FleetPresence
 
     /**
      * @param  AgentLogins  $logins  Resolves the GitHub account behind a session.
+     * @param  SessionLabels  $labels  Each session named for a person (#421).
      */
-    public function __construct(private readonly AgentLogins $logins) {}
+    public function __construct(private readonly AgentLogins $logins, private readonly SessionLabels $labels) {}
 
     /**
      * One page of agent sessions, newest first.
@@ -242,10 +243,15 @@ final class FleetPresence
 
         $locks = $locks->take($size);
 
-        $logins = $this->logins->forSessions([
+        // Each holder's login and where it works, which is what tells one of a developer's
+        // sessions from another (#421), in the two queries the login alone cost
+        $people = $this->labels->forSessions([
             ...$locks->pluck('holder_id')->all(),
             ...$locks->pluck('previous_holder_id')->all(),
         ]);
+
+        $logins = array_filter(array_map(static fn (array $person): ?string => $person['login'], $people), is_string(...));
+        $labels = array_filter(array_map(static fn (array $person): ?string => $person['label'], $people), is_string(...));
 
         $now = Carbon::now();
 
@@ -281,6 +287,7 @@ final class FleetPresence
                 'holder' => $lock->holder_id === null ? null : [
                     'session_id' => $lock->holder_id,
                     'github_login' => $logins[$lock->holder_id] ?? null,
+                    'label' => $labels[$lock->holder_id] ?? null,
                 ],
 
                 // Who had it before, which is what tells a reader whether a lock is being handed round
@@ -288,6 +295,7 @@ final class FleetPresence
                 'previous_holder' => $lock->previous_holder_id === null ? null : [
                     'session_id' => $lock->previous_holder_id,
                     'github_login' => $logins[$lock->previous_holder_id] ?? null,
+                    'label' => $labels[$lock->previous_holder_id] ?? null,
                 ],
                 'expires_at' => $lock->expires_at?->toIso8601String(),
             ])->all()),

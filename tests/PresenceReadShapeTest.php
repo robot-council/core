@@ -141,7 +141,7 @@ it('returns every key a lock row carries, including both holders', function (): 
 
     // The holder is an object rather than a bare id, and its login is resolved. Both halves of the
     // ternary matter: negate it and a held lock reports no holder.
-    expect($page['locks'][0]['holder'])->toBe(['session_id' => $session->id, 'github_login' => 'octodev'])
+    expect($page['locks'][0]['holder'])->toBe(['session_id' => $session->id, 'github_login' => 'octodev', 'label' => null])
         ->and($page['locks'][0]['previous_holder'])->toBeNull();
 });
 
@@ -190,8 +190,8 @@ it('names the previous holder once a lock has changed hands', function (): void 
 
     $row = $this->service(FleetPresence::class)->locks(10, Scope::All)['locks'][0];
 
-    expect($row['holder'])->toBe(['session_id' => $second->id, 'github_login' => 'otherdev'])
-        ->and($row['previous_holder'])->toBe(['session_id' => $first->id, 'github_login' => 'octodev']);
+    expect($row['holder'])->toBe(['session_id' => $second->id, 'github_login' => 'otherdev', 'label' => null])
+        ->and($row['previous_holder'])->toBe(['session_id' => $first->id, 'github_login' => 'octodev', 'label' => null]);
 });
 
 it('returns both lists as JSON arrays rather than objects', function (): void {

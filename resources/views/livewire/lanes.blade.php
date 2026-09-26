@@ -74,7 +74,12 @@
                             @foreach ($lanes as $lane)
                                 <tr role="row" wire:key="lane-{{ $lane['id'] }}" @class(['bg-base-200' => $lane['is_gate']])>
                                     <td role="cell" data-label="Lane">
-                                        <div class="font-medium">{{ $lane['developer'] ?? 'unknown developer' }} &middot; <code>{{ $lane['machine'] }}</code>@if ($lane['slot'] !== null) / <code>{{ $lane['slot'] }}</code>@endif</div>
+                                        {{-- Named as the queue and the locks page name a session (#421) --}}
+                                        @if ($lane['label'] !== null)
+                                            <div class="font-medium"><code>{{ $lane['label'] }}</code> &middot; {{ $lane['developer'] ?? 'unknown developer' }}</div>
+                                        @else
+                                            <div class="font-medium">{{ $lane['developer'] ?? 'unknown developer' }} &middot; <code>{{ $lane['machine'] }}</code>@if ($lane['slot'] !== null) / <code>{{ $lane['slot'] }}</code>@endif</div>
+                                        @endif
                                         <div class="text-meta opacity-90"><code>{{ $lane['harness'] }}</code>@if ($lane['is_gate']) &middot; gate @endif</div>
                                         {{-- Occupancy against capacity (#409): the number `lane_free` refuses a
                                              placement on once the two are equal --}}
