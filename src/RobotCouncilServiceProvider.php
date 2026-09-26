@@ -184,6 +184,13 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
         // A singleton, because it is a registry: a release step registered from another service
         // provider has to be there for the sweep that runs later in the same process
         $this->app->singleton(SessionReleases::class);
+
+        // Scoped, so one request reads the added allowlist entries once however many checks it makes
+        // (#406): the middleware, the admin gate and the layout would otherwise each pay a query.
+        // Octane and the queue worker forget scoped instances between requests and jobs, and PHP-FPM
+        // starts every request fresh; the one process that changes the table in between is the one
+        // writing it, and `AllowlistEntries` forgets the instance after every change.
+        $this->app->scoped(Allowlist::class);
     }
 
     /**
