@@ -58,7 +58,7 @@
         "prepare": "@php vendor/bin/testbench package:discover --ansi",
         "analyse": "vendor/bin/phpstan analyse",
         "test": "vendor/bin/pest",
-        "test:browser": "vendor/bin/pest --group=browser",
+        "test:browser": "vendor/bin/pest --testsuite=Browser",
         "test-coverage": "vendor/bin/pest --coverage",
         "format": "vendor/bin/pint",
         "refactor": "vendor/bin/rector",

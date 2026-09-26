@@ -17,12 +17,14 @@ declare(strict_types=1);
  * is not wholly machine-decidable. Beside axe, two checks it cannot make: no status is carried by
  * color alone, and every control meets its target size.
  *
- * **Browser tests run apart.** The `browser` group is excluded from every run that does not name
- * it, because it needs Playwright and a Chromium build the ordinary matrix does not install; the
- * `browser` job in `.github/workflows/ci.yml` runs it, and locally it is
- * `vendor/bin/pest --group=browser` after `npx playwright install chromium`.
+ * **Browser tests run apart, as a test suite of their own.** `phpunit.xml.dist` keeps
+ * `tests/Browser` out of the default suite rather than only excluding a group, because the plugin
+ * starts Playwright while it collects tests -- as soon as it loads this file, before any group
+ * filter applies -- so a run that merely loads it needs Playwright installed. The `browser` job in
+ * `.github/workflows/ci.yml` runs it, and locally it is `composer test:browser` after
+ * `npx playwright install chromium`.
  *
- * @command  vendor/bin/pest --group=browser
+ * @command  vendor/bin/pest --testsuite=Browser
  */
 
 use Illuminate\Foundation\Auth\User;
