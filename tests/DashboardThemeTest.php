@@ -732,6 +732,82 @@ it('marks a pressed filter and the current page for forced colors, where their f
         ->and($current)->toBeGreaterThanOrEqual(8);
 });
 
+/**
+ * The `wire:click` actions that are dense desktop controls, allowed below the AAA target (#399).
+ *
+ * Everything else a view binds is consequential and must carry `btn-target`, so a new action is
+ * held to 44px until someone decides otherwise and lists it here. The default is the safe side:
+ * a control wrongly left dense costs a user a missed tap on something that acts on the fleet.
+ */
+const DENSE_ACTIONS = [
+    // The filter and scope rows
+    'show', 'showStatus', 'showScope', 'showEverySession', 'showEveryHolder',
+
+    // Pagination
+    'showFirst', 'showNext', 'showLatest', 'showOlder',
+];
+
+it('holds every consequential control to the AAA target size, and every control to the floor', function (): void {
+    $css = stylesheet();
+
+    // **The size, stated once** (#399). 44px through daisyUI's own `--size`, which also sets a
+    // `btn-square`'s width, directly in `utilities`, where it beats daisyUI's sublayers as the
+    // type-scale lifts do.
+    $at = strpos($css, ':where(.btn-target){--size:2.75rem;min-width:2.75rem}');
+
+    expect($at)->toBeInt()
+        ->and(blocksEnclosing($css, (int) $at))->toBe(['@layer utilities']);
+
+    // The floor the dense controls rely on: daisyUI's `btn-xs` at 24px, read from the artifact,
+    // with the field unit it multiplies at `0.25rem`
+    expect($css)->toContain('.btn-xs{--fontsize:.6875rem;--btn-p:.5rem;--size:calc(var(--size-field,.25rem) * 6)}')
+        ->and($css)->toContain('--size-field:.25rem');
+
+    $consequential = 0;
+    $dense = 0;
+
+    foreach (bladeTemplatesIn(__DIR__.'/../resources/views') as $view) {
+        $source = sourceWithoutComments($view);
+        $name = basename($view);
+
+        // Every opening tag of something a person activates. A tag can carry Blade, and the `>` in a
+        // PHP `->` or `=>` inside an `@if` does not end it: a plain `[^>]*` stopped at the first one
+        // and lost every attribute after, the class included
+        preg_match_all('/<(?:button|a|label)\b(?:->|=>|[^>])*>/s', $source, $tags);
+
+        foreach ($tags[0] as $tag) {
+            preg_match('/\bclass="([^"]*)"/', $tag, $class);
+            $classes = preg_split('/\s+/', trim($class[1] ?? '')) ?: [];
+
+            $action = preg_match('/wire:click="([a-zA-Z]+)/', $tag, $bound) === 1 ? $bound[1] : null;
+            $submits = str_contains($tag, 'type="submit"');
+
+            // A form submission acts on something, and every other bound action is consequential
+            // unless it is listed as dense
+            if ($submits || ($action !== null && ! in_array($action, DENSE_ACTIONS, true))) {
+                $consequential++;
+
+                // `toBeTrue()` rather than `toContain()`, which is variadic: a message passed to it
+                // is read as a second needle, and fails every control
+                expect('btn-target')->toBeIn($classes);
+            } elseif ($action !== null) {
+                $dense++;
+            }
+        }
+
+        // **Nothing below the floor.** daisyUI's small checkbox, radio and toggle are 20px or less,
+        // so a view that names one ships a target under 24px
+        preg_match_all('/\b(?:checkbox|radio|toggle)-(?:xs|sm)\b/', $source, $small);
+
+        expect($small[0])->toBeEmpty(sprintf('%s: %s', $name, implode(', ', $small[0])));
+    }
+
+    // The controls: the views hold consequential actions and dense ones today, so zero of either
+    // is a scan that read nothing
+    expect($consequential)->toBeGreaterThanOrEqual(20)
+        ->and($dense)->toBeGreaterThanOrEqual(15);
+});
+
 it('measures every dimmed step the views actually use', function (): void {
     // **The half that keeps the test above honest.** Measuring a fixed list proves those two steps
     // are legible and says nothing about a third somebody adds later -- which is exactly how #197

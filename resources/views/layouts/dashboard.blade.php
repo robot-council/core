@@ -48,7 +48,7 @@
         <div class="drawer-content flex min-h-screen min-w-0 flex-col">
             <header class="navbar sticky top-0 z-30 gap-2 border-b border-base-300 bg-base-100 px-4">
                 <label for="robot-council-navigation"
-                    class="btn btn-square btn-ghost drawer-button lg:hidden"
+                    class="btn btn-square btn-target btn-ghost drawer-button lg:hidden"
                     aria-label="Show navigation">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -74,7 +74,7 @@
                     <form method="POST" action="{{ route('robot-council.sign-out') }}">
                         @csrf
 
-                        <button type="submit" class="btn btn-sm btn-ghost">Sign out</button>
+                        <button type="submit" class="btn btn-target btn-ghost">Sign out</button>
                     </form>
                 </div>
             </header>
