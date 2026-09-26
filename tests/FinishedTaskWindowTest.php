@@ -114,7 +114,8 @@ it('says how many finished tasks it hides, by status, and links to each', functi
 
     $words = trim((string) preg_replace('/\s+/', ' ', strip_tags($notice[1] ?? '')));
 
-    expect($words)->toBe('Hidden: 2 done and 1 failed tasks past their display window (done after 24 hours, failed after 7 days). Choose one to see every task in that status.')
+    // The words a screen reader hears include each link's own purpose (SC 2.4.9)
+    expect($words)->toBe('Hidden, finished tasks past their display window: 2 done tasks, show every done task and 1 failed task, show every failed task (done after 24 hours, failed after 7 days). Choose one to see every task in that status.')
         ->and($notice[1] ?? '')->toContain('href="'.route('robot-council.queue', ['status' => 'done']).'"')
         ->toContain('href="'.route('robot-council.queue', ['status' => 'failed']).'"')
         // Only the statuses that are hiding something are offered
@@ -196,4 +197,25 @@ it('counts as hidden only the tasks the board hides, so the notice agrees with t
 
     expect($list->hiddenFinished($cutoffs))->toBe(['done' => 1])
         ->and(array_column($list->everything(null, 25, null, $cutoffs)['tasks'], 'title'))->toBe(['Exactly at']);
+});
+
+it('says "a finished task past its" for a single hidden task', function (): void {
+    agedTask($this, TaskStatus::Failed, 8 * 86400, 'Old failure');
+
+    preg_match('/<p [^>]*data-hidden-finished>(.*?)<\/p>/s', Livewire::test(TaskBoard::class)->html(), $notice);
+
+    expect(trim((string) preg_replace('/\s+/', ' ', strip_tags($notice[1] ?? ''))))
+        ->toBe('Hidden, a finished task past its display window: 1 failed task, show every failed task (failed after 7 days). Choose one to see every task in that status.');
+});
+
+it('keeps a finished task with no updated_at, and does not count it, so the notice agrees with the rows', function (): void {
+    $task = agedTask($this, TaskStatus::Done, 60, 'No stamp');
+
+    DB::table('robot_council_tasks')->where('id', $task->id)->update(['updated_at' => null]);
+
+    $list = app(TaskList::class);
+    $cutoffs = app(FinishedTaskWindows::class)->cutoffs(CarbonImmutable::now());
+
+    expect(array_column($list->everything(null, 25, null, $cutoffs)['tasks'], 'title'))->toBe(['No stamp'])
+        ->and($list->hiddenFinished($cutoffs))->toBeEmpty();
 });

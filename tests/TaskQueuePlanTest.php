@@ -158,7 +158,8 @@ function capturedQueueSql(?TaskStatus $status = null, ?array $after = null): arr
         $status,
         26,
         $after,
-        $status instanceof TaskStatus ? [] : app(FinishedTaskWindows::class)->cutoffs(Carbon::now()),
+        // At a fixed moment, so the fixture's finished rows are past their windows whatever day this runs
+        $status instanceof TaskStatus ? [] : app(FinishedTaskWindows::class)->cutoffs(Carbon::parse('2026-09-26 12:00:00')),
     );
 
     DB::connection()->disableQueryLog();

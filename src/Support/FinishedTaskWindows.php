@@ -20,12 +20,16 @@ use RobotCouncil\Models\TaskStatus;
  * seen across a weekend.
  *
  * Age is measured from `updated_at`, which is when the task finished, as #127 established: nothing
- * transitions out of a terminal status. A task exactly at the cutoff is still shown; only one older
- * than its window is hidden.
+ * transitions out of a terminal status. The one later write is `Tasks::addResult()`, which a
+ * finisher may use for `RESULT_WINDOW_MINUTES` after it finishes, so the window can start that many
+ * minutes late; the prune reads the column the same way. A task exactly at the cutoff is still
+ * shown; only one older than its window is hidden.
  *
- * **A value a host published that is not a whole number of hours from 0 up is not refused**, for the
- * reason `PollInterval` gives: this is read on every render, and the documented default is used
- * instead. Zero means never hide, as the board behaved before #420.
+ * **A value in a published config that is not a whole number of hours from 0 up is not refused**,
+ * for the reason `PollInterval` gives: this is read on every render, and the documented default is
+ * used instead. The env variables are cast with `(int)` like every other in the config file, so a
+ * non-number set there reads as 0, which never hides. Zero means never hide, as the board behaved
+ * before #420.
  */
 final readonly class FinishedTaskWindows
 {

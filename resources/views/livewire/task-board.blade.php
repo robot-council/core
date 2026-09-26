@@ -32,11 +32,10 @@
         @if ($hiddenFinished !== [])
             @php($windowFor = fn (int $hours): string => $hours >= 48 && $hours % 24 === 0 ? ($hours / 24).' days' : $hours.' '.($hours === 1 ? 'hour' : 'hours'))
             <p class="max-w-xl text-meta leading-relaxed" data-hidden-finished>
-                Hidden:
+                Hidden, {{ array_sum($hiddenFinished) === 1 ? 'a finished task past its' : 'finished tasks past their' }} display window:
                 @foreach ($hiddenFinished as $hiddenStatus => $hiddenCount)
-                    <a wire:key="hidden-{{ $hiddenStatus }}" href="{{ route('robot-council.queue', ['status' => $hiddenStatus]) }}" class="link">{{ $hiddenCount }} {{ $hiddenStatus }}</a>{{ $loop->last ? '' : ($loop->remaining === 1 ? ' and' : ',') }}
+                    <a wire:key="hidden-{{ $hiddenStatus }}" href="{{ route('robot-council.queue', ['status' => $hiddenStatus]) }}" class="link">{{ $hiddenCount }} {{ $hiddenStatus }}<span class="sr-only"> {{ $hiddenCount === 1 ? 'task' : 'tasks' }}, show every {{ $hiddenStatus }} task</span></a>{{ $loop->last ? '' : ($loop->remaining === 1 ? ' and' : ',') }}
                 @endforeach
-                {{ array_sum($hiddenFinished) === 1 ? 'task' : 'tasks' }} past their display window
                 ({{ collect($hiddenFinished)->keys()->map(fn (string $hiddenStatus): string => $hiddenStatus.' after '.$windowFor($finishedWindows[$hiddenStatus] ?? 0))->implode(', ') }}).
                 Choose one to see every task in that status.
             </p>

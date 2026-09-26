@@ -217,9 +217,16 @@ final class TaskList
             ->when($hiddenBefore !== [], function (Builder $query) use ($hiddenBefore): void {
                 // One exclusion per status rather than a disjunction over them, so a task is kept
                 // unless it is BOTH in that status AND older than its window. `updated_at` is when
-                // it finished; a task exactly at the cutoff is kept
+                // it finished; a task exactly at the cutoff is kept. A row with no `updated_at`
+                // (only a raw insert makes one) is kept rather than hidden, because SQL's `NOT` of
+                // an unknown comparison is unknown, and the count below would not have counted it.
+                //
+                // **The cost this accepts** (#420): the exclusion is a filter on the queue index's
+                // walk, so a board with fewer open tasks than a page reads every retained row.
+                // Measured on PostgreSQL 17.0 at 20,000 rows with five open: 2,918 buffers and
+                // about 4ms. `retention.tasks_days` bounds the table, and the board polls it.
                 foreach ($hiddenBefore as $hidden => $before) {
-                    $query->whereNot(static fn (Builder $older): Builder => $older->where('status', $hidden)->where('updated_at', '<', $before));
+                    $query->whereNot(static fn (Builder $older): Builder => $older->where('status', $hidden)->whereNotNull('updated_at')->where('updated_at', '<', $before));
                 }
             })
             ->when($after !== null, function (Builder $query) use ($after): void {
