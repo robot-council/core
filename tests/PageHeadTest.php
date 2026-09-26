@@ -93,7 +93,7 @@ it('prints the configured name in the title and the sidebar', function (): void 
     $html = (string) $this->actingAs($this->developer, 'web')->get(route('robot-council.queue'))->assertOk()->getContent();
 
     expect(titleOf($html))->toBe('Queue · Acme Fleet')
-        ->and($html)->toContain('<p class="truncate font-semibold">Acme Fleet</p>')
+        ->and($html)->toContain('<p class="font-semibold break-words">Acme Fleet</p>')
         ->not->toContain('Robot Council');
 });
 

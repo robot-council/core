@@ -192,6 +192,7 @@
         font-size: var(--text-meta);
     }
 
+
     :where(.input-xs, .input-sm) {
         --font-size-min: var(--text-meta);
     }
@@ -223,6 +224,57 @@
 
     ::placeholder {
         color: color-mix(in oklab, currentcolor 80%, transparent);
+    }
+
+    /*
+     * A table restacks into labelled rows where it would otherwise scroll sideways (#401).
+     *
+     * `.claude/rules/accessibility.md` asks that a page reflow to one scroll direction at 400% zoom,
+     * which is a 320 CSS px viewport. Every dashboard table was wider than that, and inside its
+     * `overflow-x-auto` wrapper it scrolled sideways instead -- measured in headless Chrome at
+     * 320px, the Agents table was 710px wide in a 240px box. Below 48rem, which a 1280px screen
+     * reaches at 200% zoom, a `table-stack` table instead shows each row as a block, each cell on
+     * its own line under the name of its column, read from the cell's `data-label`.
+     *
+     * The column headers stay in the markup and are hidden only visually, and every element
+     * carries its ARIA table role in the view, because changing `display` on a table element makes
+     * Safari stop reporting it as a table -- the roles are what keep a screen reader in one.
+     * The label is generated content with empty alternative text, so a screen reader, which
+     * already announces the column header, does not read it twice.
+     */
+    @media (width < 48rem) {
+        .table-stack,
+        .table-stack tbody,
+        .table-stack tr,
+        .table-stack td {
+            display: block;
+        }
+
+        .table-stack thead {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+            clip-path: inset(50%);
+            white-space: nowrap;
+        }
+
+        .table-stack td {
+            padding-block: 0.25rem;
+            padding-inline: 0;
+            white-space: normal;
+            overflow-wrap: anywhere;
+        }
+
+        .table-stack tr {
+            padding-block: 0.5rem;
+        }
+
+        .table-stack td::before {
+            content: attr(data-label) / "";
+            display: block;
+            font-weight: 600;
+        }
     }
 
     /*
@@ -297,6 +349,37 @@
             border-color: Highlight;
             color: HighlightText;
             outline-color: CanvasText;
+        }
+    }
+}
+
+/*
+ * Motion, for a reader whose system asks for less of it (#401).
+ *
+ * daisyUI animates its buttons, the drawer, and the collapse and dropdown it would open. None of it
+ * carries meaning, so under `prefers-reduced-motion: reduce` every transition and animation ends at
+ * once. In `base`, and `!important` because a transition daisyUI declares in a component would
+ * otherwise outrank it; a reader's own setting is the one case where that is the right order.
+ */
+@layer base {
+    /*
+     * A long login, repository or lock name breaks rather than widening the page (#401). The fleet's
+     * identifiers are single words with no break point -- `octodev-with-a-long-login` pushed the
+     * change feed 26px past a 320px viewport once the SC 1.4.12 text spacing was applied. `break-word`
+     * breaks only a word that would otherwise overflow, so ordinary text wraps exactly as before.
+     */
+    body {
+        overflow-wrap: break-word;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        *,
+        ::before,
+        ::after {
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+            scroll-behavior: auto !important;
         }
     }
 }
