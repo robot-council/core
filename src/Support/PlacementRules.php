@@ -109,7 +109,9 @@ final class PlacementRules
         $isNew = $task->status === TaskStatus::Pending || ! $this->heldByTheSameDeveloper($task, $lane);
         $returning = $handBack && $this->laneStarted($task, $lane);
 
-        if ($isNew && ! $returning && $seat?->hours_exempt !== true && ! $this->settings->takesNewWorkAt($lane->user_id, $at)) {
+        // The same answer `developer_settings` reports (#440), so a coordinator that read the seat as
+        // inside its hours is not then refused for being outside them
+        if ($isNew && ! $returning && $this->settings->standingAt($lane->user_id, $seat?->hours_exempt === true, $at) === HoursStanding::Outside) {
             $broken[] = PlacementRule::AssignmentHours;
         }
 

@@ -167,6 +167,38 @@ final class DeveloperSettings
     }
 
     /**
+     * Where a seat stands against its developer's hours at a moment (#440).
+     *
+     * The one answer both `PlacementRules` and the settings a coordinator reads are computed from.
+     *
+     * @param  string  $developer  The developer's host user key.
+     * @param  bool  $exempt  Whether the seat is exempt from the hours, which is its own setting.
+     * @param  DateTimeInterface  $at  The moment to ask about.
+     * @return HoursStanding Where it stands.
+     */
+    public function standingAt(string $developer, bool $exempt, DateTimeInterface $at): HoursStanding
+    {
+        return self::standing($exempt ? null : $this->hours($developer), $this->holidays($developer), $at);
+    }
+
+    /**
+     * Where hours already read put a moment.
+     *
+     * @param  AssignmentHours|null  $hours  The hours, or null when none are set or the seat is exempt.
+     * @param  list<string>  $holidays  The developer's days off.
+     * @param  DateTimeInterface  $at  The moment to ask about.
+     * @return HoursStanding Where it stands.
+     */
+    public static function standing(?AssignmentHours $hours, array $holidays, DateTimeInterface $at): HoursStanding
+    {
+        if (! $hours instanceof AssignmentHours) {
+            return HoursStanding::Ungated;
+        }
+
+        return AssignmentWindow::isOpen($hours, $holidays, $at) ? HoursStanding::Inside : HoursStanding::Outside;
+    }
+
+    /**
      * Every developer who has set anything, for the coordinator to read.
      *
      * **A list carrying each key as a value, never an array keyed by it.** PHP turns a numeric

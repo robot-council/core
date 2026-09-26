@@ -48,6 +48,14 @@ final class AssignmentWindow
     public const int MAX_TIMEZONE = 64;
 
     /**
+     * How far ahead `nextOpening()` looks, in days.
+     *
+     * Longer than `DeveloperSettings::MAX_HOLIDAYS` days off in a row plus the weekends around
+     * them, so a developer who listed every day they may is still found open again.
+     */
+    public const int LOOKAHEAD_DAYS = 400;
+
+    /**
      * Refuse hours the package will not store.
      *
      * @param  mixed  $timezone  An IANA zone name, such as `America/Chicago`.
@@ -144,6 +152,80 @@ final class AssignmentWindow
         return $start < $end
             ? $minute >= $start && $minute < $end
             : $minute >= $start || $minute < $end;
+    }
+
+    /**
+     * The next moment after `$at` that a developer's seats take new placements in (#440).
+     *
+     * **The first open moment of any stretch is one of a few candidates**: a date's window start;
+     * for a window running overnight, the date's own midnight, where the part carried over from the
+     * evening before resumes; and, around a clock change, the change itself and the wall times that
+     * follow it again. Each is tried, earliest first, and `isOpen()` decides, which is what keeps
+     * this and the placement check from disagreeing about a holiday, a weekend, or a clock change.
+     *
+     * **Clock changes are why the list is not just the start times.** Springing forward, a start
+     * inside the skipped hour -- 02:30 in Chicago on 8 March 2026 -- is open from 03:00, the change
+     * itself, which no wall time names. Falling back, a start inside the repeated hour happens
+     * twice, and parsing a wall time finds only the first, so the second is reached from the change.
+     *
+     * @param  AssignmentHours|null  $hours  The developer's hours, or null when none are set.
+     * @param  list<string>  $holidays  The developer's own days off, as `YYYY-MM-DD`.
+     * @param  DateTimeInterface  $at  The moment to look forward from.
+     * @return CarbonImmutable|null The moment, in the developer's timezone; null when no hours are
+     *                              set, since nothing is closed then, or when nothing opens within
+     *                              `LOOKAHEAD_DAYS`.
+     */
+    public static function nextOpening(?AssignmentHours $hours, array $holidays, DateTimeInterface $at): ?CarbonImmutable
+    {
+        if (! $hours instanceof AssignmentHours) {
+            return null;
+        }
+
+        $local = CarbonImmutable::instance($at)->setTimezone($hours->timezone);
+        $times = self::minutes($hours->starts_at) > self::minutes($hours->ends_at) && $hours->ends_at !== '00:00'
+            ? ['00:00', $hours->starts_at]
+            : [$hours->starts_at];
+
+        $candidates = [];
+
+        for ($day = 0; $day <= self::LOOKAHEAD_DAYS; $day++) {
+            $date = $local->startOfDay()->addDays($day)->format('Y-m-d');
+
+            foreach ($times as $time) {
+                $candidates[] = CarbonImmutable::parse($date.' '.$time, $hours->timezone);
+            }
+        }
+
+        $horizon = $local->addDays(self::LOOKAHEAD_DAYS + 1);
+        // From the day before, because a change earlier today still decides what follows it: from
+        // 01:10 on the second pass of a repeated hour, the change was at 01:00
+        $transitions = new DateTimeZone($hours->timezone)->getTransitions($local->subDay()->getTimestamp(), $horizon->getTimestamp());
+
+        // The first entry is the state at the start of the range, not a change
+        foreach (\array_slice($transitions, 1) as $transition) {
+            $change = CarbonImmutable::createFromTimestamp($transition['ts'], $hours->timezone);
+            $candidates[] = $change;
+
+            // Each wall time later on the same day, counted on from the change: for a repeated
+            // hour this is its second occurrence, which parsing the wall time never finds
+            foreach ($times as $time) {
+                $ahead = self::minutes($time) - self::minutes($change->format('H:i'));
+
+                if ($ahead > 0) {
+                    $candidates[] = $change->addMinutes($ahead);
+                }
+            }
+        }
+
+        usort($candidates, static fn (CarbonImmutable $a, CarbonImmutable $b): int => $a->getTimestamp() <=> $b->getTimestamp());
+
+        foreach ($candidates as $candidate) {
+            if ($candidate->greaterThan($local) && self::isOpen($hours, $holidays, $candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
     /**

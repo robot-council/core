@@ -331,15 +331,15 @@ an agent's harness runs. Every tool calls the same store its REST endpoint does,
 cannot drift: a rule that lives in a conditional update is enforced by the write, whichever door the
 call came through.
 
-Eighteen tools — `task_list`, `task_create`, the eight task transitions, the four lock actions,
-`events_read`, `events_narrate`, `directive_post` and `presence_heartbeat`. Each enforces the same
+Twenty-nine tools, among them `task_list`, `task_create`, the eight task transitions, the four lock
+actions, `events_read`, `events_narrate`, `directive_post`, `presence_heartbeat` and
+`developer_settings`. Each enforces the same
 ability as its endpoint, and **a refusal comes back marked as a tool error rather than as content**:
 an MCP client cannot tell a result that describes a failure from one that describes success, so a
 refusal returned as ordinary text reads to a model as though the call had worked.
 
-**`tools/list` paginates, and the first page carries 15 of the 18.** It returns a `nextCursor` —
-base64 of `{"offset":15}` — and `events_narrate`, `directive_post` and `presence_heartbeat` arrive
-only when that cursor is passed back. Most MCP clients walk the pages for you; a hand-rolled probe
+**`tools/list` paginates, and the first page carries 15 of the 29.** It returns a `nextCursor` —
+base64 of `{"offset":15}` — and the rest arrive only when that cursor is passed back. Most MCP clients walk the pages for you; a hand-rolled probe
 does not, and a first page read as a total looks exactly like a complete answer, because the number
 that would contradict it is the one the page does not carry.
 
@@ -461,12 +461,20 @@ changes them. The only writer is the developer's own page at `{prefix}/dashboard
   a session can never raise it. It is 1 until the developer changes it, so a seat nobody touched
   behaves as it always has.
 
-A session holding `coordinator:direct` reads all of it:
+A session holding `coordinator:direct` reads all of it, **as it is at the moment of the call**:
 
-- `GET  {prefix}/api/developers/settings` — every developer's hours and days off, and every recorded seat
+- `GET  {prefix}/api/developers/settings` — every developer's hours and days off, and every recorded
+  seat with its parked, exempt and `max_capacity` values
+- the `developer_settings` MCP tool, which returns the same thing (#440)
 
-Developers are named by GitHub login, as everywhere else on the machine API. Nothing here is
-enforced at placement yet; that is `robot-council/core#320`.
+Each developer and each seat also carries `inside_hours` -- `true`, `false`, or `"ungated"` when no
+hours apply (none are set, or the seat is exempt) -- and `next_opens_at` when it is `false`. It is
+computed by the code the placement check refuses with, so a seat read as inside its hours is not
+refused for being outside them. Settings change on the developer's page at any time, so read them
+when deciding rather than remembering an earlier answer.
+
+Developers are named by GitHub login, as everywhere else on the machine API. A placement is refused
+on these settings as #320 describes, in the placement rules further down.
 
 ## GitHub
 
