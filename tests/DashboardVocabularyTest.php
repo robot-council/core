@@ -378,14 +378,14 @@ it('names the filter and the way back when a filtered queue is empty', function 
         ->assertSeeText('No blocked tasks. Choose All to see every task.');
 });
 
-it('reads the glossary in English when the host\'s own locales have none', function (): void {
+it("reads the glossary in English when the host's own locales have none", function (): void {
     app()->setLocale('de');
     app('translator')->setFallback('de');
 
     expect(Glossary::entries(['lane'])[0]['term'])->toBe('Lane');
 });
 
-it('says a revoked installation\'s live session was revoked, though it had no token left to delete', function (): void {
+it("says a revoked installation's live session was revoked, though it had no token left to delete", function (): void {
     [$installation, $session] = vocabularySeat($this, $this->developer);
 
     $panel = Livewire::actingAs($this->admin)->test(Administration::class)
@@ -413,7 +413,7 @@ it('shows a refusal about a seat this page does not list above the seats, since 
     $words = "Not allowed: only the developer who parked a seat can lift it, and only a seat's own developer can change it.";
 
     expect(saidInside($html, ''))->toBe([$words])
-        ->and(saidInside($html, '//li'))->toBe([]);
+        ->and(saidInside($html, '//li'))->toBeEmpty();
 });
 
 it('keeps every live region on the page before anything is said in it', function (): void {
@@ -423,7 +423,7 @@ it('keeps every live region on the page before anything is said in it', function
 
     // One for the page, one per seat, one for the hours and one for the days off; all empty
     expect(vocabularyElements($xpath, '//*[@data-said-region][@role="status"]'))->toHaveCount(4)
-        ->and(vocabularyElements($xpath, '//*[@data-said]'))->toBe([]);
+        ->and(vocabularyElements($xpath, '//*[@data-said]'))->toBeEmpty();
 });
 
 it('says there were no hours to remove, rather than that it removed them', function (): void {

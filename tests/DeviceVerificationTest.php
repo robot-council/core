@@ -224,6 +224,13 @@ it('leaves an already-decided request alone on the page', function (): void {
         'user_code' => $enrollment['record']->user_code,
     ])->assertRedirect();
 
+    // The redirect's own visit shows what the decision just did (#402); a later one is the revisit
+    // this is about, and shows that it was already decided
+    $this->actingAs($this->developer, 'web')
+        ->get(route('robot-council.enroll.show', ['user_code' => $enrollment['record']->user_code]))
+        ->assertOk()
+        ->assertSee('Denied: nothing was enrolled');
+
     $this->actingAs($this->developer, 'web')
         ->get(route('robot-council.enroll.show', ['user_code' => $enrollment['record']->user_code]))
         ->assertOk()
