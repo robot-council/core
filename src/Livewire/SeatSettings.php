@@ -11,10 +11,12 @@ use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 use RobotCouncil\Access\CurrentDeveloper;
+use RobotCouncil\Models\AssignmentHours;
 use RobotCouncil\Models\PlacementRule;
 use RobotCouncil\Models\Seat;
 use RobotCouncil\Support\Capacity;
 use RobotCouncil\Support\DeveloperSettings;
+use RobotCouncil\Support\HostKey;
 use RobotCouncil\Support\Outcome;
 use RobotCouncil\Support\PlacementWaivers;
 use RobotCouncil\Support\Seats;
@@ -159,7 +161,15 @@ final class SeatSettings extends Component
      */
     public function clearHours(): void
     {
-        $this->service(DeveloperSettings::class)->clearHours($this->developer());
+        $settings = $this->service(DeveloperSettings::class);
+
+        if (! $settings->hours($this->developer()) instanceof AssignmentHours) {
+            $this->say('hours', 'No hours to remove: none were set, so your seats already take new work at any time.');
+
+            return;
+        }
+
+        $settings->clearHours($this->developer());
 
         $this->say('hours', 'Removed: your seats take new work at any time. Your days off apply again once you set hours.');
     }
@@ -294,7 +304,7 @@ final class SeatSettings extends Component
     {
         $resolved = $this->rule($rule);
 
-        $this->report($seatId, $this->service(PlacementWaivers::class)->grant($this->developer(), $seatId, $resolved), 'Waived once: the next placement on %s goes ahead even when '.$resolved->reads().'.');
+        $this->report($seatId, $this->service(PlacementWaivers::class)->grant($this->developer(), $seatId, $resolved), 'Waived once: the next placement on %s goes ahead even when %s.', $resolved->reads());
     }
 
     /**
@@ -410,15 +420,17 @@ final class SeatSettings extends Component
      *
      * @param  int  $seatId  The seat.
      * @param  Outcome  $outcome  What came of it.
-     * @param  string  $applied  What to say when it was applied, with `%s` for the seat's name.
+     * @param  string  $applied  What to say when it was applied, with `%s` for the seat's name and
+     *                           any further `%s` for `$more`.
+     * @param  string  ...$more  The rest of what `$applied` names.
      */
-    private function report(int $seatId, Outcome $outcome, string $applied): void
+    private function report(int $seatId, Outcome $outcome, string $applied, string ...$more): void
     {
         $at = 'seat-'.$seatId;
 
         match ($outcome) {
             // `Added` is a task's alone (#433); no seat write answers it
-            Outcome::Applied, Outcome::Added => $this->say($at, sprintf($applied, $this->seatName($seatId))),
+            Outcome::Applied, Outcome::Added => $this->say($at, sprintf($applied, $this->seatName($seatId), ...$more)),
             Outcome::NotFound => $this->say($at, 'Not found: that seat no longer exists. Reload the page to see your seats as they are now.', refused: true),
             Outcome::Conflict => $this->say($at, sprintf('No change: %s was already in that state. The page shows where it stands now.', $this->seatName($seatId)), refused: true),
             Outcome::Forbidden => $this->say($at, "Not allowed: only the developer who parked a seat can lift it, and only a seat's own developer can change it.", refused: true),
@@ -428,21 +440,21 @@ final class SeatSettings extends Component
     /**
      * A seat of this developer's, named as the page names it, or `that seat`.
      *
-     * Read from this developer's own seats, so a refused write about somebody else's seat never
-     * learns that seat's repository.
+     * Read only among this developer's own seats, so a refused write about somebody else's seat
+     * never learns that seat's repository.
      *
      * @param  int  $seatId  The seat.
      * @return string Its repository and working folder.
      */
     private function seatName(int $seatId): string
     {
-        foreach ($this->service(Seats::class)->forDeveloper($this->developer()) as $seat) {
-            if ($seat->id === $seatId) {
-                return $seat->repository.($seat->work_location !== '' ? ' / '.$seat->work_location : '');
-            }
+        $seat = Seat::query()->whereKey($seatId)->where('user_id', HostKey::from($this->developer()))->first();
+
+        if (! $seat instanceof Seat) {
+            return 'that seat';
         }
 
-        return 'that seat';
+        return $seat->repository.($seat->work_location !== '' ? ' / '.$seat->work_location : '');
     }
 
     /**

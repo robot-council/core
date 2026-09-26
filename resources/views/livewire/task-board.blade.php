@@ -24,7 +24,7 @@
             </div>
         </div>
 
-        @include('robot-council::partials.glossary', ['terms' => ['task', 'ticket', 'pending', 'claimed', 'in_progress', 'blocked_task', 'done', 'failed', 'cancelled', 'priority', 'held_by_task', 'lane', 'coordinator']])
+        @include('robot-council::partials.glossary', ['terms' => ['task', 'ticket', 'pending', 'claimed', 'in_progress', 'blocked_task', 'done', 'failed', 'cancelled', 'priority', 'filed_by', 'project', 'held_by_task', 'lane', 'coordinator']])
 
         @if ($tasks === [])
             <p class="py-6 text-center opacity-80">

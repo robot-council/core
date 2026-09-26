@@ -12,6 +12,10 @@
 <div class="flex flex-col gap-6">
     <h1 class="text-2xl font-semibold">My seats and hours</h1>
 
+    {{-- A seat action about a seat this page does not list -- somebody else's, or one that has
+         gone -- has no row to be shown beside, so its words are shown here instead (#402) --}}
+    @include('robot-council::partials.said', ['show' => $said !== null && ! in_array($saidAt, ['hours', 'days-off', ...array_map(static fn ($seat): string => 'seat-'.$seat->id, $seats)], true)])
+
     @include('robot-council::partials.glossary', ['terms' => ['seat', 'harness', 'machine_label', 'park', 'exempt', 'tickets_at_once', 'placement', 'waive', 'assignment_hours', 'days_off', 'gate', 'hand_back', 'coordinator']])
 
 
@@ -69,13 +73,7 @@
                                  Only a seat id reaches the `wire:` expressions, through `WireArgument`;
                                  the number is read back by the component as untrusted input. --}}
                             {{-- What the last action on this seat did (#402), beside its buttons --}}
-                            @if ($said !== null && $saidAt === 'seat-'.$seat->id)
-                                @if ($refused)
-                                    <p role="alert" class="w-full font-semibold text-error" data-said>{{ $said }}</p>
-                                @else
-                                    <p role="status" class="w-full font-medium" data-said>{{ $said }}</p>
-                                @endif
-                            @endif
+                            @include('robot-council::partials.said', ['show' => $said !== null && $saidAt === 'seat-'.$seat->id, 'class' => 'w-full'])
 
                             @php($capacityFailed = $capacitySeat === $seat->id && $capacityError !== null)
                             <form wire:submit="setCapacity({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="flex w-full flex-wrap items-end gap-3">
@@ -170,13 +168,7 @@
                 @endif
             </form>
 
-            @if ($said !== null && $saidAt === 'hours')
-                @if ($refused)
-                    <p role="alert" class="font-semibold text-error" data-said>{{ $said }}</p>
-                @else
-                    <p role="status" class="font-medium" data-said>{{ $said }}</p>
-                @endif
-            @endif
+            @include('robot-council::partials.said', ['show' => $said !== null && $saidAt === 'hours', 'class' => ''])
         </div>
     </div>
 
@@ -198,13 +190,7 @@
                 <button type="submit" class="btn btn-target">Add day off</button>
             </form>
 
-            @if ($said !== null && $saidAt === 'days-off')
-                @if ($refused)
-                    <p role="alert" class="font-semibold text-error" data-said>{{ $said }}</p>
-                @else
-                    <p role="status" class="font-medium" data-said>{{ $said }}</p>
-                @endif
-            @endif
+            @include('robot-council::partials.said', ['show' => $said !== null && $saidAt === 'days-off', 'class' => ''])
 
             @if ($holidays !== [])
                 <ul class="flex flex-wrap gap-2">

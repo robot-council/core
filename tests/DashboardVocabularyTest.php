@@ -50,11 +50,11 @@ function vocabularyPages(): array
 {
     return [
         'overview' => ['robot-council.dashboard', [], ['fleet', 'agent', 'session', 'live_agents', 'task', 'open_tasks', 'queue', 'lock', 'held_locks', 'lane', 'change_feed']],
-        'lanes' => ['robot-council.lanes', [], ['lane', 'harness', 'working', 'idle', 'parked', 'blocked', 'not_observed', 'gate', 'watcher', 'tickets_held', 'task', 'ticket', 'hand_back', 'subagent', 'taken_up', 'validating', 'known_since', 'open_issues', 'waiting_on_developer']],
+        'lanes' => ['robot-council.lanes', [], ['lane', 'harness', 'working', 'idle', 'parked', 'blocked', 'not_observed', 'gate', 'watcher', 'tickets_held', 'task', 'ticket', 'hand_back', 'subagent', 'branch', 'taken_up', 'validating', 'pull_request_state', 'known_since', 'open_issues', 'waiting_on_developer']],
         'agents' => ['robot-council.agents', [], ['agent', 'session', 'live_scope', 'harness', 'machine_label', 'working_in', 'role', 'coordinator', 'active', 'stale', 'gone', 'lock']],
         'locks' => ['robot-council.locks', [], ['lock', 'held_scope', 'held_by_lock', 'fence', 'lease', 'session']],
-        'queue' => ['robot-council.queue', [], ['task', 'ticket', 'pending', 'claimed', 'in_progress', 'blocked_task', 'done', 'failed', 'cancelled', 'priority', 'held_by_task', 'lane', 'coordinator']],
-        'feed' => ['robot-council.feed', [], ['change_feed', 'entry_type', 'narration', 'directive', 'placement_instruction', 'coordinator', 'session', 'task', 'lock', 'lane']],
+        'queue' => ['robot-council.queue', [], ['task', 'ticket', 'pending', 'claimed', 'in_progress', 'blocked_task', 'done', 'failed', 'cancelled', 'priority', 'filed_by', 'project', 'held_by_task', 'lane', 'coordinator']],
+        'feed' => ['robot-council.feed', [], ['change_feed', 'entry_type', 'narration', 'directive', 'lane_quiet', 'lane_condition', 'placement_instruction', 'coordinator', 'session', 'task', 'lock', 'lane']],
         'administration' => ['robot-council.administration', [], ['installation', 'harness', 'machine_label', 'usable', 'revoked', 'expired', 'session', 'active', 'stale', 'gone', 'role', 'coordinator', 'ephemeral', 'asked_for_role', 'make_role', 'revoke_session', 'revoke_installation']],
         'seats' => ['robot-council.seats', [], ['seat', 'harness', 'machine_label', 'park', 'exempt', 'tickets_at_once', 'placement', 'waive', 'assignment_hours', 'days_off', 'gate', 'hand_back', 'coordinator']],
     ];
@@ -122,6 +122,8 @@ it('explains every term of art a page shows, on that page, in a disclosure rathe
     $glossaries = vocabularyElements($xpath, '//details[@data-glossary]');
 
     expect($glossaries)->toHaveCount(1)
+        // Or a poll closes it: the morph removes the `open` the server never renders
+        ->and($glossaries[0]->hasAttribute('wire:ignore.self'))->toBeTrue()
         ->and(vocabularyText(vocabularyElements($xpath, '//details[@data-glossary]/summary')[0]))->toBe('What the words on this page mean');
 
     // Each term is the defining instance, and its explanation is the text beside it rather than an
@@ -375,3 +377,74 @@ it('names the filter and the way back when a filtered queue is empty', function 
         ->call('showStatus', 'blocked')
         ->assertSeeText('No blocked tasks. Choose All to see every task.');
 });
+
+it('reads the glossary in English when the host\'s own locales have none', function (): void {
+    app()->setLocale('de');
+    app('translator')->setFallback('de');
+
+    expect(Glossary::entries(['lane'])[0]['term'])->toBe('Lane');
+});
+
+it('says a revoked installation\'s live session was revoked, though it had no token left to delete', function (): void {
+    [$installation, $session] = vocabularySeat($this, $this->developer);
+
+    $panel = Livewire::actingAs($this->admin)->test(Administration::class)
+        ->call('revokeInstallation', $installation->id)
+        ->call('showScope', 'all')
+        ->assertSet('said', null);
+
+    $panel->call('revokeSession', $session->id)
+        ->assertSet('said', sprintf('Revoked: session #%d has ended, and its agent can no longer act.', $session->id))
+        ->assertSet('refused', false);
+
+    $panel->call('revokeInstallation', $installation->id)
+        ->assertSet('said', 'Already revoked: claude-code on office-mac was stopped before, so nothing changed.')
+        ->assertSet('refused', true);
+});
+
+it('shows a refusal about a seat this page does not list above the seats, since it has no row', function (): void {
+    [, , $seat] = vocabularySeat($this, $this->admin);
+    vocabularySeat($this, $this->developer);
+
+    $html = Livewire::actingAs($this->developer)->test(SeatSettings::class)
+        ->call('park', $seat->id)
+        ->html();
+
+    $words = "Not allowed: only the developer who parked a seat can lift it, and only a seat's own developer can change it.";
+
+    expect(saidInside($html, ''))->toBe([$words])
+        ->and(saidInside($html, '//li'))->toBe([]);
+});
+
+it('keeps every live region on the page before anything is said in it', function (): void {
+    vocabularySeat($this, $this->developer);
+
+    $xpath = vocabularyDocument(Livewire::actingAs($this->developer)->test(SeatSettings::class)->html());
+
+    // One for the page, one per seat, one for the hours and one for the days off; all empty
+    expect(vocabularyElements($xpath, '//*[@data-said-region][@role="status"]'))->toHaveCount(4)
+        ->and(vocabularyElements($xpath, '//*[@data-said]'))->toBe([]);
+});
+
+it('says there were no hours to remove, rather than that it removed them', function (): void {
+    Livewire::actingAs($this->developer)->test(SeatSettings::class)
+        ->call('clearHours')
+        ->assertSet('said', 'No hours to remove: none were set, so your seats already take new work at any time.');
+});
+
+it('confirms an enrollment decision where its buttons were', function (string $route, string $words): void {
+    $code = app(DeviceCodes::class)->issue(['fleet:read'], 'claude-code', 'workbench', hash('sha256', 'vocabulary-'.$route), null);
+
+    $this->actingAs($this->developer, 'web');
+
+    $html = (string) $this->followingRedirects()
+        ->post(route($route), ['user_code' => $code->record->user_code, 'confirmed' => '1'])
+        ->assertOk()
+        ->getContent();
+
+    expect(saidInside($html, '//div[contains(@class, "card-body")][.//p[contains(@class, "font-mono")]]'))->toBe([$words])
+        ->and(saidInside($html, ''))->toBe([$words]);
+})->with([
+    'approve' => ['robot-council.enroll.approve', 'Approved: the machine that asked for this code can now enroll.'],
+    'deny' => ['robot-council.enroll.deny', 'Denied: nothing was enrolled, and the machine that asked cannot use this code.'],
+]);

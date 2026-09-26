@@ -43,13 +43,7 @@
 
         {{-- What the last action did (#402). Beside the installation it was about when that is still
              listed, and here when it is not: a revoked installation leaves the Usable list. --}}
-        @if ($said !== null && ! in_array($saidAt, array_column($installations, 'id'), true))
-            @if ($refused)
-                <p role="alert" class="font-semibold text-error" data-said>{{ $said }}</p>
-            @else
-                <p role="status" class="font-medium" data-said>{{ $said }}</p>
-            @endif
-        @endif
+        @include('robot-council::partials.said', ['show' => $said !== null && ! in_array($saidAt, array_column($installations, 'id'), true), 'class' => ''])
 
         @if ($installations === [])
             <p class="py-6 text-center opacity-80">
@@ -92,13 +86,7 @@
                             </div>
                         </div>
 
-                        @if ($said !== null && $saidAt === $installation['id'])
-                            @if ($refused)
-                                <p role="alert" class="mt-2 font-semibold text-error" data-said>{{ $said }}</p>
-                            @else
-                                <p role="status" class="mt-2 font-medium" data-said>{{ $said }}</p>
-                            @endif
-                        @endif
+                        @include('robot-council::partials.said', ['show' => $said !== null && $saidAt === $installation['id'], 'class' => 'mt-2'])
 
                         @if ($installation['sessions']['shown'] !== [])
                             <ul class="mt-3 space-y-1">

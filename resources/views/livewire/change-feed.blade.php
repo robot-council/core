@@ -12,7 +12,7 @@
     <div class="card-body">
         <h1 class="card-title">Change feed</h1>
 
-        @include('robot-council::partials.glossary', ['terms' => ['change_feed', 'entry_type', 'narration', 'directive', 'placement_instruction', 'coordinator', 'session', 'task', 'lock', 'lane']])
+        @include('robot-council::partials.glossary', ['terms' => ['change_feed', 'entry_type', 'narration', 'directive', 'lane_quiet', 'lane_condition', 'placement_instruction', 'coordinator', 'session', 'task', 'lock', 'lane']])
 
         @if ($events === [])
             <p class="py-6 text-center opacity-80">

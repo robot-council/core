@@ -130,6 +130,7 @@ final class Administration extends Component
         $this->authorizeAdmin();
 
         $this->after = max(0, $after);
+        $this->said = null;
     }
 
     /**
@@ -140,6 +141,7 @@ final class Administration extends Component
         $this->authorizeAdmin();
 
         $this->after = null;
+        $this->said = null;
     }
 
     /**
@@ -154,6 +156,7 @@ final class Administration extends Component
         $this->scope = Scope::orDefault($scope, Scope::Live)->value;
 
         $this->after = null;
+        $this->said = null;
     }
 
     /**
@@ -169,6 +172,12 @@ final class Administration extends Component
 
         if (! $installation instanceof Installation) {
             $this->say(null, 'Not found: that installation no longer exists. The list shows the ones that do.', refused: true);
+
+            return;
+        }
+
+        if ($installation->revoked_at !== null) {
+            $this->say($installation->id, sprintf('Already revoked: %s on %s was stopped before, so nothing changed.', $installation->harness, $installation->machine_label), refused: true);
 
             return;
         }
@@ -202,11 +211,16 @@ final class Administration extends Component
 
         // Named, like the other three administrative actions. Killing another developer's
         // running agent was the one the feed could not attribute (#115).
-        if ($this->service(SessionPresence::class)->revoke($session, $this->actor()) === 0) {
+        // Decided from the status rather than from what `revoke()` returns, which counts the tokens
+        // it deleted: a live session whose installation was revoked has none left, and revoking it
+        // still ends it
+        if ($session->status === AgentSessionStatus::Gone) {
             $this->say($session->installation_id, sprintf('Already gone: session #%d had already ended, so nothing changed.', $session->id), refused: true);
 
             return;
         }
+
+        $this->service(SessionPresence::class)->revoke($session, $this->actor());
 
         $this->say($session->installation_id, sprintf('Revoked: session #%d has ended, and its agent can no longer act.', $session->id));
     }
@@ -279,7 +293,7 @@ final class Administration extends Component
             return;
         }
 
-        $this->say($session->installation_id, sprintf('Denied: session #%d stays %s.', $session->id, $session->role->value));
+        $this->say($session->installation_id, sprintf('Denied: session #%d stays %s.', $session->id, $session->refresh()->role->value));
     }
 
     /**

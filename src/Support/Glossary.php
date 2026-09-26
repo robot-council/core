@@ -22,6 +22,10 @@ final class Glossary
      * the key itself, so a misspelled term would otherwise print `robot-council::glossary.lnae` on
      * the page as though it were an explanation.
      *
+     * **English is read when the host's own locales have no entry.** `trans()` tries only the
+     * application's locale and its fallback, so a host running `de` with a `de` fallback would find
+     * nothing, and every page would throw. A host that publishes a translation still sees its own.
+     *
      * @param  list<string>  $keys  The terms, as keys of the glossary file.
      * @return list<array{key: string, term: string, means: string}> One entry per key.
      *
@@ -33,6 +37,10 @@ final class Glossary
 
         foreach ($keys as $key) {
             $entry = trans('robot-council::glossary.'.$key);
+
+            if (! \is_array($entry)) {
+                $entry = trans('robot-council::glossary.'.$key, [], 'en');
+            }
 
             if (! \is_array($entry) || ! \is_string($entry['term'] ?? null) || ! \is_string($entry['means'] ?? null)) {
                 throw new RuntimeException(sprintf('The dashboard glossary has no entry for [%s].', $key));

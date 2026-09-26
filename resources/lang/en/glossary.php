@@ -47,7 +47,7 @@ return [
     ],
     'role' => [
         'term' => 'Role',
-        'means' => 'What a session does in the fleet: build works on tickets, ci checks and merges pull requests, and coordinator places work and directs other sessions.',
+        'means' => 'What a session does in the fleet: build works on tickets, ci checks pull requests, and coordinator places work and directs other sessions.',
     ],
     'coordinator' => [
         'term' => 'Coordinator',
@@ -81,7 +81,7 @@ return [
     // The overview's counts
     'live_agents' => [
         'term' => 'Live agents',
-        'means' => 'Sessions that can still act: active ones, and stale ones that have not yet gone.',
+        'means' => 'Sessions that can still act: active ones, and stale ones that have not yet gone. Ephemeral sessions are not counted.',
     ],
     'open_tasks' => [
         'term' => 'Open tasks',
@@ -137,11 +137,11 @@ return [
     ],
     'gate' => [
         'term' => 'Gate',
-        'means' => 'A lane in the ci role. It checks the pull requests other lanes open, then merges each one or hands it back.',
+        'means' => 'A lane in the ci role. It checks the pull requests other lanes open. When one needs more work, a coordinator hands it back to the lane that made it.',
     ],
     'watcher' => [
         'term' => 'Watcher',
-        'means' => 'The helper that wakes an idle agent when something arrives for it. Alive means it checked in recently, stale that it has not for a while, absent that it never has, and unknown that its last check-in is too old to judge.',
+        'means' => 'The helper that wakes an idle agent when something arrives for it. Alive means it checked in recently, stale that it has not for a while, absent that it never has, and unknown, re-read that its last check-in is too old to judge, so look again shortly.',
     ],
     'tickets_held' => [
         'term' => 'Tickets held',
@@ -149,7 +149,7 @@ return [
     ],
     'hand_back' => [
         'term' => 'Hand-back',
-        'means' => 'A pull request a gate returned to the lane that made it, to fix something before it can merge.',
+        'means' => 'Work a coordinator returned to the lane that opened its pull request, because the gate found something to fix before it can merge.',
     ],
     'subagent' => [
         'term' => 'Subagent',
@@ -163,13 +163,21 @@ return [
         'term' => 'Validating',
         'means' => 'The gate is checking that pull request now. Queued counts the pull requests waiting for the gate after it.',
     ],
+    'pull_request_state' => [
+        'term' => 'running, queued and draft',
+        'means' => 'Where an open pull request stands with the gate: running while the gate checks it, queued while it waits its turn, and draft while its author has not marked it ready.',
+    ],
+    'branch' => [
+        'term' => 'Branch',
+        'means' => 'The git branch the lane is working on for the task. Branch not reported means the lane has not said yet, and packet, no branch expected means the ticket asks for a decision, which needs no branch.',
+    ],
     'known_since' => [
         'term' => 'Known since',
         'means' => 'When the fleet last heard from the lane\'s session.',
     ],
     'open_issues' => [
         'term' => 'Open issues',
-        'means' => 'How many issues are open in the repository, read from GitHub every few minutes, and how that compares with 08:00 today. Count unreadable means the last reading is too old to trust.',
+        'means' => 'How many issues are open in the repository, as last read from GitHub or reported by an agent, and how that compares with 08:00 today. Count unreadable means no reading is recent enough to trust.',
     ],
     'waiting_on_developer' => [
         'term' => 'Waiting on a developer',
@@ -227,9 +235,17 @@ return [
         'term' => 'Priority',
         'means' => 'How urgent the task is, from 0 to 9. Higher numbers come first.',
     ],
+    'filed_by' => [
+        'term' => 'Filed by',
+        'means' => 'The developer whose agent created the task.',
+    ],
+    'project' => [
+        'term' => 'Project',
+        'means' => 'The repository the task is about, shown under its title.',
+    ],
     'held_by_task' => [
         'term' => 'Held by',
-        'means' => 'The developer whose lane holds the task now. Nobody means it is waiting for a lane.',
+        'means' => 'The developer whose lane holds the task, or held it when it finished. Nobody means no lane has taken it.',
     ],
 
     // The change feed
@@ -245,6 +261,14 @@ return [
         'term' => 'directive',
         'means' => 'An instruction a coordinator sent to the whole fleet.',
     ],
+    'lane_quiet' => [
+        'term' => 'lane.quiet',
+        'means' => 'A note to the coordinators that a lane has done nothing for a while: no message, no task change and no lock.',
+    ],
+    'lane_condition' => [
+        'term' => 'lane.condition',
+        'means' => 'A note to the coordinators that a lane needs attention, for example a lane holding work that has gone quiet, or a free lane with nothing placed on it.',
+    ],
     'placement_instruction' => [
         'term' => 'placement.instruction',
         'means' => 'The instructions a coordinator sent with a task it placed on a lane.',
@@ -257,7 +281,7 @@ return [
     ],
     'revoked' => [
         'term' => 'Revoked',
-        'means' => 'An administrator stopped the installation. Its credential and every session token it issued no longer work.',
+        'means' => 'The installation was stopped, by an administrator or because its developer enrolled the same machine again. Its credential and every session token it issued no longer work.',
     ],
     'expired' => [
         'term' => 'Expired',
@@ -265,7 +289,7 @@ return [
     ],
     'ephemeral' => [
         'term' => 'Ephemeral',
-        'means' => 'A session that asked not to be announced: the fleet records no joining or leaving for it, and other agents are not shown it.',
+        'means' => 'A session that asked not to be announced. The fleet records no joining, leaving or going quiet for it, and it is left off the Agents page, the lane board and the live count.',
     ],
     'asked_for_role' => [
         'term' => 'Asked for',
