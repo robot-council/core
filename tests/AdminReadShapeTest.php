@@ -91,7 +91,6 @@ it('returns every key a nested session row carries, including all three identifi
         'joined_at',
         'last_seen_at',
     ]);
-
 });
 
 it('counts an empty installation table as zero rather than null', function (): void {

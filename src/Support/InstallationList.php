@@ -70,8 +70,7 @@ final class InstallationList
         // that hydrated more than one row, so a host running strict mode would take a
         // `LazyLoadingViolationException` off the first page holding two installations.
         //
-        // Live sessions first and newest first, so the rows that get shown under the bound below
-        // are the ones an admin might act on rather than whichever the engine returned.
+        // Newest first, as read; `sessionsOf()` lists every live one in id order (#414).
         $size = max(1, min($limit, self::MAX_PAGE));
 
         $now = Carbon::now();
@@ -179,9 +178,16 @@ final class InstallationList
      * **Every live session, with no cap** (#414). A cap of ten left the rest counted but unlisted,
      * so an administrator could neither see nor revoke them from the one page meant for it; one
      * machine running build, gate and coordinator seats across several repositories passes ten
-     * routinely. Live sessions are bounded by what a machine runs, because a silent session goes
-     * after `presence.gone_after_minutes`, and every session is already on the eager-loaded
-     * installation, so listing them all adds no query.
+     * routinely. Every session is already on the eager-loaded installation, so listing them all
+     * adds no query.
+     *
+     * **What bounds the list is the session-start rate limit, not the machine.** A session that
+     * stops heartbeating goes after `presence.gone_after_minutes`, so one that never heartbeats can
+     * keep at most `rate_limits.sessions_per_installation` times that many live at once -- 60 a
+     * minute for 30 minutes, 1,800 -- and one that does heartbeat keeps them indefinitely. Only an
+     * allowlisted developer's approved installation can start sessions at all, so a list that long
+     * is a trusted party misbehaving, and this page is where an administrator would go to revoke
+     * them: rendering every one is the accepted cost, where hiding some was the defect.
      *
      * A session that has gone is counted, not listed. #75 decided a gone session stays visible on
      * the presence panel, which is where a reader goes to look at one; here it would be a row with

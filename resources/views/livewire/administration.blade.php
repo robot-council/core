@@ -194,8 +194,7 @@
                                         @endforeach
 
                                         {{-- Every listed session is live, so every one can be
-                                             revoked. The reader bounds the list rather than the
-                                             view hiding rows. --}}
+                                             revoked, and every live session is listed (#414). --}}
                                         <button type="button"
                                             wire:click="revokeSession({{ \RobotCouncil\Support\WireArgument::of($session['id']) }})"
                                             class="btn btn-target btn-ghost">

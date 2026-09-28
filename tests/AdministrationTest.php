@@ -493,21 +493,22 @@ it('shows and revokes a session a cap of ten would have hidden', function (): vo
         [$live[]] = $this->startAgentSession($installation);
     }
 
-    // The seventeenth: listed last, and past where the list used to stop
-    $last = end($live);
+    // The OLDEST: the cap of ten listed the newest ten and hid the seven before them, so the first
+    // session started is one it hid
+    $oldest = $live[0];
 
     $panel = Livewire::actingAs($this->admin)->test(Administration::class);
 
     $html = $panel->html();
 
     expect(substr_count($html, 'wire:click="revokeSession('))->toBe(17)
-        ->and($html)->toContain('wire:key="admin-session-'.$last->id.'"')
+        ->and($html)->toContain('wire:key="admin-session-'.$oldest->id.'"')
         ->not->toContain('not shown');
 
-    $panel->call('revokeSession', $last->id)
-        ->assertSet('said', sprintf('Revoked: session #%d has ended, and its agent can no longer act.', $last->id));
+    $panel->call('revokeSession', $oldest->id)
+        ->assertSet('said', sprintf('Revoked: session #%d has ended, and its agent can no longer act.', $oldest->id));
 
-    expect($last->refresh()->status)->toBe(AgentSessionStatus::Gone);
+    expect($oldest->refresh()->status)->toBe(AgentSessionStatus::Gone);
 });
 
 it('refuses to give a role to a session that has already gone', function (): void {
