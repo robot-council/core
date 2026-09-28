@@ -68,7 +68,7 @@ it('returns every key a nested session row carries, including all three identifi
     // Asserted WHOLE, like the four other key-set checks in this file. `toHaveKeys()` is a subset
     // check, and this array also carries `gone` -- so the docblock's "asserted whole rather than
     // field by field" was true of every other assertion here and not of this one (#283).
-    expect(array_keys($sessions))->toBe(['shown', 'hidden', 'gone'])
+    expect(array_keys($sessions))->toBe(['shown', 'gone'])
         ->and($sessions)
         ->and($sessions['shown'])->toHaveCount(1);
 
@@ -91,8 +91,6 @@ it('returns every key a nested session row carries, including all three identifi
         'joined_at',
         'last_seen_at',
     ]);
-
-    expect($sessions['hidden'])->toBe(0);
 });
 
 it('counts an empty installation table as zero rather than null', function (): void {

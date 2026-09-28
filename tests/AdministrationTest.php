@@ -456,16 +456,14 @@ it('lists the newest installation first', function (): void {
     expect($ids)->toBe([$second->id, $first->id]);
 });
 
-it('bounds the sessions it lists, and says how many it left out', function (): void {
+it('lists every live session, and counts the ones that have ended', function (): void {
     $installation = $this->approveInstallation($this->developer);
 
-    $limit = InstallationList::SESSIONS_PER_INSTALLATION;
+    // Seventeen, which is what `josh-office` held on 2026-09-25 when a cap of ten hid seven (#414)
+    $live = [];
 
-    // Two past the bound, so `hidden` is a number this test chose rather than zero
-    $live = $limit + 2;
-
-    for ($i = 0; $i < $live; $i++) {
-        $this->startAgentSession($installation);
+    foreach (range(1, 17) as $ignored) {
+        [$live[]] = $this->startAgentSession($installation);
     }
 
     // And three that have ended, which are counted rather than listed
@@ -477,13 +475,40 @@ it('bounds the sessions it lists, and says how many it left out', function (): v
 
     $sessions = arrayValue($this->service(InstallationList::class)->everything(50)['installations'][0]['sessions']);
 
-    expect($sessions['shown'])->toHaveCount($limit)
-        ->and($sessions['hidden'])->toBe(2)
+    expect(array_keys($sessions))->toBe(['shown', 'gone'])
+        ->and(array_column(arrayValue($sessions['shown']), 'id'))->toBe(array_map(static fn (AgentSession $session): int => $session->id, $live))
         ->and($sessions['gone'])->toBe(3);
 
     // Every listed session is live, which is what lets the view draw a control on all of them
     expect(array_column(arrayValue($sessions['shown']), 'status'))
         ->not->toContain(AgentSessionStatus::Gone->value);
+});
+
+it('shows and revokes a session a cap of ten would have hidden', function (): void {
+    $installation = $this->approveInstallation($this->developer);
+
+    $live = [];
+
+    foreach (range(1, 17) as $ignored) {
+        [$live[]] = $this->startAgentSession($installation);
+    }
+
+    // The OLDEST: the cap of ten listed the newest ten and hid the seven before them, so the first
+    // session started is one it hid
+    $oldest = $live[0];
+
+    $panel = Livewire::actingAs($this->admin)->test(Administration::class);
+
+    $html = $panel->html();
+
+    expect(substr_count($html, 'wire:click="revokeSession('))->toBe(17)
+        ->and($html)->toContain('wire:key="admin-session-'.$oldest->id.'"')
+        ->not->toContain('not shown');
+
+    $panel->call('revokeSession', $oldest->id)
+        ->assertSet('said', sprintf('Revoked: session #%d has ended, and its agent can no longer act.', $oldest->id));
+
+    expect($oldest->refresh()->status)->toBe(AgentSessionStatus::Gone);
 });
 
 it('refuses to give a role to a session that has already gone', function (): void {
@@ -656,47 +681,5 @@ it('clamps a page size that makes no sense', function (): void {
 
     expect($reader->everything(0)['installations'])->toHaveCount(1)
         ->and($reader->everything(-5)['installations'])->toHaveCount(1)
-        ->and(InstallationList::MAX_PAGE)->toBe(200)
-
-        // **Pinned to the LITERAL, because every other assertion reads the constant and moves with
-        // it.** The two tests that bound a session list derive both the fixture size and the
-        // expectation from `SESSIONS_PER_INSTALLATION`, so changing it changes both sides and
-        // nothing goes red. Measured for `robot-council/core#283`: `10` to `11` left the whole
-        // suite green, `Tests: 24 skipped, 1246 passed`, exit 0. `Support\WorkIdentity` states the
-        // same reason for pinning its own constants one slice earlier in this epic.
-        ->and(InstallationList::SESSIONS_PER_INSTALLATION)->toBe(10);
-});
-
-it('says how many of an installation`s sessions it left out', function (): void {
-    // `hidden` is the count that stops a bounded session list reading as the whole of one. Seeded
-    // past `SESSIONS_PER_INSTALLATION` so the number is one this test chose rather than zero, and
-    // the floor at nought is exercised by every other test here, where nothing is hidden.
-    $installation = $this->approveInstallation($this->developer);
-
-    $over = 2;
-
-    foreach (range(1, InstallationList::SESSIONS_PER_INSTALLATION + $over) as $ignored) {
-        $this->startAgentSession($installation);
-    }
-
-    $row = arrayValue(collect($this->service(InstallationList::class)->everything(50)['installations'])
-        ->firstWhere('id', $installation->id));
-
-    $sessions = arrayValue($row['sessions']);
-
-    expect($sessions['shown'])->toHaveCount(InstallationList::SESSIONS_PER_INSTALLATION)
-        ->and($sessions['hidden'])->toBe($over)
-        ->and($sessions['gone'])->toBe(0);
-
-    // The floor, which is the half a count-only assertion misses: an installation holding fewer
-    // sessions than the bound hides none, and `max(0, …)` is what stops the subtraction going
-    // negative and reporting a number of hidden rows that do not exist.
-    $small = $this->approveInstallation($this->developer, machineLabel: 'just-one');
-
-    $this->startAgentSession($small);
-
-    $smallRow = arrayValue(collect($this->service(InstallationList::class)->everything(50)['installations'])
-        ->firstWhere('id', $small->id));
-
-    expect(arrayValue($smallRow['sessions'])['hidden'])->toBe(0);
+        ->and(InstallationList::MAX_PAGE)->toBe(200);
 });
