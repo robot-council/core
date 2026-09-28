@@ -2,6 +2,32 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.7.2 — Allowlists on the Dashboard, a Page of What Waits on You, and MySQL Re-placement Parity (2026-09-28)
+
+Administrators edit the allowlists from the dashboard, a developer sees what the fleet is waiting on them for, and tasks re-placed within a second behave the same on MySQL.
+
+### What's new
+- Show each session's id and join and last-seen times on the administration page [#465](https://github.com/robot-council/core/pull/465)
+- Add a dashboard page listing only what the fleet is waiting on the signed-in developer for [#466](https://github.com/robot-council/core/pull/466)
+- Show the running robot-council/core version at the foot of every dashboard page [#464](https://github.com/robot-council/core/pull/464)
+- Show a task's ticket, or its title, on the lane board rather than "task #N, no ticket" [#462](https://github.com/robot-council/core/pull/462)
+- Name a session on the dashboard by where it works, as repository/machine/slot [#460](https://github.com/robot-council/core/pull/460)
+- Hide finished tasks from the unfiltered queue once they pass a display window [#458](https://github.com/robot-council/core/pull/458)
+- Report a lane with spare capacity as free, with its occupancy [#454](https://github.com/robot-council/core/pull/454)
+- Explain the dashboard's vocabulary in place, and confirm every action in words [#453](https://github.com/robot-council/core/pull/453)
+
+### What's fixed
+- Answer a same-second re-placement onto its own holder as Applied on MySQL too [#463](https://github.com/robot-council/core/pull/463)
+
+### Security
+- Record each allowlist change in the change feed as an administrative event [#461](https://github.com/robot-council/core/pull/461)
+- Add an administrator-only dashboard page for the developer and administrator allowlists [#459](https://github.com/robot-council/core/pull/459)
+- Store editable allowlist entries in a table that adds to the environment lists [#457](https://github.com/robot-council/core/pull/457)
+
+### Maintenance and tooling
+- Fail the gate on serious axe violations across the dashboard [#456](https://github.com/robot-council/core/pull/456)
+- Re-derive the postgres, tests and mysql CI budgets from current run times [#468](https://github.com/robot-council/core/pull/468)
+
 ## v0.7.1 — Task Results From GitHub, Live Settings for Coordinators, and Ephemeral Sessions (2026-09-26)
 
 Tasks GitHub finishes now keep what finished them, coordinators read developer hours and seat settings live, and a session can start ephemeral.
