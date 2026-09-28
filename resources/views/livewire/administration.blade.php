@@ -206,18 +206,11 @@
                             </ul>
                         @endif
 
-                        {{-- What is not on the list, said rather than left to be inferred from its
-                             length. A list truncated at its limit looks exactly like a complete
-                             one, and the number that would show otherwise is the one not printed. --}}
-                        @if ($installation['sessions']['hidden'] > 0 || $installation['sessions']['gone'] > 0)
+                        {{-- Every live session is listed above (#414); the ones that have ended are
+                             counted, said rather than left to be inferred --}}
+                        @if ($installation['sessions']['gone'] > 0)
                             <p class="mt-2 text-meta opacity-80">
-                                @if ($installation['sessions']['hidden'] > 0)
-                                    {{ $installation['sessions']['hidden'] }} more live session(s) not shown.
-                                @endif
-
-                                @if ($installation['sessions']['gone'] > 0)
-                                    {{ $installation['sessions']['gone'] }} session(s) have ended.
-                                @endif
+                                {{ $installation['sessions']['gone'] }} session(s) have ended.
                             </p>
                         @endif
                     </li>

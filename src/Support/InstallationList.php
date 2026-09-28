@@ -42,21 +42,6 @@ final class InstallationList
     public const int MAX_PAGE = 200;
 
     /**
-     * The most sessions shown under one installation.
-     *
-     * **Bounded because nothing deletes a session row.** `SessionPresence::goesNow()` deletes the
-     * tokens and keeps the row, and the only prune in the package is for device codes, so an
-     * installation accumulates one row per agent process it has ever started. Unbounded, this
-     * panel would hydrate and render every one of them on a `wire:poll` interval.
-     * `Support\FleetPresence` bounds its own read the same way.
-     */
-    // Reported `uncovered` rather than `untested`: no test reaches this LINE, because a constant
-    // declaration is not executed anywhere coverage can see it. The same structural blind spot
-    // #232 records for `#[Fillable]`. The value is exercised by the read tests either way.
-    // @pest-mutate-ignore
-    public const int SESSIONS_PER_INSTALLATION = 10;
-
-    /**
      * @param  AgentLogins  $logins  The GitHub login behind a host user key.
      */
     public function __construct(private readonly AgentLogins $logins) {}
@@ -189,28 +174,33 @@ final class InstallationList
     }
 
     /**
-     * One installation's live sessions, with what was left out said rather than implied.
+     * Every one of an installation's live sessions, and how many have ended.
+     *
+     * **Every live session, with no cap** (#414). A cap of ten left the rest counted but unlisted,
+     * so an administrator could neither see nor revoke them from the one page meant for it; one
+     * machine running build, gate and coordinator seats across several repositories passes ten
+     * routinely. Live sessions are bounded by what a machine runs, because a silent session goes
+     * after `presence.gone_after_minutes`, and every session is already on the eager-loaded
+     * installation, so listing them all adds no query.
      *
      * A session that has gone is counted, not listed. #75 decided a gone session stays visible on
      * the presence panel, which is where a reader goes to look at one; here it would be a row with
-     * no control on it, and it is the kind of row that accumulates forever because nothing deletes
-     * a session.
+     * no control on it. `robot-council:prune-sessions` deletes gone rows past
+     * `retention.sessions_days`.
      *
      * A gone ephemeral session is neither listed nor counted: the eager load in `everything()`
      * never reads one (#424).
      *
      * @param  Installation  $installation  The installation to read.
-     * @return array{shown: list<array<string, mixed>>, hidden: int, gone: int} The sessions to
-     *                                                                          list, and the two
-     *                                                                          counts that are not
-     *                                                                          in that list.
+     * @return array{shown: list<array<string, mixed>>, gone: int} Every live session, and how many
+     *                                                             have ended.
      */
     private function sessionsOf(Installation $installation): array
     {
         $live = $installation->sessions
             ->filter(static fn (AgentSession $session): bool => $session->status !== AgentSessionStatus::Gone);
 
-        $shown = $live->take(self::SESSIONS_PER_INSTALLATION)->sortBy('id');
+        $shown = $live->sortBy('id');
 
         return [
             // Every session here is live, so every one can be revoked. There is no `revocable`
@@ -250,9 +240,7 @@ final class InstallationList
                 'last_seen_at' => $session->last_seen_at->toIso8601String(),
             ])->all()),
 
-            // Said rather than left to be inferred from the length of the list. A truncated list
-            // and a complete one look identical, which is the whole reason these are here.
-            'hidden' => max(0, $live->count() - self::SESSIONS_PER_INSTALLATION),
+            // Said rather than left to be inferred: a session that has ended is not on the list
             'gone' => $installation->sessions->count() - $live->count(),
         ];
     }
