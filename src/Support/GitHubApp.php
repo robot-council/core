@@ -30,7 +30,8 @@ use Throwable;
  * Three requests, all to `api.github.com`: the App's installation on one account, signed with its
  * JWT; an installation token for it, minted with the same JWT; and one search per repository with
  * that token. The token is asked for with `issues: read` alone, so it carries less than the App
- * even if the App is later granted more.
+ * even if the App is later granted more -- and with `organization_projects: read` beside it only
+ * for an owner whose count is narrowed to a project (#488).
  *
  * **Installations are looked up per account, not listed.** `GET /users/{owner}/installation`
  * answers for organizations and users alike, and a 404 means that account has none. Listing
@@ -130,14 +131,23 @@ final class GitHubApp
     /**
      * An installation token for one installation, from the cache while it has time left.
      *
+     * **Projects read is asked for only when a count needs it** (#488). Search answers a `project:`
+     * qualifier 422 for a token with `issues: read` alone -- measured 2026-09-29 with this App's
+     * own installation token against `project:UAMS-Web/1` -- so a count narrowed to a project
+     * needs `organization_projects: read` as well, which the App must hold and the organization
+     * must have accepted. Otherwise the request is exactly what it was, and a token for one set of
+     * permissions is cached apart from the other's.
+     *
      * @param  int  $installation  The installation's id.
+     * @param  bool  $projects  Whether to ask for `organization_projects: read` too.
      * @return string The token.
      *
-     * @throws GitHubRefusal When one could not be minted.
+     * @throws GitHubRefusal When one could not be minted, which is 422 when the App does not hold
+     *                       a permission asked for.
      */
-    public function token(int $installation): string
+    public function token(int $installation, bool $projects = false): string
     {
-        $cacheKey = $this->cacheKey($installation);
+        $cacheKey = $this->cacheKey($installation, $projects);
 
         // Reuse the cached token while it is short of its refresh margin
         $cached = $this->cached($cacheKey);
@@ -146,12 +156,14 @@ final class GitHubApp
             return $cached;
         }
 
-        // Mint a new one with the App's JWT, asking for issues read and nothing more
+        // Mint a new one with the App's JWT, asking for issues read and, for a project count,
+        // projects read, and nothing more
         $jwt = $this->jwt();
+        $permissions = $projects ? ['issues' => 'read', 'organization_projects' => 'read'] : ['issues' => 'read'];
 
         $response = $this->send(fn (): Response => $this->client()
             ->withToken($jwt)
-            ->post(sprintf('/app/installations/%d/access_tokens', $installation), ['permissions' => ['issues' => 'read']]));
+            ->post(sprintf('/app/installations/%d/access_tokens', $installation), ['permissions' => $permissions]));
 
         $token = $response->json('token');
         $expiresAt = self::instant($response->json('expires_at'));
@@ -178,10 +190,11 @@ final class GitHubApp
      * Drop an installation's cached token, after GitHub refused it.
      *
      * @param  int  $installation  The installation's id.
+     * @param  bool  $projects  Whether it was the token that also reads projects.
      */
-    public function forgetToken(int $installation): void
+    public function forgetToken(int $installation, bool $projects = false): void
     {
-        $this->cache->forget($this->cacheKey($installation));
+        $this->cache->forget($this->cacheKey($installation, $projects));
     }
 
     /**
@@ -189,24 +202,35 @@ final class GitHubApp
      *
      * GitHub search's `is:issue is:open`, whose `total_count` counts issues alone, rather than
      * `open_issues_count`, which counts pull requests with them. One request, one result asked for.
+     * Qualifiers from `Support\BacklogQualifiers` narrow it (#488); with none, the query is exactly
+     * what it was before they existed. A qualifier GitHub cannot resolve -- a project the token
+     * cannot see, or one that does not exist -- is answered 422, which is a refusal like any other.
      *
      * @param  string  $repository  `owner/name`.
      * @param  string  $token  The installation token for the repository's owner.
+     * @param  string  $qualifiers  Qualifiers to append, `''` for none.
      * @return int The count.
      *
      * @throws GitHubRefusal When GitHub could not be asked, refused, or answered with no usable count.
      * @throws InvalidArgumentException When the repository is not `owner/name`, which would let it
-     *                                  add qualifiers to the query.
+     *                                  add qualifiers to the query, or the qualifiers are ones
+     *                                  `BacklogQualifiers::refusal()` refuses.
      */
-    public function openIssues(string $repository, #[SensitiveParameter] string $token): int
+    public function openIssues(string $repository, #[SensitiveParameter] string $token, string $qualifiers = ''): int
     {
         if (mb_strlen($repository) > WorkIdentity::MAX_REPOSITORY || preg_match(WorkIdentity::REPOSITORY, $repository) !== 1) {
             throw new InvalidArgumentException('A repository is named as owner/name.');
         }
 
+        if (BacklogQualifiers::refusal($qualifiers) !== null) {
+            throw new InvalidArgumentException('Those qualifiers would change what the count counts.');
+        }
+
+        $query = sprintf('repo:%s is:issue is:open', $repository).($qualifiers === '' ? '' : ' '.$qualifiers);
+
         $response = $this->send(fn (): Response => $this->client()
             ->withToken($token)
-            ->get('/search/issues', ['q' => sprintf('repo:%s is:issue is:open', $repository), 'per_page' => 1]));
+            ->get('/search/issues', ['q' => $query, 'per_page' => 1]));
 
         // A count GitHub itself says may be short is a wrong one, so it is not a reading
         if ($response->json('incomplete_results') === true) {
@@ -335,15 +359,16 @@ final class GitHubApp
      * reuse the first one's tokens.
      *
      * @param  int  $installation  The installation's id.
+     * @param  bool  $projects  Whether the token also reads projects, which is cached apart.
      * @return string The key.
      *
      * @throws GitHubRefusal When no usable App id is configured.
      */
-    private function cacheKey(int $installation): string
+    private function cacheKey(int $installation, bool $projects): string
     {
         $app = $this->key->appId() ?? throw new GitHubRefusal(BacklogFetchOutcome::KeyUnusable);
 
-        return sprintf('robot-council:github-app:%s:installation:%d:token', $app, $installation);
+        return sprintf('robot-council:github-app:%s:installation:%d:token%s', $app, $installation, $projects ? ':projects' : '');
     }
 
     /**

@@ -54,6 +54,12 @@ enum BacklogFetchOutcome: string
     case KeyUnusable = 'key unusable';
 
     /**
+     * The search qualifiers configured for the repository (#488) are ones the fetch refuses, so no
+     * count was asked for: the unfiltered one would be stored as if it were filtered.
+     */
+    case QualifiersInvalid = 'qualifiers invalid';
+
+    /**
      * Something other than GitHub failed while fetching: the cache store, the database, or a bug.
      * Logged with the exception's class alone.
      */

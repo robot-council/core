@@ -197,8 +197,8 @@ function gitHubFixtureState(): ArrayObject
  *
  * @param  TestCase  $case  The test case, whose fixture state this changes.
  * @param  array<string, int>  $installations  Installation ids by account login, lower-cased.
- * @param  array<string, array{issues: int, pulls: int}|Closure>  $repositories  Counts by repository, or a
- *                                                                               closure answering for it.
+ * @param  array<string, array{issues: int, pulls: int, projects?: array<string, int>}|Closure>  $repositories  Counts by
+ *                                                                                                              repository, or a closure answering for it.
  * @param  Closure|null  $lookup  Answers `/users/{owner}/installation` instead, given the owner.
  * @param  Closure|null  $mint  Answers `access_tokens` instead, given the installation id.
  */
@@ -280,6 +280,20 @@ function fakeGitHubFrom(ArrayObject $state): void
             // Issues, pull requests, or both when the query names neither
             $issues = in_array('is:issue', $terms, true) || ! in_array('is:pr', $terms, true);
             $pulls = in_array('is:pr', $terms, true) || ! in_array('is:issue', $terms, true);
+
+            // A `project:` term counts that project's issues, and one the repository does not model
+            // is answered as GitHub answers a project it cannot resolve (#488)
+            foreach ($terms as $term) {
+                if (str_starts_with($term, 'project:')) {
+                    $projects = is_array($spec['projects'] ?? null) ? $spec['projects'] : [];
+
+                    if (! array_key_exists(substr($term, 8), $projects)) {
+                        return Http::response(['message' => 'Validation Failed', 'errors' => [['message' => 'An invalid project was specified.']]], 422);
+                    }
+
+                    return Http::response(['total_count' => intValue($projects[substr($term, 8)]), 'incomplete_results' => false, 'items' => []]);
+                }
+            }
 
             return Http::response([
                 'total_count' => ($issues ? intValue($spec['issues'] ?? null) : 0) + ($pulls ? intValue($spec['pulls'] ?? null) : 0),
@@ -1132,4 +1146,202 @@ it('treats a passing failure as undetermined and a standing one as failed, group
     runBacklogFetch();
 
     expect($diagnosis()?->status)->toBe(DiagnosisStatus::Failed);
+});
+
+/**
+ * The `q` of every search sent, by repository.
+ *
+ * @return array<string, string> Queries.
+ */
+function searchQueries(): array
+{
+    $queries = [];
+
+    foreach (sentTo('/search/issues') as $request) {
+        parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+        $queries[searchedRepository($request)] = stringValue($query['q'] ?? null);
+    }
+
+    return $queries;
+}
+
+it('sends the query unchanged while no search qualifiers are set', function (mixed $unset): void {
+    config()->set('robot-council.backlog.search_qualifiers', $unset);
+    configureFetchApp();
+    fetchLane($this, $this->installation, 'robot-council/core');
+    fakeGitHub($this, ['robot-council' => 7], ['robot-council/core' => ['issues' => 6, 'pulls' => 11]]);
+
+    runBacklogFetch();
+
+    expect(searchQueries())->toBe(['robot-council/core' => 'repo:robot-council/core is:issue is:open'])
+        ->and(fetchedReadings())->toBe(['robot-council/core' => 6])
+        ->and(sentTo('/app/installations/7/access_tokens')[0]->data())->toBe(['permissions' => ['issues' => 'read']]);
+})->with([
+    'null' => [null],
+    'an empty array' => [[]],
+    'an empty string' => [''],
+    'another owner only' => [['UAMS-Web' => 'project:UAMS-Web/1']],
+]);
+
+it("appends an owner's qualifiers to each of its repositories, and a repository's own entry replaces them", function (mixed $configured): void {
+    config()->set('robot-council.backlog.search_qualifiers', $configured);
+    configureFetchApp();
+
+    foreach (['UAMS-Web/site', 'UAMS-Web/importer', 'UAMS-Web/other', 'robot-council/core'] as $repository) {
+        fetchLane($this, $this->installation, $repository);
+    }
+
+    fakeGitHub($this, ['uams-web' => 9, 'robot-council' => 7], [
+        'UAMS-Web/site' => ['issues' => 98, 'pulls' => 0, 'projects' => ['UAMS-Web/1' => 95]],
+        'UAMS-Web/importer' => ['issues' => 40, 'pulls' => 0, 'projects' => ['UAMS-Web/1' => 30, 'UAMS-Web/3' => 2]],
+        'UAMS-Web/other' => ['issues' => 12, 'pulls' => 0, 'projects' => ['UAMS-Web/1' => 5]],
+        'robot-council/core' => ['issues' => 6, 'pulls' => 0],
+    ]);
+
+    runBacklogFetch();
+
+    expect(searchQueries())->toEqualCanonicalizing([
+        'UAMS-Web/site' => 'repo:UAMS-Web/site is:issue is:open project:UAMS-Web/1',
+        'UAMS-Web/importer' => 'repo:UAMS-Web/importer is:issue is:open project:UAMS-Web/3',
+        'UAMS-Web/other' => 'repo:UAMS-Web/other is:issue is:open',
+        'robot-council/core' => 'repo:robot-council/core is:issue is:open',
+    ])->and(fetchedReadings())->toEqualCanonicalizing([
+        'UAMS-Web/site' => 95,
+        'UAMS-Web/importer' => 2,
+        'UAMS-Web/other' => 12,
+        'robot-council/core' => 6,
+    ])
+        // Projects read for the owner narrowed to a project, and nothing new for the other
+        ->and(sentTo('/app/installations/9/access_tokens')[0]->data())->toBe(['permissions' => ['issues' => 'read', 'organization_projects' => 'read']])
+        ->and(sentTo('/app/installations/7/access_tokens')[0]->data())->toBe(['permissions' => ['issues' => 'read']]);
+})->with([
+    // Keys in another case than the board's, as GitHub compares logins
+    'an array' => [['uams-web' => ' project:UAMS-Web/1 ', 'UAMS-Web/Importer' => 'project:UAMS-Web/3', 'UAMS-Web/other' => '']],
+    'the environment form' => ['UAMS-Web=project:UAMS-Web/1;uams-web/importer=project:UAMS-Web/3; UAMS-Web/other='],
+]);
+
+it('stores no reading, and never a zero, for qualifiers GitHub cannot resolve or the fetch refuses', function (string $qualifiers, string $outcome, ?int $status, int $searches): void {
+    config()->set('robot-council.backlog.search_qualifiers', ['UAMS-Web' => $qualifiers]);
+    configureFetchApp();
+    fetchLane($this, $this->installation, 'UAMS-Web/site');
+    fetchLane($this, $this->installation, 'robot-council/core');
+
+    fakeGitHub($this, ['uams-web' => 9, 'robot-council' => 7], [
+        'UAMS-Web/site' => ['issues' => 98, 'pulls' => 0, 'projects' => ['UAMS-Web/1' => 95]],
+        'UAMS-Web/elsewhere' => ['issues' => 50, 'pulls' => 0],
+        'robot-council/core' => ['issues' => 6, 'pulls' => 0],
+    ]);
+
+    runBacklogFetch();
+    runBacklogFetch();
+
+    $warnings = array_values(array_filter(loggedMessages($this), static fn (MessageLogged $message): bool => $message->level === 'warning'));
+    $fetch = collect($this->service(Doctor::class)->examine(['backlog fetch']))->first();
+
+    // The other owner is read either way, and the refused repository asks GitHub nothing more than
+    // its search, if that
+    expect(fetchedReadings())->toBe(['robot-council/core' => 6])
+        ->and(DB::table('robot_council_backlog_readings')->where('repository', 'UAMS-Web/site')->count())->toBe(0)
+        ->and($this->service(LaneBoard::class)->read()['meters']['UAMS-Web/site']['count'])->toBeNull()
+        ->and(array_filter(array_map(searchedRepository(...), sentTo('/search/issues')), static fn (string $repository): bool => $repository === 'UAMS-Web/site'))->toHaveCount($searches)
+        ->and($this->service(BacklogFetches::class)->latest(['UAMS-Web/site'])['UAMS-Web/site'])->toMatchArray([
+            'outcome' => BacklogFetchOutcome::from($outcome),
+            'status' => $status,
+        ])
+        ->and($fetch?->status)->toBe(DiagnosisStatus::Failed)
+        ->and($fetch?->detail)->toContain(sprintf('UAMS-Web/site: %s', $outcome))
+        // A refusal the configuration causes is logged when it begins; GitHub's is logged each run
+        ->and($warnings)->toHaveCount($outcome === 'qualifiers invalid' ? 1 : 2);
+})->with([
+    'a project GitHub cannot resolve' => ['project:UAMS-Web/9999', 'refused', 422, 2],
+    'a repo: qualifier, which GitHub would OR' => ['project:UAMS-Web/1 repo:UAMS-Web/elsewhere', 'qualifiers invalid', null, 0],
+    'a negated org:' => ['-org:UAMS-Web', 'qualifiers invalid', null, 0],
+    'an is: qualifier' => ['is:closed', 'qualifiers invalid', null, 0],
+    'an OR, which could reach past the repository' => ['project:UAMS-Web/1 OR label:x', 'qualifiers invalid', null, 0],
+    'parentheses' => ['(label:x)', 'qualifiers invalid', null, 0],
+    'a line break' => ["project:UAMS-Web/1\nlabel:x", 'qualifiers invalid', null, 0],
+    'past the length bound' => ['label:'.str_repeat('x', 90), 'qualifiers invalid', null, 0],
+]);
+
+it('refuses reserved qualifiers at the request too, so a caller that skips the config cannot send them', function (): void {
+    configureFetchApp();
+
+    expect(fn () => $this->service(GitHubApp::class)->openIssues('UAMS-Web/site', 'ghs_token', 'repo:UAMS-Web/elsewhere'))
+        ->toThrow(InvalidArgumentException::class);
+
+    Http::assertNothingSent();
+});
+
+it('shows the qualifiers in effect for each owner, and for a repository with its own entry, through doctor', function (): void {
+    config()->set('robot-council.backlog.search_qualifiers', [
+        'UAMS-Web' => 'project:UAMS-Web/1',
+        'UAMS-Web/importer' => '',
+        'octo-org' => 'repo:octo-org/else',
+    ]);
+    configureFetchApp();
+
+    foreach (['UAMS-Web/site', 'UAMS-Web/importer', 'robot-council/core', 'octo-org/app'] as $repository) {
+        fetchLane($this, $this->installation, $repository);
+    }
+
+    fakeGitHub($this, ['uams-web' => 9, 'robot-council' => 7, 'octo-org' => 5], [
+        'UAMS-Web/site' => ['issues' => 98, 'pulls' => 0, 'projects' => ['UAMS-Web/1' => 95]],
+        'UAMS-Web/importer' => ['issues' => 40, 'pulls' => 0],
+        'robot-council/core' => ['issues' => 6, 'pulls' => 0],
+        'octo-org/app' => ['issues' => 1, 'pulls' => 0],
+    ]);
+
+    runBacklogFetch();
+
+    $detail = (string) collect($this->service(Doctor::class)->examine(['backlog fetch']))->first()?->detail;
+
+    expect($detail)->toContain('UAMS-Web: installed, searched with `project:UAMS-Web/1`')
+        ->and($detail)->toContain('robot-council: installed;')
+        ->and($detail)->not->toContain('robot-council: installed, ')
+        ->and($detail)->toContain('octo-org: not confirmed by the latest fetch, search qualifiers refused')
+        ->and($detail)->toContain('UAMS-Web/importer: read (HTTP 200)')
+        ->and($detail)->toMatch('/UAMS-Web\/importer: read \(HTTP 200\) at [0-9: -]+ UTC, searched with no extra qualifiers/')
+        ->and($detail)->toContain('octo-org/app: qualifiers invalid');
+});
+
+it('reads nothing for an owner narrowed to a project while the App does not hold projects read, and never a zero', function (): void {
+    config()->set('robot-council.backlog.search_qualifiers', 'UAMS-Web=project:UAMS-Web/1');
+    configureFetchApp();
+    fetchLane($this, $this->installation, 'UAMS-Web/site');
+    fetchLane($this, $this->installation, 'robot-council/core');
+
+    // As measured 2026-09-29: GitHub refuses to mint a token for a permission the App does not hold
+    fakeGitHub($this, ['uams-web' => 9, 'robot-council' => 7], [
+        'UAMS-Web/site' => ['issues' => 98, 'pulls' => 0, 'projects' => ['UAMS-Web/1' => 95]],
+        'robot-council/core' => ['issues' => 6, 'pulls' => 0],
+    ], mint: fn (int $installation) => $installation === 9
+        ? Http::response(['message' => 'The permissions requested are not granted to this installation.'], 422)
+        : Http::response(['token' => 'ghs_installation'.$installation.'SENTINEL', 'expires_at' => Carbon::now()->addHour()->utc()->format('Y-m-d\TH:i:s\Z')], 201));
+
+    runBacklogFetch();
+
+    expect(fetchedReadings())->toBe(['robot-council/core' => 6])
+        ->and(array_map(searchedRepository(...), sentTo('/search/issues')))->toBe(['robot-council/core'])
+        ->and($this->service(BacklogFetches::class)->latest(['UAMS-Web/site'])['UAMS-Web/site'])->toMatchArray([
+            'outcome' => BacklogFetchOutcome::Refused,
+            'status' => 422,
+        ]);
+});
+
+it('caches a token that reads projects apart from one that does not', function (): void {
+    configureFetchApp();
+    fetchLane($this, $this->installation, 'UAMS-Web/site');
+    fakeGitHub($this, ['uams-web' => 9], ['UAMS-Web/site' => ['issues' => 98, 'pulls' => 0, 'projects' => ['UAMS-Web/1' => 95]]]);
+
+    // An issues-only token first, then the owner is narrowed to a project: the cached token cannot
+    // resolve it, so a second one is minted rather than reused
+    runBacklogFetch();
+    config()->set('robot-council.backlog.search_qualifiers', ['UAMS-Web' => 'project:UAMS-Web/1']);
+    runBacklogFetch();
+    runBacklogFetch();
+
+    expect(array_map(static fn (Request $request): mixed => $request->data(), sentTo('/app/installations/9/access_tokens')))->toBe([
+        ['permissions' => ['issues' => 'read']],
+        ['permissions' => ['issues' => 'read', 'organization_projects' => 'read']],
+    ])->and(fetchedReadings())->toBe(['UAMS-Web/site' => 95]);
 });

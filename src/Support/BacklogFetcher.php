@@ -63,18 +63,28 @@ final class BacklogFetcher
     private array $mintRefusals = [];
 
     /**
+     * Each owner, by lower-cased login, whose count this run narrows to a project, so its token
+     * asks for projects read as well (#488).
+     *
+     * @var array<string, true>
+     */
+    private array $projectOwners = [];
+
+    /**
      * @param  GitHubAppKey  $key  Whether an App is configured.
      * @param  GitHubApp  $github  The requests.
      * @param  Backlog  $backlog  Where a count is stored.
      * @param  BacklogFetches  $fetches  Where each attempt's outcome is stored.
      * @param  LaneBoard  $board  Which repositories to ask about.
+     * @param  BacklogQualifiers  $qualifiers  What each repository's search is narrowed by.
      */
     public function __construct(
         private readonly GitHubAppKey $key,
         private readonly GitHubApp $github,
         private readonly Backlog $backlog,
         private readonly BacklogFetches $fetches,
-        private readonly LaneBoard $board
+        private readonly LaneBoard $board,
+        private readonly BacklogQualifiers $qualifiers
     ) {}
 
     /**
@@ -102,6 +112,16 @@ final class BacklogFetcher
 
         $this->installations = [];
         $this->mintRefusals = [];
+        $this->projectOwners = [];
+
+        // One token serves all of an owner's repositories, so it reads projects when any of them
+        // needs it
+        foreach ($repositories as $repository) {
+            if (preg_match(BacklogQualifiers::PROJECT, $this->qualifiers->for($repository) ?? '') === 1) {
+                $this->projectOwners[mb_strtolower(explode('/', $repository, 2)[0])] = true;
+            }
+        }
+
         $unanswered = 0;
 
         foreach ($repositories as $repository) {
@@ -119,9 +139,11 @@ final class BacklogFetcher
                 $tally['failed']++;
                 $this->fetches->record($repository, $refusal->outcome, $refusal->status);
 
-                // A missing installation is a standing state, which doctor reports; it is logged when
-                // it begins rather than every five minutes while it lasts
-                if ($refusal->outcome !== BacklogFetchOutcome::NoInstallation || ($previous[$repository]['outcome'] ?? null) !== BacklogFetchOutcome::NoInstallation) {
+                // A missing installation and refused qualifiers are standing states, which doctor
+                // reports; each is logged when it begins rather than every five minutes while it lasts
+                $standing = \in_array($refusal->outcome, [BacklogFetchOutcome::NoInstallation, BacklogFetchOutcome::QualifiersInvalid], true);
+
+                if (! $standing || ($previous[$repository]['outcome'] ?? null) !== $refusal->outcome) {
                     self::warn($repository, $refusal);
                 }
             } catch (Throwable $throwable) {
@@ -157,6 +179,13 @@ final class BacklogFetcher
      */
     private function fetch(string $repository): ?GitHubRefusal
     {
+        // Refused qualifiers ask nothing: the unfiltered count is not the one configured
+        $qualifiers = $this->qualifiers->for($repository);
+
+        if ($qualifiers === null) {
+            return new GitHubRefusal(BacklogFetchOutcome::QualifiersInvalid);
+        }
+
         $owner = explode('/', $repository, 2)[0];
         $key = mb_strtolower($owner);
 
@@ -189,8 +218,10 @@ final class BacklogFetcher
             return $this->mintRefusals[$installation];
         }
 
+        $projects = isset($this->projectOwners[$key]);
+
         try {
-            $token = $this->github->token($installation);
+            $token = $this->github->token($installation, $projects);
         } catch (GitHubRefusal $gitHubRefusal) {
             if (! $gitHubRefusal->outcome->transient()) {
                 $this->mintRefusals[$installation] = $gitHubRefusal;
@@ -200,12 +231,12 @@ final class BacklogFetcher
         }
 
         try {
-            $count = $this->github->openIssues($repository, $token);
+            $count = $this->github->openIssues($repository, $token, $qualifiers);
         } catch (GitHubRefusal $gitHubRefusal) {
             // A token GitHub no longer accepts is dropped, so the next run mints a fresh one
             // rather than presenting the rejected one until it would have expired
             if ($gitHubRefusal->status === 401) {
-                $this->github->forgetToken($installation);
+                $this->github->forgetToken($installation, $projects);
             }
 
             return $gitHubRefusal;

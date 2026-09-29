@@ -390,10 +390,20 @@ return [
     | fetched through the GitHub App above (#383). A count older than this reads as
     | unreadable, never as the last number seen.
     |
+    | `search_qualifiers` narrows the fetched count (#488): it maps an owner
+    | (`UAMS-Web`) or a repository (`UAMS-Web/site`) to search qualifiers appended to
+    | `repo:OWNER/NAME is:issue is:open`, such as `project:UAMS-Web/1` to count one
+    | GitHub Project's issues. A repository's entry replaces its owner's, and with
+    | neither the query is unchanged. As an environment variable it is written
+    | `UAMS-Web=project:UAMS-Web/1;UAMS-Web/site=label:web`. `repo:`, `org:`,
+    | `user:`, `is:`, `type:`, `state:`, `OR`, `AND`, `NOT` and parentheses are
+    | refused, because they would widen or redefine the count; a refused entry stores no reading and fails doctor.
+    |
     */
 
     'backlog' => [
         'stale_after_minutes' => (int) env('ROBOT_COUNCIL_BACKLOG_STALE_AFTER_MINUTES', 60),
+        'search_qualifiers' => env('ROBOT_COUNCIL_BACKLOG_SEARCH_QUALIFIERS'),
     ],
 
     /*
