@@ -75,7 +75,7 @@ function transactionGuardExemptions(): array
         'MigrateOnceGuardTest.php' => 'this scanner, whose probes quote every pattern as fixture source',
         'EngineSemanticsGroupGuardTest.php' => 'a source scan quoting the cross-connection group as fixture text',
         'MigrationTimestampGuardTest.php' => 'a source scan over migration files, run against no database',
-        'MigrationManifestGuardTest.php' => 'reads the migrator\'s file list, and migrates nothing',
+        'MigrationManifestGuardTest.php' => "reads the migrator's file list, and migrates nothing",
     ];
 }
 
@@ -122,9 +122,7 @@ function testsMissingTheOptOut(string $source): array
         $blocks[] = ['kind' => $start[1][0], 'function' => $start[2][0] ?? null, 'text' => substr($code, $from, $to - $from)];
     }
 
-    $needs = static function (string $text): array {
-        return array_keys(array_filter(transactionSensitivePatterns(), static fn (string $pattern): bool => preg_match($pattern, $text) === 1));
-    };
+    $needs = (static fn (string $text): array => array_keys(array_filter(transactionSensitivePatterns(), static fn (string $pattern): bool => preg_match($pattern, $text) === 1)));
 
     $helpers = array_column(array_filter($blocks, static fn (array $block): bool => $block['function'] !== null), 'text', 'function');
     $hook = implode("\n", array_column(array_filter($blocks, static fn (array $block): bool => $block['kind'] === 'beforeEach'), 'text'));
@@ -180,7 +178,7 @@ it('finds each kind of test that needs the opt-out, and passes one that has it',
         'a migration run' => "Artisan::call('migrate:rollback');",
         'a second connection' => "DB::connection('second')->table('x')->count();",
         'the transaction boundary' => 'DB::afterCommit(fn () => null);',
-        'an expected query failure' => 'expect(fn () => DB::table(\'x\')->insert([]))->toThrow(UniqueConstraintViolationException::class);',
+        'an expected query failure' => "expect(fn () => DB::table('x')->insert([]))->toThrow(UniqueConstraintViolationException::class);",
     ];
 
     foreach ($probes as $kind => $line) {
@@ -190,9 +188,9 @@ it('finds each kind of test that needs the opt-out, and passes one that has it',
         $commented = "<?php\nit('probes', function () {\n    // {$line}\n});\n";
 
         expect(testsMissingTheOptOut($bare))->toBe(['probes: '.$kind])
-            ->and(testsMissingTheOptOut($optedOut))->toBe([])
-            ->and(testsMissingTheOptOut($optedOutInHook))->toBe([])
-            ->and(testsMissingTheOptOut($commented))->toBe([]);
+            ->and(testsMissingTheOptOut($optedOut))->toBeEmpty()
+            ->and(testsMissingTheOptOut($optedOutInHook))->toBeEmpty()
+            ->and(testsMissingTheOptOut($commented))->toBeEmpty();
     }
 
     // Moved into a file-local helper, it is still the test's doing, and so is an opt-out there
@@ -204,10 +202,10 @@ it('finds each kind of test that needs the opt-out, and passes one that has it',
 
     expect(testsMissingTheOptOut($nested))->toBe(['calls a helper that calls one: a migration run'])
         ->and(testsMissingTheOptOut($helper))->toBe(['calls a helper: a schema change'])
-        ->and(testsMissingTheOptOut($helperOptsOut))->toBe([])
+        ->and(testsMissingTheOptOut($helperOptsOut))->toBeEmpty()
         // A plain database test is left alone, and so is one never inside the transaction
-        ->and(testsMissingTheOptOut("<?php\nit('reads', function () {\n    \$this->migrateUsersTableWithPackageColumns();\n});\n"))->toBe([])
-        ->and(testsMissingTheOptOut("<?php\nit('builds its own table', function () {\n    Schema::create('x', fn () => null);\n});\n"))->toBe([]);
+        ->and(testsMissingTheOptOut("<?php\nit('reads', function () {\n    \$this->migrateUsersTableWithPackageColumns();\n});\n"))->toBeEmpty()
+        ->and(testsMissingTheOptOut("<?php\nit('builds its own table', function () {\n    Schema::create('x', fn () => null);\n});\n"))->toBeEmpty();
 });
 
 it('finds no test that needs the opt-out and lacks it', function (): void {
@@ -228,12 +226,12 @@ it('finds no test that needs the opt-out and lacks it', function (): void {
         }
     }
 
-    expect($missing)->toBe([]);
+    expect($missing)->toBeEmpty();
 });
 
 it('exempts only files that exist, each for a reason', function (): void {
     foreach (transactionGuardExemptions() as $file => $reason) {
-        expect(is_file(__DIR__.'/'.$file))->toBeTrue()
+        expect(__DIR__.'/'.$file)->toBeFile()
             ->and($reason)->not->toBeEmpty();
     }
 });

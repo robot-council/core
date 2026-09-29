@@ -448,7 +448,8 @@ class TestCase extends Orchestra
 
         // Back to the application's own manager, so callbacks run when the code's own outermost
         // transaction commits, and not one level early as the testing manager arranges
-        $this->app?->instance('db.transactions', $manager = new ApplicationTransactionsManager);
+        $manager = new ApplicationTransactionsManager;
+        $this->app?->instance('db.transactions', $manager);
         $connection->setTransactionManager($manager);
     }
 
@@ -459,7 +460,8 @@ class TestCase extends Orchestra
      */
     private function beginTestTransaction(Connection $connection): void
     {
-        $this->app?->instance('db.transactions', $manager = new DatabaseTransactionsManager([$connection->getName()]));
+        $manager = new DatabaseTransactionsManager([$connection->getName()]);
+        $this->app?->instance('db.transactions', $manager);
         $connection->setTransactionManager($manager);
 
         // Quietly, as Laravel's own trait does, so a listener counting transactions sees only the
