@@ -351,6 +351,7 @@ A **Laravel package** (`robot-council/core`), not an application. It is the core
 Rules (always loaded) — follow them; don't restate them:
 
 - **Shipping:** `adversarial-review` (verify before a change ships or a claim is published), `pre-merge-check` (the judgment steps before merging), `sync-pr-branch` (bring a branch current, and the inputs its checks read), `closing-a-ticket` (what "done" means).
+- **Releases:** `who-cuts-a-release` (only the release seat, at a checkpoint -- 08:00, 16:00 and 00:00 Central -- under the `release:robot-council/core` lock).
 - **Evidence:** `an-empty-result-is-not-evidence`, `measurement-parity`.
 - **Local processes and trees:** `long-running-commands`, `worktrees`.
 - **GitHub:** `github-api-budget`, `filing-defects-across-repos`, `design-decision-forks`.
