@@ -354,14 +354,10 @@ it('limits how fast a session can ask, so a denial cannot fill the queue', funct
 });
 
 it('shows a pending request on the panel, and carries the role it rendered into the control', function (): void {
-    // **A second installation first, so the two id sequences diverge.** With one of each, the
-    // session id and the installation id are both 1 and an assertion naming `approveRole(1)` cannot
-    // tell them apart -- it would keep passing with the control wired to the installation, which
-    // would send an administrator's approval at the wrong row forever.
-    $this->approveInstallation($this->developer, machineLabel: 'second-machine');
-    $this->approveInstallation($this->developer, machineLabel: 'third-machine');
-
-    [$session, $token] = $this->startAgentSession($this->installation);
+    // **A session whose id is not its installation's.** With the two equal, an assertion naming
+    // `approveRole(<id>)` cannot tell them apart -- it would keep passing with the control wired to
+    // the installation, which would send an administrator's approval at the wrong row forever.
+    [$session, $token] = $this->startAgentSessionWithOwnId($this->installation);
 
     expect($session->getKey())->not->toBe($this->installation->getKey());
 
