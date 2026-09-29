@@ -349,10 +349,9 @@ class TestCase extends Orchestra
     {
         $directory = self::processMigrations();
 
-        // Called twice in one test, the second call is already inside the transaction
-        if ($this->testTransaction instanceof Connection) {
-            return $directory;
-        }
+        // Called again in the same test, it starts the test over from an empty schema, as the
+        // `migrate:fresh` it replaces did: what the test wrote so far is rolled back
+        $this->rollBackTestTransaction();
 
         $database = $this->app?->make('db');
 
@@ -537,7 +536,15 @@ class TestCase extends Orchestra
             $directory.'/2026_01_01_000000_add_robot_council_columns_to_users_table.php'
         );
 
-        register_shutdown_function(static fn (): bool => File::deleteDirectory($directory));
+        // Plain PHP rather than the `File` facade: at shutdown the application may be gone, and a
+        // facade with no root fails the process after every test has passed -- on Laravel 13.23
+        register_shutdown_function(static function () use ($directory): void {
+            foreach (glob($directory.'/*') ?: [] as $file) {
+                @unlink($file);
+            }
+
+            @rmdir($directory);
+        });
 
         return self::$processMigrations = $directory;
     }
