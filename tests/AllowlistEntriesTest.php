@@ -171,6 +171,8 @@ it('accepts a login of exactly 39 characters', function (): void {
 });
 
 it('reads the environment lists alone when the table has not been migrated yet', function (): void {
+    // Changes the schema, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     Schema::drop('robot_council_allowlist_entries');
 
     expect(app(Allowlist::class)->developers())->toBe([4242])

@@ -60,6 +60,8 @@ function runTheDrop(): void
 }
 
 it('drops both composite indexes from a database that already carries them', function (): void {
+    // Changes the schema, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     // Planted, because this is the only state where the migration has anything to do -- and the
     // state every host that installed before #94 is actually in
     Schema::table('robot_council_events', function (Blueprint $table): void {
@@ -93,6 +95,8 @@ it('does nothing, rather than failing, on a database that never had them', funct
 });
 
 it('drops one when only one is present', function (): void {
+    // Changes the schema, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     // A half-migrated database, which is what a failed earlier run leaves behind
     Schema::table('robot_council_events', function (Blueprint $table): void {
         $table->index(['type', 'id']);

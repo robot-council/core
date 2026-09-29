@@ -1015,6 +1015,8 @@ it('records an error and goes on when something other than GitHub fails, logging
 });
 
 it('records an error when storing the reading fails, and the command still exits zero', function (): void {
+    // Changes the schema, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     configureFetchApp();
     fetchLane($this, $this->installation, 'robot-council/core');
     fakeGitHub($this, ['robot-council' => 7], ['robot-council/core' => ['issues' => 1, 'pulls' => 0]]);
@@ -1031,6 +1033,8 @@ it('records an error when storing the reading fails, and the command still exits
 });
 
 it('exits zero when the fetch cannot even read the board, logging the class alone', function (): void {
+    // Changes the schema, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     configureFetchApp();
     fetchLane($this, $this->installation, 'robot-council/core');
 

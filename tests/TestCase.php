@@ -4,8 +4,14 @@ declare(strict_types=1);
 
 namespace RobotCouncil\Tests;
 
+use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Database\Connection;
+use Illuminate\Database\DatabaseManager;
+use Illuminate\Database\DatabaseTransactionsManager as ApplicationTransactionsManager;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Auth\User;
+use Illuminate\Foundation\Testing\DatabaseTransactionsManager;
+use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
@@ -115,6 +121,20 @@ class TestCase extends Orchestra
     private const string CACHED_ROUTES_MARKER = 'CachedRoutes';
 
     /**
+     * The connection this test's rolled-back transaction is open on, or null when it has none.
+     *
+     * Held so `rebootWith()` can roll it back before the application it belongs to is replaced,
+     * and so the rollback registered for teardown can tell it was already done.
+     */
+    private ?Connection $testTransaction = null;
+
+    /**
+     * The directory holding this process's copy of the install stub, which the shared schema was
+     * migrated from, created once and removed when the process ends.
+     */
+    private static ?string $processMigrations = null;
+
+    /**
      * Register the package's service provider with the Testbench application.
      *
      * @param  Application  $app  The Testbench application.
@@ -203,6 +223,10 @@ class TestCase extends Orchestra
     {
         $this->bootConfiguration[$key] = $value;
 
+        // The replaced application's teardown callbacks never run, so its test transaction is
+        // rolled back here; the new application starts outside one, as it starts with no schema
+        $this->rollBackTestTransaction();
+
         $this->refreshApplication();
     }
 
@@ -259,13 +283,18 @@ class TestCase extends Orchestra
 
     /**
      * Drop whatever the last test left behind, then migrate Laravel's tables, Sanctum's, the
-     * package's own, and any extra paths. A shared database keeps its rows between tests, unlike
-     * SQLite's in-memory one, so every database test starts from here.
+     * package's own, and any extra paths, outside any transaction.
+     *
+     * **This is the opt-out's mechanism, never the default** (#473). It leaves behind a schema or
+     * committed rows the shared schema does not have, so it marks the shared schema stale and the
+     * next transactional test migrates afresh before it begins.
      *
      * @param  string  ...$paths  Extra migration directories to run, in migration-name order.
      */
     protected function migrateFresh(string ...$paths): void
     {
+        RefreshDatabaseState::$migrated = false;
+
         Artisan::call('migrate:fresh', [
             '--path' => [
                 default_migration_path(),
@@ -293,23 +322,211 @@ class TestCase extends Orchestra
     }
 
     /**
-     * Migrate everything, including the users-table change `robot-council:install` writes.
+     * Give the test the whole schema, including the users-table change `robot-council:install`
+     * writes, inside a transaction rolled back when the test ends (#473).
      *
-     * @return string The directory holding the copy of the install stub that ran.
+     * **The schema is migrated once per process and each test rolls back what it wrote**, the
+     * decision on #467. `migrate:fresh` re-ran about 50 migrations for every test, which on Postgres
+     * was most of the job's time and grew with every test added. The mechanics are Laravel's own
+     * `RefreshDatabase`, written out rather than used because that trait runs for every test that
+     * uses it, while here a test asks for the database by calling this: the same shared state
+     * (`RefreshDatabaseState`), the same reuse of an in-memory SQLite connection across
+     * applications, and the same testing transaction manager, so `DB::afterCommit()` callbacks run
+     * when the code's own transaction commits rather than never.
+     *
+     * **A test that needs a real schema change or a real commit opts out by name**:
+     * `migrateFreshSchema()` in place of this, or `leaveTestTransaction()` inside one test.
+     * `MigrateOnceGuardTest` refuses a test that needs one and has neither.
+     *
+     * @return string The directory holding the copy of the install stub the schema was built from.
      */
     public function migrateUsersTableWithPackageColumns(): string
     {
-        // Run the stub itself, so the suite exercises what `robot-council:install` writes
-        $directory = $this->temporaryDirectory('migrations');
+        $directory = self::processMigrations();
 
+        // Called twice in one test, the second call is already inside the transaction
+        if ($this->testTransaction instanceof Connection) {
+            return $directory;
+        }
+
+        $database = $this->app?->make('db');
+
+        if (! $database instanceof DatabaseManager) {
+            throw new RuntimeException('The database manager is not bound.');
+        }
+
+        $name = $database->getDefaultConnection();
+        $inMemory = $database->connection($name)->getConfig('database') === ':memory:';
+
+        // An in-memory SQLite database lives in its connection, and every test boots a new
+        // application, so the connection that holds the migrated schema is handed to each one
+        if ($inMemory && isset(RefreshDatabaseState::$inMemoryConnections[$name])) {
+            $database->connection($name)->setPdo(RefreshDatabaseState::$inMemoryConnections[$name]);
+        }
+
+        if (! RefreshDatabaseState::$migrated) {
+            $this->migrateFresh($directory);
+            $this->app?->make(Kernel::class)->setArtisan(null);
+
+            if ($inMemory) {
+                RefreshDatabaseState::$inMemoryConnections[$name] = $database->connection($name)->getPdo();
+            }
+
+            RefreshDatabaseState::$migrated = true;
+        }
+
+        $this->beginTestTransaction($database->connection($name));
+
+        return $directory;
+    }
+
+    /**
+     * The opt-out (#473): give the test a schema built by `migrate:fresh`, outside any transaction,
+     * exactly as every database test had before.
+     *
+     * For a test that changes the schema itself, rolls migrations back or forward, reads what a
+     * second connection committed, or asserts when `DB::afterCommit()` callbacks run. Each of those
+     * observes something different inside a transaction that is never committed, or, on MySQL,
+     * ends it: DDL there commits implicitly.
+     *
+     * @return string The directory holding the copy of the install stub that ran.
+     */
+    public function migrateFreshSchema(): string
+    {
+        $directory = self::processMigrations();
+
+        // Whatever the test wrote inside a transaction goes with it, as a fresh schema would take it
+        $this->rollBackTestTransaction();
+
+        $this->migrateFresh($directory);
+
+        return $directory;
+    }
+
+    /**
+     * The opt-out for one test whose file's `beforeEach` began a test transaction (#473): commit the
+     * fixtures it already has, and run the rest of the test outside any transaction, exactly as
+     * every database test did before.
+     *
+     * The rows it commits are in the shared schema from then on, so the schema is marked stale and
+     * the next transactional test rebuilds it with `migrate:fresh` before it begins: no test sees
+     * another's rows. For a test that asserts when `DB::afterCommit()` callbacks run, or that reads
+     * `DB::transactionLevel()`, where the wrapping transaction would change the answer.
+     */
+    public function leaveTestTransaction(): void
+    {
+        $connection = $this->testTransaction;
+        $this->testTransaction = null;
+
+        if (! $connection instanceof Connection) {
+            return;
+        }
+
+        RefreshDatabaseState::$migrated = false;
+
+        $dispatcher = $connection->getEventDispatcher();
+        $connection->unsetEventDispatcher();
+
+        while ($connection->transactionLevel() > 0) {
+            $connection->commit();
+        }
+
+        if ($dispatcher !== null) {
+            $connection->setEventDispatcher($dispatcher);
+        }
+
+        // Back to the application's own manager, so callbacks run when the code's own outermost
+        // transaction commits, and not one level early as the testing manager arranges
+        $this->app?->instance('db.transactions', $manager = new ApplicationTransactionsManager);
+        $connection->setTransactionManager($manager);
+    }
+
+    /**
+     * Begin the transaction a test's writes are rolled back from, and roll it back at teardown.
+     *
+     * @param  Connection  $connection  The default connection, holding the migrated schema.
+     */
+    private function beginTestTransaction(Connection $connection): void
+    {
+        $this->app?->instance('db.transactions', $manager = new DatabaseTransactionsManager([$connection->getName()]));
+        $connection->setTransactionManager($manager);
+
+        // Quietly, as Laravel's own trait does, so a listener counting transactions sees only the
+        // code's own
+        $dispatcher = $connection->getEventDispatcher();
+        $connection->unsetEventDispatcher();
+        $connection->beginTransaction();
+
+        if ($dispatcher !== null) {
+            $connection->setEventDispatcher($dispatcher);
+        }
+
+        $this->testTransaction = $connection;
+
+        $this->beforeApplicationDestroyed(function (): void {
+            $this->rollBackTestTransaction();
+        });
+    }
+
+    /**
+     * Roll back this test's transaction, if it has one still open.
+     *
+     * A transaction that is no longer open on the connection was committed underneath the test --
+     * by DDL on MySQL, or by a test that should have opted out -- so its rows are in the shared
+     * schema, which is marked stale for the next test to rebuild.
+     */
+    private function rollBackTestTransaction(): void
+    {
+        $connection = $this->testTransaction;
+        $this->testTransaction = null;
+
+        if (! $connection instanceof Connection) {
+            return;
+        }
+
+        $dispatcher = $connection->getEventDispatcher();
+        $connection->unsetEventDispatcher();
+
+        if (! $connection->getPdo()->inTransaction()) {
+            RefreshDatabaseState::$migrated = false;
+        }
+
+        $connection->rollBack(0);
+
+        if ($dispatcher !== null) {
+            $connection->setEventDispatcher($dispatcher);
+        }
+
+        $connection->disconnect();
+    }
+
+    /**
+     * This process's copy of the install stub, made the first time a test asks for it.
+     *
+     * Once per process rather than per test, because the schema it builds is shared by every test
+     * in the process: a per-test directory would be removed while the schema it named lived on.
+     *
+     * @return string The directory.
+     */
+    private static function processMigrations(): string
+    {
+        if (self::$processMigrations !== null && is_dir(self::$processMigrations)) {
+            return self::$processMigrations;
+        }
+
+        $directory = sprintf('%s/robot-council-migrations-%d-%s', sys_get_temp_dir(), getmypid(), Str::random(8));
+
+        File::ensureDirectoryExists($directory);
+
+        // Run the stub itself, so the suite exercises what `robot-council:install` writes
         File::copy(
             __DIR__.'/../database/stubs/add_robot_council_columns_to_users_table.php.stub',
             $directory.'/2026_01_01_000000_add_robot_council_columns_to_users_table.php'
         );
 
-        $this->migrateFresh($directory);
+        register_shutdown_function(static fn (): bool => File::deleteDirectory($directory));
 
-        return $directory;
+        return self::$processMigrations = $directory;
     }
 
     /**

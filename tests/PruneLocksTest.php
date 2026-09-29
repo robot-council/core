@@ -295,6 +295,8 @@ function runTheFenceMigration(): void
 }
 
 it('seeds the sequence above every fence an upgrading installation had already issued', function (): void {
+    // Changes the schema, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     // **The riskiest line in this change.** An installation that has been running carries per-name
     // counters this sequence takes over from, and seeding at zero would hand out numbers those
     // names have already used -- reintroducing the exact failure the fence exists to prevent,

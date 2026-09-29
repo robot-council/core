@@ -754,6 +754,8 @@ it('adds the columns as wide as the bounds the package enforces', function (): v
 });
 
 it('runs its migration again without error, completes one that stopped part-way, and rolls it back', function (): void {
+    // Changes the schema, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     $migration = require PackageMigrations::directory().'/2026_09_25_000004_add_capacity_to_robot_council_sessions_seats_and_tasks.php';
 
     $up = [$migration, 'up'];

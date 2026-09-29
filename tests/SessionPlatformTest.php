@@ -138,6 +138,8 @@ it('filters the agent read by OS family', function (): void {
 });
 
 it('completes a migration that stopped between its two columns, and rolls back from there', function (): void {
+    // Changes the schema, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     $migration = require PackageMigrations::directory().'/2026_09_25_000001_add_platform_to_robot_council_agent_sessions.php';
 
     $up = [$migration, 'up'];

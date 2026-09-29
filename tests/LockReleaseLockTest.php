@@ -33,7 +33,8 @@ use RobotCouncil\Tests\TestCase;
  */
 function aLockHeldByAGoneSession(TestCase $case): array
 {
-    $case->migrateUsersTableWithPackageColumns();
+    // Another connection has to see these rows committed, so no test transaction (#473)
+    $case->migrateFreshSchema();
     $case->setAccessLists(developers: [4242]);
 
     $developer = $case->enrollDeveloper(4242);

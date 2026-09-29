@@ -441,6 +441,10 @@ it('dispatches SessionGone once for each session that goes, and never twice', fu
 });
 
 it('dispatches SessionGone only once the transaction that ended the session has committed', function (): void {
+    // Its subject is the transaction level a listener sees, which the wrapping test transaction
+    // would raise by one (#473)
+    $this->leaveTestTransaction();
+
     [$session] = $this->startAgentSession($this->installation);
 
     $openTransactions = null;

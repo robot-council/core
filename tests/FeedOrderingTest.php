@@ -62,7 +62,8 @@ function keysDrawn(): int
 }
 
 it('draws no key while another connection holds the feed', function (): void {
-    $this->migrateUsersTableWithPackageColumns();
+    // Another connection has to see what this one commits, so no test transaction (#473)
+    $this->migrateFreshSchema();
 
     $default = DB::getDefaultConnection();
     config()->set("database.connections.{$default}_other", config("database.connections.{$default}"));
@@ -114,7 +115,8 @@ it('draws no key while another connection holds the feed', function (): void {
     ->skip(notPostgres(...), 'Postgres only: this file sets `lock_timeout`, which MySQL spells differently, so elsewhere it stalls rather than failing.');
 
 it('writes again as soon as the other connection lets go', function (): void {
-    $this->migrateUsersTableWithPackageColumns();
+    // Another connection has to see what this one commits, so no test transaction (#473)
+    $this->migrateFreshSchema();
 
     $default = DB::getDefaultConnection();
     config()->set("database.connections.{$default}_other", config("database.connections.{$default}"));
