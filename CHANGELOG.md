@@ -2,6 +2,23 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.7.3 — Idle Lane Holds and a Steadier Dashboard (2026-09-29)
+
+Idle lane holds, a steadier dashboard poll, and a faster test suite.
+
+**Before rolling back past v0.7.3**, lift any `nothing_startable` lane holds. Older versions don't know that reason. **Dashboard asset URLs now carry `?v=<hash>`**, so a deploy busts cached CSS and JavaScript.
+
+### What's new
+- Keep the reader's place across a dashboard poll with a served scroll-anchor script [#475](https://github.com/robot-council/core/pull/475)
+- Add a `nothing_startable` lane hold reason, shown as idle rather than blocked [#474](https://github.com/robot-council/core/pull/474)
+
+### What's fixed
+- List every live session on the administration page, not only the first ten [#470](https://github.com/robot-council/core/pull/470)
+
+### Maintenance and tooling
+- State who may cut a release, and when, in the repository's own rules [#479](https://github.com/robot-council/core/pull/479)
+- Migrate the test schema once per process and roll each database test back, with named opt-outs [#478](https://github.com/robot-council/core/pull/478)
+
 ## v0.7.2 — Allowlists on the Dashboard, a Page of What Waits on You, and MySQL Re-placement Parity (2026-09-28)
 
 Administrators edit the allowlists from the dashboard, a developer sees what the fleet is waiting on them for, and tasks re-placed within a second behave the same on MySQL.
