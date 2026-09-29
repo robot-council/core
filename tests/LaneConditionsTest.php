@@ -320,14 +320,18 @@ it('reports a lane whose declared room its seat has not granted as full once it 
     expect(raisedConditions(LaneConditions::LANE_FREE))->toBeEmpty();
 });
 
-it('does not raise a free lane that is held on purpose or parked', function (): void {
-    $this->service(LaneHolds::class)->hold($this->coordinatorSession, $this->session->id, 'octodev', HoldReason::Decision);
+it('does not raise a free lane that is held on purpose or parked', function (string $party, HoldReason $reason): void {
+    $this->service(LaneHolds::class)->hold($this->coordinatorSession, $this->session->id, $party, $reason);
 
     conditionsAt($this, 0);
     conditionsAt($this, 60);
 
     expect(raisedConditions(LaneConditions::LANE_FREE))->toBeEmpty();
-});
+})->with([
+    'on a developer' => ['octodev', HoldReason::Decision],
+    // Idle rather than blocked on the board, and still a stated hold (#471)
+    'with nothing startable' => ['robot-council/core', HoldReason::NothingStartable],
+]);
 
 it('raises a placement not taken up within its window, and says when it is a hand-back', function (bool $handBack): void {
     $task = placeOnTheLane($this, $handBack);

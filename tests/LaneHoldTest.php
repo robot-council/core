@@ -12,10 +12,12 @@ declare(strict_types=1);
  */
 
 use Illuminate\Testing\TestResponse;
+use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\HoldParty;
 use RobotCouncil\Models\HoldReason;
 use RobotCouncil\Models\LaneHold;
 use RobotCouncil\Models\TaskTransition;
+use RobotCouncil\Support\AgentSessions;
 use RobotCouncil\Support\LaneHolds;
 use RobotCouncil\Support\Outcome;
 use RobotCouncil\Support\Tasks;
@@ -96,6 +98,74 @@ it('refuses a note, a bare number, an unknown developer, and a reason for the ot
     'a developer reason naming a ticket' => ['robot-council/core#318', 'decision'],
     'a ticket reason naming a developer' => ['octodev', 'ticket_lands'],
 ]);
+
+/**
+ * A lane working in a repository, which a "nothing startable" hold names.
+ *
+ * @param  TestCase  $case  The test case.
+ * @return AgentSession The lane.
+ */
+function repositoryLane(TestCase $case): AgentSession
+{
+    return $case->service(AgentSessions::class)->start($case->installation, 'robot-council/core', 'b')->owner;
+}
+
+it('holds a lane for nothing startable on its own repository, stored as the lane spells it (#471)', function (): void {
+    $lane = repositoryLane($this);
+
+    $this->machine($this->coordinatorToken)
+        ->postJson(route('robot-council.lanes.hold', ['session' => $lane->getKey()]), ['party' => 'Robot-Council/Core', 'reason' => 'nothing_startable'])
+        ->assertOk()
+        ->assertJson(['applied' => true, 'on_what' => 'robot-council/core — nothing startable to take']);
+
+    $hold = LaneHold::query()->whereKey($lane->getKey())->firstOrFail();
+
+    expect($hold->party)->toBe('robot-council/core')
+        ->and($hold->party_kind)->toBe(HoldParty::Repository)
+        ->and($hold->reason)->toBe(HoldReason::NothingStartable)
+        ->and(HoldReason::NothingStartable->blocks())->toBeFalse()
+        ->and(HoldReason::TicketLands->blocks())->toBeTrue();
+});
+
+it("refuses nothing startable on anything but the lane's own repository, and a repository for any other reason (#471)", function (string $party, string $reason): void {
+    $lane = repositoryLane($this);
+
+    $this->machine($this->coordinatorToken)
+        ->postJson(route('robot-council.lanes.hold', ['session' => $lane->getKey()]), ['party' => $party, 'reason' => $reason])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('party');
+
+    expect(fn () => $this->service(LaneHolds::class)->hold($this->coordinatorSession, $lane->id, $party, HoldReason::from($reason)))
+        ->toThrow(InvalidArgumentException::class)
+        ->and(LaneHold::query()->count())->toBe(0);
+})->with([
+    'a developer' => ['octodev', 'nothing_startable'],
+    'a ticket' => ['robot-council/core#318', 'nothing_startable'],
+    'another repository' => ['robot-council/cli', 'nothing_startable'],
+    'the repository for a decision' => ['robot-council/core', 'decision'],
+    'the repository for a ticket to land' => ['robot-council/core', 'ticket_lands'],
+]);
+
+it('refuses nothing startable on a lane that names no repository (#471)', function (): void {
+    expect(fn () => $this->service(LaneHolds::class)->hold($this->coordinatorSession, $this->session->id, 'robot-council/core', HoldReason::NothingStartable))
+        ->toThrow(InvalidArgumentException::class)
+        ->and(LaneHold::query()->count())->toBe(0);
+});
+
+it('lifts a nothing-startable hold when the lane is given work (#471)', function (TaskTransition $how): void {
+    $lane = repositoryLane($this);
+    $this->service(LaneHolds::class)->hold($this->coordinatorSession, $lane->id, 'robot-council/core', HoldReason::NothingStartable);
+
+    $tasks = $this->service(Tasks::class);
+    $task = $tasks->create($lane, ['title' => 'Work'], withCoordinator: false);
+
+    $outcome = $how === TaskTransition::Claim
+        ? $tasks->transition($task->id, TaskTransition::Claim, $lane, asCoordinator: false)
+        : $tasks->transition($task->id, TaskTransition::Reassign, $this->coordinatorSession, true, $lane, directive: 'Take this.');
+
+    expect($outcome)->toBe(Outcome::Applied)
+        ->and(LaneHold::query()->count())->toBe(0);
+})->with([TaskTransition::Claim, TaskTransition::Reassign]);
 
 it('refuses a reason outside the vocabulary at the edge', function (): void {
     holdLane($this, ['party' => 'octodev', 'reason' => 'lunch'])
