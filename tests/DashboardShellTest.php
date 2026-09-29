@@ -14,6 +14,7 @@ use Illuminate\Routing\Middleware\SubstituteBindings;
 use Livewire\Features\SupportDisablingBackButtonCache\SupportDisablingBackButtonCache;
 use Livewire\Livewire;
 use Livewire\Mechanisms\PersistentMiddleware\PersistentMiddleware;
+use RobotCouncil\Http\Controllers\DashboardScriptController;
 use RobotCouncil\Http\Controllers\DashboardStylesheetController;
 use RobotCouncil\Http\Middleware\DenyFraming;
 use RobotCouncil\Http\Middleware\EnsureAllowlistedDeveloper;
@@ -238,6 +239,45 @@ it('tells a browser it may keep the stylesheet, and answers a revalidation cheap
     $this->withHeaders(['If-None-Match' => (string) $etag])
         ->get(route('robot-council.dashboard.stylesheet'))
         ->assertStatus(304);
+});
+
+it('serves the scroll-anchor script without a session, as JavaScript a browser may keep (#472)', function (): void {
+    withoutLivewiresBackButtonHeaders();
+
+    // Signed out: the route sits outside the web group, as the stylesheet's does
+    $first = $this->get(route('robot-council.dashboard.script'));
+
+    $first->assertOk();
+
+    $etag = $first->headers->get('ETag');
+
+    expect($first->headers->get('Content-Type'))->toBe('text/javascript; charset=utf-8')
+        ->and($etag)->not->toBeNull()
+        ->and($first->headers->get('Cache-Control'))->toContain('public')
+        ->and($first->headers->get('Cache-Control'))->toContain('max-age='.DashboardScriptController::MAX_AGE)
+        // No session was started for a file a shared cache may store
+        ->and($first->headers->getCookies())->toBeEmpty()
+        ->and((string) file_get_contents(__DIR__.'/../resources/js/dashboard.js'))->toContain("hook('morphed'");
+
+    $this->withHeaders(['If-None-Match' => (string) $etag])
+        ->get(route('robot-council.dashboard.script'))
+        ->assertStatus(304);
+});
+
+it('loads the script by its src and carries no inline script (#472)', function (): void {
+    $html = (string) $this->actingAs($this->developer, 'web')
+        ->get(route('robot-council.dashboard'))
+        ->assertOk()
+        ->getContent();
+
+    preg_match_all('/<script\b([^>]*)>(.*?)<\/script>/is', $html, $scripts, PREG_SET_ORDER);
+
+    // Every script on the page is a file, so `script-src 'self'` needs no `'unsafe-inline'`
+    $inline = array_filter($scripts, static fn (array $script): bool => ! str_contains($script[1], 'src=') || trim($script[2]) !== '');
+
+    expect($scripts)->not->toBeEmpty()
+        ->and($inline)->toBeEmpty()
+        ->and($html)->toContain('<script src="'.route('robot-council.dashboard.script').'"></script>');
 });
 
 it("keeps the allowlist gate on Livewire's update endpoint", function (): void {

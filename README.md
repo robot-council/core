@@ -445,6 +445,13 @@ consuming application runs no asset build and needs no Node toolchain. That rout
 public and deliberately outside the `web` middleware group, so it starts no session and a page can
 load its styling before anyone has signed in.
 
+**Its one script is served the same way**, at `{prefix}/dashboard.js` (#472). It keeps the row a
+reader is looking at in place when a poll adds rows above it, through Livewire's documented `morph`
+and `morphed` hooks, and does nothing else. It is written by hand and shipped as it is, so there is
+still nothing to build or publish. It is loaded by `src` from the page's own origin and no view
+carries an inline script, so a host's `script-src 'self'` covers it; a page that declines Livewire,
+such as the enrollment page, loads neither.
+
 Installing this package adds `livewire/livewire` to a host's dependencies, and Livewire registers
 its own `/livewire/update` endpoint and a global middleware. The package registers
 `EnsureAllowlistedDeveloper` as Livewire *persistent* middleware, because Livewire strips from that

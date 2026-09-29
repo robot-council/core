@@ -36,6 +36,7 @@ use RobotCouncil\Console\RevokeInstallationCommand;
 use RobotCouncil\Console\RevokeSessionCommand;
 use RobotCouncil\Console\SweepSessionsCommand;
 use RobotCouncil\Console\TakeBacklogBaselineCommand;
+use RobotCouncil\Http\Controllers\DashboardScriptController;
 use RobotCouncil\Http\Controllers\DashboardStylesheetController;
 use RobotCouncil\Http\Controllers\PrefixRootController;
 use RobotCouncil\Http\Middleware\DenyFraming;
@@ -380,7 +381,7 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
         $apiPrefix = $this->routeString($config, 'api_prefix', 'robot-council/api');
         $apiMiddleware = $this->routeMiddleware($config, 'api_middleware', []);
 
-        // The stylesheet, deliberately outside the web group. It holds nothing a signed-in
+        // The stylesheet and the script, deliberately outside the web group. It holds nothing a signed-in
         // developer would not already see, and a page that needed authentication to load its own
         // styling would render unstyled to exactly the people being told to sign in. Outside the
         // group rather than merely public, because `StartSession` would otherwise run on every
@@ -392,6 +393,10 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
             ->group(function (): void {
                 Route::get('dashboard.css', DashboardStylesheetController::class)
                     ->name('dashboard.stylesheet');
+
+                // Its one script, public for the same reason (#472)
+                Route::get('dashboard.js', DashboardScriptController::class)
+                    ->name('dashboard.script');
             });
 
         // The prefix's own root, sent to the dashboard so it behaves the way the site root already
