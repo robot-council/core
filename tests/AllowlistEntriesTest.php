@@ -180,6 +180,8 @@ it('reads the environment lists alone when the table has not been migrated yet',
 });
 
 it('reads only a missing table as empty, on each engine, and nothing else', function (string $state, string $message, bool $missing): void {
+    // Provokes a failing query, which aborts a whole test transaction on Postgres (#473)
+    $this->leaveTestTransaction();
     // Tested at the classifier rather than through a broken table, because SQLite answers a
     // misshapen table with no error at all: it reads a double-quoted name that is not a column as a
     // string literal, so `select "list"` on a table without one succeeds

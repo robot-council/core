@@ -146,10 +146,11 @@ it('refuses a session carrying the transient token a browser session gets', func
 });
 
 it('states both thresholds as durations on the heartbeat', function (): void {
-    [, $token] = $this->startAgentSession($this->installation);
+    [$session, $token] = $this->startAgentSession($this->installation);
 
+    // Its own id rather than 1: a rolled-back transaction does not rewind a Postgres sequence (#473)
     $this->machine($token)->postJson(route('robot-council.agent.heartbeat'))->assertOk()->assertExactJson([
-        'session_id' => 1,
+        'session_id' => $session->id,
         'status' => 'active',
         'stale_in' => 300,
         'gone_in' => 1800,

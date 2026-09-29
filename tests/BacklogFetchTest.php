@@ -827,6 +827,8 @@ it('schedules the fetch every five minutes, last, in the background and without 
 });
 
 it("stores a session's report and a fetched count side by side, and rolls the column back without the fetched ones", function (): void {
+    // Runs a migration, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     $migration = require __DIR__.'/../database/migrations/2026_09_25_000002_allow_sessionless_robot_council_backlog_readings.php';
 
     $up = [$migration, 'up'];

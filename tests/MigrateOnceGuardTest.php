@@ -16,7 +16,11 @@ declare(strict_types=1);
  * - **a second connection**, which cannot read what the test's uncommitted transaction wrote --
  *   the `cross-connection` group is exactly this;
  * - **the transaction boundary itself** -- `DB::afterCommit()` callbacks and
- *   `DB::transactionLevel()` -- which the wrapping transaction moves by one.
+ *   `DB::transactionLevel()` -- which the wrapping transaction moves by one;
+ * - **an expected query failure**, a `QueryException` the test provokes: on Postgres a failed
+ *   statement aborts the whole transaction it runs in, so every query after it fails too. Found by
+ *   running the suite on Postgres, where two tests failed that SQLite passed; the ticket's list had
+ *   four kinds, and this is the fifth.
  *
  * **Missing the opt-out fails quietly, which is why this is a scan.** On SQLite, DDL is
  * transactional, and a test asserting `afterCommit` timing may still pass by accident, so the suite
@@ -40,9 +44,10 @@ function transactionSensitivePatterns(): array
 {
     return [
         'a schema change' => '/Schema::(create|table|drop|dropIfExists|dropColumns|rename)\s*\(|->dropColumn\s*\(/',
-        'a migration run' => '/->(up|down)\s*\(\s*\)|(Artisan::call|->artisan)\s*\(\s*[\'"]migrate(:[a-z]+)?[\'"]|\bMigrator\b/',
+        'a migration run' => '/->(up|down)\s*\(\s*\)|(require|include)(_once)?\b[^;]*database\/migrations\/|(Artisan::call|->artisan)\s*\(\s*[\'"]migrate(:[a-z]+)?[\'"]|\bMigrator\b/',
         'a second connection' => '/DB::connection\s*\(\s*[\'"](?!testing[\'"])[A-Za-z0-9_]+[\'"]|group\s*\(\s*[\'"]cross-connection[\'"]/',
         'the transaction boundary' => '/afterCommit\s*\(|transactionLevel\s*\(/',
+        'an expected query failure' => '/\bQueryException\b/',
     ];
 }
 
@@ -123,7 +128,9 @@ function testsMissingTheOptOut(string $source): array
 
     $helpers = array_column(array_filter($blocks, static fn (array $block): bool => $block['function'] !== null), 'text', 'function');
     $hook = implode("\n", array_column(array_filter($blocks, static fn (array $block): bool => $block['kind'] === 'beforeEach'), 'text'));
-    $fileWide = $needs(preg_replace('/^(it|test|beforeEach|function)\b.*$/ms', '', $code) ?? '');
+    // What the file does before its first block, less its imports: importing an exception is not
+    // expecting one
+    $fileWide = $needs(preg_replace(['/^(it|test|beforeEach|function)\b.*$/ms', '/^use\s[^;]*;/m'], '', $code) ?? '');
 
     $missing = [];
 
@@ -164,6 +171,7 @@ it('finds each kind of test that needs the opt-out, and passes one that has it',
         'a migration run' => "Artisan::call('migrate:rollback');",
         'a second connection' => "DB::connection('second')->table('x')->count();",
         'the transaction boundary' => 'DB::afterCommit(fn () => null);',
+        'an expected query failure' => 'expect(fn () => DB::table(\'x\')->insert([]))->toThrow(QueryException::class);',
     ];
 
     foreach ($probes as $kind => $line) {

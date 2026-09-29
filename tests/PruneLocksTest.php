@@ -320,6 +320,8 @@ it('seeds the sequence above every fence an upgrading installation had already i
 });
 
 it('leaves the sequence alone when it is already there, so a re-run cannot rewind it', function (): void {
+    // Runs a migration, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     // All three populations run this file -- installed before the change, installed after it, and
     // rolled back -- which is the shape CLAUDE.md requires of a repair migration. A second run
     // that reseeded would drop the sequence back to the highest row fence, below numbers it had

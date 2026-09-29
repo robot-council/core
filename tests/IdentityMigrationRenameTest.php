@@ -160,6 +160,8 @@ it('keeps one identity per host user after the collation migration redefines the
     // honest bound on THIS assertion, and it is the same shape `CLAUDE.md` records for SQLite
     // foreign keys: it is not evidence about the fold-back, whatever engine it passes on.
     $this->migrateUsersTableWithPackageColumns();
+    // Provokes a failing query, which aborts a whole test transaction on Postgres (#473)
+    $this->leaveTestTransaction();
 
     DB::table('robot_council_github_identities')->insert([
         'user_id' => '4242',

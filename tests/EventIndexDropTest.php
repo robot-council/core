@@ -82,6 +82,8 @@ it('drops both composite indexes from a database that already carries them', fun
 });
 
 it('does nothing, rather than failing, on a database that never had them', function (): void {
+    // Runs a migration, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     // The state of any host installing after #94. `dropIndex` on an index that is not there is an
     // error on every engine, so a migration that assumed presence would break exactly the installs
     // that need it least.

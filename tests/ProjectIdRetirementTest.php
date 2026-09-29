@@ -72,6 +72,8 @@ function sessionProjectIdPresent(): bool
 }
 
 it('leaves all three populations in the same state', function (): void {
+    // Runs a migration, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     // **The three a host can be in, driven through the migration's own `up()` and `down()`.** A
     // host that installed before `#234` had the column from the create migration; one that
     // installed after it still had it, because `#234` added two columns beside it rather than
@@ -107,6 +109,8 @@ it('leaves all three populations in the same state', function (): void {
 });
 
 it('restores the column nullable and empty, which is where the old label ends', function (): void {
+    // Runs a migration, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     // **`down()` restores the column and not its contents, and that is the half worth pinning.**
     // Every session predating the drop had its label split into the two fields before this file
     // ran, so the direction that matters survives; the label itself does not come back, and a
