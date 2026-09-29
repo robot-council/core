@@ -148,7 +148,7 @@ it("refuses nothing startable on anything but the lane's own repository, and a r
 
 it('refuses nothing startable on a lane that names no repository (#471)', function (): void {
     expect(fn () => $this->service(LaneHolds::class)->hold($this->coordinatorSession, $this->session->id, 'robot-council/core', HoldReason::NothingStartable))
-        ->toThrow(InvalidArgumentException::class)
+        ->toThrow(InvalidArgumentException::class, 'This lane names no repository')
         ->and(LaneHold::query()->count())->toBe(0);
 });
 

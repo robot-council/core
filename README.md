@@ -409,7 +409,8 @@ broadcasting: a change an agent commits is visible within one interval and no so
 
 **The lane board is rendered from measured state, never typed.** A lane's `State` is one of
 `Working`, `Idle`, `Parked`, `Blocked` and `not observed`, derived each time -- a lane holding no task
-is never `Working` -- and `Parked` is the same rule a placement refuses on. Each lane shows its
+is never `Working`, a lane held for `nothing_startable` is `Idle` rather than `Blocked` -- and
+`Parked` is the same rule a placement refuses on. Each lane shows its
 occupancy as held over capacity, such as `2 / 3`, and a working lane lists every ticket it holds,
 each with its sub-label where the lane gave one.
 **`Watcher` is read from the bridge watcher's own heartbeat**, `POST {prefix}/api/agent/watcher`,
@@ -681,8 +682,9 @@ A gate is exempt while it holds no pull request. `robot-council.schedule.quiet_l
 ## Lane holds
 
 A coordinator records why a lane -- an agent session -- is idle on purpose, which the lane board
-shows as `<party> — <what>`. The party is a developer the fleet knows, by GitHub login, or a ticket
-as `owner/name#N`; the `<what>` is one of a fixed set, and free text is refused:
+shows as `<party> — <what>`. The party is a developer the fleet knows, by GitHub login, a ticket
+as `owner/name#N`, or the lane's own repository as `owner/name`; the `<what>` is one of a fixed set,
+each for one kind of party, and free text is refused:
 
 | `reason` | party | reads |
 | --- | --- | --- |
@@ -691,12 +693,17 @@ as `owner/name#N`; the `<what>` is one of a fixed set, and free text is refused:
 | `action` | developer | an action only they can take |
 | `ticket_lands` | ticket | that ticket to land |
 | `ticket_decided` | ticket | that ticket's decision |
+| `nothing_startable` | the lane's repository | nothing startable to take |
 
 - `POST {prefix}/api/lanes/{session}/hold` with `{ "party": "...", "reason": "..." }`, and
   `DELETE` the same path to lift it -- both need `coordinator:direct`, as do the `lane_hold` and
   `lane_clear_hold` tools.
 - A lane that holds a task cannot be held, and claiming or placing work on a lane lifts its hold in
   the same transaction.
+- **`nothing_startable` is not a block.** The board shows such a lane as `Idle`, reading "Nothing
+  startable in `owner/name`", because placing any task lifts the hold and the lane takes it at once
+  (#471). It still counts as a stated hold, so `lane.free` is not raised for it. Any other
+  repository, or a lane that names none, is refused.
 
 ## Tasks
 

@@ -71,6 +71,10 @@ final class LaneHolds
 
             // "Nothing startable" is a statement about the lane's own repository, so naming another
             // one would put a claim on the board that says nothing about this lane
+            if ($kind === HoldParty::Repository && $lane->repository === null) {
+                throw new InvalidArgumentException('This lane names no repository, so it cannot be held for having nothing startable in one.');
+            }
+
             if ($kind === HoldParty::Repository && ! self::sameRepository($lane->repository, $named)) {
                 throw new InvalidArgumentException(sprintf("`%s` is not this lane's repository, and a lane can only have nothing startable in its own.", $named));
             }
@@ -130,13 +134,13 @@ final class LaneHolds
      * Whether a repository party names the lane's own repository, compared as GitHub compares
      * repository names: without case.
      *
-     * @param  string|null  $lanes  The lane's repository, which a session may not have.
+     * @param  string  $lanes  The lane's repository.
      * @param  string  $named  The party.
      * @return bool True when they are the same repository.
      */
-    private static function sameRepository(?string $lanes, string $named): bool
+    private static function sameRepository(string $lanes, string $named): bool
     {
-        return $lanes !== null && strcasecmp($lanes, $named) === 0;
+        return strcasecmp($lanes, $named) === 0;
     }
 
     /**
