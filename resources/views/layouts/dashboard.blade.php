@@ -217,6 +217,11 @@
 
     @if ($livewireAssets ?? true)
         @livewireScripts
+
+        {{-- Keeps the reader's place across a poll (#472), served by the package's own route
+             so that script-src 'self' covers it. Only where Livewire runs, so a page that
+             declines Livewire loads no script at all. --}}
+        <script src="{{ route('robot-council.dashboard.script', ['v' => \RobotCouncil\Support\DashboardAssets::version(\RobotCouncil\Support\DashboardAssets::SCRIPT)]) }}"></script>
     @endif
 </body>
 </html>

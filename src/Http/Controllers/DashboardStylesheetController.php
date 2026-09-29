@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RobotCouncil\Http\Controllers;
 
 use Illuminate\Http\Request;
+use RobotCouncil\Support\DashboardAssets;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
@@ -45,7 +46,7 @@ final class DashboardStylesheetController
      */
     public function __invoke(Request $request): BinaryFileResponse
     {
-        $path = \dirname(__DIR__, 3).'/resources/dist/dashboard.css';
+        $path = DashboardAssets::path(DashboardAssets::STYLESHEET);
 
         if (! is_file($path)) {
             // Loud rather than a blank page. A missing artifact is a packaging fault, and a
@@ -60,8 +61,8 @@ final class DashboardStylesheetController
         $response->setPublic();
         $response->setMaxAge(self::MAX_AGE);
 
-        // Content-addressed by the file's own hash, so a republished stylesheet invalidates itself
-        // without the URL changing and without a host remembering to bust anything
+        // The page names the file by a hash of its bytes (`DashboardAssets::version()`), so a new
+        // release is a new URL; the ETag only answers a browser that revalidates the same one
         $response->isNotModified($request);
 
         return $response;

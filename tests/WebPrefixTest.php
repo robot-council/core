@@ -132,7 +132,7 @@ it('mounts every web route at the application root when the prefix is empty', fu
     // and pinning it would fail the next time a route moved in the file without moving in the URL.
     ksort($web);
 
-    // Every web route the package mounts, at the root rather than under a prefix. Seventeen, not the
+    // Every web route the package mounts, at the root rather than under a prefix. Eighteen, not the
     // seven the issue counted: #215 split the dashboard into five pages, #308 split one of those in
     // two and kept the old path as a redirect, and sign-out and its landing page arrived with the
     // shell.
@@ -148,6 +148,7 @@ it('mounts every web route at the application root when the prefix is empty', fu
         'auth.callback' => 'auth/github/callback',
         'auth.redirect' => 'auth/github/redirect',
         'dashboard' => 'dashboard',
+        'dashboard.script' => 'dashboard.js',
         'dashboard.stylesheet' => 'dashboard.css',
         'enroll.approve' => 'enroll/approve',
         'enroll.deny' => 'enroll/deny',

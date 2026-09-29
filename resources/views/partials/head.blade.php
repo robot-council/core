@@ -20,4 +20,4 @@
 
 <title>{{ \RobotCouncil\Support\DashboardName::title($title ?? null) }}</title>
 
-<link rel="stylesheet" href="{{ route('robot-council.dashboard.stylesheet') }}">
+<link rel="stylesheet" href="{{ route('robot-council.dashboard.stylesheet', ['v' => \RobotCouncil\Support\DashboardAssets::version(\RobotCouncil\Support\DashboardAssets::STYLESHEET)]) }}">
