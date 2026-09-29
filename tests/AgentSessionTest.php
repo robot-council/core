@@ -110,7 +110,9 @@ it('authenticates an agent route as the session, not as the developer', function
     // own id back to it, which is what the route exists for.
     $installation = $this->approveInstallation($this->developer, machineLabel: 'second-machine');
 
-    [$session, $token] = $this->startAgentSession($installation);
+    // And a session whose id is not that installation's: a second installation is not enough on
+    // Postgres, whose sequences are not rewound between tests (#473)
+    [$session, $token] = $this->startAgentSessionWithOwnId($installation);
 
     // The fixture's property, asserted rather than assumed. Without this a later change that
     // collapses the two ids back together restores the blind spot silently, and the swap goes
