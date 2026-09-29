@@ -47,14 +47,14 @@ function transactionSensitivePatterns(): array
         'a migration run' => '/->(up|down)\s*\(\s*\)|(require|include)(_once)?\b[^;]*database\/migrations\/|(Artisan::call|->artisan)\s*\(\s*[\'"]migrate(:[a-z]+)?[\'"]|\bMigrator\b/',
         'a second connection' => '/DB::connection\s*\(\s*[\'"](?!testing[\'"])[A-Za-z0-9_]+[\'"]|group\s*\(\s*[\'"]cross-connection[\'"]/',
         'the transaction boundary' => '/afterCommit\s*\(|transactionLevel\s*\(/',
-        'an expected query failure' => '/\bQueryException\b/',
+        'an expected query failure' => '/\b(QueryException|UniqueConstraintViolationException|PDOException)\b/',
     ];
 }
 
 /**
  * What opts a test out.
  */
-const TRANSACTION_OPT_OUTS = '/->(migrateFreshSchema|leaveTestTransaction|migrateFresh)\s*\(/';
+const TRANSACTION_OPT_OUTS = '/->(migrateFreshSchema|leaveTestTransaction)\s*\(/';
 
 /**
  * What puts a test inside the rolled-back transaction. A test that never asks for it runs outside
@@ -143,11 +143,20 @@ function testsMissingTheOptOut(string $source): array
         // calls, so a schema change or an opt-out moved into a helper is still the test's
         $runs = $block['text']."\n".$hook;
 
-        foreach ($helpers as $name => $text) {
-            if (preg_match('/\b'.preg_quote((string) $name, '/').'\s*\(/', $block['text']) === 1) {
-                $runs .= "\n".$text;
+        // Followed to a fixed point, so a helper that calls another helper is read too
+        $included = [];
+
+        do {
+            $grew = false;
+
+            foreach ($helpers as $name => $text) {
+                if (! isset($included[$name]) && preg_match('/\b'.preg_quote((string) $name, '/').'\s*\(/', $runs) === 1) {
+                    $included[$name] = true;
+                    $runs .= "\n".$text;
+                    $grew = true;
+                }
             }
-        }
+        } while ($grew);
 
         $reasons = [...$needs($runs), ...$fileWide];
 
@@ -171,7 +180,7 @@ it('finds each kind of test that needs the opt-out, and passes one that has it',
         'a migration run' => "Artisan::call('migrate:rollback');",
         'a second connection' => "DB::connection('second')->table('x')->count();",
         'the transaction boundary' => 'DB::afterCommit(fn () => null);',
-        'an expected query failure' => 'expect(fn () => DB::table(\'x\')->insert([]))->toThrow(QueryException::class);',
+        'an expected query failure' => 'expect(fn () => DB::table(\'x\')->insert([]))->toThrow(UniqueConstraintViolationException::class);',
     ];
 
     foreach ($probes as $kind => $line) {
@@ -190,7 +199,11 @@ it('finds each kind of test that needs the opt-out, and passes one that has it',
     $helper = "<?php\nfunction dropIt(): void\n{\n    Schema::drop('x');\n}\n\nit('calls a helper', function () {\n    \$this->migrateUsersTableWithPackageColumns();\n    dropIt();\n});\n";
     $helperOptsOut = "<?php\nfunction freshly(\$case): void\n{\n    \$case->migrateUsersTableWithPackageColumns();\n    \$case->leaveTestTransaction();\n}\n\nit('opts out in a helper', function () {\n    freshly(\$this);\n    Schema::drop('x');\n});\n";
 
-    expect(testsMissingTheOptOut($helper))->toBe(['calls a helper: a schema change'])
+    // Two helpers deep, as a test that restores a column through a helper that runs the migration
+    $nested = "<?php\nfunction runIt(): void\n{\n    (require 'database/migrations/x.php')->up();\n}\n\nfunction restoreIt(): void\n{\n    runIt();\n}\n\nit('calls a helper that calls one', function () {\n    \$this->migrateUsersTableWithPackageColumns();\n    restoreIt();\n});\n";
+
+    expect(testsMissingTheOptOut($nested))->toBe(['calls a helper that calls one: a migration run'])
+        ->and(testsMissingTheOptOut($helper))->toBe(['calls a helper: a schema change'])
         ->and(testsMissingTheOptOut($helperOptsOut))->toBe([])
         // A plain database test is left alone, and so is one never inside the transaction
         ->and(testsMissingTheOptOut("<?php\nit('reads', function () {\n    \$this->migrateUsersTableWithPackageColumns();\n});\n"))->toBe([])

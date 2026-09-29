@@ -224,8 +224,13 @@ class TestCase extends Orchestra
         $this->bootConfiguration[$key] = $value;
 
         // The replaced application's teardown callbacks never run, so its test transaction is
-        // rolled back here; the new application starts outside one, as it starts with no schema
-        $this->rollBackTestTransaction();
+        // rolled back here. The new application starts outside one; whatever it writes before the
+        // test asks for the schema again is committed, so the shared schema is marked stale
+        if ($this->testTransaction instanceof Connection) {
+            $this->rollBackTestTransaction();
+
+            RefreshDatabaseState::$migrated = false;
+        }
 
         $this->refreshApplication();
     }
@@ -426,6 +431,12 @@ class TestCase extends Orchestra
 
         $dispatcher = $connection->getEventDispatcher();
         $connection->unsetEventDispatcher();
+
+        // Already committed underneath -- by DDL on MySQL -- leaves nothing to commit, only the
+        // connection's count of levels to clear, which a guarded rollback does without a statement
+        if (! $connection->getPdo()->inTransaction()) {
+            $connection->rollBack(0);
+        }
 
         while ($connection->transactionLevel() > 0) {
             $connection->commit();
