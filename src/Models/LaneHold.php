@@ -43,7 +43,9 @@ final class LaneHold extends Model
     }
 
     /**
-     * The hold as the board renders it: `<party> — <what>`.
+     * The hold as `<party> — <what>`, which the tools and the endpoint return and the board renders
+     * for a blocking hold. The board words a `nothing_startable` hold as "Nothing startable in
+     * `owner/name`" instead, because that lane is idle rather than waiting on its party (#471).
      *
      * @return string The line.
      */

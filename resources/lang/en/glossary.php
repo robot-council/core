@@ -121,7 +121,7 @@ return [
     ],
     'idle' => [
         'term' => 'Idle',
-        'means' => 'The lane holds no task, and nothing is stopping it from taking one.',
+        'means' => 'The lane holds no task, and nothing is stopping it from taking one. On what may say its repository has nothing startable right now, which the next placed task ends.',
     ],
     'parked' => [
         'term' => 'Parked',

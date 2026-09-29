@@ -112,8 +112,9 @@ final class WaitingOnDeveloper
             HoldReason::ClearingSeat => 'waiting on you to clear this seat so it can take tickets',
             HoldReason::Decision => 'waiting on you for a decision',
             HoldReason::Action => 'waiting on you for an action only you can take',
-            // A ticket is never a developer party's reason, and such holds are not read above
-            HoldReason::TicketLands, HoldReason::TicketDecided => 'waiting on you',
+            // A ticket or a repository is never a developer party's reason, and such holds are not
+            // read above
+            HoldReason::TicketLands, HoldReason::TicketDecided, HoldReason::NothingStartable => 'waiting on you',
         };
     }
 }

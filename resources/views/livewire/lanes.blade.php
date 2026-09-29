@@ -146,6 +146,9 @@
                                                     </li>
                                                 @endforeach
                                             </ul>
+                                        @elseif (is_array($lane['on_what']) && ($lane['on_what']['kind'] ?? null) === 'repository')
+                                            {{-- Idle on purpose (#471): its repository has nothing it could start --}}
+                                            <span data-on-what>Nothing startable in <code>{{ $lane['on_what']['party'] }}</code></span>
                                         @elseif (is_array($lane['on_what']))
                                             <span data-on-what>
                                             @if (\RobotCouncil\Support\TicketLink::url($lane['on_what']['party']) !== null)

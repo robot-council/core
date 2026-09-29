@@ -43,7 +43,13 @@ enum HoldReason: string
     case TicketDecided = 'ticket_decided';
 
     /**
-     * Whether this reason is about a developer or a ticket.
+     * The lane's repository has no ticket it could start (#471). Not a block: the lane is idle, and
+     * the board says so, because placing any task lifts the hold and the lane takes it at once.
+     */
+    case NothingStartable = 'nothing_startable';
+
+    /**
+     * Whether this reason is about a developer, a ticket, or the lane's repository.
      *
      * @return HoldParty The kind of party it names.
      */
@@ -52,6 +58,7 @@ enum HoldReason: string
         return match ($this) {
             self::ClearingSeat, self::Decision, self::Action => HoldParty::Developer,
             self::TicketLands, self::TicketDecided => HoldParty::Ticket,
+            self::NothingStartable => HoldParty::Repository,
         };
     }
 
@@ -68,7 +75,18 @@ enum HoldReason: string
             self::Action => 'an action only they can take',
             self::TicketLands => 'that ticket to land',
             self::TicketDecided => "that ticket's decision",
+            self::NothingStartable => 'nothing startable to take',
         };
+    }
+
+    /**
+     * Whether a lane held for this reason is blocked, rather than idle with nothing to start.
+     *
+     * @return bool True when the lane waits on someone or something before it may take work.
+     */
+    public function blocks(): bool
+    {
+        return $this->party() !== HoldParty::Repository;
     }
 
     /**

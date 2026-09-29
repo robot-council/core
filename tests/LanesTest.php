@@ -101,7 +101,7 @@ it('renders each lane in exactly one of the five states', function (): void {
         ->and(boardRow($this, $idle)['state'])->toBe('Idle')
         ->and(boardRow($this, $parked)['state'])->toBe('Parked')
         ->and(boardRow($this, $blocked)['state'])->toBe('Blocked')
-        ->and(boardRow($this, $blocked)['on_what'])->toBe(['party' => 'octodev', 'what' => 'a decision'])
+        ->and(boardRow($this, $blocked)['on_what'])->toBe(['party' => 'octodev', 'kind' => 'developer', 'what' => 'a decision'])
         ->and(boardRow($this, $unobserved)['state'])->toBe('not observed');
 
     $states = [];
@@ -268,6 +268,27 @@ it('renders a parked lane and a held one as party and reason', function (): void
     sort($cells);
 
     expect($cells)->toBe(['octodev — parked this seat', 'robot-council/core#9 — that ticket to land']);
+});
+
+it('shows a lane held for nothing startable as Idle, naming its repository, and counts it as idle (#471)', function (): void {
+    $lane = boardLane($this, 'a');
+    $blocked = boardLane($this, 'b');
+
+    $holds = $this->service(LaneHolds::class);
+    $holds->hold($this->coordinatorSession, $lane->id, 'Robot-Council/Core', HoldReason::NothingStartable);
+    $holds->hold($this->coordinatorSession, $blocked->id, 'robot-council/core#9', HoldReason::TicketLands);
+
+    expect(boardRow($this, $lane)['state'])->toBe('Idle')
+        ->and(boardRow($this, $lane)['on_what'])->toBe(['party' => 'robot-council/core', 'kind' => 'repository', 'what' => 'nothing startable to take'])
+        // The control: a hold on a ticket still reads as a block
+        ->and(boardRow($this, $blocked)['state'])->toBe('Blocked')
+                // The coordinator's own session is an idle lane too, so the held lane makes two
+        ->and($this->service(LaneBoard::class)->read()['counts'])->toMatchArray(['Idle' => 2, 'Blocked' => 1]);
+
+    $cells = markedText(Livewire::actingAs($this->developer)->test(Lanes::class)->html(), 'data-on-what');
+    sort($cells);
+
+    expect($cells)->toBe(['Nothing startable in robot-council/core', 'robot-council/core#9 — that ticket to land']);
 });
 
 it('marks a hand-back, and lists every task a lane holds against its capacity', function (): void {

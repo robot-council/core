@@ -54,7 +54,7 @@ final class LaneHoldTool extends Tool
     {
         return $this->lifts
             ? 'Lift the hold on a lane, so the board shows it as idle rather than waiting on something. Placing work on a lane lifts its hold on its own. Needs `coordinator:direct`.'
-            : 'Record why a lane is idle on purpose, shown on the lane board as `<party> — <what>`. The party is a developer by GitHub login or a ticket as owner/name#N; the reason is one of a fixed set, and a reason for a developer cannot name a ticket. Free text is refused. A lane holding work cannot be held. Needs `coordinator:direct`.';
+            : 'Record why a lane is idle on purpose, shown on the lane board as `<party> — <what>`. The party is a developer by GitHub login, a ticket as owner/name#N, or the lane\'s own repository as owner/name; the reason is one of a fixed set, each for one kind of party. `nothing_startable` takes the lane\'s repository and shows the lane as idle rather than blocked. Free text is refused. A lane holding work cannot be held. Needs `coordinator:direct`.';
     }
 
     /**
@@ -71,7 +71,7 @@ final class LaneHoldTool extends Tool
 
         if (! $this->lifts) {
             $arguments['party'] = $schema->string()->max(IssueReference::MAX)
-                ->description('A developer by GitHub login, or a ticket as owner/name#N.')
+                ->description("A developer by GitHub login, a ticket as owner/name#N, or the lane's own repository as owner/name.")
                 ->required();
             $arguments['reason'] = $schema->string()->enum(HoldReason::values())
                 ->description(implode('; ', array_map(

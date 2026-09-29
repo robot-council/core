@@ -18,4 +18,9 @@ enum HoldParty: string
      * A ticket, named as `owner/name#N`.
      */
     case Ticket = 'ticket';
+
+    /**
+     * The lane's own repository, named as `owner/name`: it has nothing the lane could start (#471).
+     */
+    case Repository = 'repository';
 }

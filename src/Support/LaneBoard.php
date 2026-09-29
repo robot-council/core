@@ -254,7 +254,9 @@ final class LaneBoard
             // A gate's work is a pull request rather than a task: it is working while it runs one
             $run !== null => ['Working', ['gate_pull_request' => $run]],
             $parked?->isParked() === true => ['Parked', ['party' => ($parker === null ? null : ($logins[$parker] ?? null)) ?? 'its developer', 'what' => 'parked this seat']],
-            $hold instanceof LaneHold => ['Blocked', ['party' => $hold->party, 'what' => $hold->reason->reads()]],
+            // A hold for "nothing startable" is idle, not blocked (#471): placing any task lifts it,
+            // and the lane takes the next startable ticket at once, so it waits on nobody
+            $hold instanceof LaneHold => [$hold->reason->blocks() ? 'Blocked' : 'Idle', ['party' => $hold->party, 'kind' => $hold->party_kind->value, 'what' => $hold->reason->reads()]],
             default => ['Idle', null],
         };
 
