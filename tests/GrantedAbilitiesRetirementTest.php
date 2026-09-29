@@ -86,6 +86,8 @@ function readsGrantedAbilities(string $code): bool
 }
 
 it('leaves all three populations in the same state', function (): void {
+    // Runs a migration, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     // **The three a host can be in, driven through the migration's own `up()` and `down()`.** A
     // host that installed before the epic had both columns; one that installed after `#231` still
     // had them, because that ticket retired the controls and not the schema; and one that rolled
@@ -115,6 +117,8 @@ it('leaves all three populations in the same state', function (): void {
 });
 
 it('restores the installation column NOT NULL, which is what the create migration declares', function (): void {
+    // Runs a migration, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     // **A rollback that changed a column's nullability leaves a host in a state neither migration
     // describes.** The installation's column is NOT NULL and the device code's is nullable, and
     // `down()` restates both rather than inferring either.

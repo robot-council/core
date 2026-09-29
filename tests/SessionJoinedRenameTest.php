@@ -90,6 +90,8 @@ function anEventRowFromBeforeTheRename(): int
 }
 
 it('leaves no row holding the old value once the migration has run', function (): void {
+    // Runs a migration, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     $id = anEventRowFromBeforeTheRename();
 
     runMigration(theRenameMigration(), 'up');
@@ -99,6 +101,8 @@ it('leaves no row holding the old value once the migration has run', function ()
 });
 
 it('reads a migrated row back through the model that could not read the old one', function (): void {
+    // Runs a migration, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     $id = anEventRowFromBeforeTheRename();
 
     // The control, and the reason this test exists: before the migration the cast genuinely refuses
@@ -113,6 +117,8 @@ it('reads a migrated row back through the model that could not read the old one'
 });
 
 it('is safe to run again, and on a table with nothing to rewrite', function (): void {
+    // Runs a migration, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     // The three populations the migration has to survive: an upgrade with rows, a re-run with none
     // left, and a fresh install that never had any. All three end in the same state.
     $id = anEventRowFromBeforeTheRename();
@@ -132,6 +138,8 @@ it('is safe to run again, and on a table with nothing to rewrite', function (): 
 });
 
 it('points a rolled-back row back, so the previous release can still read it', function (): void {
+    // Runs a migration, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     // A rollback that left rows holding the new value would hit the same `ValueError` from the
     // other side, which is why `down()` is not empty.
     $id = anEventRowFromBeforeTheRename();
@@ -147,6 +155,8 @@ it('points a rolled-back row back, so the previous release can still read it', f
 });
 
 it('renders a migrated row in the dashboard change feed', function (): void {
+    // Runs a migration, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     // The panel is where a developer meets these rows, and it reads them through the same cast. A
     // row that migrated correctly but rendered as an error would satisfy every assertion above.
     $developer = $this->enrollDeveloper(4242);

@@ -263,6 +263,8 @@ it('takes the installation row while it renews, which is the package lock order'
 });
 
 it('backfills a coordinator role for the sessions of a machine that already held the ability', function (): void {
+    // Runs a migration, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     $coordinatorInstallation = $this->approveInstallation($this->developer, machineLabel: 'coordinator-machine');
 
     // **The historical schema, reconstructed through the drop migration's own `down()`** (#239).
@@ -310,6 +312,8 @@ it('backfills a coordinator role for the sessions of a machine that already held
 });
 
 it('backfills on a re-run that finds the column already there', function (): void {
+    // Runs a migration, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     // **The population this covers is a run that DIED between the two statements.** Only Postgres
     // and SQL Server wrap a migration in a transaction, so on SQLite and MySQL the ALTER and the
     // UPDATE are independent: a crash in between leaves the column added, nothing backfilled, and
@@ -344,6 +348,8 @@ it('backfills on a re-run that finds the column already there', function (): voi
 });
 
 it('rolls back twice and migrates twice without erroring, which is what the guards are for', function (): void {
+    // Runs a migration, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     // The re-run guards on both sides. A second `down()` must not try to drop a column that is
     // gone, and a second `up()` must not try to add one that is there.
     [$session] = $this->startAgentSession($this->installation);

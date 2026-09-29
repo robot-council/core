@@ -73,6 +73,8 @@ function recordTheOldMigrationName(): void
 
 it('completes a migrate on a host that ran the old name, and keeps the table', function (): void {
     $this->migrateUsersTableWithPackageColumns();
+    // Changes the schema, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
 
     expect(identityMigrationPath())->not->toBeEmpty()
         ->and(Schema::hasTable('robot_council_github_identities'))->toBeTrue();
@@ -122,6 +124,8 @@ it('creates the table when it is genuinely absent, so the guard is not a no-op',
     // The control. A guard that returned early always would satisfy the test above completely, and
     // a create migration that never creates is a worse defect than the one being fixed.
     $this->migrateUsersTableWithPackageColumns();
+    // Changes the schema, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
 
     Schema::drop('robot_council_github_identities');
 
@@ -156,6 +160,8 @@ it('keeps one identity per host user after the collation migration redefines the
     // honest bound on THIS assertion, and it is the same shape `CLAUDE.md` records for SQLite
     // foreign keys: it is not evidence about the fold-back, whatever engine it passes on.
     $this->migrateUsersTableWithPackageColumns();
+    // Provokes a failing query, which aborts a whole test transaction on Postgres (#473)
+    $this->leaveTestTransaction();
 
     DB::table('robot_council_github_identities')->insert([
         'user_id' => '4242',
@@ -209,6 +215,8 @@ it('does not drop a table it did not create when that batch is rolled back', fun
     // nowhere else** -- grepped -- which is why this is written against the command rather than
     // against `down()`.
     $this->migrateUsersTableWithPackageColumns();
+    // Changes the schema, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
 
     DB::table('robot_council_github_identities')->insert([
         'user_id' => '4242',
@@ -236,6 +244,8 @@ it('does drop the table it did create, so the guard is not a blanket refusal', f
     // Driven through `migrate:rollback` like its pair, on the fresh-install population: no old
     // row, so nothing says the table predates this file, so the drop must happen.
     $this->migrateUsersTableWithPackageColumns();
+    // Changes the schema, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
 
     Schema::drop('robot_council_github_identities');
 

@@ -424,6 +424,8 @@ it('gives two sessions from one installation identical abilities whatever their 
 });
 
 it('splits the rows a host already has, the same way the forward rule does', function (): void {
+    // Runs a migration, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     // **The parity the migration's docblock promises.** It writes the split out in literals rather
     // than calling `Support\WorkIdentity`, so that editing that class cannot change what a migration
     // already run meant. Nothing but this test keeps the two agreeing.
@@ -474,6 +476,8 @@ it('splits the rows a host already has, the same way the forward rule does', fun
 });
 
 it('serves a migrated row through the API and the change feed', function (): void {
+    // Runs a migration, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     // The acceptance criterion's own shape: seed the old form, migrate, read it back through both
     // surfaces rather than off the row.
     restoreTheLegacyProjectIdColumn();
@@ -531,6 +535,8 @@ it('serves a migrated row through the API and the change feed', function (): voi
 });
 
 it('leaves a client-supplied repository alone when the backfill runs again', function (): void {
+    // Runs a migration, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     // **The state a crash between the ALTER and the updates leaves on SQLite and MySQL.** The host
     // is already serving the new code -- that is why the migration is running -- so a session can
     // start in the re-run window and write a repository the client named. An unguarded backfill
@@ -572,6 +578,8 @@ it('leaves a client-supplied repository alone when the backfill runs again', fun
 });
 
 it('rolls back and migrates twice without erroring', function (): void {
+    // Runs a migration, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     restoreTheLegacyProjectIdColumn();
 
     [$session] = $this->startAgentSession($this->installation);
@@ -590,6 +598,8 @@ it('rolls back and migrates twice without erroring', function (): void {
 });
 
 it('backfills on a re-run that finds the columns already there', function (): void {
+    // Runs a migration, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     // The population a crash between the ALTER and the updates leaves, which only Postgres is
     // protected from: the columns exist and nothing was written. A guard reading `hasColumn` would
     // skip the backfill here and report success.

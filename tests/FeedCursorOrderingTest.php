@@ -40,7 +40,8 @@ use RobotCouncil\Support\AgentSessions;
 use RobotCouncil\Support\FleetEvents;
 
 beforeEach(function (): void {
-    $this->migrateUsersTableWithPackageColumns();
+    // Reads what another connection commits, which a rolled-back transaction never does (#473)
+    $this->migrateFreshSchema();
 
     $this->setAccessLists(developers: [4242]);
 

@@ -440,6 +440,8 @@ it('tells a coordinator that was not live when the lane went stale, on the next 
 });
 
 it('lets the presence transition commit when the raise cannot be made', function (): void {
+    // Changes the schema, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     Exceptions::fake();
     placeOnTheLane($this);
     Schema::drop('robot_council_lane_conditions');

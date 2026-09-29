@@ -782,6 +782,8 @@ it('registers no route that reaches a settings writer other than the read and th
 // --- Migrations -----------------------------------------------------------------------------------
 
 it('rolls the three tables back and forward again', function (): void {
+    // Changes the schema, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     // **The waivers table first, as `migrate:rollback` would**: it holds a foreign key to the seats
     // table (#320), and Postgres refuses to drop a table another still references -- measured in
     // the `postgres` job as `SQLSTATE[2BP01]` once #320 landed. SQLite enforces no foreign key in

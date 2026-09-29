@@ -295,6 +295,8 @@ function runTheFenceMigration(): void
 }
 
 it('seeds the sequence above every fence an upgrading installation had already issued', function (): void {
+    // Changes the schema, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     // **The riskiest line in this change.** An installation that has been running carries per-name
     // counters this sequence takes over from, and seeding at zero would hand out numbers those
     // names have already used -- reintroducing the exact failure the fence exists to prevent,
@@ -318,6 +320,8 @@ it('seeds the sequence above every fence an upgrading installation had already i
 });
 
 it('leaves the sequence alone when it is already there, so a re-run cannot rewind it', function (): void {
+    // Runs a migration, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     // All three populations run this file -- installed before the change, installed after it, and
     // rolled back -- which is the shape CLAUDE.md requires of a repair migration. A second run
     // that reseeded would drop the sequence back to the highest row fence, below numbers it had

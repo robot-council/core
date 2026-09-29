@@ -127,6 +127,8 @@ it('ignores an access list that is neither a string nor an array', function (): 
 });
 
 it('records at most one identity per GitHub account', function (): void {
+    // Provokes a failing query, which aborts a whole test transaction on Postgres (#473)
+    $this->leaveTestTransaction();
     $this->enrollDeveloper(4242);
 
     $second = new User;

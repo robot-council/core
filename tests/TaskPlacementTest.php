@@ -886,6 +886,8 @@ it('adds columns as wide as the bounds the package enforces', function (): void 
 });
 
 it('runs its migration again without error, and rolls it back cleanly', function (): void {
+    // Changes the schema, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
     // Three populations run the file: installed before the columns, after them, and rolled back
     // then migrated again. Guarded on the schema rather than on assumed presence.
     $migration = require __DIR__.'/../database/migrations/2026_09_24_000004_add_placement_to_robot_council_tasks.php';
