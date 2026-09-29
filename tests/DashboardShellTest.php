@@ -19,6 +19,7 @@ use RobotCouncil\Http\Controllers\DashboardStylesheetController;
 use RobotCouncil\Http\Middleware\DenyFraming;
 use RobotCouncil\Http\Middleware\EnsureAllowlistedDeveloper;
 use RobotCouncil\Livewire\Dashboard;
+use RobotCouncil\Support\DashboardAssets;
 use RobotCouncil\Support\PollInterval;
 
 beforeEach(function (): void {
@@ -273,11 +274,14 @@ it('loads the script by its src and carries no inline script (#472)', function (
     preg_match_all('/<script\b([^>]*)>(.*?)<\/script>/is', $html, $scripts, PREG_SET_ORDER);
 
     // Every script on the page is a file, so `script-src 'self'` needs no `'unsafe-inline'`
-    $inline = array_filter($scripts, static fn (array $script): bool => ! str_contains($script[1], 'src=') || trim($script[2]) !== '');
+    $inline = array_filter($scripts, static fn (array $script): bool => preg_match('/\\ssrc=/', $script[1]) !== 1 || trim($script[2]) !== '');
 
     expect($scripts)->not->toBeEmpty()
         ->and($inline)->toBeEmpty()
-        ->and($html)->toContain('<script src="'.route('robot-council.dashboard.script').'"></script>');
+        // Named by a hash of its bytes, so a changed script is a new URL rather than a year-old cache
+        ->and($html)->toContain('<script src="'.route('robot-council.dashboard.script', ['v' => DashboardAssets::version(DashboardAssets::SCRIPT)]).'"></script>')
+        ->and(DashboardAssets::version(DashboardAssets::SCRIPT))->toBe(substr((string) hash_file('sha256', DashboardAssets::path(DashboardAssets::SCRIPT)), 0, 16))
+        ->and($html)->toContain(e(route('robot-council.dashboard.stylesheet', ['v' => DashboardAssets::version(DashboardAssets::STYLESHEET)])));
 });
 
 it("keeps the allowlist gate on Livewire's update endpoint", function (): void {

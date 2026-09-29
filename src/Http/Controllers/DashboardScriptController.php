@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RobotCouncil\Http\Controllers;
 
 use Illuminate\Http\Request;
+use RobotCouncil\Support\DashboardAssets;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
@@ -41,7 +42,7 @@ final class DashboardScriptController
      */
     public function __invoke(Request $request): BinaryFileResponse
     {
-        $path = \dirname(__DIR__, 3).'/resources/js/dashboard.js';
+        $path = DashboardAssets::path(DashboardAssets::SCRIPT);
 
         if (! is_file($path)) {
             // Loud rather than silent, as for the stylesheet: without it every poll moves the page
@@ -56,7 +57,8 @@ final class DashboardScriptController
         $response->setPublic();
         $response->setMaxAge(self::MAX_AGE);
 
-        // Content-addressed by the file's own hash, so a new release invalidates itself
+        // The page names the file by a hash of its bytes (`DashboardAssets::version()`), so a new
+        // release is a new URL; the ETag only answers a browser that revalidates the same one
         $response->isNotModified($request);
 
         return $response;

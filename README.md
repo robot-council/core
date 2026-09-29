@@ -449,8 +449,13 @@ load its styling before anyone has signed in.
 reader is looking at in place when a poll adds rows above it, through Livewire's documented `morph`
 and `morphed` hooks, and does nothing else. It is written by hand and shipped as it is, so there is
 still nothing to build or publish. It is loaded by `src` from the page's own origin and no view
-carries an inline script, so a host's `script-src 'self'` covers it; a page that declines Livewire,
-such as the enrollment page, loads neither.
+carries an inline script, so a host's `script-src 'self'` covers this file. That is a statement
+about this file alone: Livewire and Alpine have their own needs under a CSP, which Livewire's
+`csp_safe` setting governs. A page that declines Livewire, such as the enrollment page, loads
+neither script.
+
+Both files are served `public` for a year, and each page names them with `?v=` and a hash of the
+file's bytes, so a release that changes either one is a new URL rather than a stale cache.
 
 Installing this package adds `livewire/livewire` to a host's dependencies, and Livewire registers
 its own `/livewire/update` endpoint and a global middleware. The package registers

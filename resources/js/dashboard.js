@@ -8,8 +8,10 @@
  * is at or below the top of the viewport, and that top; once they are morphed, it finds the same key
  * again and scrolls by the difference, so that row stays where it was.
  *
- * It does that one job and nothing else. When the row is gone after the poll, or nothing keyed is in
- * view, it does nothing, which is the page's behavior without it. It uses only Livewire's documented
+ * It does that one job and nothing else. When the row is gone after the poll, nothing keyed is in
+ * view, or the reader is at the very top of the page, it does nothing, which is the page's behavior
+ * without it. A partial morph of an `@island` fires `island.morph` instead and is not covered; no
+ * view uses islands. It uses only Livewire's documented
  * `morph` and `morphed` hooks, which run once around a component's whole morph. The per-element
  * `morph.updated` is too early: Alpine's morph calls it for an element before patching its children,
  * so the rows a poll adds would land after the correction.
@@ -21,13 +23,18 @@
     const anchors = new WeakMap();
     let registered = false;
 
-    // The first rendered keyed element at or below the top of the viewport, and where it is
+    // The first rendered keyed element whose top is in the viewport, and where it is. Only one the
+    // reader can see: a row below the fold is not what they are reading, and anchoring on it would
+    // move what they are reading -- a list pushed down by an open glossary, say -- whenever a poll
+    // added a row above that row.
     const anchorIn = (root) => {
         for (const el of root.querySelectorAll('[wire\\:key]')) {
             const rect = el.getBoundingClientRect();
 
             // Not rendered, so not something anyone is reading
             if (rect.width === 0 && rect.height === 0) continue;
+
+            if (rect.top >= window.innerHeight) return null;
 
             if (rect.top >= 0) {
                 return { key: el.getAttribute('wire:key'), top: rect.top };
@@ -42,7 +49,9 @@
         registered = true;
 
         window.Livewire.hook('morph', ({ el }) => {
-            const anchor = anchorIn(el);
+            // A reader at the very top is reading the newest rows, so they see new ones arrive
+            // rather than having the page scroll them out of view
+            const anchor = window.scrollY > 0 ? anchorIn(el) : null;
 
             if (anchor) {
                 anchors.set(el, anchor);

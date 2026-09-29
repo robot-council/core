@@ -30,7 +30,7 @@ beforeEach(function (): void {
     $this->setAccessLists(developers: [4242]);
 
     $this->developer = $this->enrollDeveloper(4242, login: 'octodev');
-    $this->lane = $this->service(AgentSessions::class)->start($this->approveInstallation($this->developer), 'robot-council/core', 'a')->owner;
+    $this->session = $this->service(AgentSessions::class)->start($this->approveInstallation($this->developer), 'robot-council/core', 'a')->owner;
 });
 
 /**
@@ -110,13 +110,13 @@ function narrate(AgentSession $lane, string $body): void
 
 it('keeps the row being read in place when a poll adds an event above it on the change feed', function (): void {
     foreach (range(1, 40) as $n) {
-        narrate($this->lane, sprintf('Earlier narration number %d, long enough to take a line or two on a phone.', $n));
+        narrate($this->session, sprintf('Earlier narration number %d, long enough to take a line or two on a phone.', $n));
     }
 
     $page = anchoredPage($this, 'robot-council.feed');
     $before = readingPosition($page);
 
-    narrate($this->lane, 'A new narration, arriving above the reader.');
+    narrate($this->session, 'A new narration, arriving above the reader.');
     poll($page);
 
     $after = readingPosition($page);
@@ -132,14 +132,14 @@ it('keeps the row being read in place when a poll adds a task above it on the qu
     $tasks = $this->service(Tasks::class);
 
     foreach (range(1, 25) as $n) {
-        $tasks->create($this->lane, ['title' => sprintf('Queued task number %d', $n), 'priority' => 1], false);
+        $tasks->create($this->session, ['title' => sprintf('Queued task number %d', $n), 'priority' => 1], false);
     }
 
     $page = anchoredPage($this, 'robot-council.queue');
     $before = readingPosition($page);
 
     // The most urgent, so the queue lists it first
-    $tasks->create($this->lane, ['title' => 'An urgent task, arriving above the reader', 'priority' => 9], false);
+    $tasks->create($this->session, ['title' => 'An urgent task, arriving above the reader', 'priority' => 9], false);
     poll($page);
 
     $after = readingPosition($page);
@@ -151,7 +151,7 @@ it('keeps the row being read in place when a poll adds a task above it on the qu
 
 it('moves nothing when a poll changes nothing above the reader', function (): void {
     foreach (range(1, 40) as $n) {
-        narrate($this->lane, sprintf('Narration number %d, long enough to take a line or two on a phone.', $n));
+        narrate($this->session, sprintf('Narration number %d, long enough to take a line or two on a phone.', $n));
     }
 
     $page = anchoredPage($this, 'robot-council.feed');
@@ -168,7 +168,7 @@ it('moves nothing when a poll changes nothing above the reader', function (): vo
 
 it('falls back to the page as the morph leaves it when the row being read is gone', function (): void {
     foreach (range(1, 40) as $n) {
-        narrate($this->lane, sprintf('Narration number %d, long enough to take a line or two on a phone.', $n));
+        narrate($this->session, sprintf('Narration number %d, long enough to take a line or two on a phone.', $n));
     }
 
     $page = anchoredPage($this, 'robot-council.feed');
@@ -183,4 +183,59 @@ it('falls back to the page as the morph leaves it when the row being read is gon
     expect(topOf($page, $before['key']))->toBeNull()
         ->and($page->script('() => window.scrollY'))->toBe($before['scrollY'])
         ->and($page->script('() => typeof window.Livewire'))->toBe('object');
+});
+
+it('leaves a reader at the very top where they are, so the new row comes into view', function (): void {
+    foreach (range(1, 40) as $n) {
+        narrate($this->session, sprintf('Narration number %d, long enough to take a line or two on a phone.', $n));
+    }
+
+    $this->actingAs($this->developer, 'web');
+    $page = visit(route('robot-council.feed'));
+    $page->resize(390, 700);
+
+    expect($page->script('() => window.scrollY'))->toBe(0);
+
+    narrate($this->session, 'A new narration, for a reader at the top.');
+    poll($page);
+
+    // Added, visible, and the page did not scroll it away
+    expect($page->script('() => window.scrollY'))->toBe(0)
+        ->and($page->script(<<<'JS'
+            () => {
+                const row = [...document.querySelectorAll('main [wire\\:key]')].find(el => el.innerText.includes('A new narration, for a reader at the top.'));
+                return row ? row.getBoundingClientRect().top < window.innerHeight : 'not rendered';
+            }
+        JS))->toBeTrue();
+});
+
+it('moves nothing when no keyed row is in view, as when the glossary pushes the list below the fold', function (): void {
+    foreach (range(1, 40) as $n) {
+        narrate($this->session, sprintf('Narration number %d, long enough to take a line or two on a phone.', $n));
+    }
+
+    $this->actingAs($this->developer, 'web');
+    $page = visit(route('robot-council.feed'));
+    $page->resize(390, 700);
+
+    // Open the glossary and read it, a pixel down, with the list below the fold
+    $page->script('() => { document.querySelectorAll("main details").forEach(d => d.open = true); window.scrollTo(0, 1); }');
+
+    $precondition = $page->script(<<<'JS'
+        () => {
+            const inView = [...document.querySelectorAll('main [wire\\:key]')].filter(el => {
+                const rect = el.getBoundingClientRect();
+                return (rect.width || rect.height) && rect.top >= 0 && rect.top < window.innerHeight;
+            });
+            return { scrollY: window.scrollY, keyedInView: inView.length };
+        }
+    JS);
+
+    // The case under test: the reader is past the top, and no keyed row is on screen
+    expect($precondition)->toBe(['scrollY' => 1, 'keyedInView' => 0]);
+
+    narrate($this->session, 'A new narration, far below the glossary.');
+    poll($page);
+
+    expect($page->script('() => window.scrollY'))->toBe(1);
 });
