@@ -220,7 +220,8 @@ it('draws every avatar through the one component', function (): void {
         $components += substr_count($file->getContents(), '<x-robot-council::avatar ');
 
         if (preg_match('/<img\b/i', $file->getContents()) === 1) {
-            $images[] = $file->getRelativePathname();
+            // Forward slashes on every platform, since Windows reads the path with backslashes
+            $images[] = str_replace('\\', '/', $file->getRelativePathname());
         }
     }
 
