@@ -1286,6 +1286,34 @@ it("keeps each developer's and repository's picture a circle sized in rem, ringe
 
     $after = avatarShapes($page);
 
+    $repositoryInitials = array_column(array_filter($after, static fn (array $shape): bool => $shape['kind'] === 'repository'), 'initial');
+
     expect(array_filter($after, static fn (array $shape): bool => $shape['picture']))->toBeEmpty()
-        ->and(array_column($after, 'initial'))->toContain('O');
+        ->and(array_column($after, 'initial'))->toContain('O')
+        ->and($repositoryInitials)->not->toBeEmpty()
+        ->and(array_filter($repositoryInitials, static fn (string $initial): bool => $initial === ''))->toBeEmpty();
+});
+
+it("keeps a repository's ring apart from a developer's circle under forced colors, where both borders draw (#416)", function (): void {
+    $page = visitSurface($this, 'robot-council.lanes', '', 'Run the screen-reader pass', 'light', ['forcedColors' => 'active']);
+
+    expect($page->script("() => window.matchMedia('(forced-colors: active)').matches"))->toBeTrue();
+
+    /** @var list<array{kind: string, style: string, width: float}> $borders */
+    $borders = pageList($page, 'avatar-border', <<<'JS'
+        () => [...document.querySelectorAll('[data-avatar] > span')].map(circle => ({
+            kind: circle.parentElement.dataset.avatar === 'repository' ? 'repository' : 'developer',
+            style: getComputedStyle(circle).borderTopStyle,
+            width: parseFloat(getComputedStyle(circle).borderTopWidth),
+        }))
+    JS);
+
+    $developers = array_filter($borders, static fn (array $border): bool => $border['kind'] === 'developer');
+    $repositories = array_filter($borders, static fn (array $border): bool => $border['kind'] === 'repository');
+
+    // A double ring on every repository, and on no developer
+    expect($developers)->not->toBeEmpty()
+        ->and($repositories)->not->toBeEmpty()
+        ->and(array_values(array_unique(array_column($repositories, 'style'))))->toBe(['double'])
+        ->and(array_column($developers, 'style'))->not->toContain('double');
 });

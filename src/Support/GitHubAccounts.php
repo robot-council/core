@@ -201,7 +201,7 @@ final class GitHubAccounts
         }
 
         // Through `app()`, since the instance is scoped per request and a captured one is not
-        return app(self::class)->ownerAvatar(mb_strtolower(strstr($repository, '/', true)));
+        return app(self::class)->ownerAvatar(mb_strtolower(explode('/', $repository, 2)[0]));
     }
 
     /**
@@ -341,7 +341,9 @@ final class GitHubAccounts
             $this->owners = [];
 
             foreach (DB::table('robot_council_github_owners')->get(['login', 'avatar_url']) as $row) {
-                $this->owners[mb_strtolower((string) $row->login)] = self::checkedAvatar((string) $row->avatar_url);
+                if (\is_string($row->login) && \is_string($row->avatar_url)) {
+                    $this->owners[mb_strtolower($row->login)] = self::checkedAvatar($row->avatar_url);
+                }
             }
         }
 

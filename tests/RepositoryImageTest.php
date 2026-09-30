@@ -110,6 +110,7 @@ it('renders nothing for no repository, since nothing is named', function (): voi
 });
 
 it('keeps what it has, and stores nothing, from a delivery it cannot trust', function (array $owner, string $repository): void {
+    /** @var array<string, mixed> $owner */
     deliverFrom('robot-council/core', ['login' => 'robot-council', 'avatar_url' => OWNER_PICTURE]);
     deliverFrom($repository, $owner);
 
