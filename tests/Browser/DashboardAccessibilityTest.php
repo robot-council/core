@@ -850,7 +850,7 @@ it('puts every form label above its field', function (string $route, string $exp
         ->and($found['misplaced'])->toBe([], implode("\n", $found['misplaced']))
         ->and(sidewaysScroll($page))->toBe(0);
 })->with([
-    'Access' => ['robot-council.access', 'Look up', 3],
+    'Access' => ['robot-council.access', 'Look up', 2],
     'Seats' => ['robot-council.seats', 'Save hours', 5],
 ])->with([390, 1280]);
 
@@ -862,7 +862,7 @@ it('gives the Access form one full-width field per row on a phone', function ():
     // Each field and the button, against the form's own content box
     $rows = $page->script(<<<'JS'
         () => {
-            const form = document.querySelector('form[wire\\:submit="add"]');
+            const form = document.querySelector('form[wire\\:submit="lookUp"]');
             const box = form.getBoundingClientRect();
             return [...form.querySelectorAll('input, select, button')].map(el => {
                 const r = el.getBoundingClientRect();
@@ -872,14 +872,14 @@ it('gives the Access form one full-width field per row on a phone', function ():
     JS);
 
     /** @var list<array{name: string, left: int, width: int, top: int, form: int}> $rows */
-    expect($rows)->toHaveCount(4);
+    expect($rows)->toHaveCount(3);
 
     foreach ($rows as $row) {
         expect($row['width'])->toBe($row['form'], $row['name']);
     }
 
     // One per row: every top differs
-    expect(array_unique(array_column($rows, 'top')))->toHaveCount(4);
+    expect(array_unique(array_column($rows, 'top')))->toHaveCount(3);
 });
 
 it('fails on a planted violation, so a clean run means axe looked', function (): void {

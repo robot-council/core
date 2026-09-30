@@ -246,7 +246,7 @@ it('adds an account by its login, storing the ID GitHub gave and the login for d
         ->and(app(Allowlist::class)->isAdmin(5150))->toBeTrue();
 });
 
-it('offers both accounts when an all-digit value is one account\'s ID and another\'s login', function (): void {
+it("offers both accounts when an all-digit value is one account's ID and another's login", function (): void {
     Livewire::actingAs($this->admin)->test(AccessLists::class)
         ->set('account', '5150')->call('lookUp')
         // `5150` is also a login -- account 7070's -- so both are offered
