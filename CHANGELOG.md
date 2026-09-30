@@ -2,6 +2,30 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.7.5 — Developer and Repository Pictures, Local Times, and a Clearer Dashboard (2026-09-30)
+
+Developers' and repositories' GitHub pictures beside their names, times in each viewer's own time zone, allowlisted accounts named by their GitHub login, and a dashboard that is easier to scan and to use by touch.
+
+A host that sends a `Content-Security-Policy` with an `img-src` has to allow `https://avatars.githubusercontent.com`, or every picture falls back to a letter. #504 and #510 each add a migration, which the host runs with `php artisan migrate`, and #504 adds a scheduled command.
+
+### What's new
+- Set each glossary entry apart, reword the entries flagged on the ticket, and call the ci role "gate" on the dashboard [#502](https://github.com/robot-council/core/pull/502)
+- Name the gate role by its label in role-change events on the change feed page [#512](https://github.com/robot-council/core/pull/512)
+- Give the lane board's Waiting on a developer card bordered sections with counts, and three-part items [#511](https://github.com/robot-council/core/pull/511)
+- Show a repository owner's avatar, as a ringed circle, beside each repository the dashboard names [#510](https://github.com/robot-council/core/pull/510)
+- Show each developer's GitHub avatar, as a circle, wherever the dashboard names them [#509](https://github.com/robot-council/core/pull/509)
+- Open every link that leaves the dashboard in a new tab, and say so [#508](https://github.com/robot-council/core/pull/508)
+- Say what to do when an enrollment decision finds its code expired or already decided [#507](https://github.com/robot-council/core/pull/507)
+- Use the full width on large viewports, so tables stop wrapping inside a narrow column [#506](https://github.com/robot-council/core/pull/506)
+- Show dashboard times in the viewer's time zone, named, on a 12-hour clock [#505](https://github.com/robot-council/core/pull/505)
+- Show the GitHub login of an allowlisted account that has not signed in, and add an account by its login or ID [#504](https://github.com/robot-council/core/pull/504)
+- Choose a time zone from a grouped list on the seats page, and say "time zone" in what a reader sees [#500](https://github.com/robot-council/core/pull/500)
+- Give ghost and plain action buttons a visible boundary, and show a seat's hours state apart from its button [#499](https://github.com/robot-council/core/pull/499)
+- Stack every form label above its field, and refuse classes the stylesheet does not define [#497](https://github.com/robot-council/core/pull/497)
+- Align the change feed's type column, and the administration session rows, so every row's text starts at the same place [#496](https://github.com/robot-council/core/pull/496)
+- Raise the dashboard's filters, pagers, fields, and menu rows to the 44px touch target [#493](https://github.com/robot-council/core/pull/493)
+- Let the lane board's open-issue count take extra search qualifiers, such as `project:<owner>/<n>` [#489](https://github.com/robot-council/core/pull/489)
+
 ## v0.7.4 — A Postgres Test Fix (2026-09-30)
 
 A test-suite fix; nothing a consumer runs changes.
