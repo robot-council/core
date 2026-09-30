@@ -873,6 +873,125 @@ it('fails a pager or filter drawn at a size under the target, so the scan above 
     ])->and($found['held'])->toBe(2);
 });
 
+/**
+ * Every class a view names that the built stylesheet has no rule for (#485).
+ *
+ * daisyUI 5 dropped `form-control`, `label-text`, `input-bordered` and `select-bordered`, and the
+ * views kept naming them: a label wrapped in `form-control` was laid out inline, and sat above its
+ * field only where the line happened to wrap. Nothing reported it, because a class with no rule is
+ * valid markup. Read from `class="..."`, with Blade's own output stripped but the quoted classes
+ * inside it kept, and from `@class([...])` keys.
+ *
+ * @param  string  $source  A view's source, comments already stripped.
+ * @param  string  $css  The built stylesheet.
+ * @return list<string> Each class with no rule.
+ */
+function classesWithoutRules(string $source, string $css): array
+{
+    $missing = [];
+
+    foreach (classesNamedIn($source) as $class) {
+        // As the class appears in a selector: escaped, and ended by something no class name
+        // continues with, so `badge` is not found inside `.badge-sm`, nor `sm` inside `.sm\:w-auto`
+        $selector = '.'.preg_replace('/([^a-zA-Z0-9_-])/', '\\\\$1', $class);
+
+        if (preg_match('/'.preg_quote($selector, '/').'(?![a-zA-Z0-9_\\\\-])/', $css) !== 1) {
+            $missing[] = $class;
+        }
+    }
+
+    sort($missing);
+
+    return $missing;
+}
+
+/**
+ * Every class a view names: in `class="..."`, in `@class([...])` whether keyed or not, and in a
+ * `'class' => '...'` handed to a partial that renders it.
+ *
+ * @param  string  $source  A view's source, comments already stripped.
+ * @return list<string> The classes, each once.
+ */
+function classesNamedIn(string $source): array
+{
+    $classes = [];
+
+    preg_match_all('/\bclass="([^"]*)"/', $source, $attributes);
+
+    foreach ($attributes[1] as $attribute) {
+        // A ternary's quoted classes are classes too, and the rest of the Blade is not
+        preg_match_all("/'([a-z0-9:\\[\\]_\\/.-]+(?:\\s+[a-z0-9:\\[\\]_\\/.-]+)*)'/", $attribute, $quoted);
+
+        $plain = (string) preg_replace('/\{\{.*?\}\}/s', ' ', $attribute);
+
+        foreach ([$plain, ...$quoted[1]] as $list) {
+            foreach (preg_split('/\s+/', trim($list)) ?: [] as $class) {
+                if ($class !== '') {
+                    $classes[$class] = true;
+                }
+            }
+        }
+    }
+
+    preg_match_all('/@class\(\[(.*?)\]\)/s', $source, $conditional);
+
+    preg_match_all("/'class'\\s*=>\\s*'([^']*)'/", $source, $handed);
+
+    foreach ([...$conditional[1], ...array_map(static fn (string $list): string => "'{$list}'", $handed[1])] as $list) {
+        // An entry, keyed or not: a quoted string opening the list or following a comma, and ending
+        // at `=>`, a comma, or the list's end. A string inside a condition, such as `routeIs('...')`
+        // or `$lane['is_gate']`, follows a bracket instead and is not a class
+        preg_match_all("/(?:^|,)\\s*'([^']+)'\\s*(?==>|,|$)/", trim($list), $keys);
+
+        foreach ($keys[1] as $key) {
+            foreach (preg_split('/\s+/', trim($key)) ?: [] as $class) {
+                $classes[$class] = true;
+            }
+        }
+    }
+
+    return array_map(strval(...), array_keys($classes));
+}
+
+it('names no class the stylesheet does not define', function (): void {
+    $css = stylesheet();
+    $missing = [];
+    $read = [];
+
+    foreach (bladeTemplatesIn(__DIR__.'/../resources/views') as $view) {
+        $source = sourceWithoutComments($view);
+        $read = [...$read, ...classesNamedIn($source)];
+
+        foreach (classesWithoutRules($source, $css) as $class) {
+            $missing[] = basename($view).': '.$class;
+        }
+    }
+
+    // The control: the views were read and their classes found, so an empty list is not a read of nothing
+    expect(count(bladeTemplatesIn(__DIR__.'/../resources/views')))->toBeGreaterThanOrEqual(15)
+        ->and($read)->toContain('btn-target', 'card-body', 'sm:w-auto')
+        ->and($missing)->toBeEmpty(implode("\n", $missing));
+});
+
+it('reports a class the stylesheet has no rule for, so the check above is not blind', function (): void {
+    // The four #485 found, a class that is a prefix of a defined one, and defined classes in each
+    // form the reader handles: plain, escaped, conditional, and inside a ternary
+    $source = <<<'BLADE'
+        <label class="form-control"><span class="label-text">List</span></label>
+        <input class="input input-bordered sm:w-40"><select class="select select-bordered"></select>
+        <span class="badg badge-sm {{ $on ? 'btn-primary' : 'btn-outlined' }}"></span>
+        <a @class(['menu-active' => $here, 'menu-activ' => $near])></a>
+        <ul class="sm:grid-cols-[max-content_1fr]"></ul>
+        <p @class(['text-meta', 'text-metaa', 'font-semibold' => $bold])></p>
+        @include('robot-council::partials.said', ['show' => true, 'class' => 'w-full mt-2x'])
+        <div class="sm md"></div>
+        BLADE;
+
+    expect(classesWithoutRules($source, stylesheet()))->toBe([
+        'badg', 'btn-outlined', 'form-control', 'input-bordered', 'label-text', 'md', 'menu-activ', 'mt-2x', 'select-bordered', 'sm', 'text-metaa',
+    ]);
+});
+
 it('reflows every table into labelled rows where it would otherwise scroll sideways', function (): void {
     $css = stylesheet();
 

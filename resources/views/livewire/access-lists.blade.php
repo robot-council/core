@@ -24,25 +24,25 @@
             </p>
 
             <form wire:submit="add" class="flex flex-wrap items-end gap-3">
-                <label class="form-control">
-                    <span class="label-text">List</span>
-                    <select wire:model="list" class="select select-bordered">
+                <label class="flex w-full flex-col gap-1 sm:w-auto" data-field>
+                    <span>List</span>
+                    <select wire:model="list" class="select w-full sm:w-auto">
                         <option value="developer">Developers</option>
                         <option value="admin">Administrators</option>
                     </select>
                 </label>
 
-                <label class="form-control">
-                    <span class="label-text">GitHub user ID (a number)</span>
-                    <input type="text" inputmode="numeric" wire:model="githubId" maxlength="20" class="input input-bordered w-40" autocomplete="off">
+                <label class="flex w-full flex-col gap-1 sm:w-auto" data-field>
+                    <span>GitHub user ID (a number)</span>
+                    <input type="text" inputmode="numeric" wire:model="githubId" maxlength="20" class="input w-full sm:w-40" autocomplete="off">
                 </label>
 
-                <label class="form-control">
-                    <span class="label-text">GitHub login</span>
-                    <input type="text" wire:model="login" maxlength="39" class="input input-bordered w-48" autocomplete="off">
+                <label class="flex w-full flex-col gap-1 sm:w-auto" data-field>
+                    <span>GitHub login</span>
+                    <input type="text" wire:model="login" maxlength="39" class="input w-full sm:w-48" autocomplete="off">
                 </label>
 
-                <button type="submit" class="btn btn-target btn-primary">Add to list</button>
+                <button type="submit" class="btn btn-target btn-primary w-full sm:w-auto">Add to list</button>
             </form>
 
             @include('robot-council::partials.said', ['show' => $said !== null && $saidAt === 'add', 'class' => ''])
