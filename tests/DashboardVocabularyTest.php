@@ -256,7 +256,7 @@ it('confirms the hours and days off in words, beside their own form', function (
         ->toBe(['Saved: your seats take new work from 08:00 until 17:00, America/Chicago time, on weekdays only.']);
 
     $component->set('timezone', 'EST')->call('saveHours')
-        ->assertSet('said', 'Not saved: A timezone is an IANA zone name, such as America/Chicago.')
+        ->assertSet('said', 'Not saved: A time zone is one of the zones the list offers, such as America/Chicago.')
         ->assertSet('refused', true);
 
     $component->call('clearHours')

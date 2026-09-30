@@ -538,6 +538,32 @@ it('filters the Queue from its status list and returns to every status', functio
         ->assertValue('select[data-status-filter]', '');
 });
 
+it('picks a time zone from a grouped list by keyboard, named by its label, and saves it (#483)', function (): void {
+    $page = visitSurface($this, 'robot-council.seats', '', 'robot-council-core-a', 'light');
+
+    // Named by the label wrapped round it, grouped by region, and on the stored zone
+    $picker = $page->script(<<<'JS'
+        () => {
+            const select = document.querySelector('select[data-time-zone]');
+            return {
+                name: select.labels[0].querySelector(':scope > span').textContent.trim(),
+                groups: select.querySelectorAll('optgroup').length,
+                value: select.value,
+            };
+        }
+    JS);
+
+    expect($picker)->toMatchArray(['name' => 'Time zone', 'value' => 'America/Chicago'])
+        ->and($picker['groups'])->toBeGreaterThan(5);
+
+    // Typing a zone's name chooses it, as a keyboard user would. Type-ahead rather than an arrow
+    // key, because on macOS Chromium opens the list on ArrowDown instead of moving the choice
+    $page->keys('select[data-time-zone]', str_split('Asia/Tokyo'))
+        ->assertValue('select[data-time-zone]', 'Asia/Tokyo')
+        ->click('Save hours')
+        ->assertSee('Asia/Tokyo time');
+});
+
 /**
  * Where each change-feed row's type badge and body sit, as rendered.
  *

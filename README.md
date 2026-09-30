@@ -474,11 +474,11 @@ changes them. The only writer is the developer's own page at `{prefix}/dashboard
   every session that sits in it -- a restarted agent is still in the same seat.
 - **Parking** a seat says it takes no new work. It records who parked it and when. **Only that
   developer lifts it**, and nothing lifts it on a timer.
-- **Assignment hours** are a daily window, whether weekends count, and an IANA timezone such as
+- **Assignment hours** are a daily window, whether weekends count, and an IANA time zone such as
   `America/Chicago`. A window whose end is before its start runs overnight. Everything is read on the
   developer's own clock, including through daylight saving changes.
 - **Days off** are the developer's own list of dates. They apply once hours are set, since a date
-  needs a timezone to say when it starts. A developer with no hours set is not gated at all.
+  needs a time zone to say when it starts. A developer with no hours set is not gated at all.
 - **Ignore my hours** takes a seat out of its developer's hours, and the seat then reads "Hours: ignored"; **Apply my hours** puts it back. The API and the `developer_settings` tool still call this `exempt`.
 - **Tickets at once** caps how many tickets a coordinator may place on one session in the seat,
   from 1 to 16 (#409). A session declares its own number when it joins and gets no more than this;

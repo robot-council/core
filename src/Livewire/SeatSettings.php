@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace RobotCouncil\Livewire;
 
+use DateTimeZone;
+use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\View\View;
 use InvalidArgumentException;
 use Livewire\Attributes\Layout;
@@ -14,6 +16,7 @@ use RobotCouncil\Access\CurrentDeveloper;
 use RobotCouncil\Models\AssignmentHours;
 use RobotCouncil\Models\PlacementRule;
 use RobotCouncil\Models\Seat;
+use RobotCouncil\Support\AssignmentWindow;
 use RobotCouncil\Support\Capacity;
 use RobotCouncil\Support\DeveloperSettings;
 use RobotCouncil\Support\HostKey;
@@ -43,7 +46,7 @@ use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
 final class SeatSettings extends Component
 {
     /**
-     * The zone the window is in, as typed.
+     * The zone the window is in, as chosen from the picker.
      */
     public string $timezone = '';
 
@@ -129,7 +132,14 @@ final class SeatSettings extends Component
             $this->startsAt = $hours->starts_at;
             $this->endsAt = $hours->ends_at;
             $this->skipWeekends = $hours->skip_weekends;
+
+            return;
         }
+
+        // Nothing is set, so the picker starts on the fleet's zone (#483) -- which stores nothing:
+        // the developer's zone is written only when they save their hours
+        $fleet = $this->service(Repository::class)->get('robot-council.dashboard.timezone');
+        $this->timezone = AssignmentWindow::isTimezone($fleet) && \is_string($fleet) ? $fleet : 'UTC';
     }
 
     /**
@@ -360,7 +370,34 @@ final class SeatSettings extends Component
             ),
             'hours' => $settings->hours($developer),
             'holidays' => $settings->holidays($developer),
+            'zones' => $this->zones(),
         ]);
+    }
+
+    /**
+     * Every zone the picker offers, grouped by region: the list the server accepts.
+     *
+     * A value the form holds that PHP no longer lists -- a stored zone a later PHP dropped -- is
+     * offered too, in a group of its own, so the picker still shows it selected rather than landing
+     * on another zone, and saving without touching it says why it is refused instead of silently
+     * moving the developer's hours to somewhere else.
+     *
+     * @return array<string, list<string>> Each region's zones, keyed by region.
+     */
+    private function zones(): array
+    {
+        $zones = [];
+
+        foreach (DateTimeZone::listIdentifiers() as $zone) {
+            $region = str_contains($zone, '/') ? strstr($zone, '/', true) : 'Other';
+            $zones[$region][] = $zone;
+        }
+
+        if ($this->timezone !== '' && ! AssignmentWindow::isTimezone($this->timezone)) {
+            $zones['No longer listed'] = [$this->timezone];
+        }
+
+        return $zones;
     }
 
     /**
