@@ -22,13 +22,13 @@
             <div class="flex gap-1" role="group" aria-label="Filter by scope">
                 <button type="button" wire:click="showScope('{{ \RobotCouncil\Support\WireArgument::of(\RobotCouncil\Support\Scope::Live) }}')"
                     aria-pressed="{{ $installationScope === \RobotCouncil\Support\Scope::Live ? 'true' : 'false' }}"
-                    class="btn btn-xs {{ $installationScope === \RobotCouncil\Support\Scope::Live ? 'btn-primary' : 'btn-outline' }}">
+                    class="btn btn-target {{ $installationScope === \RobotCouncil\Support\Scope::Live ? 'btn-primary' : 'btn-outline' }}">
                     Usable ({{ $page['live'] }})
                 </button>
 
                 <button type="button" wire:click="showScope('{{ \RobotCouncil\Support\WireArgument::of(\RobotCouncil\Support\Scope::All) }}')"
                     aria-pressed="{{ $installationScope === \RobotCouncil\Support\Scope::All ? 'true' : 'false' }}"
-                    class="btn btn-xs {{ $installationScope === \RobotCouncil\Support\Scope::All ? 'btn-primary' : 'btn-outline' }}">
+                    class="btn btn-target {{ $installationScope === \RobotCouncil\Support\Scope::All ? 'btn-primary' : 'btn-outline' }}">
                     All ({{ $page['live'] + $page['retired'] }})
                 </button>
             </div>
@@ -223,12 +223,12 @@
         @if ($after !== null || $page['more'])
             <div class="flex items-center justify-end gap-2 pt-2">
                 @if ($after !== null)
-                    <button type="button" wire:click="showFirst" class="btn btn-sm btn-outline">Newest</button>
+                    <button type="button" wire:click="showFirst" class="btn btn-target btn-outline">Newest</button>
                 @endif
 
                 @if ($page['more'] && $page['cursor'] !== null)
                     <button type="button" wire:click="showNext({{ \RobotCouncil\Support\WireArgument::of($page['cursor']) }})"
-                        class="btn btn-sm btn-outline">Older</button>
+                        class="btn btn-target btn-outline">Older</button>
                 @endif
             </div>
         @endif

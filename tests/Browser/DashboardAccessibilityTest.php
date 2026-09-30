@@ -335,13 +335,15 @@ function wordsLostToForcedColors(PendingAwaitablePage $page): array
 }
 
 /**
- * Every control smaller than its target: 44px for a consequential one (`btn-target`), 24px for the
- * rest (SC 2.5.5 and SC 2.5.8).
+ * Every control smaller than 44 by 44 CSS px (SC 2.5.5).
  *
- * Measured as rendered. **Only a link inside a sentence is exempt**, under SC 2.5.8's inline
- * exception: a link whose enclosing block holds text of its own beside it. A link alone in a table
- * cell is a target like any other. A `label` is measured only where it is itself the control, as the
- * drawer's toggle is; otherwise the control it names is measured.
+ * One target for every control since #480, which took the filters, pagers, fields, navigation rows
+ * and lone row links up from the 24px floor (SC 2.5.8) that #399 had held them to. Measured as
+ * rendered. **Only a link inside a sentence is exempt**, under the inline exception: a link whose
+ * enclosing block holds text of its own beside it. A link alone in a table cell is a target like any
+ * other. A `label` is measured only where it is itself the control, as the drawer's toggle is;
+ * otherwise the control it names is measured -- except a checkbox or radio, whose tappable area is
+ * the label wrapped round it, so that label is what must reach 44px.
  *
  * @return list<string> Each undersized control, with its size.
  */
@@ -362,8 +364,9 @@ function undersizedControls(PendingAwaitablePage $page): array
                 const side = el.closest('.drawer-side');
                 if (side && getComputedStyle(side).visibility === 'hidden') continue;
                 if (el.matches('.drawer-toggle') || inSentence(el)) continue;
-                const floor = el.matches('.btn-target') ? 44 : 24;
-                if (rect.width < floor - 0.5 || rect.height < floor - 0.5) out.push(`${describe(el)} ${Math.round(rect.width)}x${Math.round(rect.height)} < ${floor}`);
+                const label = el.matches('input[type=checkbox], input[type=radio]') ? el.closest('label') : null;
+                const area = label ? label.getBoundingClientRect() : rect;
+                if (area.width < 43.5 || area.height < 43.5) out.push(`${describe(label || el)} ${Math.round(area.width)}x${Math.round(area.height)} < 44`);
             }
             return out;
         }
@@ -429,6 +432,24 @@ it('draws every seeded state, so the scans above are of populated pages', functi
     // Administration: a role request waiting
     visitSurface($this, 'robot-council.administration', '', 'gate-runner', 'light')
         ->assertSee('asked for coordinator');
+});
+
+it('filters the Queue from its status list and returns to every status', function (): void {
+    // #480. The select calls the action through `$event.target.value`, which only a real browser
+    // evaluates: the Livewire tests call `showStatus()` directly and cannot see that expression
+    $page = visitSurface($this, 'robot-council.queue', '', 'Everyone stop and sync', 'light')
+        ->assertSee('Port the rule');
+
+    $page->select('#queue-status', 'done')
+        ->assertQueryStringHas('status', 'done')
+        ->assertDontSee('Everyone stop and sync')
+        ->assertSee('Port the rule')
+        ->assertValue('#queue-status', 'done');
+
+    $page->select('#queue-status', '')
+        ->assertQueryStringMissing('status')
+        ->assertSee('Everyone stop and sync')
+        ->assertValue('#queue-status', '');
 });
 
 it('fails on a planted violation, so a clean run means axe looked', function (): void {
@@ -536,7 +557,7 @@ it('finds a status word lost under forced colors, so the check above is not blin
     expect(wordsLostToForcedColors($page))->toHaveCount(1);
 });
 
-it('holds every control to its target size, 44px for the consequential ones and 24px for the rest', function (string $route, string $parameter, string $expect, int $width): void {
+it('holds every control to the 44px target size', function (string $route, string $parameter, string $expect, int $width): void {
     $page = visitSurface($this, $route, $parameter, $expect, 'light');
 
     // At a phone's width, where the sidebar is closed, and at a desktop's, where it is open
@@ -552,7 +573,8 @@ it('finds an undersized control, so the check above is not blind', function (): 
 
     $page->resize(390, 900);
 
-    // A 16px button, a consequential control at 32px, and a lone link in a table cell
+    // A 16px button, a control marked for the target but drawn at 32px, a pager at daisyUI's 32px
+    // `btn-sm` that #480 raised, a lone link in a table cell, and a checkbox whose label is one line
     $page->script(<<<'JS'
         () => {
             const main = document.querySelector('main');
@@ -568,8 +590,17 @@ it('finds an undersized control, so the check above is not blind', function (): 
             const cell = document.createElement('div');
             cell.innerHTML = '<a href="#" class="link" style="font-size:10px;line-height:1">held</a>';
             main.appendChild(cell);
+            const pager = document.createElement('button');
+            pager.className = 'btn btn-outline';
+            pager.textContent = 'Older';
+            pager.style.cssText = 'height:32px;min-height:0';
+            main.appendChild(pager);
+            const box = document.createElement('label');
+            box.style.cssText = 'display:inline-flex;align-items:center;line-height:1';
+            box.innerHTML = '<input type="checkbox"> Skip';
+            main.appendChild(box);
         }
     JS);
 
-    expect(undersizedControls($page))->toHaveCount(3);
+    expect(undersizedControls($page))->toHaveCount(5);
 });

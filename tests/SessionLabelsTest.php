@@ -131,7 +131,7 @@ it("names a lock's holder and previous holder by session label, still linking to
     $html = Livewire::test(LocksPage::class)->html();
 
     expect($html)
-        ->toContain('<a href="'.e(route('robot-council.agents', ['session' => $second->id])).'" class="link inline-flex min-h-6 items-center"><code>core/josh-home/b</code></a>')
+        ->toContain('<a href="'.e(route('robot-council.agents', ['session' => $second->id])).'" class="link inline-flex min-h-11 min-w-11 items-center"><code>core/josh-home/b</code></a>')
         ->toContain('<div class="text-meta opacity-80">octodev</div>')
         ->toContain('after <code>core/josh-office/a</code>');
 });

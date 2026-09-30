@@ -726,26 +726,89 @@ it('marks a pressed filter and the current page for forced colors, where their f
         }
     }
 
-    // The controls: the Queue, Agents, Locks and Administration pages each render a filter row, and
-    // every page marks its sidebar entry, so zero of either is a read that saw nothing
-    expect($pressed)->toBeGreaterThanOrEqual(8)
+    // The controls: the Agents, Locks and Administration pages each render a two-button filter row,
+    // and every page marks its sidebar entry, so zero of either is a read that saw nothing. The
+    // Queue's filter is a select since #480, which states its choice without `aria-pressed`
+    expect($pressed)->toBeGreaterThanOrEqual(6)
         ->and($current)->toBeGreaterThanOrEqual(8);
 });
 
 /**
- * The `wire:click` actions that are dense desktop controls, allowed below the AAA target (#399).
+ * What a view's markup gets wrong about target size, and how many controls it held to the target.
  *
- * Everything else a view binds is consequential and must carry `btn-target`, so a new action is
- * held to 44px until someone decides otherwise and lists it here. The default is the safe side:
- * a control wrongly left dense costs a user a missed tap on something that acts on the fleet.
+ * Every control a view binds, submits with, or styles as a button carries `btn-target` (#399), and
+ * since #480 there is no dense exception: the filters, "show every" toggles and pagers that were
+ * `btn-xs` and `btn-sm` are touch-primary too. No view names a size modifier that draws a control
+ * under the target, whatever element it is on.
+ *
+ * @param  string  $source  The view's source, comments already stripped.
+ * @param  string  $name  What to call the view in a finding.
+ * @return array{findings: list<string>, held: int} Each problem found, and the controls held to 44px.
  */
-const DENSE_ACTIONS = [
-    // The filter and scope rows
-    'show', 'showStatus', 'showScope', 'showEverySession', 'showEveryHolder',
+function targetSizeFindings(string $source, string $name): array
+{
+    $findings = [];
+    $held = 0;
 
-    // Pagination
-    'showFirst', 'showNext', 'showLatest', 'showOlder',
-];
+    // Every opening tag, whatever element it is. A tag can carry Blade, and the `>` in a PHP `->`
+    // or `=>` inside an `@if` does not end it: a plain `[^>]*` stopped at the first one and lost
+    // every attribute after, the class included
+    preg_match_all('/<([a-z]+)\b((?:->|=>|[^>])*)>/s', $source, $tags, PREG_SET_ORDER);
+
+    foreach ($tags as [$tag, $element, $attributes]) {
+        $classes = preg_match('/\bclass="([^"]*)"/', $attributes, $class) === 1
+            ? (preg_split('/\s+/', trim($class[1])) ?: [])
+            : [];
+
+        // `wire:click` with or without modifiers (`.prevent`, `.stop`), and a magic action such as
+        // `$set(...)` read as `set`. One that cannot be named fails rather than being skipped
+        $action = null;
+
+        if (preg_match('/wire:click(?:\.[\w.]+)?="/', $attributes) === 1) {
+            if (preg_match('/wire:click(?:\.[\w.]+)?="\s*\$?([A-Za-z_]+)/', $attributes, $bound) !== 1) {
+                $findings[] = sprintf('%s: an action this test cannot read, in %s', $name, trim($tag));
+
+                continue;
+            }
+
+            $action = $bound[1];
+        }
+
+        // A button with no `type` submits the form it is in, which is what an unmarked one does
+        $submits = ($element === 'button' && (str_contains($attributes, 'type="submit"') || ! str_contains($attributes, 'type=')))
+            || ($element === 'input' && str_contains($attributes, 'type="submit"'));
+
+        // A form submission acts on something, so does every bound action, and so is a control
+        // styled as a button with no action of its own -- a sign-in link, the navigation toggle
+        if ($submits || $action !== null || in_array('btn', $classes, true)) {
+            $held++;
+
+            if (! in_array('btn-target', $classes, true)) {
+                $findings[] = sprintf('%s: %s', $name, $action ?? trim((string) preg_replace('/\s+/', ' ', $tag)));
+            }
+        }
+    }
+
+    // **Nothing under the target.** daisyUI's `xs` and `sm` buttons and fields are 24px and 32px,
+    // and its small checkbox, radio and toggle are 20px or less
+    preg_match_all('/\b(?:btn|input|select|textarea|file-input|checkbox|radio|toggle)-(?:xs|sm)\b/', $source, $small);
+
+    foreach ($small[0] as $size) {
+        $findings[] = sprintf('%s: %s is under the 44px target', $name, $size);
+    }
+
+    // A disclosure's summary is a target too, and at the meta step it is 20px tall. `py-3` adds
+    // 24px of padding, which takes it to 44px
+    preg_match_all('/<summary\b[^>]*>/', $source, $summaries);
+
+    foreach ($summaries[0] as $summary) {
+        if (preg_match('/\bclass="[^"]*\bpy-3\b/', $summary) !== 1) {
+            $findings[] = sprintf('%s: a <summary> without the padding that takes it to 44px', $name);
+        }
+    }
+
+    return ['findings' => $findings, 'held' => $held];
+}
 
 it('draws a focus indicator on the navigation that daisyUI leaves without one', function (): void {
     $css = stylesheet();
@@ -760,108 +823,54 @@ it('draws a focus indicator on the navigation that daisyUI leaves without one', 
         ->and(blocksEnclosing($css, (int) $at))->toBe(['@layer utilities']);
 });
 
-it('holds every consequential control to the AAA target size, and every control to the floor', function (): void {
+it('holds every control to the AAA target size', function (): void {
     $css = stylesheet();
 
     // **The size, stated once** (#399). 44px through daisyUI's own `--size`, which also sets a
     // `btn-square`'s width, directly in `utilities`, where it beats daisyUI's sublayers as the
-    // type-scale lifts do.
-    $at = strpos($css, ':where(.btn-target){--size:2.75rem;min-width:2.75rem}');
+    // type-scale lifts do. Fields and navigation rows are held to it the same way (#480)
+    foreach ([
+        ':where(.btn-target){--size:2.75rem;min-width:2.75rem}',
+        ':where(.input,.select){--size:2.75rem}',
+        '.menu :where(li)>:is(a,button,summary){align-content:center;min-height:2.75rem}',
+    ] as $rule) {
+        $at = strpos($css, $rule);
 
-    expect($at)->toBeInt()
-        ->and(blocksEnclosing($css, (int) $at))->toBe(['@layer utilities']);
+        expect($at)->toBeInt($rule)
+            ->and(blocksEnclosing($css, (int) $at))->toBe(['@layer utilities'], $rule);
+    }
 
-    // The floor the dense controls rely on: daisyUI's `btn-xs` at 24px, read from the artifact,
-    // with the field unit it multiplies at `0.25rem`
-    expect($css)->toContain('.btn-xs{--fontsize:.6875rem;--btn-p:.5rem;--size:calc(var(--size-field,.25rem) * 6)}')
-        ->and($css)->toContain('--size-field:.25rem');
-
-    $consequential = 0;
-    $dense = 0;
-    $missing = [];
-    $usedDense = [];
+    $held = 0;
+    $findings = [];
 
     foreach (bladeTemplatesIn(__DIR__.'/../resources/views') as $view) {
-        $source = sourceWithoutComments($view);
-        $name = basename($view);
+        $found = targetSizeFindings(sourceWithoutComments($view), basename($view));
 
-        // Every opening tag, whatever element it is. A tag can carry Blade, and the `>` in a PHP
-        // `->` or `=>` inside an `@if` does not end it: a plain `[^>]*` stopped at the first one and
-        // lost every attribute after, the class included
-        preg_match_all('/<([a-z]+)\b((?:->|=>|[^>])*)>/s', $source, $tags, PREG_SET_ORDER);
-
-        foreach ($tags as [$tag, $element, $attributes]) {
-            $classes = preg_match('/\bclass="([^"]*)"/', $attributes, $class) === 1
-                ? (preg_split('/\s+/', trim($class[1])) ?: [])
-                : [];
-
-            // `wire:click` with or without modifiers (`.prevent`, `.stop`), and a magic action such
-            // as `$set(...)` read as `set`. One that cannot be named fails rather than being skipped
-            $action = null;
-
-            if (preg_match('/wire:click(?:\.[\w.]+)?="/', $attributes) === 1) {
-                if (preg_match('/wire:click(?:\.[\w.]+)?="\s*\$?([A-Za-z_]+)/', $attributes, $bound) !== 1) {
-                    $missing[] = sprintf('%s: an action this test cannot read, in %s', $name, trim($tag));
-
-                    continue;
-                }
-
-                $action = $bound[1];
-            }
-
-            // A button with no `type` submits the form it is in, which is what an unmarked one does
-            $submits = ($element === 'button' && (str_contains($attributes, 'type="submit"') || ! str_contains($attributes, 'type=')))
-                || ($element === 'input' && str_contains($attributes, 'type="submit"'));
-
-            if ($action !== null && in_array($action, DENSE_ACTIONS, true)) {
-                $dense++;
-                $usedDense[$action] = true;
-
-                continue;
-            }
-
-            // A form submission acts on something, every other bound action is consequential, and
-            // so is a control styled as a button with no action of its own -- a sign-in link, the
-            // navigation toggle -- because nothing marks it as dense
-            if ($submits || $action !== null || in_array('btn', $classes, true)) {
-                $consequential++;
-
-                if (! in_array('btn-target', $classes, true)) {
-                    $missing[] = sprintf('%s: %s', $name, $action ?? trim((string) preg_replace('/\s+/', ' ', $tag)));
-                }
-            }
-        }
-
-        // **Nothing below the floor.** daisyUI's small checkbox, radio and toggle are 20px or less,
-        // so a view that names one ships a target under 24px
-        preg_match_all('/\b(?:checkbox|radio|toggle)-(?:xs|sm)\b/', $source, $small);
-
-        foreach ($small[0] as $size) {
-            $missing[] = sprintf('%s: %s is under the 24px floor', $name, $size);
-        }
-
-        // A disclosure's summary is a target too, and at the meta step it is 20px tall. `py-3` adds
-        // 24px of padding, which takes it to 44px
-        preg_match_all('/<summary\b[^>]*>/', $source, $summaries);
-
-        foreach ($summaries[0] as $summary) {
-            if (preg_match('/\bclass="[^"]*\bpy-3\b/', $summary) !== 1) {
-                $missing[] = sprintf('%s: a <summary> without the padding that takes it to 44px', $name);
-            }
-        }
+        $held += $found['held'];
+        $findings = [...$findings, ...$found['findings']];
     }
 
     // One assertion over a list, with the list as the message, so a failure names every control
-    expect($missing)->toBeEmpty(implode("\n", $missing));
+    expect($findings)->toBeEmpty(implode("\n", $findings));
 
-    // A dense entry no view uses would excuse the next action given its name, so the list is kept
-    // exact
-    expect(array_diff(DENSE_ACTIONS, array_keys($usedDense)))->toBeEmpty();
+    // The control: the views hold well over thirty controls today, so a count near zero is a scan
+    // that read nothing
+    expect($held)->toBeGreaterThanOrEqual(35);
+});
 
-    // The controls: the views hold consequential controls and dense ones today, so zero of either
-    // is a scan that read nothing
-    expect($consequential)->toBeGreaterThanOrEqual(20)
-        ->and($dense)->toBeGreaterThanOrEqual(15);
+it('fails a pager or filter drawn at a size under the target, so the scan above is not blind', function (): void {
+    // The shape #480 replaced, a pager at `btn-xs`, and a field at `input-sm`
+    $found = targetSizeFindings(<<<'BLADE'
+        <button type="button" wire:click="showFirst" class="btn btn-xs btn-outline">Newest</button>
+        <input type="text" wire:model="timezone" class="input input-bordered input-sm">
+        <button type="button" wire:click="showNext" class="btn btn-target btn-outline">Older</button>
+        BLADE, 'fixture');
+
+    expect($found['findings'])->toBe([
+        'fixture: showFirst',
+        'fixture: btn-xs is under the 44px target',
+        'fixture: input-sm is under the 44px target',
+    ])->and($found['held'])->toBe(2);
 });
 
 it('reflows every table into labelled rows where it would otherwise scroll sideways', function (): void {
@@ -1332,10 +1341,12 @@ it('lifts every size daisyUI draws below the floor, for every component a view u
         }
     }
 
-    // The controls, one per path: daisyUI draws `btn-xs` at 0.6875rem through `--fontsize` and
-    // `input-sm` at 0.75rem through `--font-size-min`, so a detector missing either has stopped
-    // reading that path rather than found it clean
-    expect($small)->toHaveKeys(['btn-xs', 'input-sm']);
+    // The controls, one per path: daisyUI draws `badge-sm` at 0.75rem through `font-size` and a
+    // `card-xs` body at 0.6875rem through `--card-fs`, so a detector missing either has stopped
+    // reading that path rather than found it clean. They were `btn-xs` and `input-sm` until #480
+    // took the last of each out of the views, and daisyUI emits a size modifier only for a class
+    // it finds
+    expect($small)->toHaveKeys(['badge-sm', 'card-xs']);
 
     $views = '';
 
@@ -1362,7 +1373,7 @@ it('keeps the scale where it beats daisyUI and loses to a utility', function ():
     // component in a sublayer of it, so a reader that could not tell those apart would pass the
     // assertion below wherever the rules went
     $utility = strpos($css, '.text-meta{');
-    $daisy = strpos($css, '.btn-xs{--fontsize:.6875rem');
+    $daisy = strpos($css, '.badge-sm{--size:calc(var(--size-selector,.25rem) * 5)');
 
     expect($utility)->toBeInt()
         ->and($daisy)->toBeInt()

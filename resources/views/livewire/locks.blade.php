@@ -16,13 +16,13 @@
                      filtered away with the free ones. --}}
                 <button type="button" wire:click="show('{{ \RobotCouncil\Support\WireArgument::of(\RobotCouncil\Support\Scope::Live) }}')"
                     aria-pressed="{{ $lockScope === \RobotCouncil\Support\Scope::Live ? 'true' : 'false' }}"
-                    class="btn btn-xs {{ $lockScope === \RobotCouncil\Support\Scope::Live ? 'btn-primary' : 'btn-outline' }}">
+                    class="btn btn-target {{ $lockScope === \RobotCouncil\Support\Scope::Live ? 'btn-primary' : 'btn-outline' }}">
                     Held ({{ $locks['held'] }})
                 </button>
 
                 <button type="button" wire:click="show('{{ \RobotCouncil\Support\WireArgument::of(\RobotCouncil\Support\Scope::All) }}')"
                     aria-pressed="{{ $lockScope === \RobotCouncil\Support\Scope::All ? 'true' : 'false' }}"
-                    class="btn btn-xs {{ $lockScope === \RobotCouncil\Support\Scope::All ? 'btn-primary' : 'btn-outline' }}">
+                    class="btn btn-target {{ $lockScope === \RobotCouncil\Support\Scope::All ? 'btn-primary' : 'btn-outline' }}">
                     All ({{ $locks['held'] + $locks['free'] }})
                 </button>
             </div>
@@ -35,7 +35,7 @@
         @if ($holder !== null)
             <div class="flex flex-wrap items-center gap-2 text-meta">
                 <span>Showing locks held by session <code>#{{ $holder }}</code>.</span>
-                <button type="button" wire:click="showEveryHolder" class="btn btn-xs btn-outline">Show all</button>
+                <button type="button" wire:click="showEveryHolder" class="btn btn-target btn-outline">Show all</button>
             </div>
         @endif
 
@@ -71,10 +71,10 @@
                                          stays visible beneath rather than in hover text. --}}
                                     @if ($lock['holder'])
                                         @if (($lock['holder']['label'] ?? null) !== null)
-                                            <a href="{{ route('robot-council.agents', ['session' => $lock['holder']['session_id']]) }}" class="link inline-flex min-h-6 items-center"><code>{{ $lock['holder']['label'] }}</code></a>
+                                            <a href="{{ route('robot-council.agents', ['session' => $lock['holder']['session_id']]) }}" class="link inline-flex min-h-11 min-w-11 items-center"><code>{{ $lock['holder']['label'] }}</code></a>
                                             <div class="text-meta opacity-80">{{ $lock['holder']['github_login'] ?? 'an unknown account' }}</div>
                                         @else
-                                            <a href="{{ route('robot-council.agents', ['session' => $lock['holder']['session_id']]) }}" class="link inline-flex min-h-6 items-center">{{ $lock['holder']['github_login'] ?? 'an unknown account' }}</a>
+                                            <a href="{{ route('robot-council.agents', ['session' => $lock['holder']['session_id']]) }}" class="link inline-flex min-h-11 min-w-11 items-center">{{ $lock['holder']['github_login'] ?? 'an unknown account' }}</a>
                                         @endif
                                     @else
                                         <span class="opacity-80">nobody</span>
@@ -127,12 +127,12 @@
         @if ($after !== null || $locks['more'])
             <div class="flex items-center justify-end gap-2 pt-2">
                 @if ($after !== null)
-                    <button type="button" wire:click="showFirst" class="btn btn-sm btn-outline">First</button>
+                    <button type="button" wire:click="showFirst" class="btn btn-target btn-outline">First</button>
                 @endif
 
                 @if ($locks['more'] && $locks['cursor'] !== null)
                     <button type="button" wire:click="showNext('{{ \RobotCouncil\Support\WireArgument::of($locks['cursor']) }}')"
-                        class="btn btn-sm btn-outline">Next</button>
+                        class="btn btn-target btn-outline">Next</button>
                 @endif
             </div>
         @endif
