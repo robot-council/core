@@ -162,3 +162,86 @@ it('does not render an item whose developer the fleet no longer knows, though th
         ->and($html)->toContain('robot-council/core#13')
         ->and($html)->not->toContain('robot-council/core#12');
 });
+
+/**
+ * The lane board's Waiting on a developer card, section by section: each section's name and the
+ * count its heading shows, in page order (#390).
+ *
+ * @param  string  $html  The lane board.
+ * @return list<array{section: string, count: string, items: int}> One per section.
+ */
+function owedSections(string $html): array
+{
+    preg_match_all('#<section [^>]*data-owed-section="([^"]*)">(.*?)</section>#s', $html, $sections, PREG_SET_ORDER);
+
+    return array_map(static function (array $section): array {
+        preg_match('#<span class="[^"]*" data-owed-count>&middot; ([^<]*)</span>#', $section[2], $count);
+
+        return [
+            'section' => $section[1],
+            'count' => $count[1] ?? '',
+            'items' => substr_count($section[2], 'data-owed-item'),
+        ];
+    }, $sections);
+}
+
+it('heads each section with how many items it holds, General first and then one per developer', function (): void {
+    owe($this, 'octodev', 'robot-council/core#12');
+    owe($this, 'octodev', 'robot-council/core#13');
+    owe($this, null, 'robot-council/core#14');
+    owe($this, 'General', 'robot-council/core#15');
+    owe($this, 'General', 'robot-council/core#16');
+    owe($this, 'General', 'robot-council/core#17');
+
+    $html = Livewire::actingAs($this->developer)->test(Lanes::class)->html();
+
+    // The developer who signs in as `General` is a section of their own, after the real one
+    expect(owedSections($html))->toBe([
+        ['section' => 'General', 'count' => '1 item', 'items' => 1],
+        ['section' => 'General', 'count' => '3 items', 'items' => 3],
+        ['section' => 'octodev', 'count' => '2 items', 'items' => 2],
+    ]);
+});
+
+it('sets each section apart as a bordered block, and each item apart by a rule', function (): void {
+    owe($this, 'octodev', 'robot-council/core#12');
+    owe($this, null, 'robot-council/core#14');
+
+    $html = Livewire::actingAs($this->developer)->test(Lanes::class)->html();
+
+    expect(substr_count($html, '<section wire:key="owed-'))->toBe(2)
+        ->and(preg_match_all('#<section [^>]*class="rounded-box border border-base-300 [^"]*" data-owed-section=#', $html))->toBe(2)
+        ->and(preg_match_all('#<h3 class="text-lg font-semibold">#', $html))->toBeGreaterThanOrEqual(2)
+        ->and(preg_match_all('#<ul class="divide-y divide-base-300">#', $html))->toBeGreaterThanOrEqual(2);
+});
+
+it('writes each item as three parts: the ticket, the question, and the reason and age', function (): void {
+    owe($this, 'octodev', 'robot-council/core#12');
+
+    $html = Livewire::actingAs($this->developer)->test(Lanes::class)->html();
+
+    preg_match('#<li [^>]*data-owed-item>(.*?)</li>#s', $html, $item);
+
+    // Livewire writes a marker round each Blade condition, with whitespace between them
+    $markers = '(?:\s*<!--\[if [A-Z]+\]><!\[endif\]-->)*';
+
+    expect($item[1] ?? '')->toMatch(
+        '#^\s*<div class="text-meta">\s*'.$markers.'\s*<a href="https://github\.com/robot-council/core/issues/12"[^>]*><code>robot-council/core\#12</code> \(new tab\)</a>\s*'.$markers.'\s*</div>'
+        .'\s*<p class="leading-relaxed" data-owed-question>Which option\?</p>'
+        .'\s*<p class="text-meta leading-relaxed opacity-90">Blocks two lanes\. &middot; waiting [^<]+</p>\s*$#'
+    );
+});
+
+it('still leads with the ticket when it cannot be linked', function (): void {
+    $id = owe($this, 'octodev', 'robot-council/core#12');
+
+    // A reference recorded before references had to be repository-qualified
+    DB::table('robot_council_owed_items')->where('id', $id)->update(['ticket' => '#12']);
+
+    $html = Livewire::actingAs($this->developer)->test(Lanes::class)->html();
+
+    preg_match('#<li [^>]*data-owed-item>(.*?)</li>#s', $html, $item);
+
+    expect($item[1] ?? '')->toMatch('#^\s*<div class="text-meta">(?:\s*<!--\[if [A-Z]+\]><!\[endif\]-->)*\s*<code>\#12</code>#')
+        ->and($item[1] ?? '')->not->toContain('<a ');
+});

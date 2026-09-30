@@ -166,12 +166,14 @@ it("shows the avatar in each developer's section heading on the lane board, and 
     $html = Livewire::actingAs($this->pictured)->test(Lanes::class)->html();
 
     // Each section's own heading, found by the section's marker
-    preg_match_all('#data-owed-section="[^"]*">\s*<h3 class="font-medium">(.*?)</h3>#s', $html, $headings);
+    preg_match_all('#data-owed-section="[^"]*">\s*<h3 class="text-lg font-semibold">(.*?)</h3>#s', $html, $headings);
 
     $byName = [];
 
     foreach ($headings[1] as $heading) {
-        $byName[trim(strip_tags(withoutAvatars($heading)))] = avatarsIn($heading);
+        // The name alone, without the item count the heading carries after it (#390)
+        $name = (string) preg_replace('#<span[^>]*data-owed-count>.*?</span>#s', '', withoutAvatars($heading));
+        $byName[trim(strip_tags($name))] = avatarsIn($heading);
     }
 
     expect($byName)->toBe([
