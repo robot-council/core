@@ -498,8 +498,10 @@ function urlAttributeInterpolations(string $template): array
 
     // `GitHubAccounts::avatarOf()` likewise (#410): it returns null or a stored avatar URL matched
     // against `GitHubAccounts::AVATAR`, GitHub's avatar host with a numeric path and nothing else,
-    // and it is admitted only as the whole expression for the same reason.
-    $avatar = '/^\s*\\\\?RobotCouncil\\\\Support\\\\GitHubAccounts::avatarOf\s*(\((?:[^()]++|(?1))*\))\s*$/';
+    // and it is admitted only as the whole expression for the same reason. `repositoryImageOf()`
+    // returns the same kind of value, a repository owner's avatar matched against the same pattern
+    // (#416), and is admitted on the same terms.
+    $avatar = '/^\s*\\\\?RobotCouncil\\\\Support\\\\GitHubAccounts::(?:avatarOf|repositoryImageOf)\s*(\((?:[^()]++|(?1))*\))\s*$/';
 
     $offenders = [];
 
@@ -1200,8 +1202,8 @@ function fakeGitHubProfiles(array $accounts): ArrayObject
 }
 
 /**
- * A page with every developer avatar taken out (#410), for a test whose subject is the login beside
- * it rather than the picture.
+ * A page with every avatar taken out, a developer's (#410) or a repository's (#416), for a test
+ * whose subject is the name beside it rather than the picture.
  *
  * Matched by the component's exact shape, the markers Livewire writes round a Blade condition
  * included, so a page whose avatar markup changed shape keeps it and the test fails rather than
@@ -1215,7 +1217,7 @@ function withoutAvatars(string $html): string
     $markers = '(?:<!--\[if [A-Z]+\]><!\[endif\]-->)*';
 
     return (string) preg_replace(
-        '#'.$markers.'<span class="avatar [^"]*"[^>]*\bdata-avatar><span[^>]*><span[^>]*>[^<]*</span>'.$markers.'(?:<img[^>]*>)?'.$markers.'</span></span>'.$markers.'#',
+        '#'.$markers.'<span class="avatar [^"]*"[^>]*\bdata-avatar(?:="repository")?><span[^>]*><span[^>]*>[^<]*</span>'.$markers.'(?:<img[^>]*>)?'.$markers.'</span></span>'.$markers.'#',
         '',
         $html
     );

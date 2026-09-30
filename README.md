@@ -463,6 +463,13 @@ nothing to show one. A host that sends a `Content-Security-Policy` with an `img-
 that origin, or every avatar falls back to the developer's initial. The package's own header,
 `frame-ancestors 'none'`, restricts no image.
 
+**A repository's picture is its owner's avatar** (#416), on the same origin and under the same
+rule. GitHub gives a repository no picture of its own, so every repository of one user or
+organization shows that account's avatar, ringed so that it does not read as a developer's face.
+Core learns it from the webhook: every delivery carries its repository's owner, and the avatar is
+stored when it changes. A repository whose owner has sent no delivery shows the repository's
+initial until one does.
+
 Both files are served `public` for a year, and each page names them with `?v=` and a hash of the
 file's bytes, so a release that changes either one is a new URL rather than a stale cache.
 

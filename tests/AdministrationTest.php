@@ -102,10 +102,11 @@ it("shows where each of an installation's sessions is working", function (): voi
     // a raw substring search over the page's HTML with no tag stripping, and this panel's own
     // standing paragraph carries `class="text-meta opacity-90"` -- which contains `ci`. The rendered
     // fragment is what discriminates.
-    Livewire::actingAs($this->admin)
-        ->test(Administration::class)
-        ->assertSeeHtml('<span class="opacity-90"><code>robot-council/core</code></span>')
-        ->assertSeeHtml('<span class="opacity-80"><code>ci</code></span>');
+    // Read past the repository's picture (#416), whose subject is `RepositoryImageTest`
+    $html = withoutAvatars(Livewire::actingAs($this->admin)->test(Administration::class)->html());
+
+    expect($html)->toContain('<span class="opacity-90"><code>robot-council/core</code></span>')
+        ->and($html)->toContain('<span class="opacity-80"><code>ci</code></span>');
 });
 
 it('shows a session that named only a work location, rather than calling it no project', function (): void {

@@ -43,7 +43,7 @@
                             @php($seatName = $seat->repository.($seat->work_location !== '' ? ' / '.$seat->work_location : ''))
                             <div>
                                 <div class="font-medium">
-                                    <code>{{ $seat->repository }}</code>@if ($seat->work_location !== '') / <code>{{ $seat->work_location }}</code>@endif
+                                    <x-robot-council::avatar :repository="$seat->repository" /><code>{{ $seat->repository }}</code>@if ($seat->work_location !== '') / <code>{{ $seat->work_location }}</code>@endif
                                 </div>
                                 <div class="text-meta opacity-90">
                                     <code>{{ $seat->installation->harness }}</code> on <code>{{ $seat->installation->machine_label }}</code>

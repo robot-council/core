@@ -272,7 +272,9 @@ it('reports an interpolation in a URL attribute, and leaves a server-built URL a
     // An avatar is built the same way: null or a URL on GitHub's avatar host (#410)
     expect(urlAttributeInterpolations('<img src="{{ '.GitHubAccounts::class.'::avatarOf($login) }}">'))->toBeEmpty();
     expect(urlAttributeInterpolations('<img src="{{ '.GitHubAccounts::class.'::avatarOf($a).$b }}">'))
-        ->toBe(['src="'.GitHubAccounts::class.'::avatarOf($a).$b"']);
+        ->toBe(['src="'.GitHubAccounts::class.'::avatarOf($a).$b"'])
+        ->and(urlAttributeInterpolations('<img src="{{ '.GitHubAccounts::class.'::repositoryImageOf($repository) }}">'))->toBeEmpty()
+        ->and(urlAttributeInterpolations('<img src="{{ '.GitHubAccounts::class.'::repositoryImageOf($a).$b }}">'))->toBe(['src="'.GitHubAccounts::class.'::repositoryImageOf($a).$b"']);
 
     // Not a URL attribute, so not this check's business -- `rawOutputIn()` covers the escaping
     expect(urlAttributeInterpolations('<p title="{{ $task->title }}">x</p>'))->toBeEmpty();
