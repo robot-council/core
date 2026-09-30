@@ -230,7 +230,9 @@
                             <li wire:key="owed-item-{{ $item['id'] }}" class="max-w-xl space-y-1 py-3" data-owed-item>
                                 <div class="text-meta">
                                     @if (\RobotCouncil\Support\TicketLink::url($item['ticket']) !== null)
-                                        <x-robot-council::external-link :reference="$item['ticket']" class="link"><code>{{ $item['ticket'] }}</code></x-robot-council::external-link>
+                                        {{-- On a line of its own it is a control standing alone, not a link
+                                             inside a sentence, so it takes the 44px target (#480) --}}
+                                        <x-robot-council::external-link :reference="$item['ticket']" class="link inline-flex min-h-11 items-center"><code>{{ $item['ticket'] }}</code></x-robot-council::external-link>
                                     @else
                                         <code>{{ $item['ticket'] }}</code>
                                     @endif

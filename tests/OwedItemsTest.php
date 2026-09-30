@@ -180,7 +180,7 @@ function owedSections(string $html): array
         return [
             'section' => $section[1],
             'count' => $count[1] ?? '',
-            'items' => preg_match_all('/data-owed-item/', $section[2]),
+            'items' => substr_count($section[2], 'data-owed-item'),
         ];
     }, $sections);
 }
