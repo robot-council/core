@@ -27,10 +27,12 @@
                  the first as wide as the page's longest type, and each row a subgrid spanning both,
                  so every body starts at the same x rather than wherever that row's badge ended.
                  Below it a row stacks, the badge above the body, so a long type does not squeeze
-                 the text into a narrow column on a phone. --}}
+                 the text into a narrow column on a phone. A row sets only its row gap: a subgrid's
+                 own column gap replaces the list's, and `gap-1` there drew the badge 4px from the
+                 body instead of 12px. --}}
             <ul class="divide-y divide-base-200 sm:grid sm:grid-cols-[max-content_1fr] sm:gap-x-3" data-feed>
                 @foreach ($events as $event)
-                    <li wire:key="event-{{ $event['id'] }}" class="flex flex-col gap-1 py-3 sm:col-span-2 sm:grid sm:grid-cols-subgrid sm:gap-y-0">
+                    <li wire:key="event-{{ $event['id'] }}" class="flex flex-col gap-y-1 py-3 sm:col-span-2 sm:grid sm:grid-cols-subgrid sm:gap-y-0">
                         <div>
                             <span class="badge badge-sm" data-feed-type>{{ $event['type'] }}</span>
                         </div>
