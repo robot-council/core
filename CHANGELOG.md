@@ -2,6 +2,13 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.7.4 — A Postgres Test Fix (2026-09-30)
+
+A test-suite fix; nothing a consumer runs changes.
+
+### Maintenance and tooling
+- Start a session with an id apart from its installation's where a test names both [#491](https://github.com/robot-council/core/pull/491)
+
 ## v0.7.3 — Idle Lane Holds and a Steadier Dashboard (2026-09-29)
 
 Idle lane holds, a steadier dashboard poll, and a faster test suite.
