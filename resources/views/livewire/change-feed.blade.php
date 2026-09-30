@@ -45,21 +45,27 @@
                         @foreach ($events as $event)
                             <tr role="row" wire:key="event-{{ $event['id'] }}" class="align-top">
                                 <td role="cell" data-label="Age" class="whitespace-nowrap text-meta opacity-90">
-                                    {{ $event['age'] }}
+                                    @if ($event['age'] !== null)
+                                        {{ $event['age'] }}
+                                    @endif
                                 </td>
 
                                 <td role="cell" data-label="Type">
                                     <span class="badge badge-sm" data-feed-type>{{ $event['type'] }}</span>
                                 </td>
 
-                                <td role="cell" data-label="Who" class="text-meta">
-                                    @if ($event['actor']['github_login'] !== null)
-                                        <x-robot-council::avatar :login="$event['actor']['github_login']" />{{ $event['actor']['github_login'] }}
-                                    @elseif ($event['actor']['session_id'] !== null)
-                                        an unknown account
-                                    @else
-                                        the server
-                                    @endif
+                                {{-- Each line kept whole, since the column is only as wide as its
+                                     widest line: a login is a fixed value, like the age beside it --}}
+                                <td role="cell" data-label="Who" class="whitespace-nowrap text-meta">
+                                    <div data-feed-who>
+                                        @if ($event['actor']['github_login'] !== null)
+                                            <x-robot-council::avatar :login="$event['actor']['github_login']" />{{ $event['actor']['github_login'] }}
+                                        @elseif ($event['actor']['session_id'] !== null)
+                                            an unknown account
+                                        @else
+                                            the server
+                                        @endif
+                                    </div>
 
                                     {{-- **Who DID it, where that is somebody other than who it is
                                          about** -- and the comparison is what makes that true rather
@@ -87,7 +93,9 @@
                                 </td>
 
                                 <td role="cell" data-label="What happened" data-feed-body>
-                                    <div class="max-w-xl leading-relaxed">
+                                    {{-- At the body size, since a table's cells are otherwise at
+                                         the smaller table size and this is the page's prose --}}
+                                    <div class="max-w-xl text-body leading-relaxed">
                                         <p class="break-words">{{ $event['body'] }}</p>
                                     </div>
                                 </td>

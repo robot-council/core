@@ -165,7 +165,7 @@ it('lays the feed out as a table: the age, the type and who acted in columns, an
             ->and($byLabel['Age'])->toContain('ago')
             ->and($byLabel['Type'])->toContain('data-feed-type')
             ->and(withoutAvatars($byLabel['Who']))->toContain('octodev')
-            ->and($byLabel['What happened'])->toMatch('#^\s*<div class="max-w-xl leading-relaxed">\s*<p class="break-words">[^<]+</p>\s*</div>\s*$#');
+            ->and($byLabel['What happened'])->toMatch('#^\s*<div class="max-w-xl text-body leading-relaxed">\s*<p class="break-words">[^<]+</p>\s*</div>\s*$#');
     }
 
     expect($table[0] ?? '')->toContain('<p class="break-words">Rebuilding the index now.</p>')

@@ -684,7 +684,7 @@ it('keeps each glossary term and its meaning on one row once the columns apply',
 /**
  * Where each change-feed row's type badge and body sit, as rendered.
  *
- * @return list<array{type: string, badge: array{left: float, right: float, bottom: float, overflow: bool}, body: array{left: float, top: float}}>
+ * @return list<array{type: string, badge: array{left: float, right: float, bottom: float, overflow: bool}, body: array{left: float, top: float}, beside: float}>
  */
 function feedRows(PendingAwaitablePage $page): array
 {
@@ -698,6 +698,8 @@ function feedRows(PendingAwaitablePage $page): array
                 type: badge.textContent.trim(),
                 badge: { left: b.left, right: b.right, bottom: b.bottom, overflow: badge.scrollWidth > badge.clientWidth + 0.5 },
                 body: { left: t.left, top: t.top },
+                // Where the text in the cell after the type's starts: who acted, since #311
+                beside: li.querySelector('[data-feed-who]').getBoundingClientRect().left,
             };
         })
     JS);
@@ -706,7 +708,7 @@ function feedRows(PendingAwaitablePage $page): array
         throw new RuntimeException('The feed read returned nothing.');
     }
 
-    /** @var list<array{type: string, badge: array{left: float, right: float, bottom: float, overflow: bool}, body: array{left: float, top: float}}> $rows */
+    /** @var list<array{type: string, badge: array{left: float, right: float, bottom: float, overflow: bool}, body: array{left: float, top: float}, beside: float}> $rows */
     return $rows;
 }
 
@@ -744,9 +746,10 @@ it('starts every change-feed body at the same x once the table has columns, the 
     expect($starts)->toHaveCount(1, 'body starts: '.implode(', ', $starts));
 
     foreach ($rows as $row) {
-        // Not cut short, and 12px clear of the body it sits beside, as the flex row was
+        // Not cut short, and 12px clear of the text it sits beside, as the flex row was: since #311
+        // that is who acted rather than the body, which the column check below keeps aligned
         expect($row['badge']['overflow'])->toBeFalse($row['type'])
-            ->and($row['body']['left'] - $row['badge']['right'])->toBeGreaterThanOrEqual(11.5, $row['type']);
+            ->and($row['beside'] - $row['badge']['right'])->toBeGreaterThanOrEqual(11.5, $row['type']);
     }
 
     // Every fixed value lines up too, not only the body: one left edge per column across the rows
@@ -755,21 +758,31 @@ it('starts every change-feed body at the same x once the table has columns, the 
             .map(tr => [...tr.children].map(td => Math.round(td.getBoundingClientRect().left)))
     JS);
 
-    expect($columns)->toBeArray()->not->toBeEmpty();
+    if (! is_array($columns) || $columns === []) {
+        throw new RuntimeException('The feed read returned no rows.');
+    }
 
     /** @var list<list<int>> $columns */
+    $columns = array_values($columns);
+
     foreach ([0, 1, 2, 3] as $cell) {
         expect(array_unique(array_column($columns, $cell)))->toHaveCount(1, 'column '.$cell);
     }
 
-    expect(sidewaysScroll($page))->toBe(0);
+    // And each fixed value on one line, where a squeezed column would break a login word by word
+    $wrapped = wideLayout($page)['wrapped'];
+
+    expect($wrapped)->toBe([], implode("\n", $wrapped))
+        ->and(sidewaysScroll($page))->toBe(0);
 })->with([800, 1280]);
 
 it('keeps a change-feed body to its measure on a wide screen, and finds one planted without it (#311)', function (): void {
     $page = visitSurface($this, 'robot-council.feed', '', 'Change feed', 'light');
     $page->resize(2560, 900);
 
-    expect(wideLayout($page)['prose'])->toBe([]);
+    expect(wideLayout($page)['prose'])->toBeEmpty()
+        // At the body size, not the smaller one a table cell otherwise takes
+        ->and($page->script("() => [...new Set([...document.querySelectorAll('[data-feed-body] p')].map((p) => getComputedStyle(p).fontSize))]"))->toBe(['16px']);
 
     // The canary: the same body with its cap taken off runs past 36rem, so a check that could not
     // see a feed body would pass nothing here
@@ -1165,7 +1178,7 @@ function wideLayout(PendingAwaitablePage $page): array
                 return tops.filter((top, i) => i === 0 || top > tops[i - 1] + 4).length;
             };
             // The short, fixed values: a machine, a role, a status, a state, a number, an age
-            const short = ['Machine', 'Role', 'Status', 'State', 'Priority', 'Fence', 'Last seen', 'Locks', 'Age', 'Lease', 'Known since']
+            const short = ['Machine', 'Role', 'Status', 'State', 'Priority', 'Fence', 'Last seen', 'Locks', 'Age', 'Lease', 'Known since', 'Who']
                 .map((label) => `td[data-label="${label}"]`).join(', ');
             const wrapped = [...main.querySelectorAll(short)]
                 .flatMap((td) => td.children.length > 0 ? [...td.children] : [td])
