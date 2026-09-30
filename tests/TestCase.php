@@ -643,6 +643,29 @@ class TestCase extends Orchestra
     }
 
     /**
+     * Start a session whose id is not its installation's, for an assertion that names both.
+     *
+     * An assertion comparing a session's id and its installation's cannot tell the two apart when
+     * they are the same number. They can be by chance: Postgres does not rewind a sequence on
+     * rollback (#473), so the two tables' ids advance at their own rates across the suite and can
+     * meet, which failed `postgres` at 26 and 26 on v0.7.3's changelog merge. The installation's id
+     * is fixed and a session's only grows, so a second start always differs.
+     *
+     * @param  Installation  $installation  The installation to start it under.
+     * @return array{AgentSession, string} The session and its plaintext token.
+     */
+    public function startAgentSessionWithOwnId(Installation $installation): array
+    {
+        [$session, $token] = $this->startAgentSession($installation);
+
+        if ($session->getKey() === $installation->getKey()) {
+            [$session, $token] = $this->startAgentSession($installation);
+        }
+
+        return [$session, $token];
+    }
+
+    /**
      * Start a session and have an administrator make it a coordinator.
      *
      * **Two steps, because since `robot-council/core#222` there is no other way to get one.** A
