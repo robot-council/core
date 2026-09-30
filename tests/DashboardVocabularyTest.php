@@ -309,7 +309,7 @@ it('confirms each administrative action in words, beside the installation it was
         ->and(saidInside($panel->html(), ''))->toBe([sprintf('Approved: session #%d is now gate.', $session->id)]);
 
     $panel->call('approveRole', $session->id, Role::Ci->value)
-        ->assertSet('said', sprintf('Not approved: session #%d no longer asks to be ci. The list shows what it asks for now.', $session->id))
+        ->assertSet('said', sprintf('Not approved: session #%d no longer asks to be gate. The list shows what it asks for now.', $session->id))
         ->assertSet('refused', true);
 
     $panel->call('denyRole', $session->id)
@@ -384,15 +384,21 @@ it('names the gate role by what it does wherever a reader sees it, and keeps ci 
         ->and(Role::Coordinator->label())->toBe('coordinator')
         ->and(Role::labelOf('ci'))->toBe('gate')
         ->and(Role::labelOf('not-a-role'))->toBe('not-a-role')
-        ->and(Role::labelOf(null))->toBe('')
+        ->and(Role::labelOf(null))->toBeEmpty()
         // Stored and sent as `ci`: only the words change
         ->and(Role::Ci->value)->toBe('ci');
 });
 
 it('reads the glossary as the maintainer asked on #486', function (): void {
+    $source = require __DIR__.'/../resources/lang/en/glossary.php';
+
+    if (! is_array($source)) {
+        throw new RuntimeException('The glossary file returned no array.');
+    }
+
     $all = array_map(
         static fn (array $entry): string => $entry['term'].' '.$entry['means'],
-        Glossary::entries(array_keys(require __DIR__.'/../resources/lang/en/glossary.php')),
+        Glossary::entries(array_map(strval(...), array_keys($source))),
     );
     $text = implode("\n", $all);
     $means = static fn (string $key): string => Glossary::entries([$key])[0]['means'];

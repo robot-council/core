@@ -47,7 +47,7 @@ return [
     ],
     'role' => [
         'term' => 'Role',
-        'means' => 'What a session does in the fleet: build works on tickets, gate runs continuous integration on the pull requests other lanes open, and coordinator places work and directs other sessions. Agents and the fleet\'s API call the gate role "ci".',
+        'means' => 'What a session does in the fleet: "build" works on tickets, "gate" runs continuous integration on the pull requests other lanes open, and "coordinator" places work and directs other sessions. Agents and the fleet\'s API call the gate role "ci".',
     ],
     'coordinator' => [
         'term' => 'Coordinator',
@@ -181,7 +181,7 @@ return [
     ],
     'waiting_on_developer' => [
         'term' => 'Waiting on a developer',
-        'means' => 'Questions and actions an agent cannot settle itself, recorded for the developer named. General items are for anyone.',
+        'means' => 'Questions and actions an agent cannot settle itself, recorded for the developer named. Items under "General" are for anyone.',
     ],
 
     // Locks

@@ -264,7 +264,7 @@ final class Administration extends Component
             $this->unchanged($session, sprintf(
                 'Not approved: session #%d no longer asks to be %s. The list shows what it asks for now.',
                 $session->id,
-                $expected->value
+                $expected->label()
             ));
 
             return;
