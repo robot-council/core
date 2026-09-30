@@ -12,7 +12,7 @@
     @elseif ($name['signed_in'])
         {{ $name['login'] }}
     @else
-        <x-robot-council::external-link :href="\RobotCouncil\Support\TicketLink::profile($name['login'])" class="link">{{ $name['login'] }}</x-robot-council::external-link>
+        <x-robot-council::external-link :login="$name['login']" class="link">{{ $name['login'] }}</x-robot-council::external-link>
         (not signed in yet)
     @endif
 </span>

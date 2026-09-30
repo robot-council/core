@@ -1,11 +1,21 @@
 {{--
-    A link that leaves the dashboard (#387). Every one opens in a new tab, and says so to every
-    reader: the arrow shows it, and the words after it are read aloud, as WCAG's G201 asks. The
-    target and rel are set here and cannot be overridden, so a page cannot quietly drop them;
-    `ExternalLinkGuardTest` refuses an external `<a>` written anywhere else without them.
+    A link that leaves the dashboard (#387). Every one opens in a new tab and says so in words every
+    reader gets, seen or heard, as WCAG's G201 asks: words rather than an icon, because the
+    accessibility rule gives every icon a text label and forbids leaning on `title=`. The target
+    and rel are written ahead of anything passed in, and a passed `target`, `rel` or `href` in any
+    case is dropped, so a page cannot quietly undo them; `ExternalLinkGuardTest` refuses an external
+    link written anywhere else without them.
 
-    Takes `href`, which the caller has already built (by `TicketLink`, which admits only GitHub),
-    and whatever other attributes the link needs, such as its `class`.
+    Takes a `reference` for a ticket or pull request, or a `login` for a profile, and builds the URL
+    itself with `TicketLink`, which admits only GitHub, so `EscapingGuardTest` still sees a URL the
+    server built rather than a value handed in. A value `TicketLink` refuses renders as the plain
+    slot, never as a link to nowhere. Any other attribute, such as `class`, passes through.
 --}}
-@props(['href'])
-<a href="{{ $href }}" {{ $attributes->except(['target', 'rel']) }} target="_blank" rel="noopener noreferrer">{{ $slot }}<svg class="ms-0.5 inline size-3 align-baseline" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4.5 2.5h5v5M9.5 2.5l-7 7"/></svg><span class="sr-only"> (opens in a new tab)</span></a>
+@props(['reference' => null, 'login' => null])
+@if ($login !== null && \RobotCouncil\Support\TicketLink::profile($login) !== null)
+<a href="{{ \RobotCouncil\Support\TicketLink::profile($login) }}" target="_blank" rel="noopener noreferrer" {{ $attributes->filter(static fn (mixed $value, string $key): bool => ! in_array(strtolower($key), ['href', 'target', 'rel'], true)) }}>{{ $slot }} (new tab)</a>
+@elseif ($login === null && \RobotCouncil\Support\TicketLink::url($reference) !== null)
+<a href="{{ \RobotCouncil\Support\TicketLink::url($reference) }}" target="_blank" rel="noopener noreferrer" {{ $attributes->filter(static fn (mixed $value, string $key): bool => ! in_array(strtolower($key), ['href', 'target', 'rel'], true)) }}>{{ $slot }} (new tab)</a>
+@else
+{{ $slot }}
+@endif

@@ -36,7 +36,7 @@
                         @foreach ($waiting['owed'] as $item)
                             <li wire:key="owed-item-{{ $item['id'] }}" class="max-w-xl py-3 leading-relaxed" data-owed-item>
                                 @if (\RobotCouncil\Support\TicketLink::url($item['ticket']) !== null)
-                                    <x-robot-council::external-link :href="\RobotCouncil\Support\TicketLink::url($item['ticket'])" class="link"><code>{{ $item['ticket'] }}</code></x-robot-council::external-link>
+                                    <x-robot-council::external-link :reference="$item['ticket']" class="link"><code>{{ $item['ticket'] }}</code></x-robot-council::external-link>
                                 @else
                                     <code>{{ $item['ticket'] }}</code>
                                 @endif
