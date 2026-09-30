@@ -10,6 +10,10 @@ declare(strict_types=1);
  */
 
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Models\DeviceCode;
 use RobotCouncil\Models\Installation;
@@ -165,7 +169,19 @@ it('refuses a second decision on the same request', function (string $first, str
 
     $this->actingAs($this->developer, 'web')->post(route($first), $body)->assertRedirect();
 
-    $this->actingAs($this->developer, 'web')->post(route($second), $body)->assertStatus(409);
+    // Back to the page, beside the request, saying so rather than a bare 409 (#452)
+    $page = $this->actingAs($this->developer, 'web')->post(route($second), $body)
+        ->assertStatus(302)
+        ->assertRedirect(route('robot-council.enroll.show', ['user_code' => $enrollment['record']->user_code]))
+        ->assertSessionHas('refused', 'Already decided: this request was approved or denied before. Nothing further will happen to it.');
+
+    $this->followRedirects($page)->assertOk()->assertSeeHtml('<div role="alert" class="alert alert-warning mt-2" data-refused>Already decided: this request was approved or denied before. Nothing further will happen to it.</div>');
+
+    // And the first decision stands
+    $decided = $enrollment['record']->refresh();
+
+    expect($first === 'robot-council.enroll.approve' ? $decided->approved_at : $decided->denied_at)->not->toBeNull()
+        ->and($first === 'robot-council.enroll.approve' ? $decided->denied_at : $decided->approved_at)->toBeNull();
 })->with([
     'approve then approve' => ['robot-council.enroll.approve', 'robot-council.enroll.approve'],
     'approve then deny' => ['robot-council.enroll.approve', 'robot-council.enroll.deny'],
@@ -173,19 +189,47 @@ it('refuses a second decision on the same request', function (string $first, str
     'deny then deny' => ['robot-council.enroll.deny', 'robot-council.enroll.deny'],
 ]);
 
-it('refuses an approval once the code has expired', function (): void {
+it('refuses a decision once the code has expired, and says to ask for a new one', function (string $action): void {
     $enrollment = requestDeviceCode($this);
 
     $this->travelTo(now()->addSeconds(601));
 
-    $this->actingAs($this->developer, 'web')
-        ->post(route('robot-council.enroll.approve'), [
+    // Back to the page with the code, rather than a bare 404 (#452)
+    $page = $this->actingAs($this->developer, 'web')
+        ->post(route($action), [
             'user_code' => $enrollment['record']->user_code,
             'confirmed' => '1',
         ])
-        ->assertNotFound();
+        ->assertStatus(302)
+        ->assertRedirect(route('robot-council.enroll.show', ['user_code' => $enrollment['record']->user_code]))
+        ->assertSessionHas('refused', 'Expired: this code is no longer waiting. Ask the machine for a new one.');
+
+    $this->followRedirects($page)->assertOk()
+        ->assertSee('Expired: this code is no longer waiting. Ask the machine for a new one.')
+        ->assertDontSee('No enrollment is waiting on that code.');
 
     expect($enrollment['record']->refresh()->isDecided())->toBeFalse();
+})->with(['robot-council.enroll.approve', 'robot-council.enroll.deny']);
+
+it('says expired, not already decided, when the code lapses between the lookup and the decision', function (): void {
+    $enrollment = requestDeviceCode($this);
+    $code = $enrollment['record'];
+
+    // Found live, then expired before the store's update runs: the update refuses, and only a
+    // re-read of the row can say which refusal it was
+    Event::listen(QueryExecuted::class, function ($query) use ($code): void {
+        if (str_contains($query->sql, 'robot_council_device_codes') && str_starts_with(strtolower($query->sql), 'select') && ! Cache::has('lapsed')) {
+            Cache::put('lapsed', true);
+            DB::table('robot_council_device_codes')->where('id', $code->id)->update(['expires_at' => now()->subSecond()]);
+        }
+    });
+
+    $this->actingAs($this->developer, 'web')
+        ->post(route('robot-council.enroll.deny'), ['user_code' => $code->user_code])
+        ->assertStatus(302)
+        ->assertSessionHas('refused', 'Expired: this code is no longer waiting. Ask the machine for a new one.');
+
+    expect($code->refresh()->isDecided())->toBeFalse();
 });
 
 it('accepts the code as it is printed, dash and all', function (): void {
@@ -209,7 +253,7 @@ it('rate limits a developer hammering decisions', function (): void {
     for ($attempt = 0; $attempt < 3; $attempt++) {
         $this->actingAs($this->developer, 'web')
             ->post(route('robot-council.enroll.deny'), ['user_code' => 'BCDFGHJK'])
-            ->assertNotFound();
+            ->assertRedirect();
     }
 
     $this->actingAs($this->developer, 'web')
@@ -302,7 +346,7 @@ it('limits one developer without limiting another', function (): void {
     for ($attempt = 0; $attempt < 2; $attempt++) {
         $this->actingAs($this->developer, 'web')
             ->post(route('robot-council.enroll.deny'), ['user_code' => 'BCDFGHJK'])
-            ->assertNotFound();
+            ->assertRedirect();
     }
 
     $this->actingAs($this->developer, 'web')
@@ -312,5 +356,5 @@ it('limits one developer without limiting another', function (): void {
     // Keyed on the developer, so the second one still has their whole allowance
     $this->actingAs($second, 'web')
         ->post(route('robot-council.enroll.deny'), ['user_code' => 'BCDFGHJK'])
-        ->assertNotFound();
+        ->assertRedirect();
 });

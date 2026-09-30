@@ -49,9 +49,10 @@
             </div>
         </div>
 
+        {{-- A decision on a code that had expired comes back here with no request to show (#452) --}}
         @if ($searched && $code === null)
-            <div role="alert" class="alert alert-warning mt-4">
-                <span>No enrollment is waiting on that code. Codes expire a few minutes after they are requested, so ask the machine for a new one.</span>
+            <div role="alert" class="alert alert-warning mt-4" @if (session('refused')) data-refused @endif>
+                <span>{{ session('refused') ?? 'No enrollment is waiting on that code. Codes expire a few minutes after they are requested, so ask the machine for a new one.' }}</span>
             </div>
         @endif
 
@@ -64,6 +65,9 @@
                          request decided earlier, that it was --}}
                     @if (session('status'))
                         <div role="status" class="alert mt-2" data-said>{{ session('status') }}</div>
+                    @elseif (session('refused'))
+                        {{-- A decision the store refused, beside the request it was about (#452) --}}
+                        <div role="alert" class="alert alert-warning mt-2" data-refused>{{ session('refused') }}</div>
                     @elseif ($code->isDecided())
                         <div role="status" class="alert mt-2">
                             <span>This request was already {{ $code->approved_at !== null ? 'approved' : 'denied' }}. Nothing further will happen to it.</span>
