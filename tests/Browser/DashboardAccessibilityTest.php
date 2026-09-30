@@ -397,6 +397,68 @@ function sidewaysScroll(PendingAwaitablePage $page): int
     return $overflow;
 }
 
+/**
+ * Every button whose boundary is under 3:1 against what it sits on (SC 1.4.11, #482).
+ *
+ * A button is told from a label by its border or its fill, so the stronger of the two is measured
+ * against the backgrounds behind it, composited as drawn. Colors are read through a canvas, which resolves
+ * daisyUI's `oklch()` and composites a translucent fill over its background exactly as it is drawn.
+ * The menu toggle is the one button left without a boundary: its icon is what marks it as a control.
+ * A warning button is skipped until #498 gives it one.
+ *
+ * @return list<string> Each faint button, with its best ratio.
+ */
+function faintButtons(PendingAwaitablePage $page): array
+{
+    return pageList($page, 'button-boundary', <<<'JS'
+        () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = canvas.height = 1;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            const paint = (...colors) => {
+                ctx.clearRect(0, 0, 1, 1);
+                for (const c of colors) { ctx.fillStyle = c; ctx.fillRect(0, 0, 1, 1); }
+                return [...ctx.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+            };
+            const luminance = rgb => {
+                const [r, g, b] = rgb.map(v => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
+                return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+            };
+            const ratio = (a, b) => { const [x, y] = [luminance(a), luminance(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+            // Every ancestor's background from the outermost in, so a translucent one is composited
+            // over what is behind it rather than read as if it were opaque. The canvas starts white,
+            // which is what a page with no background of its own is drawn on
+            const behind = el => {
+                const layers = ['rgb(255, 255, 255)'];
+                for (let node = el.parentElement; node; node = node.parentElement) {
+                    if (parseFloat(getComputedStyle(node).opacity) < 1) throw new Error('A button sits inside a translucent element, which this check does not measure');
+                    layers.splice(1, 0, getComputedStyle(node).backgroundColor);
+                }
+                return layers;
+            };
+            const out = [];
+            for (const el of document.querySelectorAll('.btn')) {
+                const rect = el.getBoundingClientRect();
+                if (rect.width === 0 && rect.height === 0) continue;
+                const side = el.closest('.drawer-side');
+                if (side && getComputedStyle(side).visibility === 'hidden') continue;
+                // A warning button's fill is 2.02:1 in the light theme, which #498 is to fix
+                if (el.matches('.drawer-button, .btn-warning')) continue;
+                // SC 1.4.11 does not cover a control that cannot be used
+                if (el.matches(':disabled, [aria-disabled=true]')) continue;
+                const cs = getComputedStyle(el);
+                const under = behind(el);
+                const ground = paint(...under);
+                const fill = ratio(paint(...under, cs.backgroundColor), ground);
+                const border = parseFloat(cs.borderTopWidth) > 0 ? ratio(paint(...under, cs.borderTopColor), ground) : 1;
+                const best = Math.max(fill, border);
+                if (best < 3) out.push(`${(el.getAttribute('aria-label') || el.textContent).trim().replace(/\s+/g, ' ').slice(0, 40)} ${best.toFixed(2)}:1`);
+            }
+            return out;
+        }
+    JS);
+}
+
 beforeAll(function (): void {
     // A report, not an accumulation: an earlier run's findings for a page that has since been
     // fixed would otherwise survive in it
@@ -803,6 +865,44 @@ it('holds every control to the 44px target size', function (string $route, strin
     // stopped wrapping would push the page wider than a phone
     expect(sidewaysScroll($page))->toBe(0);
 })->with(accessibilitySurfaces())->with([390, 1280]);
+
+it('gives every button a boundary at 3:1 against what it sits on', function (string $route, string $parameter, string $expect, string $theme): void {
+    $page = visitSurface($this, $route, $parameter, $expect, $theme);
+
+    $page->resize(1280, 900);
+
+    $faint = faintButtons($page);
+
+    expect($faint)->toBe([], implode("\n", $faint));
+})->with(accessibilitySurfaces())->with(['light', 'dark']);
+
+it('finds a faint button, so the check above is not blind', function (string $theme): void {
+    $page = visitSurface($this, 'robot-council.seats', '', 'robot-council-core-a', $theme);
+
+    $page->resize(1280, 900);
+
+    expect(faintButtons($page))->toBeEmpty();
+
+    // The two styles #482 removed, planted on the card the seats page draws: a ghost button, with
+    // no fill or border at rest, and a plain one, whose base-200 fill barely differs from the card
+    $page->script(<<<'JS'
+        () => {
+            const card = document.querySelector('main .card-body');
+            for (const [style, text] of [['btn-ghost', 'Planted ghost'], ['', 'Planted plain']]) {
+                const button = document.createElement('button');
+                button.className = `btn btn-target ${style}`;
+                button.textContent = text;
+                card.appendChild(button);
+            }
+        }
+    JS);
+
+    $faint = faintButtons($page);
+
+    expect($faint)->toHaveCount(2)
+        ->and($faint[0])->toStartWith('Planted ghost ')
+        ->and($faint[1])->toStartWith('Planted plain ');
+})->with(['light', 'dark']);
 
 it('finds a page that scrolls sideways, so the check above is not blind', function (): void {
     $page = visitSurface($this, 'robot-council.queue', '', 'Everyone stop and sync', 'light');

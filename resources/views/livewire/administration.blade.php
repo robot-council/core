@@ -178,7 +178,7 @@
 
                                                 <button type="button"
                                                     wire:click="denyRole({{ \RobotCouncil\Support\WireArgument::of($session['id']) }})"
-                                                    class="btn btn-target btn-ghost">
+                                                    class="btn btn-target btn-outline">
                                                     Deny
                                                 </button>
                                             @endif
@@ -194,7 +194,7 @@
                                                         @if ($role === \RobotCouncil\Access\Role::Coordinator)
                                                             wire:confirm="Make this session a coordinator? It will be able to release, reassign or cancel any developer's task, and post directives to the whole fleet."
                                                         @endif
-                                                        class="btn btn-target btn-ghost">
+                                                        class="btn btn-target btn-outline">
                                                         Make {{ $role->value }}
                                                     </button>
                                                 @endif
@@ -204,7 +204,7 @@
                                                  revoked, and every live session is listed (#414). --}}
                                             <button type="button"
                                                 wire:click="revokeSession({{ \RobotCouncil\Support\WireArgument::of($session['id']) }})"
-                                                class="btn btn-target btn-ghost">
+                                                class="btn btn-target btn-outline">
                                                 Revoke session
                                             </button>
                                         </div>

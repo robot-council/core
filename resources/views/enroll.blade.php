@@ -40,7 +40,7 @@
                         >
                     </div>
 
-                    <button type="submit" class="btn btn-target">Look up</button>
+                    <button type="submit" class="btn btn-target btn-outline">Look up</button>
                 </form>
 
                 @error('user_code')
@@ -174,7 +174,7 @@
                         <form method="POST" action="{{ route('robot-council.enroll.deny') }}" class="mt-2">
                             @csrf
                             <input type="hidden" name="user_code" value="{{ $code->user_code }}">
-                            <button type="submit" class="btn btn-target btn-ghost">Deny</button>
+                            <button type="submit" class="btn btn-target btn-outline">Deny</button>
                         </form>
                     @endunless
                 </div>

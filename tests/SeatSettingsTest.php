@@ -552,6 +552,38 @@ it('parks and lifts through the page, and refuses a seat belonging to somebody e
     expect(seatRow($seat)->parked_by)->toBeNull();
 });
 
+it("reads a seat's hours as a labelled state beside a verb in other words, in both states (#482)", function (): void {
+    [$installation] = seatedSession($this, $this->alice);
+    $seat = onlySeatOf($this, $installation);
+
+    // The state line and the one button that changes it, read from the markup rather than searched
+    // for, so a word that appears elsewhere on the page cannot pass for either
+    $read = function (): array {
+        $html = Livewire::actingAs($this->alice)->test(SeatSettings::class)->html();
+
+        preg_match_all('/<span data-seat-hours>([^<]*)<\/span>\s*<button[^>]*wire:click="(un)?exempt\([^)]*\)"[^>]*>([^<]*)<span class="sr-only">([^<]*)<\/span>/', $html, $rows, PREG_SET_ORDER);
+
+        return array_map(static fn (array $row): array => [trim($row[1]), trim($row[3]), trim($row[4])], $rows)
+            + ['exempt' => str_contains(strtolower($html), 'exempt from hours')];
+    };
+
+    expect($read())->toBe([['Hours: apply', 'Ignore my hours', 'for robot-council/core / a'], 'exempt' => false]);
+
+    Livewire::actingAs($this->alice)->test(SeatSettings::class)
+        ->call('exempt', $seat->id)
+        ->assertSet('said', 'Hours ignored: robot-council/core / a takes new work at any time, whatever your hours say.');
+
+    expect(seatRow($seat)->hours_exempt)->toBeTrue()
+        ->and($read())->toBe([['Hours: ignored', 'Apply my hours', 'for robot-council/core / a'], 'exempt' => false]);
+
+    Livewire::actingAs($this->alice)->test(SeatSettings::class)
+        ->call('unexempt', $seat->id)
+        ->assertSet('said', 'Hours apply: robot-council/core / a takes new work only inside your assignment hours.');
+
+    expect(seatRow($seat)->hours_exempt)->toBeFalse()
+        ->and($read()[0])->toBe(['Hours: apply', 'Ignore my hours', 'for robot-council/core / a']);
+});
+
 it('saves hours and days off through the page, and reports a refused value instead of failing', function (): void {
     $component = Livewire::actingAs($this->alice)->test(SeatSettings::class)
         ->set('timezone', 'America/Chicago')
