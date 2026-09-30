@@ -104,8 +104,8 @@ it('shows the login of an allowlisted ID that has not signed in, marked, linked,
 
     $html = Livewire::actingAs($this->admin)->test(AccessLists::class)->html();
 
-    expect($html)->toContain('<a href="https://github.com/todd-uams" class="link" rel="noopener noreferrer">todd-uams</a>')
-        ->and($html)->toMatch('#todd-uams</a>\s*\(not signed in yet\)#')
+    expect($html)->toContain('<a href="https://github.com/todd-uams" class="link" target="_blank" rel="noopener noreferrer">todd-uams<svg')
+        ->and($html)->toMatch('#todd-uams<svg.*?</svg><span class="sr-only"> \(opens in a new tab\)</span></a>\s*\(not signed in yet\)#')
         // A signed-in account is named by its own sign-in, unmarked and unlinked
         ->and($html)->toContain('octoadmin')
         ->and($html)->not->toContain('https://github.com/octoadmin');

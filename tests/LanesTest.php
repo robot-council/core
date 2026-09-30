@@ -163,7 +163,7 @@ it('links a repository-qualified reference and never a bare number', function ()
     $this->service(Tasks::class)->transition($task->id, TaskTransition::Reassign, $this->coordinatorSession, true, $lane, directive: 'Take this.');
 
     expect(Livewire::actingAs($this->developer)->test(Lanes::class)->html())
-        ->toContain('href="https://github.com/robot-council/core/issues/318"');
+        ->toContain('<a href="https://github.com/robot-council/core/issues/318" class="link inline-flex min-h-11 min-w-11 items-center" target="_blank" rel="noopener noreferrer">');
 });
 
 it('renders an unmeasured count as a dash, never a number', function (): void {
@@ -249,10 +249,21 @@ it('costs the same queries however many lanes it lists', function (): void {
  */
 function markedText(string $html, string $marker): array
 {
-    // Closed by its own tag name, so a link nested inside the element does not end the match early
-    preg_match_all('/<([a-z]+)[^>]*\b'.preg_quote($marker, '/').'\b[^>]*>(.*?)<\/\1>/s', $html, $found);
+    // Read as a document, so an element nested inside the marked one -- a link, or the link's own
+    // screen-reader words (#387) -- cannot end the match early the way a pattern closed by its tag
+    // name did
+    $document = new DOMDocument;
+    libxml_use_internal_errors(true);
+    $document->loadHTML('<?xml encoding="UTF-8">'.$html);
+    libxml_clear_errors();
 
-    return array_map(static fn (string $text): string => trim((string) preg_replace('/\s+/', ' ', strip_tags(html_entity_decode($text)))), $found[2]);
+    $texts = [];
+
+    foreach (new DOMXPath($document)->query('//*[@'.$marker.']') ?: [] as $element) {
+        $texts[] = trim((string) preg_replace('/\s+/u', ' ', $element->textContent));
+    }
+
+    return $texts;
 }
 
 it('renders a parked lane and a held one as party and reason', function (): void {
@@ -267,7 +278,7 @@ it('renders a parked lane and a held one as party and reason', function (): void
     $cells = markedText(Livewire::actingAs($this->developer)->test(Lanes::class)->html(), 'data-on-what');
     sort($cells);
 
-    expect($cells)->toBe(['octodev — parked this seat', 'robot-council/core#9 — that ticket to land']);
+    expect($cells)->toBe(['octodev — parked this seat', 'robot-council/core#9 (opens in a new tab) — that ticket to land']);
 });
 
 it('shows a lane held for nothing startable as Idle, naming its repository, and counts it as idle (#471)', function (): void {
@@ -288,7 +299,7 @@ it('shows a lane held for nothing startable as Idle, naming its repository, and 
     $cells = markedText(Livewire::actingAs($this->developer)->test(Lanes::class)->html(), 'data-on-what');
     sort($cells);
 
-    expect($cells)->toBe(['Nothing startable in robot-council/core', 'robot-council/core#9 — that ticket to land']);
+    expect($cells)->toBe(['Nothing startable in robot-council/core', 'robot-council/core#9 (opens in a new tab) — that ticket to land']);
 });
 
 it('marks a hand-back, and lists every task a lane holds against its capacity', function (): void {
