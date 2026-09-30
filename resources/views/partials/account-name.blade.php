@@ -7,7 +7,7 @@
     Takes `name`, an array of `login` (string or null) and `signed_in` (bool), and `id`.
 --}}
 <span class="font-medium">
-    <x-robot-council::avatar :login="$name['login']" />
+    <x-robot-council::avatar :login="$name['login']" :pictured="$name['signed_in']" />
     @if ($name['login'] === null)
         not signed in yet
     @elseif ($name['signed_in'])

@@ -48,9 +48,9 @@ beforeEach(function (): void {
         $this->approveInstallation($this->enrollDeveloper(77, login: 'coordinator'), machineLabel: 'coordinator-box')
     );
 
-    foreach ([$this->pictured, $this->plain] as $developer) {
+    foreach (['octodev' => $this->pictured, 'hubot' => $this->plain] as $login => $developer) {
         $session = $this->service(AgentSessions::class)->start($this->approveInstallation($developer), 'robot-council/core', 'a')->owner;
-        $this->service(Tasks::class)->create($session, ['title' => 'Work for '.$developer->name], false);
+        $this->service(Tasks::class)->create($session, ['title' => 'Work for '.$login], false);
     }
 });
 
@@ -67,7 +67,7 @@ function avatarsIn(string $html): array
     $markers = '(?:<!--\[if [A-Z]+\]><!\[endif\]-->)*';
 
     preg_match_all(
-        '#<span class="avatar [^"]*" aria-hidden="true" data-avatar><span[^>]*><span class="text-meta leading-none">([^<]*)</span>'.$markers.'(?:<img src="([^"]*)" alt=""[^>]*>)?'.$markers.'</span></span>#',
+        '#<span class="avatar [^"]*" aria-hidden="true" data-avatar><span[^>]*><span class="text-meta leading-none select-none">([^<]*)</span>'.$markers.'(?:<img src="([^"]*)" alt=""[^>]*>)?'.$markers.'</span></span>#',
         $html,
         $found,
         PREG_SET_ORDER
@@ -111,6 +111,7 @@ it('never puts a stored picture that is not on GitHub avatar host in a page', fu
     'plain HTTP' => ['http://avatars.githubusercontent.com/u/4242?v=4'],
     'another path' => ['https://avatars.githubusercontent.com/u/4242/../../x'],
     'more query' => ['https://avatars.githubusercontent.com/u/4242?v=4&x=1'],
+    'a trailing newline' => ["https://avatars.githubusercontent.com/u/4242?v=4\n"],
 ]);
 
 it('matches a login in any case, since GitHub logins are not case-sensitive', function (): void {
@@ -179,15 +180,22 @@ it("shows the avatar in each developer's section heading on the lane board, and 
     ]);
 });
 
-it('shows the avatar beside an allowlisted account on the Access page, and the initial for one not signed in', function (): void {
+it('shows the picture beside a signed-in account on the Access page, and only the initial for one not signed in', function (): void {
+    // An account that has not signed in, whose login GitHub last gave as `octodev` -- the login a
+    // signed-in developer with a picture still holds on their identity row, as after a rename.
+    // Whose face that is, is not this account's to show.
+    $this->setAccessLists(developers: [4242, 4343, 77, 9999], admins: [4242]);
     DB::table('robot_council_github_accounts')->insert([
-        'github_id' => 4343, 'login' => 'hubot', 'account_type' => 'User', 'checked_at' => now(), 'resolved_at' => now(),
+        'github_id' => 9999, 'login' => 'octodev', 'account_type' => 'User', 'checked_at' => now(), 'resolved_at' => now(),
     ]);
 
-    $avatars = avatarsIn(Livewire::actingAs($this->pictured)->test(AccessLists::class)->html());
+    $html = Livewire::actingAs($this->pictured)->test(AccessLists::class)->html();
 
-    expect($avatars)->toContain(['initial' => 'O', 'src' => PICTURED])
-        ->and($avatars)->toContain(['initial' => 'H', 'src' => null]);
+    preg_match('#<li[^>]*-9999"[^>]*>.*?</li>#s', $html, $unsigned);
+    preg_match('#<li[^>]*-4242"[^>]*>.*?</li>#s', $html, $signed);
+
+    expect(avatarsIn($unsigned[0] ?? ''))->toBe([['initial' => 'O', 'src' => null]])
+        ->and(avatarsIn($signed[0] ?? ''))->toBe([['initial' => 'O', 'src' => PICTURED]]);
 });
 
 it("shows the signed-in developer's avatar in the header, beside their login", function (): void {
@@ -230,4 +238,21 @@ it('costs no query per developer: at most one read of every picture, whatever a 
     }
 
     expect($queries)->toBe(1);
+});
+
+it('reads no picture of its own on a page whose logins are read through AgentLogins', function (): void {
+    $read = [];
+    DB::listen(function ($query) use (&$read): void {
+        $read[] = $query->sql;
+    });
+
+    $avatars = avatarsIn(Livewire::actingAs($this->pictured)->test(Agents::class)->html());
+
+    // Every identity read carried a `where`: the page's own, which noted the pictures, and never the
+    // read of every developer that a login nobody noted would cost
+    $identityReads = array_values(array_filter($read, static fn (string $sql): bool => str_contains($sql, 'robot_council_github_identities')));
+
+    expect($avatars)->toContain(['initial' => 'O', 'src' => PICTURED])
+        ->and($identityReads)->not->toBeEmpty()
+        ->and(array_filter($identityReads, static fn (string $sql): bool => ! str_contains($sql, ' where ')))->toBeEmpty();
 });

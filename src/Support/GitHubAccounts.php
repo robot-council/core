@@ -50,7 +50,7 @@ final class GitHubAccounts
      * The only avatar URL a page may load: GitHub's avatar host, a numeric user path, and at most a
      * numeric `v` (#410). Anything else stored is shown as the fallback circle rather than loaded.
      */
-    public const string AVATAR = '#^https://avatars\.githubusercontent\.com/u/[0-9]{1,18}(?:\?v=[0-9]{1,6})?$#';
+    public const string AVATAR = '#^https://avatars\.githubusercontent\.com/u/[0-9]{1,18}(?:\?v=[0-9]{1,6})?$#D';
 
     /**
      * The installation this instance's requests borrow, once found.
@@ -173,9 +173,9 @@ final class GitHubAccounts
      * Remember the avatars on identity rows a caller has already read, so showing them costs no
      * query of its own. `AgentLogins` reads the logins every page names, and passes its rows here.
      *
-     * @param  list<GithubIdentity>  $identities  Rows carrying `github_login` and `avatar_url`.
+     * @param  iterable<GithubIdentity>  $identities  Rows carrying `github_login` and `avatar_url`.
      */
-    public function noteAvatars(array $identities): void
+    public function noteAvatars(iterable $identities): void
     {
         foreach ($identities as $identity) {
             $this->avatars[mb_strtolower($identity->github_login)] = self::checkedAvatar($identity->avatar_url);

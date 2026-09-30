@@ -36,7 +36,6 @@ use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
 use RobotCouncil\Models\AssignmentHours;
 use RobotCouncil\Models\FleetEventType;
-use RobotCouncil\Models\GithubIdentity;
 use RobotCouncil\Models\HoldReason;
 use RobotCouncil\Models\Installation;
 use RobotCouncil\Models\Lock;
@@ -1234,21 +1233,15 @@ function avatarShapes(PendingAwaitablePage $page): array
 }
 
 it("keeps each developer's avatar a circle sized in rem, and falls back to the initial when the picture fails (#410)", function (): void {
-    $fleet = seedAccessibilityFleet($this);
-    GithubIdentity::query()->where('github_login', 'octodev')->update(['avatar_url' => 'https://avatars.githubusercontent.com/u/4242?v=4']);
-
-    $this->actingAs($fleet['developer'], 'web');
-
-    $page = visit(route('robot-council.lanes'))->inLightMode();
-    $page->assertSee('Run the screen-reader pass');
+    // No stored picture, so nothing here reaches the network: what the browser owns -- shape, size
+    // and what a failed picture leaves behind -- is measured, and which picture a page names is
+    // `DeveloperAvatarTest`'s
+    $page = visitSurface($this, 'robot-council.lanes', '', 'Run the screen-reader pass', 'light');
 
     $shapes = avatarShapes($page);
 
-    // Both developers on the board, one with a picture and one without, each a 1.5rem circle
-    expect($shapes)->not->toBeEmpty()
-        ->and(array_values(array_unique(array_column($shapes, 'initial'))))->toEqualCanonicalizing(['O', 'C'])
-        ->and(array_filter($shapes, static fn (array $shape): bool => $shape['picture']))->not->toBeEmpty()
-        ->and(array_filter($shapes, static fn (array $shape): bool => ! $shape['picture']))->not->toBeEmpty();
+    // Both developers on the board, each a 1.5rem circle
+    expect(array_values(array_unique(array_column($shapes, 'initial'))))->toEqualCanonicalizing(['O', 'C']);
 
     foreach ($shapes as $shape) {
         expect($shape['width'])->toEqual(24)->and($shape['height'])->toEqual(24)->and($shape['round'])->toBeTrue();
@@ -1261,9 +1254,21 @@ it("keeps each developer's avatar a circle sized in rem, and falls back to the i
         expect($shape['width'])->toEqual(48)->and($shape['height'])->toEqual(48)->and($shape['round'])->toBeTrue();
     }
 
-    // A picture that fails to load is taken away, leaving the initial beneath it. Failed for real,
-    // by pointing it at an address that answers nothing, rather than by a synthetic event
-    $page->script('() => document.querySelectorAll("[data-avatar] img").forEach(image => { image.loading = "eager"; image.src = "data:image/png;base64,broken"; })');
+    // A picture that really fails to load, put where the component puts one, is taken away and
+    // leaves the initial beneath it. Its presence is read first, so the removal is the script's
+    // work rather than a picture that was never there
+    $planted = $page->script(<<<'JS'
+        () => {
+            const image = document.createElement('img');
+            image.alt = '';
+            image.src = 'data:image/png;base64,broken';
+            document.querySelector('[data-avatar] > span').appendChild(image);
+            return document.querySelectorAll('[data-avatar] img').length;
+        }
+    JS);
+
+    expect($planted)->toBe(1);
+
     $page->wait(0.5);
 
     $after = avatarShapes($page);
