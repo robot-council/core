@@ -449,12 +449,19 @@ load its styling before anyone has signed in.
 
 **Its one script is served the same way**, at `{prefix}/dashboard.js` (#472). It keeps the row a
 reader is looking at in place when a poll adds rows above it, through Livewire's documented `morph`
-and `morphed` hooks, and does nothing else. It is written by hand and shipped as it is, so there is
+and `morphed` hooks, and it takes away a developer's GitHub picture that failed to load, so the
+initial drawn beneath it shows (#410). It does nothing else. It is written by hand and shipped as it is, so there is
 still nothing to build or publish. It is loaded by `src` from the page's own origin and no view
 carries an inline script, so a host's `script-src 'self'` covers this file. That is a statement
 about this file alone: Livewire and Alpine have their own needs under a CSP, which Livewire's
 `csp_safe` setting governs. A page that declines Livewire, such as the enrollment page, loads
 neither script.
+
+**Developers' pictures load from GitHub, in the browser** (#410). Each is the avatar URL GitHub gave
+at sign-in, shown only when it is on `https://avatars.githubusercontent.com`; core itself requests
+nothing to show one. A host that sends a `Content-Security-Policy` with an `img-src` has to allow
+that origin, or every avatar falls back to the developer's initial. The package's own header,
+`frame-ancestors 'none'`, restricts no image.
 
 Both files are served `public` for a year, and each page names them with `?v=` and a hash of the
 file's bytes, so a release that changes either one is a new URL rather than a stale cache.

@@ -73,9 +73,9 @@
                                 <td role="cell" data-label="Session">
                                     @if ($label !== null)
                                         <div><code>{{ $label }}</code></div>
-                                        <div class="text-meta opacity-80">{{ $agent['github_login'] ?? 'an unknown account' }}</div>
+                                        <div class="text-meta opacity-80"><x-robot-council::avatar :login="$agent['github_login'] ?? null" />{{ $agent['github_login'] ?? 'an unknown account' }}</div>
                                     @else
-                                        {{ $agent['github_login'] ?? 'an unknown account' }}
+                                        <x-robot-council::avatar :login="$agent['github_login'] ?? null" />{{ $agent['github_login'] ?? 'an unknown account' }}
                                     @endif
                                 </td>
 

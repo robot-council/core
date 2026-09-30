@@ -191,7 +191,7 @@
 
                 <div class="flex shrink-0 items-center gap-2">
                     @if ($developerLogin !== null)
-                        <span class="hidden max-w-40 break-all text-meta opacity-90 sm:inline">{{ $developerLogin }}</span>
+                        <span class="hidden max-w-40 break-all text-meta opacity-90 sm:inline"><x-robot-council::avatar :login="$developerLogin" />{{ $developerLogin }}</span>
                     @endif
 
                     {{--

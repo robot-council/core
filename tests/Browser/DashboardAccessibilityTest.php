@@ -1209,3 +1209,70 @@ it('finds a wrapped value, a clipped table and a long line when they are planted
         ->and($layout['wrapped'])->not->toBeEmpty()
         ->and($layout['prose'])->toHaveCount(1);
 });
+
+/**
+ * Each avatar's circle, as drawn: its size, its corner radius, and whether a picture is in it.
+ *
+ * @return list<array{width: float|int, height: float|int, round: bool, picture: bool, initial: string}> One per avatar.
+ */
+function avatarShapes(PendingAwaitablePage $page): array
+{
+    /** @var list<array{width: float|int, height: float|int, round: bool, picture: bool, initial: string}> */
+    return pageList($page, 'avatar', <<<'JS'
+        () => [...document.querySelectorAll('[data-avatar] > span')].map(circle => {
+            const box = circle.getBoundingClientRect();
+            return {
+                width: Math.round(box.width * 10) / 10,
+                height: Math.round(box.height * 10) / 10,
+                round: parseFloat(getComputedStyle(circle).borderTopLeftRadius) >= box.width / 2,
+                picture: circle.querySelector('img') !== null,
+                initial: circle.textContent.trim(),
+            };
+        })
+    JS);
+}
+
+it("keeps each developer's avatar a circle sized in rem, and falls back to the initial when the picture fails (#410)", function (): void {
+    // No stored picture, so nothing here reaches the network: what the browser owns -- shape, size
+    // and what a failed picture leaves behind -- is measured, and which picture a page names is
+    // `DeveloperAvatarTest`'s
+    $page = visitSurface($this, 'robot-council.lanes', '', 'Run the screen-reader pass', 'light');
+
+    $shapes = avatarShapes($page);
+
+    // Both developers on the board, each a 1.5rem circle
+    expect(array_values(array_unique(array_column($shapes, 'initial'))))->toEqualCanonicalizing(['O', 'C']);
+
+    foreach ($shapes as $shape) {
+        expect($shape['width'])->toEqual(24)->and($shape['height'])->toEqual(24)->and($shape['round'])->toBeTrue();
+    }
+
+    // Text at 200%: a rem size doubles with it and stays round, where a px one would not
+    $page->script('() => { document.documentElement.style.fontSize = "200%"; }');
+
+    foreach (avatarShapes($page) as $shape) {
+        expect($shape['width'])->toEqual(48)->and($shape['height'])->toEqual(48)->and($shape['round'])->toBeTrue();
+    }
+
+    // A picture that really fails to load, put where the component puts one, is taken away and
+    // leaves the initial beneath it. Its presence is read first, so the removal is the script's
+    // work rather than a picture that was never there
+    $planted = $page->script(<<<'JS'
+        () => {
+            const image = document.createElement('img');
+            image.alt = '';
+            image.src = 'data:image/png;base64,broken';
+            document.querySelector('[data-avatar] > span').appendChild(image);
+            return document.querySelectorAll('[data-avatar] img').length;
+        }
+    JS);
+
+    expect($planted)->toBe(1);
+
+    $page->wait(0.5);
+
+    $after = avatarShapes($page);
+
+    expect(array_filter($after, static fn (array $shape): bool => $shape['picture']))->toBeEmpty()
+        ->and(array_column($after, 'initial'))->toContain('O');
+});

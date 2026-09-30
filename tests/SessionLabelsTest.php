@@ -86,7 +86,7 @@ it('shows Filed by and Held by on the queue as the session label, with the login
     $task = app(Tasks::class)->create($filer, ['title' => 'Name the sessions'], false);
     app(Tasks::class)->transition($task->id, TaskTransition::Reassign, $filer, asCoordinator: true, assignee: $holder, directive: 'Take this.');
 
-    $html = Livewire::test(TaskBoard::class)->html();
+    $html = withoutAvatars(Livewire::test(TaskBoard::class)->html());
 
     expect($html)
         ->toContain('<div><code>core/josh-office/a</code></div>')
@@ -109,7 +109,7 @@ it('falls back to the login for a session with no repository, and to "a session 
     AgentSession::query()->whereKey($gone->id)->delete();
     Task::query()->whereKey($orphan->id)->update(['created_by' => null]);
 
-    $html = Livewire::test(TaskBoard::class)->html();
+    $html = withoutAvatars(Livewire::test(TaskBoard::class)->html());
 
     expect($html)->toContain('a session since deleted')
         ->not->toContain('core/josh-home/b');
@@ -128,7 +128,7 @@ it("names a lock's holder and previous holder by session label, still linking to
     $locks->forceRelease($second, 'branch:main');
     $locks->acquire($second, 'branch:main', 300, false);
 
-    $html = Livewire::test(LocksPage::class)->html();
+    $html = withoutAvatars(Livewire::test(LocksPage::class)->html());
 
     expect($html)
         ->toContain('<a href="'.e(route('robot-council.agents', ['session' => $second->id])).'" class="link inline-flex min-h-11 min-w-11 items-center"><code>core/josh-home/b</code></a>')
@@ -155,8 +155,8 @@ it('cuts the slot in characters, so a letter whose lower case is shorter in byte
 it('names a session the same way on the lane board and the agents list', function (): void {
     $session = labelledSession($this, 'josh-office', 'robot-council/core', 'robot-council-core-a');
 
-    Livewire::test(Lanes::class)
-        ->assertSeeHtml('<div class="font-medium"><code>core/josh-office/a</code> &middot; octodev</div>');
+    expect(withoutAvatars(Livewire::test(Lanes::class)->html()))
+        ->toContain('<div class="font-medium"><code>core/josh-office/a</code> &middot; octodev</div>');
 
     Livewire::test(Agents::class)
         ->assertSeeHtml('<th role="columnheader">Session</th>')
@@ -172,7 +172,7 @@ it('keeps the login on the lane board and the agents list for a session with no 
 
     Livewire::test(Lanes::class)->assertDontSee('josh-office/');
 
-    $html = Livewire::test(Agents::class)->html();
+    $html = withoutAvatars(Livewire::test(Agents::class)->html());
 
     preg_match('/data-label="Session">(.*?)<\/td>/s', $html, $cell);
 
@@ -188,7 +188,7 @@ it('names a previous holder by login when it has no label', function (): void {
     $locks->forceRelease($second, 'branch:main');
     $locks->acquire($second, 'branch:main', 300, false);
 
-    $html = Livewire::test(LocksPage::class)->html();
+    $html = withoutAvatars(Livewire::test(LocksPage::class)->html());
 
     // Read as text, since Livewire marks the `@if` inside the element with comments
     preg_match_all('/<div class="text-meta opacity-80">(.*?)<\/div>/s', $html, $cells);

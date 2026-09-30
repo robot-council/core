@@ -36,10 +36,14 @@ final class AgentLogins
 
         $sessions = AgentSession::query()->whereKey($ids)->get(['id', 'user_id']);
 
-        $byUser = GithubIdentity::query()
+        $identities = GithubIdentity::query()
             ->whereIn('user_id', $sessions->pluck('user_id')->unique()->all())
-            ->get(['user_id', 'github_login'])
-            ->pluck('github_login', 'user_id');
+            ->get(['user_id', 'github_login', 'avatar_url']);
+
+        // The same rows name each developer's avatar, so a page that shows one pays no query for it
+        app(GitHubAccounts::class)->noteAvatars($identities);
+
+        $byUser = $identities->pluck('github_login', 'user_id');
 
         $logins = [];
 
@@ -74,12 +78,14 @@ final class AgentLogins
             return [];
         }
 
-        /** @var array<string, string> $logins */
-        $logins = GithubIdentity::query()
+        $identities = GithubIdentity::query()
             ->whereIn('user_id', $ids)
-            ->get(['user_id', 'github_login'])
-            ->pluck('github_login', 'user_id')
-            ->all();
+            ->get(['user_id', 'github_login', 'avatar_url']);
+
+        app(GitHubAccounts::class)->noteAvatars($identities);
+
+        /** @var array<string, string> $logins */
+        $logins = $identities->pluck('github_login', 'user_id')->all();
 
         return $logins;
     }

@@ -63,7 +63,7 @@
                                 </div>
 
                                 <div class="text-meta opacity-90">
-                                    approved for {{ $installation['github_login'] ?? 'an unknown account' }}
+                                    approved for <x-robot-council::avatar :login="$installation['github_login'] ?? null" />{{ $installation['github_login'] ?? 'an unknown account' }}
                                 </div>
                             </div>
 

@@ -26,7 +26,8 @@ use RobotCouncil\Models\GithubIdentity;
  * **Every request borrows an installation of the App on an account the package already fetches
  * counts for**: a lane board repository's owner, or one the fetch history names, so a quiet fleet
  * with no live lane can still look accounts up. A profile needs no permission, so the token is the
- * count's own. Kept separate from the Access page so that #410's avatars can reuse the lookup.
+ * count's own. Kept separate from the Access page so that #410's avatars could reuse it: `avatarOf()`
+ * names the signed-in developer's stored avatar, and asks GitHub nothing.
  */
 final class GitHubAccounts
 {
@@ -46,9 +47,28 @@ final class GitHubAccounts
     public const int MAX_PER_RUN = 50;
 
     /**
+     * The only avatar URL a page may load: GitHub's avatar host, a numeric user path, and at most a
+     * numeric `v` (#410). Anything else stored is shown as the fallback circle rather than loaded.
+     */
+    public const string AVATAR = '#^https://avatars\.githubusercontent\.com/u/[0-9]{1,18}(?:\?v=[0-9]{1,6})?$#D';
+
+    /**
      * The installation this instance's requests borrow, once found.
      */
     private ?int $installation = null;
+
+    /**
+     * Avatar URLs by lower-cased login as far as this request has read them, null for a developer
+     * known to have none.
+     *
+     * @var array<string, string|null>
+     */
+    private array $avatars = [];
+
+    /**
+     * Whether every signed-in developer's avatar has been read, so an unknown login has none.
+     */
+    private bool $readAllAvatars = false;
 
     /**
      * @param  GitHubAppKey  $key  Whether an App is configured at all.
@@ -124,6 +144,45 @@ final class GitHubAccounts
     }
 
     /**
+     * The avatar GitHub gave a signed-in developer, for a page to load in the browser (#410).
+     *
+     * **No request to GitHub.** The URL is the one sign-in stored on `robot_council_github_identities`,
+     * and the browser, not core, fetches the image. An account that has never signed in has none, so a
+     * page shows its fallback circle. **No query of its own on a page that names developers the usual
+     * way**: `AgentLogins` notes the avatar on the same rows it reads the login from, and only a login
+     * nobody noted reads every signed-in developer's, once a request.
+     *
+     * **Admitted by `EscapingGuardTest` as a URL the server built**, because what it returns is either
+     * null or a string matched against `AVATAR`: a fixed scheme and host, a numeric path, and nothing a
+     * requester or an agent wrote.
+     *
+     * @param  string|null  $login  The developer's login, compared case-insensitively.
+     * @return string|null The URL, or null when there is none to load.
+     */
+    public static function avatarOf(?string $login): ?string
+    {
+        if ($login === null) {
+            return null;
+        }
+
+        // Through `app()`, since the instance is scoped per request and a captured one is not
+        return app(self::class)->avatar(mb_strtolower($login));
+    }
+
+    /**
+     * Remember the avatars on identity rows a caller has already read, so showing them costs no
+     * query of its own. `AgentLogins` reads the logins every page names, and passes its rows here.
+     *
+     * @param  iterable<GithubIdentity>  $identities  Rows carrying `github_login` and `avatar_url`.
+     */
+    public function noteAvatars(iterable $identities): void
+    {
+        foreach ($identities as $identity) {
+            $this->avatars[mb_strtolower($identity->github_login)] = self::checkedAvatar($identity->avatar_url);
+        }
+    }
+
+    /**
      * Ask again about every allowlisted ID that has not signed in and whose last answer has aged.
      *
      * **A failed request keeps the login already remembered** and only moves `checked_at`, so an
@@ -172,6 +231,37 @@ final class GitHubAccounts
             BacklogFetchOutcome::KeyUnusable, BacklogFetchOutcome::NoInstallation => 'the GitHub App is not set up for looking accounts up',
             default => 'GitHub did not answer the lookup',
         };
+    }
+
+    /**
+     * One developer's avatar, reading every signed-in developer's the first time a login arrives
+     * that no caller has noted -- once per request, however many such logins a page names.
+     *
+     * @param  string  $login  The login, lower-cased.
+     * @return string|null The URL, or null when there is none to load.
+     */
+    private function avatar(string $login): ?string
+    {
+        if (! \array_key_exists($login, $this->avatars) && ! $this->readAllAvatars) {
+            $this->readAllAvatars = true;
+
+            foreach (GithubIdentity::query()->get(['github_login', 'avatar_url']) as $identity) {
+                $this->avatars[mb_strtolower($identity->github_login)] = self::checkedAvatar($identity->avatar_url);
+            }
+        }
+
+        return $this->avatars[$login] ?? null;
+    }
+
+    /**
+     * A stored avatar URL, when it is one a page may load.
+     *
+     * @param  string|null  $url  What sign-in stored.
+     * @return string|null The URL, or null when it does not match `AVATAR`.
+     */
+    private static function checkedAvatar(?string $url): ?string
+    {
+        return $url !== null && preg_match(self::AVATAR, $url) === 1 ? $url : null;
     }
 
     /**

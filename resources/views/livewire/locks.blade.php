@@ -72,9 +72,9 @@
                                     @if ($lock['holder'])
                                         @if (($lock['holder']['label'] ?? null) !== null)
                                             <a href="{{ route('robot-council.agents', ['session' => $lock['holder']['session_id']]) }}" class="link inline-flex min-h-11 min-w-11 items-center"><code>{{ $lock['holder']['label'] }}</code></a>
-                                            <div class="text-meta opacity-80">{{ $lock['holder']['github_login'] ?? 'an unknown account' }}</div>
+                                            <div class="text-meta opacity-80"><x-robot-council::avatar :login="$lock['holder']['github_login'] ?? null" />{{ $lock['holder']['github_login'] ?? 'an unknown account' }}</div>
                                         @else
-                                            <a href="{{ route('robot-council.agents', ['session' => $lock['holder']['session_id']]) }}" class="link inline-flex min-h-11 min-w-11 items-center">{{ $lock['holder']['github_login'] ?? 'an unknown account' }}</a>
+                                            <a href="{{ route('robot-council.agents', ['session' => $lock['holder']['session_id']]) }}" class="link inline-flex min-h-11 min-w-11 items-center"><x-robot-council::avatar :login="$lock['holder']['github_login'] ?? null" />{{ $lock['holder']['github_login'] ?? 'an unknown account' }}</a>
                                         @endif
                                     @else
                                         <span class="opacity-80">nobody</span>
