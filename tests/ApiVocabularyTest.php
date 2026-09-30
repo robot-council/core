@@ -43,7 +43,7 @@ function everyMachineResponse(TestCase $case, User $developer): array
     $case->actingAs($developer, 'web')->post(route('robot-council.enroll.approve'), [
         'user_code' => $enrollment['record']->user_code,
         'confirmed' => '1',
-    ])->assertRedirect();
+    ])->assertRedirect()->assertSessionMissing('refused');
 
     $case->flushSession();
 
@@ -135,7 +135,7 @@ it('answers 201 where it creates something and 200 where it replaces one', funct
     $this->actingAs($this->developer, 'web')->post(route('robot-council.enroll.approve'), [
         'user_code' => $enrollment['record']->user_code,
         'confirmed' => '1',
-    ])->assertRedirect();
+    ])->assertRedirect()->assertSessionMissing('refused');
 
     $this->flushSession();
 
@@ -161,7 +161,7 @@ it('names a duration the same way wherever one is stated', function (): void {
     $this->actingAs($this->developer, 'web')->post(route('robot-council.enroll.approve'), [
         'user_code' => $enrollment['record']->user_code,
         'confirmed' => '1',
-    ])->assertRedirect();
+    ])->assertRedirect()->assertSessionMissing('refused');
 
     $this->flushSession();
 

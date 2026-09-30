@@ -44,7 +44,7 @@ function approveEnrollment(TestCase $case, User $developer, array $enrollment): 
             'user_code' => $enrollment['record']->user_code,
             'confirmed' => '1',
         ])
-        ->assertRedirect();
+        ->assertRedirect()->assertSessionMissing('refused');
 }
 
 /**
@@ -186,7 +186,7 @@ it('answers invalid_grant in every state when the verifier is wrong', function (
         // this case into a second copy of the pending one
         $this->actingAs($this->developer, 'web')
             ->post(route('robot-council.enroll.deny'), ['user_code' => $enrollment['record']->user_code])
-            ->assertRedirect();
+            ->assertRedirect()->assertSessionMissing('refused');
 
         expect($enrollment['record']->refresh()->denied_at)->not->toBeNull();
     }

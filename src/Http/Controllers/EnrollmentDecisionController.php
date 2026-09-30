@@ -13,8 +13,6 @@ use RobotCouncil\Models\DeviceCode;
 use RobotCouncil\Support\DeviceCodes;
 use RobotCouncil\Support\HostKey;
 use RuntimeException;
-use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
-use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
  * Records a developer's decision on an enrollment request. Both actions accept POST only, so
@@ -23,6 +21,13 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  *
  * A decision is final. Each is one conditional update, so a second decision on the same code, from
  * a double submit or a second browser tab, changes nothing and says so.
+ *
+ * **A refusal is answered on the page, not with an error page** (#452). An expired code and a
+ * request already decided are ordinary for a developer -- a page left open, a second click -- so
+ * each redirects back to the enrollment page, as a decision that succeeds does, with a message
+ * that leads with its keyword and says what to do. They were 404 and 409 before, and the
+ * framework's error page named neither the request nor a next step. A redirect rather than the
+ * page rendered with that status, so reloading it does not resubmit the form.
  */
 final class EnrollmentDecisionController
 {
@@ -41,10 +46,7 @@ final class EnrollmentDecisionController
      * Approve a request, granting the abilities it asked for that are on the fixed list.
      *
      * @param  Request  $request  The incoming request.
-     * @return RedirectResponse Back to the page, which then shows the decision.
-     *
-     * @throws NotFoundHttpException When no live request carries that code.
-     * @throws ConflictHttpException When the request was already decided or exchanged.
+     * @return RedirectResponse Back to the page, which then shows the decision, or why none was made.
      */
     public function approve(Request $request): RedirectResponse
     {
@@ -56,14 +58,18 @@ final class EnrollmentDecisionController
             'confirmed' => ['accepted'],
         ]);
 
-        $code = $this->live($request->string('user_code')->value());
+        $code = $this->deviceCodes->findByUserCode($request->string('user_code')->value());
+
+        if (! $code instanceof DeviceCode) {
+            return $this->expired($request->string('user_code')->value());
+        }
 
         // Read from the stored row rather than the request, so abilities added to this POST reach
         // nothing, and so the list shown on the page is the list that is granted
         $granted = Ability::granted($code->requestedAbilities());
 
         if (! $this->deviceCodes->approve($code, $this->developerKey(), $granted)) {
-            throw new ConflictHttpException;
+            return $this->refused($code);
         }
 
         return $this->back($code, 'Approved: the machine that asked for this code can now enroll.');
@@ -73,10 +79,7 @@ final class EnrollmentDecisionController
      * Deny a request.
      *
      * @param  Request  $request  The incoming request.
-     * @return RedirectResponse Back to the page, which then shows the decision.
-     *
-     * @throws NotFoundHttpException When no live request carries that code.
-     * @throws ConflictHttpException When the request was already decided or exchanged.
+     * @return RedirectResponse Back to the page, which then shows the decision, or why none was made.
      */
     public function deny(Request $request): RedirectResponse
     {
@@ -84,32 +87,57 @@ final class EnrollmentDecisionController
             'user_code' => ['required', 'string', 'max:32'],
         ]);
 
-        $code = $this->live($request->string('user_code')->value());
+        $code = $this->deviceCodes->findByUserCode($request->string('user_code')->value());
+
+        if (! $code instanceof DeviceCode) {
+            return $this->expired($request->string('user_code')->value());
+        }
 
         if (! $this->deviceCodes->deny($code, $this->developerKey())) {
-            throw new ConflictHttpException;
+            return $this->refused($code);
         }
 
         return $this->back($code, 'Denied: nothing was enrolled, and the machine that asked cannot use this code.');
     }
 
     /**
-     * Find the live request a code names.
+     * Send the developer back to say the code is no longer waiting.
      *
-     * @param  string  $userCode  What the developer typed.
-     * @return DeviceCode The request.
+     * An unknown code reads the same, because the store cannot tell a code that expired and was
+     * pruned from one that never existed, and the next step is the same for both.
      *
-     * @throws NotFoundHttpException When the code is unknown or has expired.
+     * @param  string  $userCode  What the developer submitted.
+     * @return RedirectResponse The redirect.
      */
-    private function live(string $userCode): DeviceCode
+    private function expired(string $userCode): RedirectResponse
     {
-        $code = $this->deviceCodes->findByUserCode($userCode);
+        return redirect()
+            ->route('robot-council.enroll.show', ['user_code' => DeviceCodes::normalizeUserCode($userCode)])
+            ->with('refused', 'Expired: this code is no longer waiting. Ask the machine for a new one.');
+    }
 
-        if (! $code instanceof DeviceCode) {
-            throw new NotFoundHttpException;
+    /**
+     * Send the developer back to say why the store refused the decision.
+     *
+     * The store's update refuses a request that is decided, exchanged or expired, and says only
+     * that it refused, so the row is read again to tell them apart: a code that expired or was
+     * pruned between the lookup and the update is not "already decided".
+     *
+     * @param  DeviceCode  $code  The request the decision was about.
+     * @return RedirectResponse The redirect.
+     */
+    private function refused(DeviceCode $code): RedirectResponse
+    {
+        $now = $code->fresh();
+
+        // Only an approved request is ever exchanged, so decided covers consumed too
+        if (! $now instanceof DeviceCode || ! $now->isDecided()) {
+            return $this->expired($code->user_code);
         }
 
-        return $code;
+        return redirect()
+            ->route('robot-council.enroll.show', ['user_code' => $code->user_code])
+            ->with('refused', 'Already decided: this request was approved or denied before. Nothing further will happen to it.');
     }
 
     /**
