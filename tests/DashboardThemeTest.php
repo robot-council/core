@@ -897,6 +897,12 @@ function classesWithoutRules(string $source, string $css): array
         // continues with, so `badge` is not found inside `.badge-sm`, nor `sm` inside `.sm\:w-auto`
         $selector = '.'.preg_replace('/([^a-zA-Z0-9_-])/', '\\\\$1', $class);
 
+        // A leading digit cannot start an identifier, so CSS writes it as a hex escape and a space:
+        // `2xl:` is `.\32 xl\:` in the stylesheet
+        if (preg_match('/^[0-9]/', $class) === 1) {
+            $selector = '.\\3'.$class[0].' '.substr($selector, 2);
+        }
+
         if (preg_match('/'.preg_quote($selector, '/').'(?![a-zA-Z0-9_\\\\-])/', $css) !== 1) {
             $missing[] = $class;
         }
@@ -987,10 +993,11 @@ it('reports a class the stylesheet has no rule for, so the check above is not bl
         <p @class(['text-meta', 'text-metaa', 'font-semibold' => $bold])></p>
         @include('robot-council::partials.said', ['show' => true, 'class' => 'w-full mt-2x'])
         <div class="sm md"></div>
+        <td class="2xl:whitespace-nowrap 2xl:whitespace-nowrapp"></td>
         BLADE;
 
     expect(classesWithoutRules($source, stylesheet()))->toBe([
-        'badg', 'btn-outlined', 'form-control', 'input-bordered', 'label-text', 'md', 'menu-activ', 'mt-2x', 'select-bordered', 'sm', 'text-metaa',
+        '2xl:whitespace-nowrapp', 'badg', 'btn-outlined', 'form-control', 'input-bordered', 'label-text', 'md', 'menu-activ', 'mt-2x', 'select-bordered', 'sm', 'text-metaa',
     ]);
 });
 

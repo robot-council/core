@@ -9,7 +9,7 @@
     `aria-label`s name an entry by its ID alone for that reason.
 --}}
 
-<div class="space-y-6">
+<div class="max-w-5xl space-y-6">
     <div class="card bg-base-100 shadow-sm">
         <div class="card-body">
             <h1 class="card-title">Access</h1>
@@ -68,7 +68,7 @@
                 @include('robot-council::partials.said', ['show' => $said !== null && $saidAt === $key, 'class' => ''])
 
                 @if ($lists[$key]['configured'] === [] && $lists[$key]['stored'] === [])
-                    <p class="py-4 opacity-80">None yet: nobody is on this list.</p>
+                    <p class="max-w-xl py-4 opacity-80">None yet: nobody is on this list.</p>
                 @else
                     <ul class="divide-y divide-base-200">
                         @foreach ($lists[$key]['configured'] as $entry)

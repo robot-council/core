@@ -161,7 +161,7 @@ it('lists a held lock with its holder, fence and lease', function (): void {
     Livewire::test(LocksPage::class)
         ->assertSee('deploy')
         ->assertSee('somebody-else')
-        ->assertSeeHtml('<td role="cell" data-label="Fence">1</td>')
+        ->assertSeeHtml('<td role="cell" data-label="Fence" class="2xl:whitespace-nowrap">1</td>')
         ->assertSee('expires in');
 });
 

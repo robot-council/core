@@ -93,7 +93,7 @@
                                              placement on once the two are equal --}}
                                         <div class="text-meta opacity-90"><span data-occupancy>{{ $lane['holding'] }} / {{ $lane['capacity'] }}</span> {{ $lane['holding'] === 1 ? 'task' : 'tasks' }} held</div>
                                     </td>
-                                    <td role="cell" data-label="State" data-state="{{ $lane['state'] }}">{{ $lane['state'] }}</td>
+                                    <td role="cell" data-label="State" class="2xl:whitespace-nowrap" data-state="{{ $lane['state'] }}">{{ $lane['state'] }}</td>
                                     {{-- Its own column, separate from State, from the watcher's own heartbeat (#337) --}}
                                     <td role="cell" data-label="Watcher" data-watcher="{{ $lane['watcher']['state'] }}">
                                         @switch ($lane['watcher']['state'])
@@ -170,7 +170,7 @@
                                             <span class="opacity-80">&mdash;</span>
                                         @endif
                                     </td>
-                                    <td role="cell" data-label="Known since" class="text-meta opacity-90">{{ $lane['known_since']?->diffForHumans() ?? 'never' }}</td>
+                                    <td role="cell" data-label="Known since" class="2xl:whitespace-nowrap text-meta opacity-90">{{ $lane['known_since']?->diffForHumans() ?? 'never' }}</td>
                                 </tr>
                             @endforeach
                         </tbody>
@@ -181,7 +181,7 @@
                     <div class="mt-2">
                         <h3 class="font-medium">Pull requests</h3>
                         @if (($board['pull_requests'][$repository] ?? []) === [])
-                            <p class="text-meta opacity-80">None open: GitHub has reported no open pull request for this repository.</p>
+                            <p class="max-w-xl text-meta opacity-80">None open: GitHub has reported no open pull request for this repository.</p>
                         @else
                             <ul class="text-meta">
                                 @foreach ($board['pull_requests'][$repository] as $pull)
@@ -198,11 +198,11 @@
             </div>
         </div>
     @empty
-        <p class="py-6 text-center opacity-80">No lanes: no session that can take work is connected. A lane appears here when an agent joins the fleet.</p>
+        <p class="mx-auto max-w-xl py-6 text-center opacity-80">No lanes: no session that can take work is connected. A lane appears here when an agent joins the fleet.</p>
     @endforelse
 
     @if ($board['truncated'])
-        <p class="text-meta opacity-90">Only the first {{ \RobotCouncil\Support\LaneBoard::MAX_LANES }} lanes are shown.</p>
+        <p class="max-w-xl text-meta opacity-90">Only the first {{ \RobotCouncil\Support\LaneBoard::MAX_LANES }} lanes are shown.</p>
     @endif
 
     <div class="card bg-base-100 shadow-sm">
@@ -217,7 +217,7 @@
                     <h3 class="font-medium">{{ $section['developer'] ?? 'General' }}</h3>
                     <ul class="text-meta">
                         @foreach ($section['items'] as $item)
-                            <li wire:key="owed-item-{{ $item['id'] }}" data-owed-item>
+                            <li wire:key="owed-item-{{ $item['id'] }}" class="max-w-xl leading-relaxed" data-owed-item>
                                 @if (\RobotCouncil\Support\TicketLink::url($item['ticket']) !== null)
                                     <a href="{{ \RobotCouncil\Support\TicketLink::url($item['ticket']) }}" class="link" rel="noopener noreferrer"><code>{{ $item['ticket'] }}</code></a>
                                 @endif
@@ -228,12 +228,12 @@
                     </ul>
                 </div>
             @empty
-                <p class="text-meta opacity-80">Nothing waiting: no agent has asked a developer for a decision or an action.</p>
+                <p class="max-w-xl text-meta opacity-80">Nothing waiting: no agent has asked a developer for a decision or an action.</p>
             @endforelse
         </div>
     </div>
 
-    <p class="text-meta opacity-80">
+    <p class="max-w-xl text-meta opacity-80">
         Rendered from measured state, not edited by hand. Liveness comes from observed presence, not from
         any declared roster.
     </p>

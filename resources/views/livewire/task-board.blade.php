@@ -45,7 +45,7 @@
         @endif
 
         @if ($tasks === [])
-            <p class="py-6 text-center opacity-80">
+            <p class="mx-auto max-w-xl py-6 text-center opacity-80">
                 @if ($afterId !== null)
                     End of the queue: nothing comes after this page. Choose First page to go back.
                 @elseif ($shownStatus !== '')
@@ -80,9 +80,9 @@
                                     @endif
                                 </td>
 
-                                <td role="cell" data-label="Status"><span class="badge badge-sm">{{ $task['status'] }}</span></td>
+                                <td role="cell" data-label="Status" class="2xl:whitespace-nowrap"><span class="badge badge-sm">{{ $task['status'] }}</span></td>
 
-                                <td role="cell" data-label="Priority">{{ $task['priority'] }}</td>
+                                <td role="cell" data-label="Priority" class="2xl:whitespace-nowrap">{{ $task['priority'] }}</td>
 
                                 <td role="cell" data-label="Filed by">
                                     {{-- The session by where it works, `<repository>/<machine>/<slot>` (#421): one
