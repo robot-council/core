@@ -170,8 +170,8 @@ final class SeatSettings extends Component
         if ($saved) {
             $this->say('hours', sprintf(
                 'Saved: your seats take new work from %s until %s, %s, %s.',
-                DisplayTime::clock(CarbonImmutable::parse($this->startsAt)),
-                DisplayTime::clock(CarbonImmutable::parse($this->endsAt)),
+                DisplayTime::clock(CarbonImmutable::createFromFormat('H:i', $this->startsAt, 'UTC') ?: CarbonImmutable::now('UTC')),
+                DisplayTime::clock(CarbonImmutable::createFromFormat('H:i', $this->endsAt, 'UTC') ?: CarbonImmutable::now('UTC')),
                 DisplayTime::zoneName($this->timezone),
                 $this->skipWeekends ? 'on weekdays only' : 'every day of the week'
             ));

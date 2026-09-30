@@ -81,7 +81,7 @@ final class DisplayTime
 
             // ICU answers a zone it has no generic name for with a GMT offset, which says less than
             // the identifier does
-            if (\is_string($name) && $name !== '' && ! str_starts_with($name, 'GMT')) {
+            if ($name !== '' && ! str_starts_with($name, 'GMT')) {
                 return $name;
             }
         }

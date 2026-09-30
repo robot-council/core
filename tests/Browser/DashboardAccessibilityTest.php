@@ -562,7 +562,7 @@ it('picks a time zone from a grouped list by keyboard, named by its label, and s
         ->and($picker['groups'] ?? 0)->toBeGreaterThan(5);
 
     // Saved without touching the picker, the stored zone is what is saved
-    $page->click('Save hours')->assertSee('America/Chicago time');
+    $page->click('Save hours')->assertSee('Central Time');
 
     expect(AssignmentHours::query()->count())->toBe(1)
         ->and(AssignmentHours::query()->first()?->timezone)->toBe('America/Chicago');

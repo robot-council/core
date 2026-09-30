@@ -73,8 +73,8 @@ it('tells apart two live sessions in the same checkout with the same role', func
         ->and($rows[$old->id])->toContain('joined Sep 26, 2026, 8 a.m. UTC (1 hour ago), last seen Sep 26, 2026, 8:40 a.m. UTC (20 minutes ago)')
         ->and($rows[$new->id])->toContain('joined Sep 26, 2026, 9 a.m. UTC (30 seconds ago), last seen Sep 26, 2026, 9 a.m. UTC (30 seconds ago)')
         // The exact time is in the markup, for software rather than for hover
-        ->and($html)->toContain('<time datetime="2026-09-26T08:00:00+00:00">')
-        ->toContain('<time datetime="2026-09-26T08:40:00+00:00">');
+        ->and($html)->toContain('<time datetime="2026-09-26T08:00:00Z">')
+        ->toContain('<time datetime="2026-09-26T08:40:00Z">');
 });
 
 it("shows the same instants on a host whose clock is not UTC, in the dashboard's zone", function (): void {

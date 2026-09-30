@@ -69,16 +69,16 @@ it('names the baseline in the fleet zone on the lane board and in the glossary, 
     foreach ([$this->tokyo, $this->unset] as $viewer) {
         $html = Livewire::actingAs($viewer)->test(Lanes::class)->html();
 
-        expect($html)->toContain("Each count is compared with the same repository's count at 8 a.m. Central Time today.")
-            ->and($html)->toContain('no 8 a.m. Central Time count yet')
-            ->and($html)->not->toContain('08:00');
+        expect($html)->toContain('Each count is compared with the same repository\'s count at <time datetime="08:00">8 a.m. Central Time</time> each day.')
+            ->and($html)->toContain('no <time datetime="08:00">8 a.m. Central Time</time> count yet')
+            ->and(strip_tags($html))->not->toContain('08:00');
     }
 
     $this->actingAs($this->tokyo);
 
-    expect(Glossary::entries(['open_issues'])[0]['means'])->toContain('compares with its count at 8 a.m. Central Time today')
+    expect(Glossary::entries(['open_issues'])[0]['means'])->toContain('compares with its count at 8 a.m. Central Time each day')
         ->and(Glossary::entries(['open_issues'])[0]['means'])->not->toContain(':baseline');
-});
+})->skip(! class_exists(IntlTimeZone::class), 'Needs ext-intl, which names zones in words.');
 
 it("shows the lane board's stamps in the viewer's own zone, named, with the fleet zone as the fallback", function (): void {
     // 15:05 UTC is 12:05 a.m. the next day in Tokyo and 10:05 a.m. in Chicago
@@ -105,7 +105,7 @@ it("shows a session's times on the administration page in the viewer's own zone,
     Carbon::setTestNow('2026-09-24 17:00:00');
     $this->service(AgentSessions::class)->start($this->installation, 'robot-council/core', 'a');
 
-    // Midnight and noon, the two times written as words
+    // Noon, one of the two times written as words, for the viewer on the fleet zone
     Carbon::setTestNow('2026-09-24 17:10:00');
     $tokyo = Livewire::actingAs($this->tokyo)->test(Administration::class)->html();
 
@@ -115,10 +115,10 @@ it("shows a session's times on the administration page in the viewer's own zone,
     $fleet = Livewire::actingAs($this->unset)->test(Administration::class)->html();
 
     expect($fleet)->toContain('Sep 24, 2026, noon Central Time (10 minutes ago)')
-        ->and($fleet)->toContain('datetime="2026-09-24T17:00:00+00:00"');
+        ->and($fleet)->toContain('datetime="2026-09-24T17:00:00Z"');
 })->skip(! class_exists(IntlTimeZone::class), 'Needs ext-intl, which names zones in words.');
 
-it('falls back to the zone identifier where ext-intl cannot name it, and never to a GMT offset', function (): void {
+it('names a zone ICU knows only by its offset by its identifier, never as a GMT offset', function (): void {
     // A zone ICU names only by offset reads as its identifier; the control is one it names
     $named = DisplayTime::zoneName('America/Chicago');
     $offsetOnly = DisplayTime::zoneName('Etc/GMT+5');

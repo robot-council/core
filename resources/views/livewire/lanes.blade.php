@@ -26,7 +26,7 @@
 
     @if ($board['meters'] !== [])
         {{-- Whose 8 a.m.: the fleet's, which everyone shares, named rather than assumed (#487) --}}
-        <p class="text-meta max-w-xl leading-relaxed opacity-90" data-baseline>Each count is compared with the same repository's count at {{ $time->baseline() }} today.</p>
+        <p class="text-meta max-w-xl leading-relaxed opacity-90" data-baseline>Each count is compared with the same repository's count at <time datetime="{{ \RobotCouncil\Support\Backlog::BASELINE_AT }}">{{ $time->baseline() }}</time> each day.</p>
 
         <div class="flex flex-wrap gap-3">
             @foreach ($board['meters'] as $repository => $meter)
@@ -45,7 +45,7 @@
                                  error colour --}}
                             <div class="text-meta" data-meter-delta>
                                 @if ($meter['delta'] === null)
-                                    <span class="opacity-90">no {{ $time->baseline() }} count yet</span>
+                                    <span class="opacity-90">no <time datetime="{{ \RobotCouncil\Support\Backlog::BASELINE_AT }}">{{ $time->baseline() }}</time> count yet</span>
                                 @elseif ($meter['delta'] > 0)
                                     <span class="font-semibold text-error">up {{ $meter['delta'] }}</span>
                                 @elseif ($meter['delta'] < 0)

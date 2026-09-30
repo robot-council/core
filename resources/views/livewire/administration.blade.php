@@ -149,11 +149,11 @@
                                             <span data-session-times>
                                                 joined
                                                 @if ($session['joined_at'] !== null)
-                                                    <time datetime="{{ $session['joined_at'] }}">{{ $when($session['joined_at']) }}</time>,
+                                                    <time datetime="{{ \RobotCouncil\Support\DisplayTime::iso(\Illuminate\Support\Carbon::parse($session['joined_at'])) }}">{{ $when($session['joined_at']) }}</time>,
                                                 @else
                                                     at an unrecorded time,
                                                 @endif
-                                                last seen <time datetime="{{ $session['last_seen_at'] }}">{{ $when($session['last_seen_at']) }}</time>
+                                                last seen <time datetime="{{ \RobotCouncil\Support\DisplayTime::iso(\Illuminate\Support\Carbon::parse($session['last_seen_at'])) }}">{{ $when($session['last_seen_at']) }}</time>
                                             </span>
 
                                             {{-- **What it ASKED to be, presented as information and

@@ -53,18 +53,19 @@ beforeEach(function (): void {
     $this->setAccessLists(developers: [4242, 77], admins: [4242]);
 });
 
-it('polls on five queries plus the allowlist read, and mounts on seven', function (): void {
+it('polls on six queries plus the allowlist read, and mounts on eight', function (): void {
     $admin = $this->enrollDeveloper(4242);
     approveInstallations($this, $admin, $this->enrollDeveloper(77, login: 'otherdev'), 3);
     $this->actingAs($admin, 'web');
 
-    // The five a poll issues:
+    // The six a poll issues:
     //
     //   1  `authorizeAdmin()` resolving the signed-in developer's GitHub identity
     //   2  the page of installations, with `sessions` eager-loaded
     //   3  that eager load
     //   4  the GitHub logins, by the `user_id` on each loaded row
     //   5  the installation totals, live and overall in one pass
+    //   6  the viewer's own time zone, from their hours, for the times the page shows (#487)
     //
     // The removed one was `retired`, which was only ever `count(*) - $live`.
     //
@@ -74,12 +75,12 @@ it('polls on five queries plus the allowlist read, and mounts on seven', functio
     // **And one read of the added allowlist entries (#406), once per request.** `Access\Allowlist`
     // is scoped, so in production a poll -- its own request -- pays it as a sixth query. Here the
     // mount and the refresh share one application, so the mount pays it and the difference below
-    // does not include it: 5 - 1 = 4 measured, 5 + 1 = 6 in production.
+    // does not include it: 6 - 1 = 5 measured, 6 + 1 = 7 in production.
     $mountOnly = queriesIssuedBy(fn () => Livewire::test(Administration::class));
     $mountAndRefresh = queriesIssuedBy(fn () => Livewire::test(Administration::class)->call('$refresh'));
 
-    expect($mountAndRefresh - $mountOnly)->toBe(4)
-        ->and($mountOnly)->toBe(7);
+    expect($mountAndRefresh - $mountOnly)->toBe(5)
+        ->and($mountOnly)->toBe(8);
 });
 
 it('does not grow with the number of installations', function (int $installations): void {
@@ -88,7 +89,7 @@ it('does not grow with the number of installations', function (int $installation
     $this->actingAs($admin, 'web');
 
     expect(Installation::query()->count())->toBe($installations)
-        ->and(queriesIssuedBy(fn () => Livewire::test(Administration::class)))->toBe(7);
+        ->and(queriesIssuedBy(fn () => Livewire::test(Administration::class)))->toBe(8);
 })->with([1, 5, 20]);
 
 it('does not grow with the number of sessions behind each installation', function (int $sessionsEach): void {
@@ -97,7 +98,7 @@ it('does not grow with the number of sessions behind each installation', functio
     $this->actingAs($admin, 'web');
 
     expect(AgentSession::query()->count())->toBe($sessionsEach * 2)
-        ->and(queriesIssuedBy(fn () => Livewire::test(Administration::class)))->toBe(7);
+        ->and(queriesIssuedBy(fn () => Livewire::test(Administration::class)))->toBe(8);
 })->with([1, 3, 10]);
 
 it('counts live and retired for every shape the table can take', function (): void {
