@@ -32,7 +32,7 @@
             @foreach ($board['meters'] as $repository => $meter)
                 <div wire:key="meter-{{ $repository }}" class="card bg-base-100 shadow-sm">
                     <div class="card-body p-4">
-                        <div class="text-meta opacity-90"><code>{{ $repository }}</code> open issues</div>
+                        <div class="text-meta opacity-90"><x-robot-council::avatar :repository="$repository" /><code>{{ $repository }}</code> open issues</div>
                         {{-- Unreadable is a dash and says so, never a number: no count reported,
                              or one older than `backlog.stale_after_minutes` (#339) --}}
                         @if ($meter['count'] === null)
@@ -65,7 +65,7 @@
     @forelse ($board['lanes'] as $repository => $lanes)
         <div wire:key="lanes-{{ $repository }}" class="card bg-base-100 shadow-sm">
             <div class="card-body">
-                <h2 class="card-title">{{ $repository === '' ? 'No repository reported' : $repository }}</h2>
+                <h2 class="card-title"><x-robot-council::avatar :repository="$repository" />{{ $repository === '' ? 'No repository reported' : $repository }}</h2>
 
                 <div class="overflow-x-auto">
                     <table class="table table-stack" role="table">

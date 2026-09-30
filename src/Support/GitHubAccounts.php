@@ -27,7 +27,9 @@ use RobotCouncil\Models\GithubIdentity;
  * counts for**: a lane board repository's owner, or one the fetch history names, so a quiet fleet
  * with no live lane can still look accounts up. A profile needs no permission, so the token is the
  * count's own. Kept separate from the Access page so that #410's avatars could reuse it: `avatarOf()`
- * names the signed-in developer's stored avatar, and asks GitHub nothing.
+ * names the signed-in developer's stored avatar, and asks GitHub nothing. #416 added repository
+ * owners' avatars beside it: `noteOwner()` stores the one each webhook delivery carries, and
+ * `repositoryImageOf()` reads it back -- again asking GitHub nothing.
  */
 final class GitHubAccounts
 {
@@ -69,6 +71,14 @@ final class GitHubAccounts
      * Whether every signed-in developer's avatar has been read, so an unknown login has none.
      */
     private bool $readAllAvatars = false;
+
+    /**
+     * Avatar URLs by lower-cased repository owner, once read: every owner's at once, since a fleet
+     * works in a handful of accounts.
+     *
+     * @var array<string, string|null>|null
+     */
+    private ?array $owners = null;
 
     /**
      * @param  GitHubAppKey  $key  Whether an App is configured at all.
@@ -170,6 +180,72 @@ final class GitHubAccounts
     }
 
     /**
+     * The picture shown beside a repository: its owner's avatar, as a webhook delivery last gave it
+     * (#416).
+     *
+     * **The owner's, never the repository's own.** GitHub gives a repository no avatar; what it can
+     * have is a social preview, a 1280 by 640 banner that a circle cropped from its middle turns into
+     * a fragment of text, and that only GraphQL returns -- a request of a kind the App does not make
+     * and #318's rule does not admit. So every repository of one owner shows that owner's picture.
+     * Read from `robot_council_github_owners`, which deliveries write, so it asks GitHub nothing, and
+     * returns only a URL matching `AVATAR`, which is why `EscapingGuardTest` admits it as one the
+     * server built. One query a request at most, reading every owner.
+     *
+     * @param  string|null  $repository  `owner/name`.
+     * @return string|null The URL, or null when there is none to load.
+     */
+    public static function repositoryImageOf(?string $repository): ?string
+    {
+        if ($repository === null || ! str_contains($repository, '/')) {
+            return null;
+        }
+
+        // Through `app()`, since the instance is scoped per request and a captured one is not
+        return app(self::class)->ownerAvatar(mb_strtolower(strstr($repository, '/', true)));
+    }
+
+    /**
+     * Remember the avatar a webhook delivery gives its repository's owner (#416).
+     *
+     * **Written only when it changed**, so the table is refreshed as often as a picture actually
+     * changes and a busy repository costs one read a delivery rather than a write. A delivery naming
+     * no owner, an owner that is not the repository's, or an avatar outside `AVATAR` changes
+     * nothing -- the picture already stored is kept rather than blanked.
+     *
+     * @param  array<array-key, mixed>  $payload  The decoded delivery.
+     */
+    public function noteOwner(array $payload): void
+    {
+        $repository = \is_array($payload['repository'] ?? null) ? $payload['repository'] : [];
+        $owner = \is_array($repository['owner'] ?? null) ? $repository['owner'] : [];
+        $fullName = $repository['full_name'] ?? null;
+        $login = $owner['login'] ?? null;
+        $url = $owner['avatar_url'] ?? null;
+
+        if (! \is_string($fullName) || ! \is_string($login) || ! \is_string($url) || preg_match(LaneHolds::LOGIN, $login) !== 1) {
+            return;
+        }
+
+        $login = mb_strtolower($login);
+
+        if (! str_starts_with(mb_strtolower($fullName), $login.'/') || self::checkedAvatar($url) === null) {
+            return;
+        }
+
+        if (DB::table('robot_council_github_owners')->where('login', $login)->value('avatar_url') === $url) {
+            return;
+        }
+
+        DB::table('robot_council_github_owners')->upsert(
+            [['login' => $login, 'avatar_url' => $url, 'noted_at' => PresenceClock::now()]],
+            ['login'],
+            ['avatar_url', 'noted_at']
+        );
+
+        $this->owners = null;
+    }
+
+    /**
      * Remember the avatars on identity rows a caller has already read, so showing them costs no
      * query of its own. `AgentLogins` reads the logins every page names, and passes its rows here.
      *
@@ -251,6 +327,25 @@ final class GitHubAccounts
         }
 
         return $this->avatars[$login] ?? null;
+    }
+
+    /**
+     * One repository owner's avatar, reading every owner's the first time one is asked for.
+     *
+     * @param  string  $owner  The owner's login, lower-cased.
+     * @return string|null The URL, or null when there is none to load.
+     */
+    private function ownerAvatar(string $owner): ?string
+    {
+        if ($this->owners === null) {
+            $this->owners = [];
+
+            foreach (DB::table('robot_council_github_owners')->get(['login', 'avatar_url']) as $row) {
+                $this->owners[mb_strtolower((string) $row->login)] = self::checkedAvatar((string) $row->avatar_url);
+            }
+        }
+
+        return $this->owners[$owner] ?? null;
     }
 
     /**

@@ -1211,17 +1211,21 @@ it('finds a wrapped value, a clipped table and a long line when they are planted
 });
 
 /**
- * Each avatar's circle, as drawn: its size, its corner radius, and whether a picture is in it.
+ * Each avatar's circle, as drawn: whose it is, its size, its corner radius, whether it has a drawn
+ * ring, and whether a picture is in it.
  *
- * @return list<array{width: float|int, height: float|int, round: bool, picture: bool, initial: string}> One per avatar.
+ * @return list<array{kind: string, width: float|int, height: float|int, round: bool, ring: bool, picture: bool, initial: string}> One per avatar.
  */
 function avatarShapes(PendingAwaitablePage $page): array
 {
-    /** @var list<array{width: float|int, height: float|int, round: bool, picture: bool, initial: string}> */
+    /** @var list<array{kind: string, width: float|int, height: float|int, round: bool, ring: bool, picture: bool, initial: string}> */
     return pageList($page, 'avatar', <<<'JS'
         () => [...document.querySelectorAll('[data-avatar] > span')].map(circle => {
             const box = circle.getBoundingClientRect();
+            const style = getComputedStyle(circle);
             return {
+                kind: circle.parentElement.dataset.avatar === 'repository' ? 'repository' : 'developer',
+                ring: parseFloat(style.borderTopWidth) >= 2 && style.borderTopColor !== 'rgba(0, 0, 0, 0)',
                 width: Math.round(box.width * 10) / 10,
                 height: Math.round(box.height * 10) / 10,
                 round: parseFloat(getComputedStyle(circle).borderTopLeftRadius) >= box.width / 2,
@@ -1232,7 +1236,7 @@ function avatarShapes(PendingAwaitablePage $page): array
     JS);
 }
 
-it("keeps each developer's avatar a circle sized in rem, and falls back to the initial when the picture fails (#410)", function (): void {
+it("keeps each developer's and repository's picture a circle sized in rem, ringed for a repository, and falls back to the letter when the picture fails (#410, #416)", function (): void {
     // No stored picture, so nothing here reaches the network: what the browser owns -- shape, size
     // and what a failed picture leaves behind -- is measured, and which picture a page names is
     // `DeveloperAvatarTest`'s
@@ -1240,8 +1244,15 @@ it("keeps each developer's avatar a circle sized in rem, and falls back to the i
 
     $shapes = avatarShapes($page);
 
-    // Both developers on the board, each a 1.5rem circle
-    expect(array_values(array_unique(array_column($shapes, 'initial'))))->toEqualCanonicalizing(['O', 'C']);
+    $developers = array_values(array_filter($shapes, static fn (array $shape): bool => $shape['kind'] === 'developer'));
+    $repositories = array_values(array_filter($shapes, static fn (array $shape): bool => $shape['kind'] === 'repository'));
+
+    // Both developers on the board, and its repositories, each a 1.5rem circle; only a repository's
+    // is ringed, so an organization's picture is not read as a face
+    expect(array_values(array_unique(array_column($developers, 'initial'))))->toEqualCanonicalizing(['O', 'C'])
+        ->and($repositories)->not->toBeEmpty()
+        ->and(array_column($developers, 'ring'))->not->toContain(true)
+        ->and(array_column($repositories, 'ring'))->not->toContain(false);
 
     foreach ($shapes as $shape) {
         expect($shape['width'])->toEqual(24)->and($shape['height'])->toEqual(24)->and($shape['round'])->toBeTrue();
@@ -1254,20 +1265,22 @@ it("keeps each developer's avatar a circle sized in rem, and falls back to the i
         expect($shape['width'])->toEqual(48)->and($shape['height'])->toEqual(48)->and($shape['round'])->toBeTrue();
     }
 
-    // A picture that really fails to load, put where the component puts one, is taken away and
-    // leaves the initial beneath it. Its presence is read first, so the removal is the script's
-    // work rather than a picture that was never there
+    // A picture that really fails to load, put where the component puts one -- in a developer's
+    // circle and in a repository's -- is taken away and leaves the letter beneath it. Their presence
+    // is read first, so the removal is the script's work rather than pictures that were never there
     $planted = $page->script(<<<'JS'
         () => {
-            const image = document.createElement('img');
-            image.alt = '';
-            image.src = 'data:image/png;base64,broken';
-            document.querySelector('[data-avatar] > span').appendChild(image);
+            for (const selector of ['[data-avatar=""] > span', '[data-avatar="repository"] > span']) {
+                const image = document.createElement('img');
+                image.alt = '';
+                image.src = 'data:image/png;base64,broken';
+                document.querySelector(selector).appendChild(image);
+            }
             return document.querySelectorAll('[data-avatar] img').length;
         }
     JS);
 
-    expect($planted)->toBe(1);
+    expect($planted)->toBe(2);
 
     $page->wait(0.5);
 

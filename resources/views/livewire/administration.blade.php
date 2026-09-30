@@ -122,7 +122,7 @@
                                             @php($where = $session['repository'] ?? null)
 
                                             @if ($where !== null)
-                                                <span class="opacity-90"><code>{{ $where }}</code></span>
+                                                <span class="opacity-90"><x-robot-council::avatar :repository="$where" /><code>{{ $where }}</code></span>
                                             @endif
 
                                             @if (($session['work_location'] ?? null) !== null)

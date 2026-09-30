@@ -63,12 +63,14 @@ final class GitHubState
      * @param  GateRuns  $gates  The gate runs, ended when their pull request leaves the open set.
      * @param  OwedItems  $owed  What the fleet waits on developers for, settled by their tickets (#335).
      * @param  LaneConditions  $conditions  Told when a merge leaves sessions behind (#319).
+     * @param  GitHubAccounts  $accounts  Told each delivery's repository owner and its avatar (#416).
      */
     public function __construct(
         private readonly Tasks $tasks,
         private readonly GateRuns $gates,
         private readonly OwedItems $owed,
-        private readonly LaneConditions $conditions
+        private readonly LaneConditions $conditions,
+        private readonly GitHubAccounts $accounts
     ) {}
 
     /**
@@ -111,6 +113,16 @@ final class GitHubState
                 default => 'ignored',
             };
         });
+
+        // The owner's picture, for the dashboard (#416). After the commit and in its own guard, since
+        // a picture is display and must never refuse or undo a delivery that changed a lane
+        if ($outcome !== 'duplicate') {
+            try {
+                $this->accounts->noteOwner($payload);
+            } catch (Throwable $throwable) {
+                Log::warning("robot-council: a delivery's repository owner could not be remembered.", ['exception' => $throwable::class]);
+            }
+        }
 
         $this->prune();
 

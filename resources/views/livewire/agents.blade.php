@@ -117,7 +117,7 @@
                                     @php($where = $agent['repository'] ?? null)
 
                                     @if ($where !== null)
-                                        <div><code>{{ $where }}</code></div>
+                                        <div><x-robot-council::avatar :repository="$where" /><code>{{ $where }}</code></div>
                                     @endif
 
                                     @if (($agent['work_location'] ?? null) !== null)
