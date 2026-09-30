@@ -92,7 +92,7 @@ it("shows the task's issue, linked, when it has one", function (): void {
 
     $cell = onWhat();
 
-    expect($cell['text'])->toBe('robot-council/core#422')
+    expect($cell['text'])->toBe('robot-council/core#422 (new tab)')
         ->and($cell['html'])->toContain('href="'.TicketLink::url('robot-council/core#422').'"');
 });
 
@@ -101,7 +101,7 @@ it('shows the ticket a title begins with, linked, when the task has no issue', f
 
     $cell = onWhat();
 
-    expect($cell['text'])->toBe('UAMS-Web/wordpress-importer#1175')
+    expect($cell['text'])->toBe('UAMS-Web/wordpress-importer#1175 (new tab)')
         ->and($cell['html'])->toContain('href="'.TicketLink::url('UAMS-Web/wordpress-importer#1175').'"')
         ->not->toContain('no ticket');
 });

@@ -115,7 +115,7 @@
                                             <span data-gate-run>
                                                 validating
                                                 @if (\RobotCouncil\Support\TicketLink::url($lane['on_what']['gate_pull_request']) !== null)
-                                                    <a href="{{ \RobotCouncil\Support\TicketLink::url($lane['on_what']['gate_pull_request']) }}" class="link" rel="noopener noreferrer"><code>{{ $lane['on_what']['gate_pull_request'] }}</code></a>
+                                                    <x-robot-council::external-link :reference="$lane['on_what']['gate_pull_request']" class="link"><code>{{ $lane['on_what']['gate_pull_request'] }}</code></x-robot-council::external-link>
                                                 @endif
                                                 @if ($lane['repository'] !== null)
                                                     &middot; {{ $board['queue_depth'][$lane['repository']] ?? 0 }} queued
@@ -129,7 +129,7 @@
                                                     <li wire:key="lane-{{ $lane['id'] }}-task-{{ $work['task_id'] }}" data-held-task>
                                                         <div>
                                                             @if (\RobotCouncil\Support\TicketLink::url($work['ticket']) !== null)
-                                                                <a href="{{ \RobotCouncil\Support\TicketLink::url($work['ticket']) }}" class="link inline-flex min-h-11 min-w-11 items-center" rel="noopener noreferrer"><code>{{ $work['ticket'] }}</code></a>
+                                                                <x-robot-council::external-link :reference="$work['ticket']" class="link inline-flex min-h-11 min-w-11 items-center"><code>{{ $work['ticket'] }}</code></x-robot-council::external-link>
                                                             @elseif ($work['ticket'] !== null)
                                                                 <code>{{ $work['ticket'] }}</code>
                                                             @else
@@ -160,7 +160,7 @@
                                         @elseif (is_array($lane['on_what']))
                                             <span data-on-what>
                                             @if (\RobotCouncil\Support\TicketLink::url($lane['on_what']['party']) !== null)
-                                                <a href="{{ \RobotCouncil\Support\TicketLink::url($lane['on_what']['party']) }}" class="link" rel="noopener noreferrer"><code>{{ $lane['on_what']['party'] }}</code></a>
+                                                <x-robot-council::external-link :reference="$lane['on_what']['party']" class="link"><code>{{ $lane['on_what']['party'] }}</code></x-robot-council::external-link>
                                             @else
                                                 {{ $lane['on_what']['party'] }}
                                             @endif
@@ -186,7 +186,7 @@
                             <ul class="text-meta">
                                 @foreach ($board['pull_requests'][$repository] as $pull)
                                     <li wire:key="pull-{{ $repository }}-{{ $pull['number'] }}">
-                                        <a href="{{ \RobotCouncil\Support\TicketLink::url($pull['reference']) }}" class="link" rel="noopener noreferrer"><code>#{{ $pull['number'] }}</code></a>
+                                        <x-robot-council::external-link :reference="$pull['reference']" class="link"><code>#{{ $pull['number'] }}</code></x-robot-council::external-link>
                                         {{ $pull['title'] }}
                                         <span class="badge badge-sm" data-pull-state>{{ $pull['state'] }}</span>
                                     </li>
@@ -219,7 +219,7 @@
                         @foreach ($section['items'] as $item)
                             <li wire:key="owed-item-{{ $item['id'] }}" class="max-w-xl leading-relaxed" data-owed-item>
                                 @if (\RobotCouncil\Support\TicketLink::url($item['ticket']) !== null)
-                                    <a href="{{ \RobotCouncil\Support\TicketLink::url($item['ticket']) }}" class="link" rel="noopener noreferrer"><code>{{ $item['ticket'] }}</code></a>
+                                    <x-robot-council::external-link :reference="$item['ticket']" class="link"><code>{{ $item['ticket'] }}</code></x-robot-council::external-link>
                                 @endif
                                 &mdash; {{ $item['question'] }}
                                 <span class="opacity-90">{{ $item['why'] }} &middot; waiting {{ $item['recorded_at']->diffForHumans(syntax: \Carbon\CarbonInterface::DIFF_ABSOLUTE) }}</span>

@@ -142,10 +142,12 @@ it('marks the pull request running, shows the gate on it, and counts the queue w
 
     // Captured outside the expectation: inside it, Rector rewrites `preg_match(...) === 1` into
     // `toMatch()` and the capture is lost
-    $found = preg_match('/<span data-gate-run>(.*?)<\/span>/s', $html, $cell);
+    // Closed by the cell rather than the first `</span>`, since the link's screen-reader words are
+    // one (#387), past the markers Livewire writes round a Blade condition
+    $found = preg_match('/<span data-gate-run>(.*?)<\/span>(?:\s|<!--.*?-->)*<\/td>/s', $html, $cell);
     $text = $found === 1 ? (string) preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($cell[1]))) : '';
 
-    expect($text)->toContain('validating robot-council/core#40 · 1 queued');
+    expect($text)->toContain('validating robot-council/core#40 (new tab) · 1 queued');
 });
 
 it('lets a gate end only its own run', function (): void {

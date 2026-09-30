@@ -367,7 +367,11 @@ function undersizedControls(PendingAwaitablePage $page): array
                 if (block === null) return false;
                 const copy = block.cloneNode(true);
                 copy.querySelectorAll('.badge, .sr-only').forEach(n => n.remove());
-                return copy.textContent.replace(el.textContent, '').trim().length > 0;
+                // The link's own words are read the same way, or its screen-reader text is left
+                // behind in the block and reads as a sentence round it (#387)
+                const own = el.cloneNode(true);
+                own.querySelectorAll('.badge, .sr-only').forEach(n => n.remove());
+                return copy.textContent.replace(own.textContent, '').trim().length > 0;
             };
             for (const el of document.querySelectorAll('button, a[href], summary, input:not([type=hidden]), select, textarea, label.btn, [role=button]')) {
                 const rect = el.getBoundingClientRect();
