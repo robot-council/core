@@ -81,9 +81,9 @@
                                      seat on the page has one and "Tickets at once" alone says which of
                                      them nothing. The error, when there is one, is next to the field it
                                      is about and is what the field is described by first. --}}
-                                <label class="form-control">
-                                    <span class="label-text">Tickets at once<span class="sr-only"> for {{ $seatName }}</span></span>
-                                    <input type="number" min="{{ \RobotCouncil\Support\Capacity::DEFAULT }}" max="{{ \RobotCouncil\Support\Capacity::MAX }}" step="1" inputmode="numeric" wire:model="capacities.{{ \RobotCouncil\Support\WireArgument::of($seat->id) }}" class="input input-bordered w-24" @if ($capacityFailed) aria-invalid="true" aria-describedby="seat-{{ $seat->id }}-capacity-error seat-{{ $seat->id }}-capacity-help" @else aria-describedby="seat-{{ $seat->id }}-capacity-help" @endif>
+                                <label class="flex w-full flex-col gap-1 sm:w-auto" data-field>
+                                    <span>Tickets at once<span class="sr-only"> for {{ $seatName }}</span></span>
+                                    <input type="number" min="{{ \RobotCouncil\Support\Capacity::DEFAULT }}" max="{{ \RobotCouncil\Support\Capacity::MAX }}" step="1" inputmode="numeric" wire:model="capacities.{{ \RobotCouncil\Support\WireArgument::of($seat->id) }}" class="input w-24" @if ($capacityFailed) aria-invalid="true" aria-describedby="seat-{{ $seat->id }}-capacity-error seat-{{ $seat->id }}-capacity-help" @else aria-describedby="seat-{{ $seat->id }}-capacity-help" @endif>
                                 </label>
                                 <button type="submit" class="btn btn-target">Set tickets at once<span class="sr-only"> for {{ $seatName }}</span></button>
                                 @if ($capacityFailed)
@@ -141,24 +141,24 @@
             </p>
 
             <form wire:submit="saveHours" class="flex flex-wrap items-end gap-3">
-                <label class="form-control">
-                    <span class="label-text">Timezone</span>
-                    <input type="text" wire:model="timezone" placeholder="America/Chicago" class="input input-bordered" maxlength="64">
+                <label class="flex w-full flex-col gap-1 sm:w-auto" data-field>
+                    <span>Timezone</span>
+                    <input type="text" wire:model="timezone" placeholder="America/Chicago" class="input" maxlength="64">
                 </label>
 
-                <label class="form-control">
-                    <span class="label-text">From</span>
-                    <input type="time" wire:model="startsAt" class="input input-bordered">
+                <label class="flex w-full flex-col gap-1 sm:w-auto" data-field>
+                    <span>From</span>
+                    <input type="time" wire:model="startsAt" class="input">
                 </label>
 
-                <label class="form-control">
-                    <span class="label-text">Until</span>
-                    <input type="time" wire:model="endsAt" class="input input-bordered">
+                <label class="flex w-full flex-col gap-1 sm:w-auto" data-field>
+                    <span>Until</span>
+                    <input type="time" wire:model="endsAt" class="input">
                 </label>
 
                 <label class="label min-h-11 cursor-pointer gap-2">
                     <input type="checkbox" wire:model="skipWeekends" class="checkbox">
-                    <span class="label-text">Skip weekends</span>
+                    <span>Skip weekends</span>
                 </label>
 
                 <button type="submit" class="btn btn-target btn-primary">Save hours</button>
@@ -182,9 +182,9 @@
             </p>
 
             <form wire:submit="addHoliday" class="flex flex-wrap items-end gap-3">
-                <label class="form-control">
-                    <span class="label-text">Date</span>
-                    <input type="date" wire:model="holiday" class="input input-bordered">
+                <label class="flex w-full flex-col gap-1 sm:w-auto" data-field>
+                    <span>Date</span>
+                    <input type="date" wire:model="holiday" class="input">
                 </label>
 
                 <button type="submit" class="btn btn-target">Add day off</button>

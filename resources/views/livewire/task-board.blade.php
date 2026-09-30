@@ -17,7 +17,7 @@
             <div class="flex items-center gap-2">
                 <label for="queue-status-{{ $this->getId() }}" class="font-medium">Status</label>
 
-                <select id="queue-status-{{ $this->getId() }}" data-status-filter wire:change="showStatus($event.target.value)" class="select select-bordered w-auto">
+                <select id="queue-status-{{ $this->getId() }}" data-status-filter wire:change="showStatus($event.target.value)" class="select w-auto">
                     <option value="" @selected($shownStatus === '')>All</option>
 
                     @foreach ($statuses as $option)

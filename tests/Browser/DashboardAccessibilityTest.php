@@ -607,6 +607,83 @@ it("lines up each machine's session ids, statuses, roles and details on Administ
     }
 });
 
+/**
+ * Each form field whose label does not sit wholly above it, as rendered (#485).
+ *
+ * @return array{fields: int, misplaced: list<string>} How many labelled fields were measured, and
+ *                                                     each one whose label's bottom is below its field's top.
+ */
+function labelsNotAbove(PendingAwaitablePage $page): array
+{
+    $found = $page->script(<<<'JS'
+        () => {
+            const fields = [...document.querySelectorAll('main label[data-field]')];
+            return {
+                fields: fields.length,
+                misplaced: fields.flatMap(label => {
+                    const text = label.querySelector(':scope > span');
+                    const field = label.querySelector('input, select, textarea');
+                    const t = text.getBoundingClientRect();
+                    const f = field.getBoundingClientRect();
+                    return t.bottom <= f.top + 0.5 ? [] : [`${text.textContent.trim()}: label bottom ${Math.round(t.bottom)}, field top ${Math.round(f.top)}`];
+                }),
+            };
+        }
+    JS);
+
+    if (! is_array($found) || ! is_int($found['fields'] ?? null) || ! is_array($found['misplaced'] ?? null)) {
+        throw new RuntimeException('The label read returned nothing.');
+    }
+
+    /** @var array{fields: int, misplaced: list<string>} $found */
+    return $found;
+}
+
+it('puts every form label above its field', function (string $route, string $expect, int $fields, int $width): void {
+    $page = visitSurface($this, $route, '', $expect, 'light');
+
+    $page->resize($width, 900);
+
+    $found = labelsNotAbove($page);
+
+    // The control: the page's labelled fields were found, so an empty list is not a read of none.
+    // A floor rather than a count, because the Seats page repeats one field per seat seeded.
+    expect($found['fields'])->toBeGreaterThanOrEqual($fields)
+        ->and($found['misplaced'])->toBe([], implode("\n", $found['misplaced']))
+        ->and(sidewaysScroll($page))->toBe(0);
+})->with([
+    'Access' => ['robot-council.access', 'Add to list', 3],
+    'Seats' => ['robot-council.seats', 'Save hours', 5],
+])->with([390, 1280]);
+
+it('gives the Access form one full-width field per row on a phone', function (): void {
+    $page = visitSurface($this, 'robot-council.access', '', 'Add to list', 'light');
+
+    $page->resize(390, 900);
+
+    // Each field and the button, against the form's own content box
+    $rows = $page->script(<<<'JS'
+        () => {
+            const form = document.querySelector('form[wire\\:submit="add"]');
+            const box = form.getBoundingClientRect();
+            return [...form.querySelectorAll('input, select, button')].map(el => {
+                const r = el.getBoundingClientRect();
+                return { name: el.tagName + ' ' + (el.getAttribute('wire:model') || el.textContent.trim()), left: Math.round(r.left), width: Math.round(r.width), top: Math.round(r.top), form: Math.round(box.width) };
+            });
+        }
+    JS);
+
+    /** @var list<array{name: string, left: int, width: int, top: int, form: int}> $rows */
+    expect($rows)->toHaveCount(4);
+
+    foreach ($rows as $row) {
+        expect($row['width'])->toBe($row['form'], $row['name']);
+    }
+
+    // One per row: every top differs
+    expect(array_unique(array_column($rows, 'top')))->toHaveCount(4);
+});
+
 it('fails on a planted violation, so a clean run means axe looked', function (): void {
     $page = visitSurface($this, 'robot-council.dashboard', '', 'Live agents', 'light');
 
