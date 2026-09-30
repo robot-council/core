@@ -93,7 +93,7 @@
                                     @endif
                                 </td>
 
-                                <td role="cell" data-label="Fence" class="xl:whitespace-nowrap">{{ $lock['fence'] }}</td>
+                                <td role="cell" data-label="Fence" class="2xl:whitespace-nowrap">{{ $lock['fence'] }}</td>
 
                                 {{-- A lapsed lease is shown rather than hidden: a row that
                                      still names a holder whose lease has run out is exactly

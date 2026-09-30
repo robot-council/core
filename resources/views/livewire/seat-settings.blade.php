@@ -9,7 +9,7 @@
     repository and work location are agent-supplied and are rendered as text only.
 --}}
 
-<div class="flex flex-col gap-6">
+<div class="flex max-w-5xl flex-col gap-6">
     <h1 class="text-2xl font-semibold">My seats and hours</h1>
 
     {{-- A seat action about a seat this page does not list -- somebody else's, or one that has

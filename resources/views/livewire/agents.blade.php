@@ -79,7 +79,7 @@
                                     @endif
                                 </td>
 
-                                <td role="cell" data-label="Machine" class="xl:whitespace-nowrap">
+                                <td role="cell" data-label="Machine" class="2xl:whitespace-nowrap">
                                     @if (($agent['machine_label'] ?? null) !== null)
                                         <div><code>{{ $agent['machine_label'] }}</code></div>
                                     @else
@@ -146,13 +146,13 @@
                                      nothing here saying so. A fixed set of three, so it cannot
                                      carry anything a developer supplied -- escaped anyway,
                                      because nothing on this page is not. --}}
-                                <td role="cell" data-label="Role" class="xl:whitespace-nowrap">
+                                <td role="cell" data-label="Role" class="2xl:whitespace-nowrap">
                                     <span class="badge badge-sm badge-outline">{{ \RobotCouncil\Access\Role::labelOf($agent['role']) }}</span>
                                 </td>
 
                                 {{-- Read from the row, which #24 made the decision, rather than
                                      re-derived from the contact time --}}
-                                <td role="cell" data-label="Status" class="xl:whitespace-nowrap">
+                                <td role="cell" data-label="Status" class="2xl:whitespace-nowrap">
                                     <span class="badge badge-sm">{{ $agent['status'] }}</span>
                                 </td>
 

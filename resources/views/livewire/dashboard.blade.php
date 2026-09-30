@@ -9,7 +9,7 @@
     The links duplicate the sidebar deliberately. The sidebar is off-canvas below daisyUI's `lg`
     breakpoint, so on a phone this is the only way through.
 --}}
-<div class="grid gap-4">
+<div class="grid max-w-5xl gap-4">
     <h1 class="text-2xl font-semibold">Dashboard</h1>
     @include('robot-council::partials.glossary', ['terms' => ['fleet', 'agent', 'session', 'live_agents', 'task', 'open_tasks', 'queue', 'lock', 'held_locks', 'lane', 'change_feed']])
 

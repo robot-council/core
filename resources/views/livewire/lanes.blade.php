@@ -93,7 +93,7 @@
                                              placement on once the two are equal --}}
                                         <div class="text-meta opacity-90"><span data-occupancy>{{ $lane['holding'] }} / {{ $lane['capacity'] }}</span> {{ $lane['holding'] === 1 ? 'task' : 'tasks' }} held</div>
                                     </td>
-                                    <td role="cell" data-label="State" class="xl:whitespace-nowrap" data-state="{{ $lane['state'] }}">{{ $lane['state'] }}</td>
+                                    <td role="cell" data-label="State" class="2xl:whitespace-nowrap" data-state="{{ $lane['state'] }}">{{ $lane['state'] }}</td>
                                     {{-- Its own column, separate from State, from the watcher's own heartbeat (#337) --}}
                                     <td role="cell" data-label="Watcher" data-watcher="{{ $lane['watcher']['state'] }}">
                                         @switch ($lane['watcher']['state'])
@@ -170,7 +170,7 @@
                                             <span class="opacity-80">&mdash;</span>
                                         @endif
                                     </td>
-                                    <td role="cell" data-label="Known since" class="xl:whitespace-nowrap text-meta opacity-90">{{ $lane['known_since']?->diffForHumans() ?? 'never' }}</td>
+                                    <td role="cell" data-label="Known since" class="2xl:whitespace-nowrap text-meta opacity-90">{{ $lane['known_since']?->diffForHumans() ?? 'never' }}</td>
                                 </tr>
                             @endforeach
                         </tbody>
@@ -217,7 +217,7 @@
                     <h3 class="font-medium">{{ $section['developer'] ?? 'General' }}</h3>
                     <ul class="text-meta">
                         @foreach ($section['items'] as $item)
-                            <li wire:key="owed-item-{{ $item['id'] }}" data-owed-item>
+                            <li wire:key="owed-item-{{ $item['id'] }}" class="max-w-xl leading-relaxed" data-owed-item>
                                 @if (\RobotCouncil\Support\TicketLink::url($item['ticket']) !== null)
                                     <a href="{{ \RobotCouncil\Support\TicketLink::url($item['ticket']) }}" class="link" rel="noopener noreferrer"><code>{{ $item['ticket'] }}</code></a>
                                 @endif

@@ -7,7 +7,7 @@
     repository or slot -- is rendered as escaped text and nothing else.
 --}}
 
-<div wire:poll.{{ \RobotCouncil\Support\WireArgument::of($pollSeconds) }}s class="flex flex-col gap-6">
+<div wire:poll.{{ \RobotCouncil\Support\WireArgument::of($pollSeconds) }}s class="flex max-w-5xl flex-col gap-6">
     <h1 class="text-2xl font-semibold">Waiting on me</h1>
 
     @include('robot-council::partials.glossary', ['terms' => ['waiting_on_developer', 'lane', 'blocked', 'ticket']])

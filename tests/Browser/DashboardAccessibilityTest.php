@@ -1110,9 +1110,13 @@ function wideLayout(PendingAwaitablePage $page): array
         () => {
             const main = document.querySelector('main');
             const describe = (el) => `${el.tagName.toLowerCase()} "${el.textContent.trim().replace(/\s+/g, ' ').slice(0, 60)}"`;
-            // Running text: a paragraph long enough to be read as a line, outside a table or a list
-            const prose = [...main.querySelectorAll('p')]
-                .filter((p) => p.textContent.trim().length > 80 && ! p.closest('table, ul, ol, dl'))
+            // Running text: a paragraph or a list item long enough to be read as a line, outside a
+            // table. The change feed's bodies are left out: #311 reshapes that list and owns their measure
+            const prose = [...main.querySelectorAll('p, li')]
+                .filter((p) => ! p.closest('table, [data-feed]') && ! p.querySelector('p, li'))
+                // A row laid out as a flex or grid box is a record with its own columns, not a sentence
+                .filter((p) => ! ['flex', 'grid', 'inline-flex'].includes(getComputedStyle(p).display))
+                .filter((p) => p.textContent.trim().replace(/\s+/g, ' ').length > 80)
                 .filter((p) => p.getBoundingClientRect().width > 36 * 16 + 0.5)
                 .map(describe);
             const clipped = [...main.querySelectorAll('.overflow-x-auto')]
@@ -1166,13 +1170,15 @@ it('uses the width of a wide screen for its tables, and keeps prose to its measu
     'administration' => ['robot-council.administration', '', 'gate-runner'],
 ])->with([1920, 2560]);
 
-it('still fits a phone once the column is uncapped (#494)', function (string $route, string $parameter, string $expect): void {
+it('keeps running text to its measure on every dashboard page of a wide screen (#494)', function (string $route, string $parameter, string $expect): void {
     $page = visitSurface($this, $route, $parameter, $expect, 'light');
-    $page->resize(390, 900);
+    $page->resize(2560, 900);
 
-    expect(sidewaysScroll($page))->toBe(0)
-        ->and(wideLayout($page)['prose'])->toBeEmpty();
-})->with(accessibilitySurfaces());
+    $prose = wideLayout($page)['prose'];
+
+    expect($prose)->toBe([], implode("\n", $prose))
+        ->and(sidewaysScroll($page))->toBe(0);
+})->with(array_diff_key(accessibilitySurfaces(), array_flip(['enrollment', 'signed out', 'sign-in expired'])));
 
 it('finds a wrapped value, a clipped table and a long line when they are planted (#494)', function (): void {
     $page = visitSurface($this, 'robot-council.agents', '', 'coordinator-mac', 'light');

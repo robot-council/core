@@ -80,9 +80,9 @@
                                     @endif
                                 </td>
 
-                                <td role="cell" data-label="Status" class="xl:whitespace-nowrap"><span class="badge badge-sm">{{ $task['status'] }}</span></td>
+                                <td role="cell" data-label="Status" class="2xl:whitespace-nowrap"><span class="badge badge-sm">{{ $task['status'] }}</span></td>
 
-                                <td role="cell" data-label="Priority" class="xl:whitespace-nowrap">{{ $task['priority'] }}</td>
+                                <td role="cell" data-label="Priority" class="2xl:whitespace-nowrap">{{ $task['priority'] }}</td>
 
                                 <td role="cell" data-label="Filed by">
                                     {{-- The session by where it works, `<repository>/<machine>/<slot>` (#421): one
