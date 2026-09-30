@@ -131,7 +131,7 @@ it('shows an event with its type, body, actor and age', function (): void {
     Livewire::test(ChangeFeed::class)
         ->assertSee('Rebuilding the index now.')
         ->assertSee('octodev')
-        ->assertSeeHtml('<span class="badge badge-sm">'.FleetEventType::Narration->value.'</span>')
+        ->assertSeeHtml('<span class="badge badge-sm" data-feed-type>'.FleetEventType::Narration->value.'</span>')
         ->assertSee('ago')
 
         // Asserted absent, because nothing else in this file does. Without it the badge's condition

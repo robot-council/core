@@ -36,6 +36,7 @@ use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
 use RobotCouncil\Models\FleetEventType;
 use RobotCouncil\Models\HoldReason;
+use RobotCouncil\Models\Installation;
 use RobotCouncil\Models\Lock;
 use RobotCouncil\Models\Task;
 use RobotCouncil\Models\TaskTransition;
@@ -179,6 +180,9 @@ function seedAccessibilityFleet(TestCase $case): array
     $events = $case->service(FleetEvents::class);
     $events->record(FleetEventType::Narration, $working, 'Running the gate before opening the pull request.');
     $events->record(FleetEventType::Directive, $coordinator, 'Sync with main before pushing.', withCoordinator: true);
+
+    // The longest type core defines, so the feed's type column is measured at its widest (#481)
+    $events->record(longestFeedType(), $coordinator, 'Granted an ability.', withCoordinator: true);
     $case->service(OwedItems::class)->record($coordinator, 'octodev', 'robot-council/core#450', 'Run the screen-reader pass', 'needs a person at VoiceOver');
     $case->service(Backlog::class)->record('robot-council/core', 42);
 
@@ -470,6 +474,137 @@ it('filters the Queue from its status list and returns to every status', functio
         ->assertQueryStringMissing('status')
         ->assertSee('Everyone stop and sync')
         ->assertValue('select[data-status-filter]', '');
+});
+
+/**
+ * Where each change-feed row's type badge and body sit, as rendered.
+ *
+ * @return list<array{type: string, badge: array{left: float, right: float, bottom: float, overflow: bool}, body: array{left: float, top: float}}>
+ */
+function feedRows(PendingAwaitablePage $page): array
+{
+    $rows = $page->script(<<<'JS'
+        () => [...document.querySelectorAll('[data-feed] > li')].map(li => {
+            const badge = li.querySelector('[data-feed-type]');
+            const body = li.querySelector('[data-feed-body]');
+            const b = badge.getBoundingClientRect();
+            const t = body.getBoundingClientRect();
+            return {
+                type: badge.textContent.trim(),
+                badge: { left: b.left, right: b.right, bottom: b.bottom, overflow: badge.scrollWidth > badge.clientWidth + 0.5 },
+                body: { left: t.left, top: t.top },
+            };
+        })
+    JS);
+
+    if (! is_array($rows)) {
+        throw new RuntimeException('The feed read returned nothing.');
+    }
+
+    /** @var list<array{type: string, badge: array{left: float, right: float, bottom: float, overflow: bool}, body: array{left: float, top: float}}> $rows */
+    return $rows;
+}
+
+/**
+ * The event type with the longest name core defines, which draws the widest feed badge (#481).
+ */
+function longestFeedType(): FleetEventType
+{
+    $cases = FleetEventType::cases();
+
+    usort($cases, static fn (FleetEventType $a, FleetEventType $b): int => strlen($b->value) <=> strlen($a->value));
+
+    return $cases[0];
+}
+
+it('starts every change-feed body at the same x once the grid applies, the longest type included', function (int $width): void {
+    $page = visitSurface($this, 'robot-council.feed', '', 'Change feed', 'light');
+
+    // Just past `sm`, with the sidebar closed and the column at its tightest, and on a desktop
+    $page->resize($width, 900);
+
+    $rows = feedRows($page);
+
+    // The controls: three types of different lengths, so equal starts are not equal badges, and
+    // the longest type core defines among them, seeded as a real event
+    $types = array_values(array_unique(array_column($rows, 'type')));
+    $lengths = array_unique(array_map(strlen(...), $types));
+
+    expect(count($lengths))->toBeGreaterThanOrEqual(3)
+        ->and($types)->toContain(longestFeedType()->value);
+
+    $starts = array_unique(array_map(static fn (array $row): int => (int) round($row['body']['left']), $rows));
+
+    expect($starts)->toHaveCount(1, 'body starts: '.implode(', ', $starts));
+
+    foreach ($rows as $row) {
+        // Not cut short, and 12px clear of the body it sits beside, as the flex row was
+        expect($row['badge']['overflow'])->toBeFalse($row['type'])
+            ->and($row['body']['left'] - $row['badge']['right'])->toBeGreaterThanOrEqual(11.5, $row['type']);
+    }
+
+    expect(sidewaysScroll($page))->toBe(0);
+})->with([700, 1280]);
+
+it('stacks each change-feed badge above its body at a phone width', function (): void {
+    $page = visitSurface($this, 'robot-council.feed', '', 'Change feed', 'light');
+
+    $page->resize(390, 900);
+
+    $rows = feedRows($page);
+
+    expect(array_column($rows, 'type'))->toContain(longestFeedType()->value);
+
+    foreach ($rows as $row) {
+        expect($row['badge']['bottom'])->toBeLessThanOrEqual($row['body']['top'], $row['type'])
+            ->and($row['badge']['overflow'])->toBeFalse($row['type']);
+    }
+
+    expect(sidewaysScroll($page))->toBe(0);
+});
+
+it("lines up each machine's session ids, statuses, roles and details on Administration", function (): void {
+    $page = visitSurface($this, 'robot-council.administration', '', 'gate-runner', 'light');
+
+    // A second session on the gate's machine, under a different repository, so its list has two
+    // rows whose badges differ; the seeded fleet runs one session per machine
+    $installation = Installation::query()->where('machine_label', 'gate-runner')->sole();
+    $this->service(AgentSessions::class)->start($installation, 'robot-council/cli', 'robot-council-cli-a');
+
+    $page->refresh()->resize(1280, 900);
+
+    // Per list, the distinct left edge of each of the four cells across its rows (#481)
+    $lists = $page->script(<<<'JS'
+        () => [...document.querySelectorAll('[data-admin-sessions]')]
+            .map(ul => [...ul.children].map(li => [...li.children].map(cell => ({
+                left: Math.round(cell.getBoundingClientRect().left),
+                right: Math.round(cell.getBoundingClientRect().right),
+                text: cell.textContent.trim().replace(/\s+/g, ' ').slice(0, 24),
+            }))))
+            .filter(rows => rows.length > 1)
+    JS);
+
+    expect($lists)->toBeArray()->not->toBeEmpty();
+
+    /** @var list<list<list<array{left: int, right: int, text: string}>>> $lists */
+    foreach ($lists as $rows) {
+        $described = json_encode($rows, JSON_THROW_ON_ERROR);
+
+        // The control: two rows whose leading cells differ in width, or equal edges prove nothing
+        expect(array_unique(array_map(static fn (array $row): string => $row[2]['text'], $rows)))->not->toHaveCount(1, $described);
+
+        foreach ([0, 1, 2, 3] as $cell) {
+            $edges = array_unique(array_map(static fn (array $row): int => $row[$cell]['left'], $rows));
+
+            expect($edges)->toHaveCount(1, sprintf('cell %d: %s', $cell, $described));
+        }
+
+        // And the details sit beside the role rather than wrapped beneath the row, where they
+        // would line up only by starting at the row's own edge
+        foreach ($rows as $row) {
+            expect($row[3]['left'])->toBeGreaterThan($row[2]['right'], $described);
+        }
+    }
 });
 
 it('fails on a planted violation, so a clean run means axe looked', function (): void {

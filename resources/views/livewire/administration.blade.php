@@ -89,10 +89,16 @@
                         @include('robot-council::partials.said', ['show' => $said !== null && $saidAt === $installation['id'], 'class' => 'mt-2'])
 
                         @if ($installation['sessions']['shown'] !== [])
-                            <ul class="mt-3 space-y-1">
+                            {{-- The id, the status and the role in shared columns from `sm` up (#481),
+                                 the same way the change feed aligns its types: three `max-content`
+                                 columns, then everything else, and each row a subgrid. Without them
+                                 a session's repository started wherever its own two badges ended.
+                                 The column gap matches the row's own `gap-2`, because a subgrid's
+                                 own gap replaces its parent's and would otherwise shift the cells. --}}
+                            <ul class="mt-3 space-y-1 sm:grid sm:grid-cols-[repeat(3,max-content)_1fr] sm:gap-x-2 sm:gap-y-1 sm:space-y-0" data-admin-sessions>
                                 @foreach ($installation['sessions']['shown'] as $session)
                                     <li wire:key="admin-session-{{ $session['id'] }}"
-                                        class="flex flex-wrap items-center gap-2 text-meta">
+                                        class="flex flex-wrap items-center gap-2 text-meta sm:col-span-4 sm:grid sm:grid-cols-subgrid">
                                         {{-- The session's own id, which is how agents name it in a
                                              narration, a placement or `sessions_list` (#419) --}}
                                         <code data-session-id>#{{ $session['id'] }}</code>
@@ -104,102 +110,104 @@
                                              the controls that wrote it are gone with it. --}}
                                         <span class="badge badge-sm badge-outline">{{ $session['role'] }}</span>
 
-                                        {{-- Where it is working, as the two fields #220 split the
-                                             one label into. The legacy fallback went with the
-                                             column in #285; a request that still sends the old
-                                             label is split before it is stored, so this reads the
-                                             same value it used to fall back to. Every stored
-                                             combination renders: a session naming only a location
-                                             is a shape the endpoint accepts, and an earlier version
-                                             printed `no project` for it. --}}
-                                        @php($where = $session['repository'] ?? null)
+                                        <div class="flex min-w-0 flex-wrap items-center gap-2" data-session-detail>
+                                            {{-- Where it is working, as the two fields #220 split the
+                                                 one label into. The legacy fallback went with the
+                                                 column in #285; a request that still sends the old
+                                                 label is split before it is stored, so this reads the
+                                                 same value it used to fall back to. Every stored
+                                                 combination renders: a session naming only a location
+                                                 is a shape the endpoint accepts, and an earlier version
+                                                 printed `no project` for it. --}}
+                                            @php($where = $session['repository'] ?? null)
 
-                                        @if ($where !== null)
-                                            <span class="opacity-90"><code>{{ $where }}</code></span>
-                                        @endif
-
-                                        @if (($session['work_location'] ?? null) !== null)
-                                            <span class="opacity-80"><code>{{ $session['work_location'] }}</code></span>
-                                        @endif
-
-                                        @if ($where === null && ($session['work_location'] ?? null) === null)
-                                            <span class="opacity-80">no project</span>
-                                        @endif
-
-                                        {{-- Started around one read and on no other list (#424) --}}
-                                        @if (($session['ephemeral'] ?? false) === true)
-                                            <span class="opacity-80">ephemeral</span>
-                                        @endif
-
-                                        {{-- When it joined and when it was last heard from (#419),
-                                             which is what tells a restarted agent's new session from
-                                             the old one beside it in the same checkout. Each is shown
-                                             as a date and clock time a person can match to their own
-                                             terminal, in the dashboard's zone, and then how long ago;
-                                             the exact instant is also in `datetime`, for software. --}}
-                                        @php($when = fn (string $instant): string => \Illuminate\Support\Carbon::parse($instant)->setTimezone($timezone)->format('Y-m-d H:i T').' ('.\Illuminate\Support\Carbon::parse($instant)->diffForHumans().')')
-                                        <span data-session-times>
-                                            joined
-                                            @if ($session['joined_at'] !== null)
-                                                <time datetime="{{ $session['joined_at'] }}">{{ $when($session['joined_at']) }}</time>,
-                                            @else
-                                                at an unrecorded time,
+                                            @if ($where !== null)
+                                                <span class="opacity-90"><code>{{ $where }}</code></span>
                                             @endif
-                                            last seen <time datetime="{{ $session['last_seen_at'] }}">{{ $when($session['last_seen_at']) }}</time>
-                                        </span>
 
-                                        {{-- **What it ASKED to be, presented as information and
-                                             never as a nomination.** With installations keyed on
-                                             developer, harness and machine, the coordinator
-                                             checkout and the build checkouts present the same
-                                             credential -- session id, repository and work location
-                                             are all arbitrary or asserted -- so the panel shows what
-                                             each session claims and the administrator picks. A
-                                             queue with a pre-filled answer trains its reader to
-                                             accept it. --}}
-                                        @if (($session['requested_role'] ?? null) !== null)
-                                            <span class="badge badge-sm badge-warning">asked for {{ $session['requested_role'] }}</span>
+                                            @if (($session['work_location'] ?? null) !== null)
+                                                <span class="opacity-80"><code>{{ $session['work_location'] }}</code></span>
+                                            @endif
 
-                                            <button type="button"
-                                                wire:click="approveRole({{ \RobotCouncil\Support\WireArgument::of($session['id']) }}, '{{ \RobotCouncil\Support\WireArgument::of($session['requested_role']) }}')"
-                                                @if ($session['requested_role'] === \RobotCouncil\Access\Role::Coordinator->value)
-                                                    wire:confirm="Approve coordinator? This session will be able to release, reassign or cancel any developer's task, and post directives to the whole fleet."
+                                            @if ($where === null && ($session['work_location'] ?? null) === null)
+                                                <span class="opacity-80">no project</span>
+                                            @endif
+
+                                            {{-- Started around one read and on no other list (#424) --}}
+                                            @if (($session['ephemeral'] ?? false) === true)
+                                                <span class="opacity-80">ephemeral</span>
+                                            @endif
+
+                                            {{-- When it joined and when it was last heard from (#419),
+                                                 which is what tells a restarted agent's new session from
+                                                 the old one beside it in the same checkout. Each is shown
+                                                 as a date and clock time a person can match to their own
+                                                 terminal, in the dashboard's zone, and then how long ago;
+                                                 the exact instant is also in `datetime`, for software. --}}
+                                            @php($when = fn (string $instant): string => \Illuminate\Support\Carbon::parse($instant)->setTimezone($timezone)->format('Y-m-d H:i T').' ('.\Illuminate\Support\Carbon::parse($instant)->diffForHumans().')')
+                                            <span data-session-times>
+                                                joined
+                                                @if ($session['joined_at'] !== null)
+                                                    <time datetime="{{ $session['joined_at'] }}">{{ $when($session['joined_at']) }}</time>,
+                                                @else
+                                                    at an unrecorded time,
                                                 @endif
-                                                class="btn btn-target btn-primary">
-                                                Approve
-                                            </button>
+                                                last seen <time datetime="{{ $session['last_seen_at'] }}">{{ $when($session['last_seen_at']) }}</time>
+                                            </span>
 
-                                            <button type="button"
-                                                wire:click="denyRole({{ \RobotCouncil\Support\WireArgument::of($session['id']) }})"
-                                                class="btn btn-target btn-ghost">
-                                                Deny
-                                            </button>
-                                        @endif
+                                            {{-- **What it ASKED to be, presented as information and
+                                                 never as a nomination.** With installations keyed on
+                                                 developer, harness and machine, the coordinator
+                                                 checkout and the build checkouts present the same
+                                                 credential -- session id, repository and work location
+                                                 are all arbitrary or asserted -- so the panel shows what
+                                                 each session claims and the administrator picks. A
+                                                 queue with a pre-filled answer trains its reader to
+                                                 accept it. --}}
+                                            @if (($session['requested_role'] ?? null) !== null)
+                                                <span class="badge badge-sm badge-warning">asked for {{ $session['requested_role'] }}</span>
 
-                                        {{-- Imposing needs no request, which is what makes an
-                                             emergency demotion possible. One control per role, from
-                                             the enum, minus the one it already holds. --}}
-                                        @foreach ($roles as $role)
-                                            @if ($role->value !== $session['role'])
                                                 <button type="button"
-                                                    wire:key="impose-{{ $session['id'] }}-{{ $role->value }}"
-                                                    wire:click="imposeRole({{ \RobotCouncil\Support\WireArgument::of($session['id']) }}, '{{ \RobotCouncil\Support\WireArgument::of($role) }}')"
-                                                    @if ($role === \RobotCouncil\Access\Role::Coordinator)
-                                                        wire:confirm="Make this session a coordinator? It will be able to release, reassign or cancel any developer's task, and post directives to the whole fleet."
+                                                    wire:click="approveRole({{ \RobotCouncil\Support\WireArgument::of($session['id']) }}, '{{ \RobotCouncil\Support\WireArgument::of($session['requested_role']) }}')"
+                                                    @if ($session['requested_role'] === \RobotCouncil\Access\Role::Coordinator->value)
+                                                        wire:confirm="Approve coordinator? This session will be able to release, reassign or cancel any developer's task, and post directives to the whole fleet."
                                                     @endif
+                                                    class="btn btn-target btn-primary">
+                                                    Approve
+                                                </button>
+
+                                                <button type="button"
+                                                    wire:click="denyRole({{ \RobotCouncil\Support\WireArgument::of($session['id']) }})"
                                                     class="btn btn-target btn-ghost">
-                                                    Make {{ $role->value }}
+                                                    Deny
                                                 </button>
                                             @endif
-                                        @endforeach
 
-                                        {{-- Every listed session is live, so every one can be
-                                             revoked, and every live session is listed (#414). --}}
-                                        <button type="button"
-                                            wire:click="revokeSession({{ \RobotCouncil\Support\WireArgument::of($session['id']) }})"
-                                            class="btn btn-target btn-ghost">
-                                            Revoke session
-                                        </button>
+                                            {{-- Imposing needs no request, which is what makes an
+                                                 emergency demotion possible. One control per role, from
+                                                 the enum, minus the one it already holds. --}}
+                                            @foreach ($roles as $role)
+                                                @if ($role->value !== $session['role'])
+                                                    <button type="button"
+                                                        wire:key="impose-{{ $session['id'] }}-{{ $role->value }}"
+                                                        wire:click="imposeRole({{ \RobotCouncil\Support\WireArgument::of($session['id']) }}, '{{ \RobotCouncil\Support\WireArgument::of($role) }}')"
+                                                        @if ($role === \RobotCouncil\Access\Role::Coordinator)
+                                                            wire:confirm="Make this session a coordinator? It will be able to release, reassign or cancel any developer's task, and post directives to the whole fleet."
+                                                        @endif
+                                                        class="btn btn-target btn-ghost">
+                                                        Make {{ $role->value }}
+                                                    </button>
+                                                @endif
+                                            @endforeach
+
+                                            {{-- Every listed session is live, so every one can be
+                                                 revoked, and every live session is listed (#414). --}}
+                                            <button type="button"
+                                                wire:click="revokeSession({{ \RobotCouncil\Support\WireArgument::of($session['id']) }})"
+                                                class="btn btn-target btn-ghost">
+                                                Revoke session
+                                            </button>
+                                        </div>
                                     </li>
                                 @endforeach
                             </ul>
