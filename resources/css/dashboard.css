@@ -306,8 +306,8 @@
     /*
      * The AAA target size, for the controls that act on the fleet (#399).
      *
-     * `.claude/rules/accessibility.md` asks 44 by 44 CSS px of a consequential or touch-primary
-     * control (SC 2.5.5, AAA) and 24 by 24 of everything else (SC 2.5.8, AA). daisyUI's sizes fall
+     * `.claude/rules/accessibility.md` asks 44 by 44 CSS px of every control on the dashboard
+     * (SC 2.5.5, AAA), where #399 had asked it only of consequential ones. daisyUI's sizes fall
      * short of the first: measured in this build, `btn` is 40px tall, `btn-sm` 32px and `btn-xs`
      * 24px. So a control that approves, denies, revokes, parks, waives, saves or signs out carries
      * `btn-target` in place of a size modifier, and is 44px here -- tall through daisyUI's own
@@ -315,12 +315,32 @@
      *
      * A class a view writes rather than a size it picks, so what counts as consequential is said
      * once per control and the size once here; `DashboardThemeTest` holds each consequential action
-     * to it. Filters, pagination and "show every" toggles are dense desktop controls, and stay at
-     * `btn-xs` or `btn-sm`, which are 24px and 32px: on or above the floor.
+     * to it. #480 extended it to filters, pagination and "show every" toggles, which had been
+     * `btn-xs` and `btn-sm` -- 24px and 32px, on the floor but too small to tap comfortably.
      */
     :where(.btn-target) {
         --size: 2.75rem;
         min-width: 2.75rem;
+    }
+
+    /*
+     * Every form field and every navigation row at the same 44px (#480).
+     *
+     * Not a class a view opts into, because no field on the dashboard is dense: a text, number,
+     * date or time input and a select are 40px at daisyUI's default and 32px at `input-sm`, and
+     * this sets them all through the same `--size` their height reads. A checkbox stays 24px and
+     * is reached through the label wrapped round it, which the view makes 44px tall.
+     *
+     * daisyUI's menu rows are about 36px, and top their content; the minimum height and
+     * `align-content` take them to 44px with the label still centered.
+     */
+    :where(.input, .select) {
+        --size: 2.75rem;
+    }
+
+    .menu :where(li) > :is(a, button, summary) {
+        min-height: 2.75rem;
+        align-content: center;
     }
 
     /*

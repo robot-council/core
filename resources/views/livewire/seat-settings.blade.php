@@ -83,7 +83,7 @@
                                      is about and is what the field is described by first. --}}
                                 <label class="form-control">
                                     <span class="label-text">Tickets at once<span class="sr-only"> for {{ $seatName }}</span></span>
-                                    <input type="number" min="{{ \RobotCouncil\Support\Capacity::DEFAULT }}" max="{{ \RobotCouncil\Support\Capacity::MAX }}" step="1" inputmode="numeric" wire:model="capacities.{{ \RobotCouncil\Support\WireArgument::of($seat->id) }}" class="input input-bordered input-sm w-24" @if ($capacityFailed) aria-invalid="true" aria-describedby="seat-{{ $seat->id }}-capacity-error seat-{{ $seat->id }}-capacity-help" @else aria-describedby="seat-{{ $seat->id }}-capacity-help" @endif>
+                                    <input type="number" min="{{ \RobotCouncil\Support\Capacity::DEFAULT }}" max="{{ \RobotCouncil\Support\Capacity::MAX }}" step="1" inputmode="numeric" wire:model="capacities.{{ \RobotCouncil\Support\WireArgument::of($seat->id) }}" class="input input-bordered w-24" @if ($capacityFailed) aria-invalid="true" aria-describedby="seat-{{ $seat->id }}-capacity-error seat-{{ $seat->id }}-capacity-help" @else aria-describedby="seat-{{ $seat->id }}-capacity-help" @endif>
                                 </label>
                                 <button type="submit" class="btn btn-target">Set tickets at once<span class="sr-only"> for {{ $seatName }}</span></button>
                                 @if ($capacityFailed)
@@ -143,20 +143,20 @@
             <form wire:submit="saveHours" class="flex flex-wrap items-end gap-3">
                 <label class="form-control">
                     <span class="label-text">Timezone</span>
-                    <input type="text" wire:model="timezone" placeholder="America/Chicago" class="input input-bordered input-sm" maxlength="64">
+                    <input type="text" wire:model="timezone" placeholder="America/Chicago" class="input input-bordered" maxlength="64">
                 </label>
 
                 <label class="form-control">
                     <span class="label-text">From</span>
-                    <input type="time" wire:model="startsAt" class="input input-bordered input-sm">
+                    <input type="time" wire:model="startsAt" class="input input-bordered">
                 </label>
 
                 <label class="form-control">
                     <span class="label-text">Until</span>
-                    <input type="time" wire:model="endsAt" class="input input-bordered input-sm">
+                    <input type="time" wire:model="endsAt" class="input input-bordered">
                 </label>
 
-                <label class="label cursor-pointer gap-2">
+                <label class="label min-h-11 cursor-pointer gap-2">
                     <input type="checkbox" wire:model="skipWeekends" class="checkbox">
                     <span class="label-text">Skip weekends</span>
                 </label>
@@ -184,7 +184,7 @@
             <form wire:submit="addHoliday" class="flex flex-wrap items-end gap-3">
                 <label class="form-control">
                     <span class="label-text">Date</span>
-                    <input type="date" wire:model="holiday" class="input input-bordered input-sm">
+                    <input type="date" wire:model="holiday" class="input input-bordered">
                 </label>
 
                 <button type="submit" class="btn btn-target">Add day off</button>

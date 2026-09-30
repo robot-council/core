@@ -728,7 +728,7 @@ function wireExpressionInterpolations(string $template): array
     // **Anchored to an attribute-name position, which it was not.** `x-` matched anywhere in the
     // document, so `class="px-{{ $n }}"` -- ordinary Tailwind Blade -- was reported as an attribute
     // name and would have failed the build. `max-w-`, `space-x-`, `translate-x-` and `border-x-`
-    // are all the same shape, and this file's own views already carry `class="btn btn-xs {{ … }}"`.
+    // are all the same shape, and this package's views carried `class="btn btn-xs {{ … }}"` until #480.
     if (preg_match_all('/(?<=[\s<])(?:wire:|x-)[\w.:-]*(?:\{\{(?!--)(.*?)\}\}|\{!!(.*?)!!\})/is', $scanned, $names, PREG_SET_ORDER) === false) {
         throw new RuntimeException('Livewire attribute-name scan failed: '.preg_last_error_msg());
     }

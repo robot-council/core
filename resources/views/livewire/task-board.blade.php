@@ -9,18 +9,21 @@
         <div class="flex flex-wrap items-center justify-between gap-3">
             <h1 class="card-title">Queue</h1>
 
-            <div class="flex flex-wrap gap-1" role="group" aria-label="Filter by status">
-                <button type="button" wire:click="showStatus('')"
-                    aria-pressed="{{ $shownStatus === '' ? 'true' : 'false' }}"
-                    class="btn btn-xs {{ $shownStatus === '' ? 'btn-primary' : 'btn-outline' }}">All</button>
+            {{-- One labelled list rather than a button per status (#480): eight buttons at the 44px
+                 target wrap onto two or three rows of a phone. It filters as a status is picked,
+                 through the same action the buttons called, so the cursor is dropped and the
+                 status stays in the URL. The id carries the component's own, because a host may
+                 mount the board twice and a second label would otherwise name the first list. --}}
+            <div class="flex items-center gap-2">
+                <label for="queue-status-{{ $this->getId() }}" class="font-medium">Status</label>
 
-                @foreach ($statuses as $option)
-                    <button type="button" wire:key="status-{{ $option->value }}" wire:click="showStatus('{{ \RobotCouncil\Support\WireArgument::of($option) }}')"
-                        aria-pressed="{{ $shownStatus === $option->value ? 'true' : 'false' }}"
-                        class="btn btn-xs {{ $shownStatus === $option->value ? 'btn-primary' : 'btn-outline' }}">
-                        {{ $option->value }}
-                    </button>
-                @endforeach
+                <select id="queue-status-{{ $this->getId() }}" data-status-filter wire:change="showStatus($event.target.value)" class="select select-bordered w-auto">
+                    <option value="" @selected($shownStatus === '')>All</option>
+
+                    @foreach ($statuses as $option)
+                        <option wire:key="status-{{ $option->value }}" value="{{ $option->value }}" @selected($shownStatus === $option->value)>{{ $option->value }}</option>
+                    @endforeach
+                </select>
             </div>
         </div>
 
@@ -135,13 +138,13 @@
         @if ($afterId !== null || $hasMore)
             <div class="flex items-center justify-end gap-2 pt-2">
                 @if ($afterId !== null)
-                    <button type="button" wire:click="showFirst" class="btn btn-sm btn-outline">First page</button>
+                    <button type="button" wire:click="showFirst" class="btn btn-target btn-outline">First page</button>
                 @endif
 
                 @if ($hasMore && $cursor)
                     <button type="button"
                         wire:click="showNext({{ \RobotCouncil\Support\WireArgument::of($cursor['priority']) }}, {{ \RobotCouncil\Support\WireArgument::of($cursor['id']) }})"
-                        class="btn btn-sm btn-outline">Next page</button>
+                        class="btn btn-target btn-outline">Next page</button>
                 @endif
             </div>
         @endif

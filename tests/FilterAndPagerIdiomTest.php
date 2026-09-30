@@ -14,7 +14,9 @@ declare(strict_types=1);
  * 17.73:1 against `base-100` in the light theme and 14.75:1 in the dark one (`DashboardThemeTest`
  * pins both); the selected one is `btn-primary`; a filter carries `aria-pressed`, because it is a
  * toggle and a screen reader otherwise hears two identical buttons; and both pagers of a pair are
- * `btn btn-sm btn-outline`.
+ * `btn btn-target btn-outline`. Every one of them is 44px since #480, through `btn-target`; they
+ * were `btn-xs` and `btn-sm`. The Queue's status filter is a labelled select since then, because
+ * eight buttons at that size wrap onto two or three rows of a phone.
  *
  * Asserted as the EXACT class list rather than as a substring, because a substring check for
  * `btn-outline` passes on `btn-outline btn-ghost`, and a check that `btn-ghost` is absent passes on
@@ -31,17 +33,18 @@ use RobotCouncil\Livewire\Administration;
 use RobotCouncil\Livewire\Agents;
 use RobotCouncil\Livewire\Locks;
 use RobotCouncil\Livewire\TaskBoard;
+use RobotCouncil\Models\TaskStatus;
 use RobotCouncil\Tests\TestCase;
 
 /**
  * The classes a selected filter renders with, sorted.
  */
-const SELECTED_FILTER = ['btn', 'btn-primary', 'btn-xs'];
+const SELECTED_FILTER = ['btn', 'btn-primary', 'btn-target'];
 
 /**
  * The classes an unselected filter renders with, sorted.
  */
-const UNSELECTED_FILTER = ['btn', 'btn-outline', 'btn-xs'];
+const UNSELECTED_FILTER = ['btn', 'btn-outline', 'btn-target'];
 
 beforeEach(function (): void {
     $this->migrateUsersTableWithPackageColumns();
@@ -103,6 +106,67 @@ function filterButton(Testable $component, string $action): array
     ];
 }
 
+/**
+ * The Queue's status filter, read from the rendered page.
+ *
+ * @param  Testable<Component>  $component  The rendered Queue.
+ * @return array{label: string, change: string, options: list<string>, selected: list<string>} The
+ *                                                                                             visible label, the action a change calls, every option's value, and the values marked selected.
+ *
+ * @throws RuntimeException When there is not exactly one status select.
+ */
+function queueStatusSelect(Testable $component): array
+{
+    $html = $component->html();
+
+    if ($html === '') {
+        throw new RuntimeException('The Queue rendered nothing, so there is no status select to read.');
+    }
+
+    $document = new DOMDocument;
+
+    $previous = libxml_use_internal_errors(true);
+    $document->loadHTML($html, LIBXML_NOERROR | LIBXML_NOWARNING);
+    libxml_clear_errors();
+    libxml_use_internal_errors($previous);
+
+    $xpath = new DOMXPath($document);
+    $select = $xpath->query('//select[@data-status-filter]');
+
+    if (! $select instanceof DOMNodeList || $select->length !== 1 || ! $select->item(0) instanceof DOMElement) {
+        throw new RuntimeException('Expected one status select on the Queue.');
+    }
+
+    $element = $select->item(0);
+    $label = $xpath->query(sprintf('//label[@for="%s"]', $element->getAttribute('id')));
+    $options = [];
+    $selected = [];
+
+    foreach ($element->getElementsByTagName('option') as $option) {
+        $options[] = $option->getAttribute('value');
+
+        if ($option->hasAttribute('selected')) {
+            $selected[] = $option->getAttribute('value');
+        }
+    }
+
+    // The id is the component's own, so two boards on one page do not share one
+    $id = $component->id();
+
+    if (! is_string($id) || $element->getAttribute('id') !== 'queue-status-'.$id) {
+        throw new RuntimeException(sprintf('The status select is [%s], not keyed to its component.', $element->getAttribute('id')));
+    }
+
+    $labelled = $label instanceof DOMNodeList && $label->length === 1 ? $label->item(0) : null;
+
+    return [
+        'label' => $labelled instanceof DOMElement ? trim($labelled->textContent) : '',
+        'change' => $element->getAttribute('wire:change'),
+        'options' => $options,
+        'selected' => $selected,
+    ];
+}
+
 it('draws a selected and an unselected filter the same way on every page', function (Closure $mount, string $selected, string $unselected): void {
     /** @var Testable<Component> $component */
     $component = $mount($this);
@@ -110,12 +174,6 @@ it('draws a selected and an unselected filter the same way on every page', funct
     expect(filterButton($component, $selected))->toBe(['classes' => SELECTED_FILTER, 'pressed' => 'true'])
         ->and(filterButton($component, $unselected))->toBe(['classes' => UNSELECTED_FILTER, 'pressed' => 'false']);
 })->with([
-    // The Queue's default is every status; one status stands for the rest.
-    'the Queue' => [
-        static fn (): Testable => Livewire::test(TaskBoard::class),
-        "showStatus('')",
-        "showStatus('pending')",
-    ],
     'Agents' => [
         static fn (): Testable => Livewire::test(Agents::class),
         "show('all')",
@@ -143,10 +201,6 @@ it('moves the selected treatment to the filter that was chosen', function (Closu
     expect(filterButton($component, $chosenAction))->toBe(['classes' => SELECTED_FILTER, 'pressed' => 'true'])
         ->and(filterButton($component, $left))->toBe(['classes' => UNSELECTED_FILTER, 'pressed' => 'false']);
 })->with([
-    'the Queue' => [
-        static fn (): Testable => Livewire::test(TaskBoard::class),
-        'showStatus', 'pending', "showStatus('pending')", "showStatus('')",
-    ],
     'Agents' => [
         static fn (): Testable => Livewire::test(Agents::class),
         'show', 'live', "show('live')", "show('all')",
@@ -179,7 +233,7 @@ it('gives both pagers of every pair the same bordered variant', function (string
         $buttons[0],
     );
 
-    expect($classes)->toBe(array_fill(0, $pagers, 'btn btn-sm btn-outline'));
+    expect($classes)->toBe(array_fill(0, $pagers, 'btn btn-target btn-outline'));
 })->with([
     'the Queue' => ['task-board', 2],
     'Agents' => ['agents', 2],
@@ -195,7 +249,9 @@ it('knows every show action a view offers, so a new filter or pager is not silen
     $actions = [];
 
     foreach ((array) glob(__DIR__.'/../resources/views/livewire/*.blade.php') as $view) {
-        preg_match_all('/wire:click="(show[A-Za-z]*)/', (string) file_get_contents((string) $view), $found);
+        // Any event a filter can be bound to, not only a click: the Queue's status list calls its
+        // action on `change` since #480, and a scan of clicks alone dropped it without failing
+        preg_match_all('/wire:(?:click|change|input)(?:\.[\w.]+)?="(show[A-Za-z]*)/', (string) file_get_contents((string) $view), $found);
 
         $actions = [...$actions, ...$found[1]];
     }
@@ -208,14 +264,46 @@ it('knows every show action a view offers, so a new filter or pager is not silen
     ]);
 });
 
+it('filters the Queue from a labelled list of every status, All first', function (): void {
+    $component = Livewire::test(TaskBoard::class);
+
+    // #480. One control named by its visible label, filtering through the action the buttons
+    // called, which drops the cursor
+    expect(queueStatusSelect($component))->toBe([
+        'label' => 'Status',
+        'change' => 'showStatus($event.target.value)',
+        'options' => ['', ...array_map(static fn (TaskStatus $status): string => $status->value, TaskStatus::cases())],
+        'selected' => [''],
+    ]);
+});
+
+it('marks the chosen status in the list, keeps it in the URL, and returns to All', function (): void {
+    $component = Livewire::test(TaskBoard::class)->call('showStatus', 'pending');
+
+    expect(queueStatusSelect($component)['selected'])->toBe(['pending'])
+        ->and($component->get('status'))->toBe('pending');
+
+    $component->call('showStatus', '');
+
+    // Back to every status: the property the URL is bound to is cleared rather than set to an
+    // empty string, and All is the one marked
+    expect(queueStatusSelect($component)['selected'])->toBe([''])
+        ->and($component->get('status'))->toBeNull();
+});
+
+it('reads the status from the URL into the list', function (): void {
+    $component = Livewire::withQueryParams(['status' => 'blocked'])->test(TaskBoard::class);
+
+    expect(queueStatusSelect($component)['selected'])->toBe(['blocked']);
+});
+
 it('marks every status selected when the Queue was asked for one that is not a status', function (): void {
     // The list widens to every task for a status it cannot read, so the filter has to say so. It
     // compared the raw `status` property against `''`, which is null for every status and holds
     // whatever the client sent otherwise, so no filter was ever marked selected here (#309).
     $component = Livewire::withQueryParams(['status' => 'not-a-status'])->test(TaskBoard::class);
 
-    expect(filterButton($component, "showStatus('')"))->toBe(['classes' => SELECTED_FILTER, 'pressed' => 'true'])
-        ->and(filterButton($component, "showStatus('pending')"))->toBe(['classes' => UNSELECTED_FILTER, 'pressed' => 'false']);
+    expect(queueStatusSelect($component)['selected'])->toBe(['']);
 });
 
 it('tells an admin whose every machine is retired where the others are', function (): void {

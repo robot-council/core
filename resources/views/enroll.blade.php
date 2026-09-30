@@ -157,7 +157,7 @@
                             @csrf
                             <input type="hidden" name="user_code" value="{{ $code->user_code }}">
 
-                            <label class="flex items-start gap-2">
+                            <label class="flex min-h-11 items-start gap-2">
                                 <input type="checkbox" name="confirmed" value="1" class="checkbox mt-0.5">
                                 <span>This code is displayed on a machine I control, and I started this enrollment.</span>
                             </label>

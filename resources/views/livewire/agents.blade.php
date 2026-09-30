@@ -15,13 +15,13 @@
             <div class="flex gap-1" role="group" aria-label="Filter by scope">
                 <button type="button" wire:click="show('{{ \RobotCouncil\Support\WireArgument::of(\RobotCouncil\Support\Scope::Live) }}')"
                     aria-pressed="{{ $sessionScope === \RobotCouncil\Support\Scope::Live ? 'true' : 'false' }}"
-                    class="btn btn-xs {{ $sessionScope === \RobotCouncil\Support\Scope::Live ? 'btn-primary' : 'btn-outline' }}">
+                    class="btn btn-target {{ $sessionScope === \RobotCouncil\Support\Scope::Live ? 'btn-primary' : 'btn-outline' }}">
                     Live ({{ $sessions['live'] }})
                 </button>
 
                 <button type="button" wire:click="show('{{ \RobotCouncil\Support\WireArgument::of(\RobotCouncil\Support\Scope::All) }}')"
                     aria-pressed="{{ $sessionScope === \RobotCouncil\Support\Scope::All ? 'true' : 'false' }}"
-                    class="btn btn-xs {{ $sessionScope === \RobotCouncil\Support\Scope::All ? 'btn-primary' : 'btn-outline' }}">
+                    class="btn btn-target {{ $sessionScope === \RobotCouncil\Support\Scope::All ? 'btn-primary' : 'btn-outline' }}">
                     All ({{ $sessions['live'] + $sessions['gone'] }})
                 </button>
             </div>
@@ -38,7 +38,7 @@
                 @php($shown = collect($sessions['sessions'])->firstWhere('id', $session))
                 @php($shownLabel = is_array($shown) ? \RobotCouncil\Support\SessionLabels::of($shown['repository'] ?? null, $shown['machine_label'] ?? null, $shown['work_location'] ?? null) : null)
                 <span>Showing one session, <code>{{ $shownLabel ?? '#'.$session }}</code>.</span>
-                <button type="button" wire:click="showEverySession" class="btn btn-xs btn-outline">Show all</button>
+                <button type="button" wire:click="showEverySession" class="btn btn-target btn-outline">Show all</button>
             </div>
         @endif
 
@@ -165,9 +165,9 @@
                                      key, assigned by the server, and it reaches the URL only
                                      through `route()` with a literal name. --}}
                                 <td role="cell" data-label="Locks" class="whitespace-nowrap text-meta">
-                                    {{-- Alone in its cell, so it is a target rather than a link in a sentence: at least 24px tall
-                                         (SC 2.5.8), which the browser suite measures (#403) --}}
-                                    <a href="{{ route('robot-council.locks', ['holder' => $agent['id']]) }}" class="link inline-flex min-h-6 items-center">Locks held</a>
+                                    {{-- Alone in its cell, so it is a target rather than a link in a sentence: at least 44px each
+                                         way (SC 2.5.5, #480), which the browser suite measures (#403) --}}
+                                    <a href="{{ route('robot-council.locks', ['holder' => $agent['id']]) }}" class="link inline-flex min-h-11 min-w-11 items-center">Locks held</a>
                                 </td>
                             </tr>
                         @endforeach
@@ -181,12 +181,12 @@
         @if ($after !== null || $sessions['more'])
             <div class="flex items-center justify-end gap-2 pt-2">
                 @if ($after !== null)
-                    <button type="button" wire:click="showFirst" class="btn btn-sm btn-outline">Newest</button>
+                    <button type="button" wire:click="showFirst" class="btn btn-target btn-outline">Newest</button>
                 @endif
 
                 @if ($sessions['more'] && $sessions['cursor'] !== null)
                     <button type="button" wire:click="showNext({{ \RobotCouncil\Support\WireArgument::of($sessions['cursor']) }})"
-                        class="btn btn-sm btn-outline">Older</button>
+                        class="btn btn-target btn-outline">Older</button>
                 @endif
             </div>
         @endif

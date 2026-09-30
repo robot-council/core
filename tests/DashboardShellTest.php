@@ -131,8 +131,10 @@ it('serves a stylesheet that carries the utilities the pages use, and not the on
         // every panel's frame
         'card', 'card-body', 'card-title', 'table', 'badge', 'badge-sm',
 
-        // the paging and scope controls #83 and #114 added
-        'btn', 'btn-sm', 'btn-xs', 'btn-ghost', 'btn-primary', 'justify-between', 'flex-wrap',
+        // the paging and scope controls #83 and #114 added, at the 44px target since #480, and the
+        // Queue's status list and the row links that stand alone in a cell
+        'btn', 'btn-target', 'btn-ghost', 'btn-primary', 'justify-between', 'flex-wrap', 'select',
+        'min-h-11', 'min-w-11',
 
         // the resting boundary #309 gave every filter and pager, which is the only thing saying an
         // unselected filter is a control
