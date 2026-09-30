@@ -306,8 +306,8 @@
     /*
      * The AAA target size, for the controls that act on the fleet (#399).
      *
-     * `.claude/rules/accessibility.md` asks 44 by 44 CSS px of a consequential or touch-primary
-     * control (SC 2.5.5, AAA) and 24 by 24 of everything else (SC 2.5.8, AA). daisyUI's sizes fall
+     * `.claude/rules/accessibility.md` asks 44 by 44 CSS px of every control on the dashboard
+     * (SC 2.5.5, AAA), where #399 had asked it only of consequential ones. daisyUI's sizes fall
      * short of the first: measured in this build, `btn` is 40px tall, `btn-sm` 32px and `btn-xs`
      * 24px. So a control that approves, denies, revokes, parks, waives, saves or signs out carries
      * `btn-target` in place of a size modifier, and is 44px here -- tall through daisyUI's own

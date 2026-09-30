@@ -12,11 +12,12 @@
             {{-- One labelled list rather than a button per status (#480): eight buttons at the 44px
                  target wrap onto two or three rows of a phone. It filters as a status is picked,
                  through the same action the buttons called, so the cursor is dropped and the
-                 status stays in the URL. --}}
+                 status stays in the URL. The id carries the component's own, because a host may
+                 mount the board twice and a second label would otherwise name the first list. --}}
             <div class="flex items-center gap-2">
-                <label for="queue-status" class="font-medium">Status</label>
+                <label for="queue-status-{{ $this->getId() }}" class="font-medium">Status</label>
 
-                <select id="queue-status" wire:change="showStatus($event.target.value)" class="select select-bordered w-auto">
+                <select id="queue-status-{{ $this->getId() }}" data-status-filter wire:change="showStatus($event.target.value)" class="select select-bordered w-auto">
                     <option value="" @selected($shownStatus === '')>All</option>
 
                     @foreach ($statuses as $option)

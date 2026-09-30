@@ -500,8 +500,8 @@ it('exempts `wire:key` exactly, the way Livewire reserves it', function (): void
 it('leaves ordinary Tailwind alone, which the attribute-name scan did not', function (string $class): void {
     // **`x-` matched anywhere in the document**, so any utility carrying it immediately before an
     // interpolation was reported as an attribute name -- and a finding fails the build. This
-    // package's own views already carry `class="btn btn-xs {{ … }}"`, so the tree was one class
-    // away from a guard that refused it.
+    // package's own views carried `class="btn btn-xs {{ … }}"` until #480, so the tree was one
+    // class away from a guard that refused it.
     expect(wireExpressionInterpolations('<div class="'.$class.'">x</div>'))->toBeEmpty();
 })->with(['px-{{ $n }}', 'max-w-{{ $w }}', 'space-x-{{ $gap }}', 'translate-x-{{ $n }}', 'px-{!! $n !!}']);
 

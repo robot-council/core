@@ -353,10 +353,16 @@ function undersizedControls(PendingAwaitablePage $page): array
         () => {
             const out = [];
             const describe = el => (el.getAttribute('aria-label') || el.textContent || el.tagName).trim().replace(/\s+/g, ' ').slice(0, 40);
+            // The block's own words, less the link's. A badge or screen-reader-only text beside a
+            // link is not a sentence round it, so neither counts: a lone ticket link next to a
+            // hand-back badge on Lanes was exempted that way and drawn 20px tall (#480)
             const inSentence = el => {
                 if (el.tagName !== 'A') return false;
                 const block = el.parentElement.closest('p, li, dd, td, span, div');
-                return block !== null && block.textContent.replace(el.textContent, '').trim().length > 0;
+                if (block === null) return false;
+                const copy = block.cloneNode(true);
+                copy.querySelectorAll('.badge, .sr-only').forEach(n => n.remove());
+                return copy.textContent.replace(el.textContent, '').trim().length > 0;
             };
             for (const el of document.querySelectorAll('button, a[href], summary, input:not([type=hidden]), select, textarea, label.btn, [role=button]')) {
                 const rect = el.getBoundingClientRect();
@@ -371,6 +377,20 @@ function undersizedControls(PendingAwaitablePage $page): array
             return out;
         }
     JS);
+}
+
+/**
+ * How far the page scrolls sideways, in CSS px: zero when it fits the viewport (SC 1.4.10).
+ */
+function sidewaysScroll(PendingAwaitablePage $page): int
+{
+    $overflow = $page->script('() => document.documentElement.scrollWidth - document.documentElement.clientWidth');
+
+    if (! is_int($overflow)) {
+        throw new RuntimeException('The sideways-scroll read returned no number.');
+    }
+
+    return $overflow;
 }
 
 beforeAll(function (): void {
@@ -440,16 +460,16 @@ it('filters the Queue from its status list and returns to every status', functio
     $page = visitSurface($this, 'robot-council.queue', '', 'Everyone stop and sync', 'light')
         ->assertSee('Port the rule');
 
-    $page->select('#queue-status', 'done')
+    $page->select('select[data-status-filter]', 'done')
         ->assertQueryStringHas('status', 'done')
         ->assertDontSee('Everyone stop and sync')
         ->assertSee('Port the rule')
-        ->assertValue('#queue-status', 'done');
+        ->assertValue('select[data-status-filter]', 'done');
 
-    $page->select('#queue-status', '')
+    $page->select('select[data-status-filter]', '')
         ->assertQueryStringMissing('status')
         ->assertSee('Everyone stop and sync')
-        ->assertValue('#queue-status', '');
+        ->assertValue('select[data-status-filter]', '');
 });
 
 it('fails on a planted violation, so a clean run means axe looked', function (): void {
@@ -566,7 +586,31 @@ it('holds every control to the 44px target size', function (string $route, strin
     $small = undersizedControls($page);
 
     expect($small)->toBe([], implode("\n", $small));
+
+    // And no page scrolls sideways to make room for them (#480): a row of 44px controls that
+    // stopped wrapping would push the page wider than a phone
+    expect(sidewaysScroll($page))->toBe(0);
 })->with(accessibilitySurfaces())->with([390, 1280]);
+
+it('finds a page that scrolls sideways, so the check above is not blind', function (): void {
+    $page = visitSurface($this, 'robot-council.queue', '', 'Everyone stop and sync', 'light');
+
+    $page->resize(390, 900);
+
+    expect(sidewaysScroll($page))->toBe(0);
+
+    // A row that does not wrap, wider than the phone
+    $page->script(<<<'JS'
+        () => {
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;width:600px';
+            row.textContent = 'wide';
+            document.querySelector('main').appendChild(row);
+        }
+    JS);
+
+    expect(sidewaysScroll($page))->toBeGreaterThan(0);
+});
 
 it('finds an undersized control, so the check above is not blind', function (): void {
     $page = visitSurface($this, 'robot-council.seats', '', 'robot-council-core-a', 'light');

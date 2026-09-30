@@ -117,22 +117,28 @@ function filterButton(Testable $component, string $action): array
  */
 function queueStatusSelect(Testable $component): array
 {
+    $html = $component->html();
+
+    if ($html === '') {
+        throw new RuntimeException('The Queue rendered nothing, so there is no status select to read.');
+    }
+
     $document = new DOMDocument;
 
     $previous = libxml_use_internal_errors(true);
-    $document->loadHTML($component->html(), LIBXML_NOERROR | LIBXML_NOWARNING);
+    $document->loadHTML($html, LIBXML_NOERROR | LIBXML_NOWARNING);
     libxml_clear_errors();
     libxml_use_internal_errors($previous);
 
     $xpath = new DOMXPath($document);
-    $select = $xpath->query('//select[@id="queue-status"]');
+    $select = $xpath->query('//select[@data-status-filter]');
 
     if (! $select instanceof DOMNodeList || $select->length !== 1 || ! $select->item(0) instanceof DOMElement) {
         throw new RuntimeException('Expected one status select on the Queue.');
     }
 
     $element = $select->item(0);
-    $label = $xpath->query('//label[@for="queue-status"]');
+    $label = $xpath->query(sprintf('//label[@for="%s"]', $element->getAttribute('id')));
     $options = [];
     $selected = [];
 
@@ -144,8 +150,17 @@ function queueStatusSelect(Testable $component): array
         }
     }
 
+    // The id is the component's own, so two boards on one page do not share one
+    $id = $component->id();
+
+    if (! is_string($id) || $element->getAttribute('id') !== 'queue-status-'.$id) {
+        throw new RuntimeException(sprintf('The status select is [%s], not keyed to its component.', $element->getAttribute('id')));
+    }
+
+    $labelled = $label instanceof DOMNodeList && $label->length === 1 ? $label->item(0) : null;
+
     return [
-        'label' => $label instanceof DOMNodeList && $label->length === 1 ? trim((string) $label->item(0)?->textContent) : '',
+        'label' => $labelled instanceof DOMElement ? trim($labelled->textContent) : '',
         'change' => $element->getAttribute('wire:change'),
         'options' => $options,
         'selected' => $selected,
@@ -234,7 +249,9 @@ it('knows every show action a view offers, so a new filter or pager is not silen
     $actions = [];
 
     foreach ((array) glob(__DIR__.'/../resources/views/livewire/*.blade.php') as $view) {
-        preg_match_all('/wire:click="(show[A-Za-z]*)/', (string) file_get_contents((string) $view), $found);
+        // Any event a filter can be bound to, not only a click: the Queue's status list calls its
+        // action on `change` since #480, and a scan of clicks alone dropped it without failing
+        preg_match_all('/wire:(?:click|change|input)(?:\.[\w.]+)?="(show[A-Za-z]*)/', (string) file_get_contents((string) $view), $found);
 
         $actions = [...$actions, ...$found[1]];
     }
@@ -243,7 +260,7 @@ it('knows every show action a view offers, so a new filter or pager is not silen
     sort($actions);
 
     expect($actions)->toBe([
-        'show', 'showEveryHolder', 'showEverySession', 'showFirst', 'showLatest', 'showNext', 'showOlder', 'showScope',
+        'show', 'showEveryHolder', 'showEverySession', 'showFirst', 'showLatest', 'showNext', 'showOlder', 'showScope', 'showStatus',
     ]);
 });
 
