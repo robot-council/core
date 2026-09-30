@@ -180,6 +180,9 @@ function seedAccessibilityFleet(TestCase $case): array
     // The feed, the owed item and the meter
     $events = $case->service(FleetEvents::class);
     $events->record(FleetEventType::Narration, $working, 'Running the gate before opening the pull request.');
+
+    // A body long enough to be read as running text, so the feed's measure is checked (#311)
+    $events->record(FleetEventType::Narration, $working, str_repeat('The gate ran the full suite on the merged state, and every job it depends on reported success before the pull request was opened. ', 4));
     $events->record(FleetEventType::Directive, $coordinator, 'Sync with main before pushing.', withCoordinator: true);
 
     // The longest type core defines, so the feed's type column is measured at its widest (#481)
@@ -686,7 +689,7 @@ it('keeps each glossary term and its meaning on one row once the columns apply',
 function feedRows(PendingAwaitablePage $page): array
 {
     $rows = $page->script(<<<'JS'
-        () => [...document.querySelectorAll('[data-feed] > li')].map(li => {
+        () => [...document.querySelectorAll('[data-feed] tbody > tr')].map(li => {
             const badge = li.querySelector('[data-feed-type]');
             const body = li.querySelector('[data-feed-body]');
             const b = badge.getBoundingClientRect();
@@ -719,10 +722,11 @@ function longestFeedType(): FleetEventType
     return $cases[0];
 }
 
-it('starts every change-feed body at the same x once the grid applies, the longest type included', function (int $width): void {
+it('starts every change-feed body at the same x once the table has columns, the longest type included', function (int $width): void {
     $page = visitSurface($this, 'robot-council.feed', '', 'Change feed', 'light');
 
-    // Just past `sm`, with the sidebar closed and the column at its tightest, and on a desktop
+    // Just past `md`, where the table stops stacking (#311), with the sidebar closed and the column
+    // at its tightest, and on a desktop
     $page->resize($width, 900);
 
     $rows = feedRows($page);
@@ -745,13 +749,39 @@ it('starts every change-feed body at the same x once the grid applies, the longe
             ->and($row['body']['left'] - $row['badge']['right'])->toBeGreaterThanOrEqual(11.5, $row['type']);
     }
 
-    expect(sidewaysScroll($page))->toBe(0);
-})->with([700, 1280]);
+    // Every fixed value lines up too, not only the body: one left edge per column across the rows
+    $columns = $page->script(<<<'JS'
+        () => [...document.querySelectorAll('[data-feed] tbody > tr')]
+            .map(tr => [...tr.children].map(td => Math.round(td.getBoundingClientRect().left)))
+    JS);
 
-it('stacks each change-feed badge above its body at a phone width', function (): void {
+    expect($columns)->toBeArray()->not->toBeEmpty();
+
+    /** @var list<list<int>> $columns */
+    foreach ([0, 1, 2, 3] as $cell) {
+        expect(array_unique(array_column($columns, $cell)))->toHaveCount(1, 'column '.$cell);
+    }
+
+    expect(sidewaysScroll($page))->toBe(0);
+})->with([800, 1280]);
+
+it('keeps a change-feed body to its measure on a wide screen, and finds one planted without it (#311)', function (): void {
+    $page = visitSurface($this, 'robot-council.feed', '', 'Change feed', 'light');
+    $page->resize(2560, 900);
+
+    expect(wideLayout($page)['prose'])->toBe([]);
+
+    // The canary: the same body with its cap taken off runs past 36rem, so a check that could not
+    // see a feed body would pass nothing here
+    $page->script("() => document.querySelectorAll('[data-feed-body] > div').forEach((div) => div.classList.remove('max-w-xl'))");
+
+    expect(wideLayout($page)['prose'])->not->toBeEmpty();
+});
+
+it('stacks each change-feed badge above its body below `md`', function (int $width): void {
     $page = visitSurface($this, 'robot-council.feed', '', 'Change feed', 'light');
 
-    $page->resize(390, 900);
+    $page->resize($width, 900);
 
     $rows = feedRows($page);
 
@@ -763,7 +793,7 @@ it('stacks each change-feed badge above its body at a phone width', function ():
     }
 
     expect(sidewaysScroll($page))->toBe(0);
-});
+})->with([390, 700]);
 
 it("lines up each machine's session ids, statuses, roles and details on Administration", function (): void {
     $page = visitSurface($this, 'robot-council.administration', '', 'gate-runner', 'light');
@@ -1115,9 +1145,10 @@ function wideLayout(PendingAwaitablePage $page): array
             const main = document.querySelector('main');
             const describe = (el) => `${el.tagName.toLowerCase()} "${el.textContent.trim().replace(/\s+/g, ' ').slice(0, 60)}"`;
             // Running text: a paragraph or a list item long enough to be read as a line, outside a
-            // table. The change feed's bodies are left out: #311 reshapes that list and owns their measure
+            // table, where a table's cells are records rather than sentences. A change-feed body is the
+            // exception: it is running text in a table cell, and holds its measure there too (#311)
             const prose = [...main.querySelectorAll('p, li')]
-                .filter((p) => ! p.closest('table, [data-feed]') && ! p.querySelector('p, li'))
+                .filter((p) => (! p.closest('table') || p.closest('[data-feed-body]')) && ! p.querySelector('p, li'))
                 // A row laid out as a flex or grid box is a record with its own columns, not a sentence
                 .filter((p) => ! ['flex', 'grid', 'inline-flex'].includes(getComputedStyle(p).display))
                 .filter((p) => p.textContent.trim().replace(/\s+/g, ' ').length > 80)
