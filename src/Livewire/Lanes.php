@@ -10,7 +10,7 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Component;
-use RobotCouncil\Support\AssignmentWindow;
+use RobotCouncil\Support\DisplayTime;
 use RobotCouncil\Support\LaneBoard;
 use RobotCouncil\Support\PollInterval;
 
@@ -47,22 +47,20 @@ final class Lanes extends Component
      * Render the board.
      *
      * @param  LaneBoard  $board  The board reader.
-     * @param  Repository  $config  The application's configuration repository.
+     * @param  DisplayTime  $time  How the page writes its times (#487).
      * @return View The page.
      */
-    public function render(LaneBoard $board, Repository $config): View
+    public function render(LaneBoard $board, DisplayTime $time): View
     {
         // Pinned, because whether the analyzer can resolve a package view depends on whether it
         // could boot the application, which differs between a developer's machine and CI
         /** @var view-string $template */
         $template = 'robot-council::livewire.lanes';
 
-        $timezone = $config->get('robot-council.dashboard.timezone');
-
         return view($template, [
             'board' => $board->read(),
-            // A zone the host mistyped falls back rather than failing the page
-            'timezone' => AssignmentWindow::isTimezone($timezone) && \is_string($timezone) ? $timezone : 'UTC',
+            // Stamps in the viewer's own zone, and the baseline in the fleet's, each named (#487)
+            'time' => $time,
         ]);
     }
 }

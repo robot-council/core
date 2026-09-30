@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RobotCouncil\Livewire;
 
+use Carbon\CarbonImmutable;
 use DateTimeZone;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\View\View;
@@ -19,6 +20,7 @@ use RobotCouncil\Models\Seat;
 use RobotCouncil\Support\AssignmentWindow;
 use RobotCouncil\Support\Capacity;
 use RobotCouncil\Support\DeveloperSettings;
+use RobotCouncil\Support\DisplayTime;
 use RobotCouncil\Support\HostKey;
 use RobotCouncil\Support\Outcome;
 use RobotCouncil\Support\PlacementWaivers;
@@ -167,10 +169,10 @@ final class SeatSettings extends Component
 
         if ($saved) {
             $this->say('hours', sprintf(
-                'Saved: your seats take new work from %s until %s, %s time, %s.',
-                $this->startsAt,
-                $this->endsAt,
-                $this->timezone,
+                'Saved: your seats take new work from %s until %s, %s, %s.',
+                DisplayTime::clock(CarbonImmutable::parse($this->startsAt)),
+                DisplayTime::clock(CarbonImmutable::parse($this->endsAt)),
+                DisplayTime::zoneName($this->timezone),
                 $this->skipWeekends ? 'on weekdays only' : 'every day of the week'
             ));
         }

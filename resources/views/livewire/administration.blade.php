@@ -142,9 +142,10 @@
                                                  which is what tells a restarted agent's new session from
                                                  the old one beside it in the same checkout. Each is shown
                                                  as a date and clock time a person can match to their own
-                                                 terminal, in the dashboard's zone, and then how long ago;
-                                                 the exact instant is also in `datetime`, for software. --}}
-                                            @php($when = fn (string $instant): string => \Illuminate\Support\Carbon::parse($instant)->setTimezone($timezone)->format('Y-m-d H:i T').' ('.\Illuminate\Support\Carbon::parse($instant)->diffForHumans().')')
+                                                 terminal, in the viewer's own zone and named (#487), and
+                                                 then how long ago; the exact instant is also in
+                                                 `datetime`, for software. --}}
+                                            @php($when = fn (string $instant): string => $time->at(\Illuminate\Support\Carbon::parse($instant)).' ('.\Illuminate\Support\Carbon::parse($instant)->diffForHumans().')')
                                             <span data-session-times>
                                                 joined
                                                 @if ($session['joined_at'] !== null)

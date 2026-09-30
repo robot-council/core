@@ -12,14 +12,22 @@
     <div class="flex flex-wrap items-baseline justify-between gap-2">
         <h1 class="text-2xl font-semibold">Lanes</h1>
         <span class="text-meta opacity-90" data-last-change>
-            Last change {{ $board['last_change']?->copy()->setTimezone($timezone)->format('Y-m-d H:i T') ?? 'none recorded' }}
-            &middot; read {{ $board['observed_at']->copy()->setTimezone($timezone)->format('H:i T') }}
+            Last change
+            @if ($board['last_change'] !== null)
+                <time datetime="{{ \RobotCouncil\Support\DisplayTime::iso($board['last_change']) }}">{{ $time->at($board['last_change']) }}</time>
+            @else
+                none recorded
+            @endif
+            &middot; read <time datetime="{{ \RobotCouncil\Support\DisplayTime::iso($board['observed_at']) }}">{{ $time->clockAt($board['observed_at']) }}</time>
         </span>
     </div>
 
     @include('robot-council::partials.glossary', ['terms' => ['lane', 'harness', 'working', 'idle', 'parked', 'blocked', 'not_observed', 'gate', 'watcher', 'tickets_held', 'task', 'ticket', 'hand_back', 'subagent', 'branch', 'taken_up', 'validating', 'pull_request_state', 'known_since', 'open_issues', 'waiting_on_developer']])
 
     @if ($board['meters'] !== [])
+        {{-- Whose 8 a.m.: the fleet's, which everyone shares, named rather than assumed (#487) --}}
+        <p class="text-meta max-w-xl leading-relaxed opacity-90" data-baseline>Each count is compared with the same repository's count at {{ $time->baseline() }} today.</p>
+
         <div class="flex flex-wrap gap-3">
             @foreach ($board['meters'] as $repository => $meter)
                 <div wire:key="meter-{{ $repository }}" class="card bg-base-100 shadow-sm">
@@ -37,7 +45,7 @@
                                  error colour --}}
                             <div class="text-meta" data-meter-delta>
                                 @if ($meter['delta'] === null)
-                                    <span class="opacity-90">no baseline today</span>
+                                    <span class="opacity-90">no {{ $time->baseline() }} count yet</span>
                                 @elseif ($meter['delta'] > 0)
                                     <span class="font-semibold text-error">up {{ $meter['delta'] }}</span>
                                 @elseif ($meter['delta'] < 0)

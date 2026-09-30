@@ -70,8 +70,8 @@ it('tells apart two live sessions in the same checkout with the same role', func
         ->and($rows[$old->id])->toContain('#'.$old->id)
         ->and($rows[$new->id])->toContain('#'.$new->id)
         // And when it joined and was last seen
-        ->and($rows[$old->id])->toContain('joined 2026-09-26 08:00 UTC (1 hour ago), last seen 2026-09-26 08:40 UTC (20 minutes ago)')
-        ->and($rows[$new->id])->toContain('joined 2026-09-26 09:00 UTC (30 seconds ago), last seen 2026-09-26 09:00 UTC (30 seconds ago)')
+        ->and($rows[$old->id])->toContain('joined Sep 26, 2026, 8 a.m. UTC (1 hour ago), last seen Sep 26, 2026, 8:40 a.m. UTC (20 minutes ago)')
+        ->and($rows[$new->id])->toContain('joined Sep 26, 2026, 9 a.m. UTC (30 seconds ago), last seen Sep 26, 2026, 9 a.m. UTC (30 seconds ago)')
         // The exact time is in the markup, for software rather than for hover
         ->and($html)->toContain('<time datetime="2026-09-26T08:00:00+00:00">')
         ->toContain('<time datetime="2026-09-26T08:40:00+00:00">');
@@ -95,7 +95,7 @@ it("shows the same instants on a host whose clock is not UTC, in the dashboard's
         $row = adminSessionRows(Livewire::actingAs($this->admin)->test(Administration::class)->html())[$session->id] ?? '';
 
         // 13:30 in Kolkata is 08:00 UTC, which is 03:00 in Chicago on that date
-        expect($row)->toContain('joined 2026-09-26 03:00 CDT (10 minutes ago), last seen 2026-09-26 03:00 CDT (10 minutes ago)');
+        expect($row)->toContain('joined Sep 26, 2026, 3 a.m. Central Time (10 minutes ago), last seen Sep 26, 2026, 3 a.m. Central Time (10 minutes ago)');
     } finally {
         date_default_timezone_set($zone);
     }
