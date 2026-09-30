@@ -572,7 +572,7 @@ it('picks a time zone from a grouped list by keyboard, named by its label, and s
     $page->keys('select[data-time-zone]', str_split('Asia/Tokyo'))
         ->assertValue('select[data-time-zone]', 'Asia/Tokyo')
         ->click('Save hours')
-        ->assertSee('Asia/Tokyo time');
+        ->assertSee('Japan');
 
     expect(AssignmentHours::query()->first()?->timezone)->toBe('Asia/Tokyo');
 });
