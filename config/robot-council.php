@@ -299,8 +299,9 @@ return [
         'lane_conditions' => true,
 
         // Every fifteen minutes: looks up, through the GitHub App, the login of each allowlisted
-        // account that has not signed in, for the Access page (#484). Asks about an ID at most daily,
-        // and does nothing while `github.app` is unset.
+        // account that has not signed in, for the Access page (#484). Asks again about a login at
+        // most daily and about an ID GitHub could not name at most hourly, and does nothing while
+        // `github.app` is unset.
         'github_logins' => true,
     ],
 

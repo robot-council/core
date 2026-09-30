@@ -850,12 +850,12 @@ it('puts every form label above its field', function (string $route, string $exp
         ->and($found['misplaced'])->toBe([], implode("\n", $found['misplaced']))
         ->and(sidewaysScroll($page))->toBe(0);
 })->with([
-    'Access' => ['robot-council.access', 'Add to list', 3],
+    'Access' => ['robot-council.access', 'Look up', 3],
     'Seats' => ['robot-council.seats', 'Save hours', 5],
 ])->with([390, 1280]);
 
 it('gives the Access form one full-width field per row on a phone', function (): void {
-    $page = visitSurface($this, 'robot-council.access', '', 'Add to list', 'light');
+    $page = visitSurface($this, 'robot-council.access', '', 'Look up', 'light');
 
     $page->resize(390, 900);
 

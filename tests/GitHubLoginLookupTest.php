@@ -44,6 +44,10 @@ beforeEach(function (): void {
         // An organization, and a person whose login is another account's ID
         6060 => ['login' => 'an-org', 'type' => 'Organization'],
         7070 => ['login' => '5150'],
+        9191 => ['login' => 'solo-dev'],
+        // An organization whose ID is a person's login
+        8080 => ['login' => 'another-org', 'type' => 'Organization'],
+        1111 => ['login' => '8080'],
     ];
     $this->github = fakeGitHubProfiles($this->accounts);
 });
@@ -59,6 +63,20 @@ function rememberedLogin(int $githubId): ?string
     $login = DB::table('robot_council_github_accounts')->where('github_id', $githubId)->value('login');
 
     return is_string($login) ? $login : null;
+}
+
+/**
+ * An override that fails only the profile requests, answering the installation and token ones.
+ *
+ * Aimed at the profile path on purpose: failing every path is refused at the installation lookup,
+ * before any profile is asked for, and would leave `GitHubApp::account()`'s own handling untested.
+ *
+ * @param  Closure(): mixed  $failure  What a profile request meets.
+ * @return Closure(string): mixed The override.
+ */
+function failProfiles(Closure $failure): Closure
+{
+    return static fn (string $path): mixed => preg_match('#^/users?/[^/]+$#', $path) === 1 ? $failure() : null;
 }
 
 /**
@@ -144,7 +162,7 @@ it("falls back to today's words when GitHub cannot name the ID, and keeps a logi
         ->and(rememberedLogin(21082715))->toBe('todd-uams');
 
     DB::table('robot_council_github_accounts')->where('github_id', 21082715)->update(['checked_at' => Carbon::now()->subDays(2)]);
-    $this->github['override'] = static fn (): never => throw new ConnectionException('down');
+    $this->github['override'] = failProfiles(static fn (): never => throw new ConnectionException('down'));
 
     expect(Artisan::call('robot-council:refresh-github-logins'))->toBe(0)
         ->and(rememberedLogin(21082715))->toBe('todd-uams')
@@ -172,6 +190,22 @@ it('asks about an ID again only once its answer has aged, and never about one th
 
     expect(Artisan::call('robot-council:refresh-github-logins'))->toBe(0)
         ->and(profileRequests($this->github))->toBeEmpty();
+});
+
+it('stops a refresh at a failure every later request would meet', function (): void {
+    $this->setAccessLists(developers: [4242, 21082715, 9191], admins: [4242]);
+    $this->github['override'] = failProfiles(static fn () => Http::response([], 500));
+
+    expect(Artisan::call('robot-council:refresh-github-logins'))->toBe(0)
+        ->and(profileRequests($this->github))->toHaveCount(1);
+
+    // The control: reachable, both are asked about in one run
+    $this->github['override'] = null;
+    $this->github['sent'] = [];
+    DB::table('robot_council_github_accounts')->update(['checked_at' => Carbon::now()->subDays(2)]);
+
+    expect(Artisan::call('robot-council:refresh-github-logins'))->toBe(0)
+        ->and(profileRequests($this->github))->toHaveCount(2);
 });
 
 it('makes no request at all with no App configured', function (): void {
@@ -212,7 +246,7 @@ it('adds an account by its login, storing the ID GitHub gave and the login for d
         ->and(app(Allowlist::class)->isAdmin(5150))->toBeTrue();
 });
 
-it('adds an account by its ID, confirmed against GitHub', function (): void {
+it('offers both accounts when an all-digit value is one account\'s ID and another\'s login', function (): void {
     Livewire::actingAs($this->admin)->test(AccessLists::class)
         ->set('account', '5150')->call('lookUp')
         // `5150` is also a login -- account 7070's -- so both are offered
@@ -227,6 +261,34 @@ it('offers one account for an ID that is no login', function (): void {
         ->set('account', '21082715')->call('lookUp')
         ->assertSet('candidates', [['github_id' => 21082715, 'login' => 'todd-uams']])
         ->assertSet('said', "Found: todd-uams is GitHub user 21082715, a person's account. Check that it is who you mean, then add them.");
+});
+
+it('adds an account by its ID, confirmed against GitHub', function (): void {
+    Livewire::actingAs($this->admin)->test(AccessLists::class)
+        ->set('account', '9191')->call('lookUp')
+        ->assertSet('candidates', [['github_id' => 9191, 'login' => 'solo-dev']])
+        ->call('add', 9191)
+        ->assertSet('said', 'Added: solo-dev (GitHub user 9191) is on the developer list from their next request.');
+
+    expect(DB::table('robot_council_allowlist_entries')->where('github_id', 9191)->value('login'))->toBe('solo-dev')
+        ->and(profileRequests($this->github))->toBe(['GET /user/9191', 'GET /users/9191']);
+});
+
+it('names an organization an all-digit value also matched, rather than offering one account silently', function (): void {
+    Livewire::actingAs($this->admin)->test(AccessLists::class)
+        ->set('account', '8080')->call('lookUp')
+        ->assertSet('candidates', [['github_id' => 1111, 'login' => '8080']])
+        ->assertSet('said', "Found: 8080 is GitHub user 1111, a person's account. Check that it is who you mean, then add them. another-org (GitHub user 8080) also matches, but it is an organization account, which cannot sign in.");
+});
+
+it('offers nothing when the ID answered but the login check failed, rather than half an answer', function (): void {
+    $this->github['override'] = static fn (string $path): mixed => $path === '/users/6060' ? Http::response([], 429) : null;
+
+    Livewire::actingAs($this->admin)->test(AccessLists::class)
+        ->set('account', '6060')->call('lookUp')
+        ->assertSet('refused', true)
+        ->assertSet('candidates', [])
+        ->assertSet('said', 'Not added: GitHub is limiting requests just now, so it could not be checked whether 6060 is also a login. Try again later.');
 });
 
 it('saves nothing for an all-digit value naming two accounts until one is chosen, and then only that one', function (): void {
@@ -276,7 +338,7 @@ it('adds only an account the last lookup offered', function (): void {
 });
 
 it('lets an all-digit value be added unconfirmed while GitHub is unreachable, after saying so', function (): void {
-    $this->github['override'] = static fn (): never => throw new ConnectionException('down');
+    $this->github['override'] = failProfiles(static fn (): never => throw new ConnectionException('down'));
 
     $component = Livewire::actingAs($this->admin)->test(AccessLists::class)
         ->set('account', '5150')->call('lookUp')
@@ -304,7 +366,7 @@ it('refuses a login while GitHub is unreachable, since there is no ID to store',
         ->set('account', 'new-dev')->call('lookUp')
         ->assertSet('candidates', [['github_id' => 5150, 'login' => 'new-dev']]);
 
-    $this->github['override'] = static fn (): never => throw new ConnectionException('down');
+    $this->github['override'] = failProfiles(static fn (): never => throw new ConnectionException('down'));
 
     Livewire::actingAs($this->admin)->test(AccessLists::class)
         ->set('account', 'new-dev')->call('lookUp')
@@ -314,7 +376,7 @@ it('refuses a login while GitHub is unreachable, since there is no ID to store',
 });
 
 it('says which failure it was', function (Closure $failure, string $reason): void {
-    $this->github['override'] = $failure;
+    $this->github['override'] = failProfiles($failure);
 
     Livewire::actingAs($this->admin)->test(AccessLists::class)
         ->set('account', 'new-dev')->call('lookUp')

@@ -131,26 +131,39 @@ final class AccessLists extends Component
         $accounts = $this->service(GitHubAccounts::class);
         $found = [];
 
-        try {
-            foreach ([$id === null ? null : $accounts->byId($id), $asLogin ? $accounts->byLogin($value) : null] as $account) {
-                if ($account instanceof GitHubAccount) {
-                    $found[$account->id] = $account;
-                }
-            }
-        } catch (GitHubRefusal $gitHubRefusal) {
-            $reason = GitHubAccounts::reason($gitHubRefusal);
-
-            // An ID needs nothing from GitHub to be stored, so it is offered, marked unconfirmed
-            if ($id !== null) {
+        // Each half is caught on its own, so a failure of one never discards the other's answer
+        if ($id !== null) {
+            try {
+                $account = $accounts->byId($id);
+            } catch (GitHubRefusal $gitHubRefusal) {
+                // An ID needs nothing from GitHub to be stored, so it is offered, marked unconfirmed
                 $this->candidates = [['github_id' => $id, 'login' => null]];
-                $this->say('add', sprintf('Not confirmed: %s, so GitHub user %d could not be checked. You can still add it by its ID, and the page shows its login once GitHub answers.', $reason, $id), true);
+                $this->say('add', sprintf('Not confirmed: %s, so GitHub user %d could not be checked. You can still add it by its ID, and the page shows its login once GitHub answers.', GitHubAccounts::reason($gitHubRefusal), $id), true);
 
                 return;
             }
 
-            $this->say('add', sprintf('Not added: %s, so %s could not be looked up. Try again later, or add them by their numeric user ID.', $reason, $value), true);
+            if ($account instanceof GitHubAccount) {
+                $found[$account->id] = $account;
+            }
+        }
 
-            return;
+        if ($asLogin) {
+            try {
+                $account = $accounts->byLogin($value);
+            } catch (GitHubRefusal $gitHubRefusal) {
+                // With the ID answered, an unasked login could still be another account, so
+                // nothing is offered rather than half an answer
+                $this->say('add', $id === null
+                    ? sprintf('Not added: %s, so %s could not be looked up. Try again later, or add them by their numeric user ID.', GitHubAccounts::reason($gitHubRefusal), $value)
+                    : sprintf('Not added: %s, so it could not be checked whether %s is also a login. Try again later.', GitHubAccounts::reason($gitHubRefusal), $value), true);
+
+                return;
+            }
+
+            if ($account instanceof GitHubAccount) {
+                $found[$account->id] = $account;
+            }
         }
 
         $people = array_values(array_filter($found, static fn (GitHubAccount $account): bool => $account->isPerson()));
@@ -170,9 +183,15 @@ final class AccessLists extends Component
 
         $this->candidates = array_map(static fn (GitHubAccount $account): array => ['github_id' => $account->id, 'login' => $account->login], $people);
 
-        $this->say('add', \count($people) === 1
+        // An account left out is named, so a value that matched two never reads as matching one
+        $leftOut = array_map(
+            static fn (GitHubAccount $account): string => sprintf(' %s (GitHub user %d) also matches, but it is %s account, which cannot sign in.', $account->login, $account->id, $account->type === 'Organization' ? 'an organization' : 'a bot'),
+            array_values(array_filter($found, static fn (GitHubAccount $account): bool => ! $account->isPerson()))
+        );
+
+        $this->say('add', (\count($people) === 1
             ? sprintf("Found: %s is GitHub user %d, a person's account. Check that it is who you mean, then add them.", $people[0]->login, $people[0]->id)
-            : sprintf('Two accounts match %s: %s is GitHub user %d, and %s is GitHub user %d. Add the one you mean.', $value, $people[0]->login, $people[0]->id, $people[1]->login, $people[1]->id));
+            : sprintf('Two accounts match %s: %s is GitHub user %d, and %s is GitHub user %d. Add the one you mean.', $value, $people[0]->login, $people[0]->id, $people[1]->login, $people[1]->id)).implode('', $leftOut));
     }
 
     /**
@@ -376,7 +395,8 @@ final class AccessLists extends Component
                 if (\is_int($entry['github_id'] ?? null)) {
                     $ids[] = $entry['github_id'];
 
-                    if (\is_string($entry['login'] ?? null) && $entry['login'] !== '') {
+                    // Checked as a login, since a host may write the table directly
+                    if (\is_string($entry['login'] ?? null) && preg_match(LaneHolds::LOGIN, $entry['login']) === 1) {
                         $entered[$entry['github_id']] = $entry['login'];
                     }
                 }

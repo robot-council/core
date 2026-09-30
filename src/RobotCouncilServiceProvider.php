@@ -758,6 +758,16 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
                 Schedule::command(CheckLaneConditionsCommand::class)->everyFiveMinutes();
             }
 
+            // In the background and never overlapping itself, like the fetch below, because it waits
+            // on GitHub too (#484); the fetch keeps the last place its own note explains. It asks
+            // only about IDs whose last answer has aged, so most runs make no request at all.
+            if ($logins) {
+                Schedule::command(RefreshGitHubLoginsCommand::class)
+                    ->everyFifteenMinutes()
+                    ->withoutOverlapping(10)
+                    ->runInBackground();
+            }
+
             // Scheduled whether or not a GitHub App is configured: the command makes no request
             // without one, and a host that adds the App later then needs no schedule change (#383).
             //
@@ -770,16 +780,6 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
             if ($fetch) {
                 Schedule::command(FetchBacklogCommand::class)
                     ->everyFiveMinutes()
-                    ->withoutOverlapping(10)
-                    ->runInBackground();
-            }
-
-            // After the fetch, and like it in the background and never overlapping itself, because
-            // it waits on GitHub too (#484). It asks only about IDs whose last answer has aged, so
-            // most runs make no request at all.
-            if ($logins) {
-                Schedule::command(RefreshGitHubLoginsCommand::class)
-                    ->everyFifteenMinutes()
                     ->withoutOverlapping(10)
                     ->runInBackground();
             }

@@ -127,8 +127,8 @@ final class GitHubAccounts
      * Ask again about every allowlisted ID that has not signed in and whose last answer has aged.
      *
      * **A failed request keeps the login already remembered** and only moves `checked_at`, so an
-     * unreachable GitHub leaves the page as it was rather than blanking it. A failure every later
-     * request would share -- no App, no installation, unreachable, rate limited -- ends the run.
+     * unreachable GitHub leaves the page as it was rather than blanking it. Any failure but an
+     * unparseable profile ends the run, since the next request would most likely meet it too.
      *
      * @return array{read: int, failed: int} How many IDs were answered, and how many were not.
      */
@@ -148,7 +148,8 @@ final class GitHubAccounts
                 $this->checked($githubId);
                 $tally['failed']++;
 
-                if (\in_array($gitHubRefusal->outcome, [BacklogFetchOutcome::Unreachable, BacklogFetchOutcome::RateLimited, BacklogFetchOutcome::KeyUnusable, BacklogFetchOutcome::NoInstallation], true)) {
+                // An unparseable profile is about that one account; anything else is about GitHub
+                if ($gitHubRefusal->outcome !== BacklogFetchOutcome::Unparseable) {
                     break;
                 }
             }
