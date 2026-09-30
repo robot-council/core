@@ -147,9 +147,19 @@ final class SeatSettings extends Component
      */
     public function saveHours(): void
     {
+        // Said plainly for the one case the page itself offers: a stored zone PHP no longer lists,
+        // shown in the picker as itself so that it is refused here rather than silently moved
+        if (! AssignmentWindow::isTimezone($this->timezone)) {
+            $this->say('hours', sprintf('Not saved: %s is not a time zone the list offers. Choose one from the list and save again.', $this->timezone === '' ? 'no time zone' : $this->timezone), refused: true);
+
+            return;
+        }
+
+        // Not trimmed: the value comes from the list, and a stored value padded with spaces is
+        // refused above rather than quietly rewritten
         $saved = $this->attempt('hours', 'Not saved:', fn () => $this->service(DeveloperSettings::class)->setHours(
             $this->developer(),
-            trim($this->timezone),
+            $this->timezone,
             $this->startsAt,
             $this->endsAt,
             $this->skipWeekends
@@ -160,7 +170,7 @@ final class SeatSettings extends Component
                 'Saved: your seats take new work from %s until %s, %s time, %s.',
                 $this->startsAt,
                 $this->endsAt,
-                trim($this->timezone),
+                $this->timezone,
                 $this->skipWeekends ? 'on weekdays only' : 'every day of the week'
             ));
         }
@@ -389,7 +399,7 @@ final class SeatSettings extends Component
         $zones = [];
 
         foreach (DateTimeZone::listIdentifiers() as $zone) {
-            $region = str_contains($zone, '/') ? strstr($zone, '/', true) : 'Other';
+            $region = str_contains($zone, '/') ? explode('/', $zone, 2)[0] : 'Other';
             $zones[$region][] = $zone;
         }
 

@@ -11,8 +11,8 @@ use Illuminate\Database\Eloquent\Model;
  * The hours one developer's seats take new placements in.
  *
  * One row per developer, keyed on the host user; no row means none are set, and a developer who
- * has said nothing is not gated. The window is local to `timezone` and stored as typed, which the
- * migration explains. `Support\AssignmentWindow` is what answers whether a moment is inside it.
+ * has said nothing is not gated. The window is local to `timezone`, one of the zones PHP lists, and its
+ * times are stored as written, which the migration explains. `Support\AssignmentWindow` is what answers whether a moment is inside it.
  *
  * Nothing mass-assigns this model. `Support\DeveloperSettings` writes it with a literal array.
  *

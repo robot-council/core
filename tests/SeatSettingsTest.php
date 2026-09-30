@@ -604,7 +604,7 @@ it('saves hours and days off through the page, and reports a refused value inste
         ->and($this->service(DeveloperSettings::class)->holidays(keyOf($this->alice)))->toBe(['2026-12-25']);
 
     $component->set('timezone', 'EST')->call('saveHours')
-        ->assertSet('said', 'Not saved: A time zone is one of the zones the list offers, such as America/Chicago.');
+        ->assertSet('said', 'Not saved: EST is not a time zone the list offers. Choose one from the list and save again.');
 
     expect(AssignmentHours::query()->find(keyOf($this->alice))?->timezone)->toBe('America/Chicago');
 
@@ -629,11 +629,11 @@ function timeZonePicker(string $html): array
     return [
         'selected' => $selected[1],
         'groups' => array_combine(array_column($groups, 1), array_map(static fn (array $group): int => substr_count($group[2], '<option '), $groups)),
-        'typed' => preg_match_all('/<input[^>]*wire:model="timezone"/', $html),
+        'typed' => (int) preg_match_all('/<input[^>]*wire:model="timezone"/', $html),
     ];
 }
 
-it('offers every listed zone grouped by region, and preselects the fleet\'s zone without storing it (#483)', function (): void {
+it("offers every listed zone grouped by region, and preselects the fleet's zone without storing it (#483)", function (): void {
     config()->set('robot-council.dashboard.timezone', 'America/Chicago');
 
     $component = Livewire::actingAs($this->alice)->test(SeatSettings::class)->assertSet('timezone', 'America/Chicago');
@@ -652,7 +652,7 @@ it('offers every listed zone grouped by region, and preselects the fleet\'s zone
     expect(AssignmentHours::query()->find(keyOf($this->alice))?->timezone)->toBe('America/Chicago');
 });
 
-it('preselects UTC when the fleet\'s zone is not one the list offers', function (mixed $fleet): void {
+it("preselects UTC when the fleet's zone is not one the list offers", function (mixed $fleet): void {
     config()->set('robot-council.dashboard.timezone', $fleet);
 
     $component = Livewire::actingAs($this->alice)->test(SeatSettings::class)->assertSet('timezone', 'UTC');
@@ -694,7 +694,7 @@ it('shows a stored zone PHP no longer lists as itself, and refuses to save it ra
     expect($picker['selected'])->toBe(['US/Pacific'])
         ->and($picker['groups']['No longer listed'] ?? null)->toBe(1);
 
-    $component->call('saveHours')->assertSet('said', 'Not saved: A time zone is one of the zones the list offers, such as America/Chicago.');
+    $component->call('saveHours')->assertSet('said', 'Not saved: US/Pacific is not a time zone the list offers. Choose one from the list and save again.');
 
     expect(AssignmentHours::query()->find(keyOf($this->alice))?->timezone)->toBe('US/Pacific');
 });
