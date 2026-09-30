@@ -888,6 +888,32 @@ it('fails a pager or filter drawn at a size under the target, so the scan above 
  */
 function classesWithoutRules(string $source, string $css): array
 {
+    $missing = [];
+
+    foreach (classesNamedIn($source) as $class) {
+        // As the class appears in a selector: escaped, and ended by something no class name
+        // continues with, so `badge` is not found inside `.badge-sm`, nor `sm` inside `.sm\:w-auto`
+        $selector = '.'.preg_replace('/([^a-zA-Z0-9_-])/', '\\\\$1', $class);
+
+        if (preg_match('/'.preg_quote($selector, '/').'(?![a-zA-Z0-9_\\\\-])/', $css) !== 1) {
+            $missing[] = $class;
+        }
+    }
+
+    sort($missing);
+
+    return $missing;
+}
+
+/**
+ * Every class a view names: in `class="..."`, in `@class([...])` whether keyed or not, and in a
+ * `'class' => '...'` handed to a partial that renders it.
+ *
+ * @param  string  $source  A view's source, comments already stripped.
+ * @return list<string> The classes, each once.
+ */
+function classesNamedIn(string $source): array
+{
     $classes = [];
 
     preg_match_all('/\bclass="([^"]*)"/', $source, $attributes);
@@ -909,8 +935,13 @@ function classesWithoutRules(string $source, string $css): array
 
     preg_match_all('/@class\(\[(.*?)\]\)/s', $source, $conditional);
 
-    foreach ($conditional[1] as $list) {
-        preg_match_all("/'([^']+)'\\s*=>/", $list, $keys);
+    preg_match_all("/'class'\\s*=>\\s*'([^']*)'/", $source, $handed);
+
+    foreach ([...$conditional[1], ...array_map(static fn (string $list): string => "'{$list}'", $handed[1])] as $list) {
+        // An entry, keyed or not: a quoted string opening the list or following a comma, and ending
+        // at `=>`, a comma, or the list's end. A string inside a condition, such as `routeIs('...')`
+        // or `$lane['is_gate']`, follows a bracket instead and is not a class
+        preg_match_all("/(?:^|,)\\s*'([^']+)'\\s*(?==>|,|$)/", trim($list), $keys);
 
         foreach ($keys[1] as $key) {
             foreach (preg_split('/\s+/', trim($key)) ?: [] as $class) {
@@ -919,34 +950,27 @@ function classesWithoutRules(string $source, string $css): array
         }
     }
 
-    $missing = [];
-
-    foreach (array_keys($classes) as $class) {
-        // As the class appears in a selector: escaped, and ended by something no class name
-        // continues with, so `badge` is not found inside `.badge-sm`
-        $selector = '.'.preg_replace('/([^a-zA-Z0-9_-])/', '\\\\$1', $class);
-
-        if (preg_match('/'.preg_quote($selector, '/').'(?![a-zA-Z0-9_-])/', $css) !== 1) {
-            $missing[] = $class;
-        }
-    }
-
-    sort($missing);
-
-    return $missing;
+    return array_map(strval(...), array_keys($classes));
 }
 
 it('names no class the stylesheet does not define', function (): void {
     $css = stylesheet();
     $missing = [];
+    $read = [];
 
     foreach (bladeTemplatesIn(__DIR__.'/../resources/views') as $view) {
-        foreach (classesWithoutRules(sourceWithoutComments($view), $css) as $class) {
+        $source = sourceWithoutComments($view);
+        $read = [...$read, ...classesNamedIn($source)];
+
+        foreach (classesWithoutRules($source, $css) as $class) {
             $missing[] = basename($view).': '.$class;
         }
     }
 
-    expect($missing)->toBeEmpty(implode("\n", $missing));
+    // The control: the views were read and their classes found, so an empty list is not a read of nothing
+    expect(count(bladeTemplatesIn(__DIR__.'/../resources/views')))->toBeGreaterThanOrEqual(15)
+        ->and($read)->toContain('btn-target', 'card-body', 'sm:w-auto')
+        ->and($missing)->toBeEmpty(implode("\n", $missing));
 });
 
 it('reports a class the stylesheet has no rule for, so the check above is not blind', function (): void {
@@ -958,10 +982,13 @@ it('reports a class the stylesheet has no rule for, so the check above is not bl
         <span class="badg badge-sm {{ $on ? 'btn-primary' : 'btn-outlined' }}"></span>
         <a @class(['menu-active' => $here, 'menu-activ' => $near])></a>
         <ul class="sm:grid-cols-[max-content_1fr]"></ul>
+        <p @class(['text-meta', 'text-metaa', 'font-semibold' => $bold])></p>
+        @include('robot-council::partials.said', ['show' => true, 'class' => 'w-full mt-2x'])
+        <div class="sm md"></div>
         BLADE;
 
     expect(classesWithoutRules($source, stylesheet()))->toBe([
-        'badg', 'btn-outlined', 'form-control', 'input-bordered', 'label-text', 'menu-activ', 'select-bordered',
+        'badg', 'btn-outlined', 'form-control', 'input-bordered', 'label-text', 'md', 'menu-activ', 'mt-2x', 'select-bordered', 'sm', 'text-metaa',
     ]);
 });
 
