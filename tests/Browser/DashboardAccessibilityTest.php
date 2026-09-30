@@ -1420,8 +1420,11 @@ function plantPictures(PendingAwaitablePage $page, string $source): array
     JS);
 }
 
-it('shows a transparent picture on its own, over no letter, and the letter alone when a picture fails (#515)', function (string $theme, array $options): void {
-    $page = visitSurface($this, 'robot-council.lanes', '', 'Run the screen-reader pass', $theme, $options);
+it('shows a transparent picture on its own, over no letter, and the letter alone when a picture fails (#515)', function (string $theme, bool $forced): void {
+    $page = visitSurface($this, 'robot-council.lanes', '', 'Run the screen-reader pass', $theme, $forced ? ['forcedColors' => 'active'] : []);
+
+    // The forced rows really are forced, or they would pass as copies of the plain ones
+    expect($page->script("() => window.matchMedia('(forced-colors: active)').matches"))->toBe($forced);
 
     $shown = plantPictures($page, TRANSPARENT_LOGO);
 
@@ -1448,9 +1451,12 @@ it('shows a transparent picture on its own, over no letter, and the letter alone
             ->and($avatar['letter'])->toBe('visible', $avatar['kind']);
     }
 })->with([
-    'light' => ['light', []],
-    'dark' => ['dark', []],
-    'forced colors' => ['light', ['forcedColors' => 'active']],
+    'light' => ['light', false],
+    'dark' => ['dark', false],
+    // Dark as well as light: a light palette's system background is white too, so only the dark one
+    // shows that the backing is kept rather than replaced
+    'forced colors, light' => ['light', true],
+    'forced colors, dark' => ['dark', true],
 ]);
 
 it('keeps the Waiting on a developer card inside a 360px phone, each section bordered and each item three parts (#390)', function (string $theme): void {
