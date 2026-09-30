@@ -23,63 +23,87 @@
                 @endif
             </p>
         @else
-            {{-- One type column for every row (#481). From `sm` up the list is a two-column grid,
-                 the first as wide as the page's longest type, and each row a subgrid spanning both,
-                 so every body starts at the same x rather than wherever that row's badge ended.
-                 Below it a row stacks, the badge above the body, so a long type does not squeeze
-                 the text into a narrow column on a phone. A row sets only its row gap: a subgrid's
-                 own column gap replaces the list's, and `gap-1` there drew the badge 4px from the
-                 body instead of 12px. --}}
-            <ul class="divide-y divide-base-200 sm:grid sm:grid-cols-[max-content_1fr] sm:gap-x-3" data-feed>
-                @foreach ($events as $event)
-                    <li wire:key="event-{{ $event['id'] }}" class="flex flex-col gap-y-1 py-3 sm:col-span-2 sm:grid sm:grid-cols-subgrid sm:gap-y-0">
-                        <div>
-                            <span class="badge badge-sm" data-feed-type>{{ $event['type'] }}</span>
-                        </div>
+            {{-- A table, as every other list of records on the dashboard is (#311): the age, the
+                 type and who acted are short, fixed values, so each has a column and lines up
+                 across rows, and the body -- the one free-text value, and the event itself -- takes
+                 what is left. Below `md` a row stacks, each cell under its column's name, so a long
+                 type does not squeeze the body into a sliver on a phone; the type still sits above
+                 the body there, as #481 kept it. The body wraps rather than truncates, at a
+                 readable measure however wide the window (SC 1.4.8, the measure recorded on #311
+                 from #494). --}}
+            <div class="overflow-x-auto" data-feed>
+                <table class="table table-stack" role="table">
+                    <thead role="rowgroup">
+                        <tr role="row">
+                            <th role="columnheader" class="w-px">Age</th>
+                            <th role="columnheader" class="w-px">Type</th>
+                            <th role="columnheader" class="w-px">Who</th>
+                            <th role="columnheader">What happened</th>
+                        </tr>
+                    </thead>
+                    <tbody role="rowgroup">
+                        @foreach ($events as $event)
+                            <tr role="row" wire:key="event-{{ $event['id'] }}" class="align-top">
+                                <td role="cell" data-label="Age" class="whitespace-nowrap text-meta opacity-90">
+                                    @if ($event['age'] !== null)
+                                        {{ $event['age'] }}
+                                    @endif
+                                </td>
 
-                        <div class="min-w-0" data-feed-body>
-                            <p class="break-words">{{ $event['body'] }}</p>
+                                <td role="cell" data-label="Type">
+                                    <span class="badge badge-sm" data-feed-type>{{ $event['type'] }}</span>
+                                </td>
 
-                            <p class="mt-1 text-meta opacity-80">
-                                @if ($event['actor']['github_login'] !== null)
-                                    <x-robot-council::avatar :login="$event['actor']['github_login']" />{{ $event['actor']['github_login'] }}
-                                @elseif ($event['actor']['session_id'] !== null)
-                                    an unknown account
-                                @else
-                                    the server
-                                @endif
+                                {{-- Each line kept whole, since the column is only as wide as its
+                                     widest line: a login is a fixed value, like the age beside it --}}
+                                <td role="cell" data-label="Who" class="whitespace-nowrap text-meta">
+                                    <div data-feed-who>
+                                        @if ($event['actor']['github_login'] !== null)
+                                            <x-robot-council::avatar :login="$event['actor']['github_login']" />{{ $event['actor']['github_login'] }}
+                                        @elseif ($event['actor']['session_id'] !== null)
+                                            an unknown account
+                                        @else
+                                            the server
+                                        @endif
+                                    </div>
 
-                                {{-- **Who DID it, where that is somebody other than who it is
-                                     about** -- and the comparison is what makes that true rather
-                                     than only intended. A developer re-enrolling their own machine
-                                     supersedes their own installation, so `Installations` records
-                                     an `installation.revoked` whose actor and subject are the same
-                                     person; without the second clause the panel would print
-                                     `octodev by octodev` and read as two parties.
-                                     `actor` above is the developer the event concerns,
-                                     which for an administrative event is the installation's owner
-                                     -- so without this line the panel would name the developer
-                                     whose agent was acted ON as the one who acted, which is the
-                                     inversion #115 exists to remove. --}}
-                                @if (($event['performed_by']['github_login'] ?? null) !== null
-                                    && $event['performed_by']['github_login'] !== $event['actor']['github_login'])
-                                    &middot; by {{ $event['performed_by']['github_login'] }}
-                                @endif
+                                    {{-- **Who DID it, where that is somebody other than who it is
+                                         about** -- and the comparison is what makes that true rather
+                                         than only intended. A developer re-enrolling their own machine
+                                         supersedes their own installation, so `Installations` records
+                                         an `installation.revoked` whose actor and subject are the same
+                                         person; without the second clause the panel would print
+                                         `octodev by octodev` and read as two parties.
+                                         `actor` above is the developer the event concerns,
+                                         which for an administrative event is the installation's owner
+                                         -- so without this line the panel would name the developer
+                                         whose agent was acted ON as the one who acted, which is the
+                                         inversion #115 exists to remove. It stays in this cell,
+                                         since it qualifies who acted. --}}
+                                    @if (($event['performed_by']['github_login'] ?? null) !== null
+                                        && $event['performed_by']['github_login'] !== $event['actor']['github_login'])
+                                        <div class="opacity-90">by {{ $event['performed_by']['github_login'] }}</div>
+                                    @endif
 
-                                {{-- Recorded on the event when it was written, so revoking the
-                                     ability afterwards does not rewrite what the page says --}}
-                                @if ($event['actor']['coordinator_direct'])
-                                    <span class="badge badge-sm badge-outline">coordinator</span>
-                                @endif
+                                    {{-- Recorded on the event when it was written, so revoking the
+                                         ability afterwards does not rewrite what the page says --}}
+                                    @if ($event['actor']['coordinator_direct'])
+                                        <div><span class="badge badge-sm badge-outline">coordinator</span></div>
+                                    @endif
+                                </td>
 
-                                @if ($event['age'] !== null)
-                                    &middot; {{ $event['age'] }}
-                                @endif
-                            </p>
-                        </div>
-                    </li>
-                @endforeach
-            </ul>
+                                <td role="cell" data-label="What happened" data-feed-body>
+                                    {{-- At the body size, since a table's cells are otherwise at
+                                         the smaller table size and this is the page's prose --}}
+                                    <div class="max-w-xl text-body leading-relaxed">
+                                        <p class="break-words">{{ $event['body'] }}</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
         @endif
 
         {{-- Outside the branch above, because a reader who has paged past the oldest event still

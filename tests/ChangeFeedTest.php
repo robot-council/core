@@ -140,6 +140,42 @@ it('shows an event with its type, body, actor and age', function (): void {
         ->assertDontSeeHtml('<span class="badge badge-sm badge-outline">coordinator</span>');
 });
 
+it('lays the feed out as a table: the age, the type and who acted in columns, and the body last (#311)', function (): void {
+    app(FleetEvents::class)->record(FleetEventType::Narration, $this->session, 'Rebuilding the index now.');
+    app(FleetEvents::class)->record(FleetEventType::Directive, $this->session, 'Sync with main.', withCoordinator: true);
+
+    $html = Livewire::test(ChangeFeed::class)->html();
+
+    preg_match('#<div class="overflow-x-auto" data-feed>\s*<table\b.*?</table>#s', $html, $table);
+    preg_match_all('#<th role="columnheader"[^>]*>(.*?)</th>#s', $table[0] ?? '', $headers);
+    preg_match_all('#<tr role="row" wire:key="event-\d+"[^>]*>(.*?)</tr>#s', $table[0] ?? '', $rows);
+
+    // The column set is a deliberate edit: a dropped or added column fails here
+    expect(array_map(trim(...), $headers[1]))->toBe(['Age', 'Type', 'Who', 'What happened'])
+        // The session's own joining, and the two written here
+        ->and($rows[1])->toHaveCount(3);
+
+    foreach ($rows[1] as $row) {
+        preg_match_all('#<td role="cell" data-label="([^"]*)"[^>]*>(.*?)</td>#s', $row, $cells);
+
+        $byLabel = array_combine($cells[1], $cells[2]);
+
+        // Each value in its own column, so it starts at the same place in every row
+        expect($cells[1])->toBe(['Age', 'Type', 'Who', 'What happened'])
+            ->and($byLabel['Age'])->toContain('ago')
+            ->and($byLabel['Type'])->toContain('data-feed-type')
+            ->and(withoutAvatars($byLabel['Who']))->toContain('octodev')
+            ->and($byLabel['What happened'])->toMatch('#^\s*<div class="max-w-xl text-body leading-relaxed">\s*<p class="break-words">[^<]+</p>\s*</div>\s*$#');
+    }
+
+    expect($table[0] ?? '')->toContain('<p class="break-words">Rebuilding the index now.</p>')
+        ->and($table[0] ?? '')->toContain('<p class="break-words">Sync with main.</p>');
+
+    // The coordinator marker qualifies who acted, so it sits in that column and in no other
+    expect(substr_count($html, 'badge-outline">coordinator</span>'))->toBe(1)
+        ->and((string) preg_replace('#<td role="cell" data-label="Who".*?</td>#s', '', $table[0] ?? ''))->not->toContain('coordinator</span>');
+});
+
 it("shows another developer's narration, which is what #73 decided", function (): void {
     // #29 shows narration only to its own developer's sessions and to coordinators. A signed-in
     // developer is neither, so the agent-facing read hides this and the dashboard does not.

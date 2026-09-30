@@ -1134,9 +1134,9 @@ it('reflows every table into labelled rows where it would otherwise scroll sidew
         }
     }
 
-    // Exactly the four tables the dashboard has today, so a fifth that arrives unstacked cannot be
-    // offset by one that was removed
-    expect($tables)->toBe(4);
+    // Exactly the five tables the dashboard has today, the change feed's since #311, so a sixth that
+    // arrives unstacked cannot be offset by one that was removed
+    expect($tables)->toBe(5);
 });
 
 it('wraps text rather than cutting it off, and honours reduced motion', function (): void {
