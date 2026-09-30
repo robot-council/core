@@ -52,6 +52,37 @@ enum Role: string
     case Coordinator = 'coordinator';
 
     /**
+     * The role's name as a reader sees it (#486).
+     *
+     * `ci` is shown as `gate`, which names the role by what it does and matches what the lane
+     * board already calls such a lane. The stored value, the API and the MCP tools' `role`
+     * parameter stay `ci`.
+     *
+     * @return string The name.
+     */
+    public function label(): string
+    {
+        return match ($this) {
+            self::Build => 'build',
+            self::Ci => 'gate',
+            self::Coordinator => 'coordinator',
+        };
+    }
+
+    /**
+     * A stored role value as a reader sees it, or the value itself when it names no role.
+     *
+     * @param  mixed  $value  The stored value.
+     * @return string The name.
+     */
+    public static function labelOf(mixed $value): string
+    {
+        $role = \is_string($value) ? self::tryFrom($value) : null;
+
+        return $role?->label() ?? (\is_scalar($value) ? (string) $value : '');
+    }
+
+    /**
      * The abilities a session in this role holds.
      *
      * **`Ci` repeats `Build`'s list rather than sharing it, and `Coordinator` composes from it.**

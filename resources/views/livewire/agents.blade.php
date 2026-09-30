@@ -147,7 +147,7 @@
                                      carry anything a developer supplied -- escaped anyway,
                                      because nothing on this page is not. --}}
                                 <td role="cell" data-label="Role">
-                                    <span class="badge badge-sm badge-outline">{{ $agent['role'] }}</span>
+                                    <span class="badge badge-sm badge-outline">{{ \RobotCouncil\Access\Role::labelOf($agent['role']) }}</span>
                                 </td>
 
                                 {{-- Read from the row, which #24 made the decision, rather than

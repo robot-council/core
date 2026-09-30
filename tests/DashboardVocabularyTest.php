@@ -301,12 +301,12 @@ it('confirms each administrative action in words, beside the installation it was
     $row = '//li[.//button[contains(., "Revoke installation")]]';
 
     $panel->call('approveRole', $session->id, Role::Ci->value)
-        ->assertSet('said', sprintf('Approved: session #%d is now ci.', $session->id))
+        ->assertSet('said', sprintf('Approved: session #%d is now gate.', $session->id))
         ->assertSet('saidAt', $installation->id)
         ->assertSet('refused', false);
 
-    expect(saidInside($panel->html(), $row))->toBe([sprintf('Approved: session #%d is now ci.', $session->id)])
-        ->and(saidInside($panel->html(), ''))->toBe([sprintf('Approved: session #%d is now ci.', $session->id)]);
+    expect(saidInside($panel->html(), $row))->toBe([sprintf('Approved: session #%d is now gate.', $session->id)])
+        ->and(saidInside($panel->html(), ''))->toBe([sprintf('Approved: session #%d is now gate.', $session->id)]);
 
     $panel->call('approveRole', $session->id, Role::Ci->value)
         ->assertSet('said', sprintf('Not approved: session #%d no longer asks to be ci. The list shows what it asks for now.', $session->id))
@@ -318,7 +318,7 @@ it('confirms each administrative action in words, beside the installation it was
     app(RoleRequests::class)->request($session, Role::Coordinator);
 
     $panel->call('denyRole', $session->id)
-        ->assertSet('said', sprintf('Denied: session #%d stays ci.', $session->id))
+        ->assertSet('said', sprintf('Denied: session #%d stays gate.', $session->id))
         ->assertSet('refused', false);
 
     $panel->call('imposeRole', $session->id, Role::Build->value)
@@ -376,6 +376,43 @@ it('names the filter and the way back when a filtered queue is empty', function 
     Livewire::actingAs($this->admin)->test(TaskBoard::class)
         ->call('showStatus', 'blocked')
         ->assertSeeText('No blocked tasks. Choose All to see every task.');
+});
+
+it('names the gate role by what it does wherever a reader sees it, and keeps ci underneath (#486)', function (): void {
+    expect(Role::Ci->label())->toBe('gate')
+        ->and(Role::Build->label())->toBe('build')
+        ->and(Role::Coordinator->label())->toBe('coordinator')
+        ->and(Role::labelOf('ci'))->toBe('gate')
+        ->and(Role::labelOf('not-a-role'))->toBe('not-a-role')
+        ->and(Role::labelOf(null))->toBe('')
+        // Stored and sent as `ci`: only the words change
+        ->and(Role::Ci->value)->toBe('ci');
+});
+
+it('reads the glossary as the maintainer asked on #486', function (): void {
+    $all = array_map(
+        static fn (array $entry): string => $entry['term'].' '.$entry['means'],
+        Glossary::entries(array_keys(require __DIR__.'/../resources/lang/en/glossary.php')),
+    );
+    $text = implode("\n", $all);
+    $means = static fn (string $key): string => Glossary::entries([$key])[0]['means'];
+
+    // No real machine named in text every host sees, and no bare `ci` meaning continuous integration:
+    // `ci` appears only quoted, where the role entry names the stored value
+    expect($text)->not->toContain('josh-office')
+        ->and(preg_match_all('/(?<![\w"])ci(?![\w"])/i', $text))->toBe(0)
+        ->and($text)->toContain('continuous integration')
+        // Tasks rather than tickets, since a task needs no ticket
+        ->and(Glossary::entries(['tickets_held'])[0]['term'])->toBe('Tasks held')
+        ->and(Glossary::entries(['tickets_at_once'])[0]['term'])->toBe('Tasks at once')
+        // A column name reads as one
+        ->and($means('idle'))->toContain('The "On what" column')
+        ->and($means('blocked'))->toContain('The "On what" column says what, or whom')
+        ->and($means('harness'))->toContain('Not the terminal or editor it runs inside')
+        // The watcher's four states, one sentence each
+        ->and(substr_count($means('watcher'), '" means'))->toBe(4)
+        ->and($means('branch'))->toContain('"Branch not reported" means')->toContain('"Packet, no branch expected" means')
+        ->and(substr_count($means('taken_up'), '" means'))->toBe(4);
 });
 
 it("reads the glossary in English when the host's own locales have none", function (): void {

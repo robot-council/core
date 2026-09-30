@@ -31,11 +31,11 @@ return [
     ],
     'session' => [
         'term' => 'Session',
-        'means' => 'One agent\'s connection to the fleet, from when it joins until it ends. It is named by where it works, as repository/machine/slot, such as core/josh-office/a, with its developer beneath; agents know it by its number, such as #12.',
+        'means' => 'One agent\'s connection to the fleet, from when it joins until it ends. It is named by where it works, as repository/machine/slot, such as core/laptop/a, with its developer beneath; agents know it by its number, such as #12.',
     ],
     'harness' => [
         'term' => 'Harness',
-        'means' => 'The program the agent runs in, such as Claude Code or Cursor.',
+        'means' => 'The AI coding tool the agent is, such as Claude Code or Cursor. Not the terminal or editor it runs inside.',
     ],
     'machine_label' => [
         'term' => 'Machine label',
@@ -47,11 +47,11 @@ return [
     ],
     'role' => [
         'term' => 'Role',
-        'means' => 'What a session does in the fleet: build works on tickets, ci checks pull requests, and coordinator places work and directs other sessions.',
+        'means' => 'What a session does in the fleet: build works on tickets, gate runs continuous integration on the pull requests other lanes open, and coordinator places work and directs other sessions. Agents and the fleet\'s API call the gate role "ci".',
     ],
     'coordinator' => [
         'term' => 'Coordinator',
-        'means' => 'A session allowed to place work on any developer\'s lanes and to send instructions to the whole fleet. The coordinator badge marks something such a session wrote.',
+        'means' => 'A session allowed to place work on any developer\'s lanes and to send instructions to the whole fleet. The "coordinator" badge marks something such a session wrote.',
     ],
     'lane' => [
         'term' => 'Lane',
@@ -107,7 +107,7 @@ return [
     ],
     'live_scope' => [
         'term' => 'Live and All',
-        'means' => 'Live lists only sessions that can still act. All adds the ones that have gone.',
+        'means' => '"Live" lists only sessions that can still act. "All" adds the ones that have gone.',
     ],
     'working_in' => [
         'term' => 'Working in',
@@ -121,7 +121,7 @@ return [
     ],
     'idle' => [
         'term' => 'Idle',
-        'means' => 'The lane holds no task, and nothing is stopping it from taking one. On what may say its repository has nothing startable right now, which the next placed task ends.',
+        'means' => 'The lane holds no task, and nothing is stopping it from taking one. The "On what" column may say its repository has nothing startable right now; the next placed task ends that.',
     ],
     'parked' => [
         'term' => 'Parked',
@@ -129,7 +129,7 @@ return [
     ],
     'blocked' => [
         'term' => 'Blocked',
-        'means' => 'The lane is waiting on someone before it takes work: a developer\'s decision or action, or another ticket. On what names who.',
+        'means' => 'The lane is waiting before it takes work, on a developer\'s decision or action, or on another ticket. The "On what" column says what, or whom, it\'s waiting on.',
     ],
     'not_observed' => [
         'term' => 'Not observed',
@@ -137,14 +137,14 @@ return [
     ],
     'gate' => [
         'term' => 'Gate',
-        'means' => 'A lane in the ci role. It checks the pull requests other lanes open. When one needs more work, a coordinator hands it back to the lane that made it.',
+        'means' => 'A lane in the gate role, which runs continuous integration: it checks the pull requests other lanes open. When one needs more work, a coordinator hands it back to the lane that made it.',
     ],
     'watcher' => [
         'term' => 'Watcher',
-        'means' => 'The helper that wakes an idle agent when something arrives for it. Alive means it checked in recently, stale that it has not for a while, absent that it never has, and unknown, re-read that its last check-in is too old to judge, so look again shortly.',
+        'means' => 'The helper that wakes an idle agent when something arrives for it. "Alive" means it checked in recently. "Stale" means it has not for a while. "Absent" means it never has. "Unknown, re-read" means its last check-in is too old to judge, so look again shortly.',
     ],
     'tickets_held' => [
-        'term' => 'Tickets held',
+        'term' => 'Tasks held',
         'means' => 'How many tasks the lane holds now, out of the most its seat allows at once.',
     ],
     'hand_back' => [
@@ -157,19 +157,19 @@ return [
     ],
     'taken_up' => [
         'term' => 'Placed and taken up',
-        'means' => 'Placed means the task is on the lane. Taken up means the lane has started it. Placed and told means a coordinator put it there and sent instructions, and chosen by the lane means the lane took it itself.',
+        'means' => '"Placed" means the task is on the lane. "Taken up" means the lane has started it. "Placed and told" means a coordinator put it there and sent instructions. "Chosen by the lane" means the lane took it itself.',
     ],
     'validating' => [
         'term' => 'Validating',
-        'means' => 'The gate is checking that pull request now. Queued counts the pull requests waiting for the gate after it.',
+        'means' => 'The gate is checking that pull request now. "Queued" counts the pull requests waiting for the gate after it.',
     ],
     'pull_request_state' => [
         'term' => 'running, queued and draft',
-        'means' => 'Where an open pull request stands with the gate: running while the gate checks it, queued while it waits its turn, and draft while its author has not marked it ready.',
+        'means' => 'Where an open pull request stands with the gate: "running" while the gate checks it, "queued" while it waits its turn, and "draft" while its author has not marked it ready.',
     ],
     'branch' => [
         'term' => 'Branch',
-        'means' => 'The git branch the lane is working on for the task. Branch not reported means the lane has not said yet, and packet, no branch expected means the ticket asks for a decision, which needs no branch.',
+        'means' => 'The git branch the lane is working on for the task. "Branch not reported" means the lane hasn\'t said yet. "Packet, no branch expected" means the ticket asks for a decision, which needs no branch.',
     ],
     'known_since' => [
         'term' => 'Known since',
@@ -177,7 +177,7 @@ return [
     ],
     'open_issues' => [
         'term' => 'Open issues',
-        'means' => 'How many issues are open in the repository, as last read from GitHub or reported by an agent, and how that compares with 08:00 today. Count unreadable means no reading is recent enough to trust.',
+        'means' => 'How many issues are open in the repository, as last read from GitHub or reported by an agent, and how that compares with 08:00 today. "Count unreadable" means no reading is recent enough to trust.',
     ],
     'waiting_on_developer' => [
         'term' => 'Waiting on a developer',
@@ -187,7 +187,7 @@ return [
     // Locks
     'held_by_lock' => [
         'term' => 'Held by',
-        'means' => 'The session holding the lock now, named by where it works as repository/machine/slot, with its developer beneath. After names the one that held it before.',
+        'means' => 'The session holding the lock now, named by where it works as repository/machine/slot, with its developer beneath. "After" names the one that held it before.',
     ],
     'fence' => [
         'term' => 'Fence',
@@ -199,7 +199,7 @@ return [
     ],
     'held_scope' => [
         'term' => 'Held and All',
-        'means' => 'Held lists only locks with a holder. All adds the ones nobody holds.',
+        'means' => '"Held" lists only locks with a holder. "All" adds the ones nobody holds.',
     ],
 
     // The queue
@@ -237,7 +237,7 @@ return [
     ],
     'filed_by' => [
         'term' => 'Filed by',
-        'means' => 'The session that created the task, named by where it works as repository/machine/slot, such as core/josh-office/a, with its developer beneath.',
+        'means' => 'The session that created the task, named by where it works as repository/machine/slot, such as core/laptop/a, with its developer beneath.',
     ],
     'project' => [
         'term' => 'Project',
@@ -245,13 +245,13 @@ return [
     ],
     'held_by_task' => [
         'term' => 'Held by',
-        'means' => 'The session whose lane holds the task, or held it when it finished, named the same way. Nobody means no session holds it now: no lane has taken it, or the session that held it has since been deleted.',
+        'means' => 'The session whose lane holds the task, or held it when it finished, named the same way. "Nobody" means no session holds it now: no lane has taken it, or the session that held it has since been deleted.',
     ],
 
     // The change feed
     'entry_type' => [
         'term' => 'Entry type',
-        'means' => 'The label on each entry, such as task.claimed. The part before the dot says what changed: a session, a task, a lock, a lane, a placement or an installation.',
+        'means' => 'The label on each entry, such as "task.claimed". The part before the dot says what changed: a session, a task, a lock, a lane, a placement or an installation.',
     ],
     'narration' => [
         'term' => 'narration',
@@ -277,7 +277,7 @@ return [
     // Administration
     'usable' => [
         'term' => 'Usable and All',
-        'means' => 'Usable lists installations that are neither revoked nor expired. All adds those that are.',
+        'means' => '"Usable" lists installations that are neither revoked nor expired. "All" adds those that are.',
     ],
     'revoked' => [
         'term' => 'Revoked',
@@ -293,7 +293,7 @@ return [
     ],
     'asked_for_role' => [
         'term' => 'Asked for',
-        'means' => 'The role the session asked to be given. Approve grants it, and Deny leaves the session in the role it has.',
+        'means' => 'The role the session asked to be given. "Approve" grants it, and "Deny" leaves the session in the role it has.',
     ],
     'make_role' => [
         'term' => 'Make, then a role',
@@ -337,14 +337,14 @@ return [
     ],
     'park' => [
         'term' => 'Park and Lift',
-        'means' => 'Park stops new work being placed on the seat, and Lift allows it again. Only you can lift a seat you parked; it never lifts on its own.',
+        'means' => '"Park" stops new work being placed on the seat, and "Lift" allows it again. Only you can lift a seat you parked; it never lifts on its own.',
     ],
     'exempt' => [
         'term' => 'Ignore my hours',
         'means' => 'The seat takes new work at any time, whatever your assignment hours say, and its line reads "Hours: ignored". The "Apply my hours" button undoes it, and the line reads "Hours: apply" again.',
     ],
     'tickets_at_once' => [
-        'term' => 'Tickets at once',
+        'term' => 'Tasks at once',
         'means' => 'The most tasks one session in the seat may hold at the same time.',
     ],
     'placement' => [

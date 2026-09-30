@@ -108,7 +108,7 @@
                                              do. There is no longer a machine-level list beside it:
                                              a stored ability list stopped reaching any session, and
                                              the controls that wrote it are gone with it. --}}
-                                        <span class="badge badge-sm badge-outline">{{ $session['role'] }}</span>
+                                        <span class="badge badge-sm badge-outline">{{ \RobotCouncil\Access\Role::labelOf($session['role']) }}</span>
 
                                         <div class="flex min-w-0 flex-wrap items-center gap-2" data-session-detail>
                                             {{-- Where it is working, as the two fields #220 split the
@@ -165,7 +165,7 @@
                                                  queue with a pre-filled answer trains its reader to
                                                  accept it. --}}
                                             @if (($session['requested_role'] ?? null) !== null)
-                                                <span class="badge badge-sm badge-warning">asked for {{ $session['requested_role'] }}</span>
+                                                <span class="badge badge-sm badge-warning">asked for {{ \RobotCouncil\Access\Role::labelOf($session['requested_role']) }}</span>
 
                                                 <button type="button"
                                                     wire:click="approveRole({{ \RobotCouncil\Support\WireArgument::of($session['id']) }}, '{{ \RobotCouncil\Support\WireArgument::of($session['requested_role']) }}')"
@@ -195,7 +195,7 @@
                                                             wire:confirm="Make this session a coordinator? It will be able to release, reassign or cancel any developer's task, and post directives to the whole fleet."
                                                         @endif
                                                         class="btn btn-target btn-outline">
-                                                        Make {{ $role->value }}
+                                                        Make {{ $role->label() }}
                                                     </button>
                                                 @endif
                                             @endforeach

@@ -1,5 +1,5 @@
 {{--
-    A developer's own seats, how many tickets each takes at once (#409), assignment hours and days
+    A developer's own seats, how many tasks each takes at once (#409), assignment hours and days
     off (#322).
 
     Everything here belongs to the signed-in developer and nobody else: the component reads them off
@@ -26,7 +26,7 @@
             <p class="text-meta opacity-90">
                 A seat is one of your machines working in one repository. A parked seat takes no new
                 work until you lift it, and only you can lift it -- time never does. A seat whose hours
-                are ignored takes new work at any time, whatever your assignment hours say. Tickets at once caps how many tickets a coordinator may
+                are ignored takes new work at any time, whatever your assignment hours say. Tasks at once caps how many tasks a coordinator may
                 place on one session in the seat.
             </p>
 
@@ -47,7 +47,7 @@
                                 </div>
                                 <div class="text-meta opacity-90">
                                     <code>{{ $seat->installation->harness }}</code> on <code>{{ $seat->installation->machine_label }}</code>
-                                    &middot; <span data-seat-capacity>takes up to {{ $seat->max_capacity }} {{ $seat->max_capacity === 1 ? 'ticket' : 'tickets' }} at once</span>
+                                    &middot; <span data-seat-capacity>takes up to {{ $seat->max_capacity }} {{ $seat->max_capacity === 1 ? 'task' : 'tasks' }} at once</span>
                                     @if ($seat->parked_at !== null)
                                         &middot; parked {{ $seat->parked_at->diffForHumans() }}
                                     @endif
@@ -81,24 +81,24 @@
                             @php($capacityFailed = $capacitySeat === $seat->id && $capacityError !== null)
                             <form wire:submit="setCapacity({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="flex w-full flex-wrap items-end gap-3">
                                 {{-- Each field and button names its seat to a screen reader, since every
-                                     seat on the page has one and "Tickets at once" alone says which of
+                                     seat on the page has one and "Tasks at once" alone says which of
                                      them nothing. The error, when there is one, is next to the field it
                                      is about and is what the field is described by first. --}}
                                 <label class="flex w-full flex-col gap-1 sm:w-auto" data-field>
-                                    <span>Tickets at once<span class="sr-only"> for {{ $seatName }}</span></span>
+                                    <span>Tasks at once<span class="sr-only"> for {{ $seatName }}</span></span>
                                     <input type="number" min="{{ \RobotCouncil\Support\Capacity::DEFAULT }}" max="{{ \RobotCouncil\Support\Capacity::MAX }}" step="1" inputmode="numeric" wire:model="capacities.{{ \RobotCouncil\Support\WireArgument::of($seat->id) }}" class="input w-24" @if ($capacityFailed) aria-invalid="true" aria-describedby="seat-{{ $seat->id }}-capacity-error seat-{{ $seat->id }}-capacity-help" @else aria-describedby="seat-{{ $seat->id }}-capacity-help" @endif>
                                 </label>
-                                <button type="submit" class="btn btn-target btn-outline">Set tickets at once<span class="sr-only"> for {{ $seatName }}</span></button>
+                                <button type="submit" class="btn btn-target btn-outline">Set tasks at once<span class="sr-only"> for {{ $seatName }}</span></button>
                                 @if ($capacityFailed)
                                     <p id="seat-{{ $seat->id }}-capacity-error" role="alert" class="font-semibold text-error" data-capacity-error>{{ $capacityError }}</p>
                                 @elseif ($capacitySeat === $seat->id)
-                                    <p role="status" data-capacity-saved>Saved: up to {{ $seat->max_capacity }} {{ $seat->max_capacity === 1 ? 'ticket' : 'tickets' }} at once.</p>
+                                    <p role="status" data-capacity-saved>Saved: up to {{ $seat->max_capacity }} {{ $seat->max_capacity === 1 ? 'task' : 'tasks' }} at once.</p>
                                 @endif
                                 <p id="seat-{{ $seat->id }}-capacity-help" class="max-w-xl text-meta leading-relaxed opacity-90">
-                                    The most tickets one session in this seat may hold at the same time, from
+                                    The most tasks one session in this seat may hold at the same time, from
                                     {{ \RobotCouncil\Support\Capacity::DEFAULT }} to {{ \RobotCouncil\Support\Capacity::MAX }}.
                                     A session that works through subagents asks for its number when it joins, and gets no
-                                    more than this. At 1, a session holds one ticket, as it always has.
+                                    more than this. At 1, a session holds one task, as it always has.
                                 </p>
                             </form>
                             {{-- #320: a waiver lets exactly one placement through one refusal on this

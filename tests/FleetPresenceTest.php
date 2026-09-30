@@ -67,7 +67,7 @@ it("shows each session's own role, which its machine no longer decides", functio
     $this->session->forceFill(['role' => $role])->save();
 
     Livewire::test(AgentsPage::class)
-        ->assertSeeHtml('<span class="badge badge-sm badge-outline">'.$role.'</span>');
+        ->assertSeeHtml('<span class="badge badge-sm badge-outline">'.Role::labelOf($role).'</span>');
 })->with([
     'build' => Role::Build->value,
     'ci' => Role::Ci->value,

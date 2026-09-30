@@ -380,7 +380,8 @@ it('offers no control for the role a session already holds', function (): void {
     Livewire::actingAs($this->admin)
         ->test(Administration::class)
         ->assertSeeHtml('Make coordinator')
-        ->assertSeeHtml('Make ci')
+        ->assertSeeHtml('Make gate')
+        ->assertDontSeeHtml('Make ci')
         ->assertDontSeeHtml('Make build');
 });
 
