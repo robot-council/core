@@ -431,3 +431,11 @@
 }
 
 @source "../views";
+
+/*
+ * "tab" is a word the dashboard prints, not a class it uses (#387). Every link that leaves the
+ * dashboard says "(new tab)", and the scanner cannot tell that from daisyUI's `tab` component,
+ * which would otherwise ship with a dimmed label color the theme never measured. No view uses a
+ * daisyUI tab; one that needs it removes this line in the same change.
+ */
+@source not inline("tab");
