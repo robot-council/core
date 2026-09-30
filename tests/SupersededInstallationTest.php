@@ -55,7 +55,7 @@ function enrollMachine(TestCase $case, User $approver, array $claims = []): stri
             'user_code' => $enrollment['record']->user_code,
             'confirmed' => '1',
         ])
-        ->assertRedirect();
+        ->assertRedirect()->assertSessionMissing('refused');
 
     $response = $case->postJson(route('robot-council.device.token'), [
         'device_code' => $enrollment['device_code'],

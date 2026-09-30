@@ -120,8 +120,8 @@ final class EnrollmentDecisionController
      * Send the developer back to say why the store refused the decision.
      *
      * The store's update refuses a request that is decided, exchanged or expired, and says only
-     * that it refused, so the row is read again to tell them apart: a code that expired between
-     * the lookup and the update is not "already decided".
+     * that it refused, so the row is read again to tell them apart: a code that expired or was
+     * pruned between the lookup and the update is not "already decided".
      *
      * @param  DeviceCode  $code  The request the decision was about.
      * @return RedirectResponse The redirect.
@@ -130,7 +130,8 @@ final class EnrollmentDecisionController
     {
         $now = $code->fresh();
 
-        if (! $now instanceof DeviceCode || (! $now->isDecided() && $now->consumed_at === null)) {
+        // Only an approved request is ever exchanged, so decided covers consumed too
+        if (! $now instanceof DeviceCode || ! $now->isDecided()) {
             return $this->expired($code->user_code);
         }
 

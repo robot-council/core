@@ -50,7 +50,7 @@
         </div>
 
         {{-- A decision on a code that had expired comes back here with no request to show (#452) --}}
-        @if ($searched && $code === null)
+        @if ($code === null && ($searched || session('refused')))
             <div role="alert" class="alert alert-warning mt-4" @if (session('refused')) data-refused @endif>
                 <span>{{ session('refused') ?? 'No enrollment is waiting on that code. Codes expire a few minutes after they are requested, so ask the machine for a new one.' }}</span>
             </div>

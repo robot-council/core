@@ -102,7 +102,7 @@ it('prunes an expired code whether or not it was decided', function (): void {
     $this->actingAs($this->developer, 'web')->post(route('robot-council.enroll.approve'), [
         'user_code' => $decided['record']->user_code,
         'confirmed' => '1',
-    ])->assertRedirect();
+    ])->assertRedirect()->assertSessionMissing('refused');
 
     $this->travelTo(now()->addSeconds(601));
 
