@@ -46,7 +46,13 @@ final class Glossary
                 throw new RuntimeException(sprintf('The dashboard glossary has no entry for [%s].', $key));
             }
 
-            $entries[] = ['key' => $key, 'term' => $entry['term'], 'means' => $entry['means']];
+            // `:baseline` names when the shared backlog baseline is taken, in the fleet's zone (#487),
+            // which configuration decides and a translation file cannot know
+            $means = str_contains($entry['means'], ':baseline')
+                ? str_replace(':baseline', app(DisplayTime::class)->baseline(), $entry['means'])
+                : $entry['means'];
+
+            $entries[] = ['key' => $key, 'term' => $entry['term'], 'means' => $means];
         }
 
         return $entries;

@@ -103,7 +103,8 @@ it('pays for one panel per page', function (string $section, int $queries): void
     'the overview: the gate, the layout, three counts and the lane summary' => ['dashboard', 14],
     // Two more for what the fleet waits on developers for (#335): the open items, and the logins that
     // decide whether each still names someone
-    'the lanes: the same six, three last-change reads, two for owed items, the gate and the layout' => ['lanes', 15],
+    // The lanes and administration pages each read the viewer's own time zone once (#487)
+    'the lanes: the same six, three last-change reads, two for owed items, the gate, the layout and the viewer zone' => ['lanes', 16],
     // #308 split presence in two. Each half pays the gate and the layout plus its own four: the
     // agents their page, its installations, their logins and one summary; the locks their page,
     // the holder's session and login, and one summary
@@ -112,7 +113,7 @@ it('pays for one panel per page', function (string $section, int $queries): void
     // One more since #420: one grouped count of the finished tasks the unfiltered queue hides
     'the queue: the tasks, their sessions, their logins and the hidden count' => ['queue', 8],
     'the feed: the events and their logins' => ['feed', 6],
-    'administration: the installations, their sessions, their logins and a summary' => ['administration', 10],
+    'administration: the installations, their sessions, their logins, a summary and the viewer zone' => ['administration', 11],
 ]);
 
 it('mounts the totals and no panel on the overview', function (): void {

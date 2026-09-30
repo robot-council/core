@@ -248,12 +248,12 @@ it('confirms the hours and days off in words, beside their own form', function (
         ->set('endsAt', '17:00')
         ->set('skipWeekends', true)
         ->call('saveHours')
-        ->assertSet('said', 'Saved: your seats take new work from 08:00 until 17:00, America/Chicago time, on weekdays only.')
+        ->assertSet('said', 'Saved: your seats take new work from 8 a.m. until 5 p.m., Central Time, on weekdays only.')
         ->assertSet('saidAt', 'hours')
         ->assertSet('refused', false);
 
     expect(saidInside($component->html(), '//div[contains(@class, "card-body")][.//h2[.="Assignment hours"]]'))
-        ->toBe(['Saved: your seats take new work from 08:00 until 17:00, America/Chicago time, on weekdays only.']);
+        ->toBe(['Saved: your seats take new work from 8 a.m. until 5 p.m., Central Time, on weekdays only.']);
 
     $component->set('timezone', 'EST')->call('saveHours')
         ->assertSet('said', 'Not saved: EST is not a time zone the list offers. Choose one from the list and save again.')

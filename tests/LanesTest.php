@@ -337,7 +337,7 @@ it('stamps the last change, not the read time', function (): void {
 
     expect($this->service(LaneBoard::class)->read()['last_change']?->format('H:i'))->toBe('10:00')
         ->and(markedText(Livewire::actingAs($this->developer)->test(Lanes::class)->html(), 'data-last-change')[0] ?? '')
-        ->toContain('Last change 2026-09-24 10:00 UTC');
+        ->toContain('Last change Sep 24, 2026, 10 a.m. UTC');
 });
 
 it('summarizes the lanes on the overview, counted by the same reader', function (): void {

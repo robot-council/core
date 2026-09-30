@@ -177,7 +177,7 @@ return [
     ],
     'open_issues' => [
         'term' => 'Open issues',
-        'means' => 'How many issues are open in the repository, as last read from GitHub or reported by an agent, and how that compares with 08:00 today. "Count unreadable" means no reading is recent enough to trust.',
+        'means' => 'How many issues are open in the repository, as last read from GitHub or reported by an agent, and how that compares with its count at :baseline each day, a time the whole fleet shares. "Count unreadable" means no reading is recent enough to trust.',
     ],
     'waiting_on_developer' => [
         'term' => 'Waiting on a developer',

@@ -16,7 +16,7 @@ use RobotCouncil\Access\Role;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
 use RobotCouncil\Models\Installation;
-use RobotCouncil\Support\AssignmentWindow;
+use RobotCouncil\Support\DisplayTime;
 use RobotCouncil\Support\InstallationList;
 use RobotCouncil\Support\Installations;
 use RobotCouncil\Support\PollInterval;
@@ -345,10 +345,10 @@ final class Administration extends Component
      * Render the panel.
      *
      * @param  InstallationList  $installations  The installation reader.
-     * @param  Repository  $config  The application's configuration, for the zone times are shown in.
+     * @param  DisplayTime  $time  How the page writes a session's times (#487).
      * @return View The panel.
      */
-    public function render(InstallationList $installations, Repository $config): View
+    public function render(InstallationList $installations, DisplayTime $time): View
     {
         $this->authorizeAdmin();
 
@@ -374,9 +374,8 @@ final class Administration extends Component
             // day it exists rather than the day somebody remembers this file.
             'roles' => Role::cases(),
 
-            // The zone a session's join and contact times are shown in (#419), as the lane board
-            // shows its stamps; a zone the host mistyped falls back rather than failing the page
-            'timezone' => AssignmentWindow::isTimezone($timezone = $config->get('robot-council.dashboard.timezone')) && \is_string($timezone) ? $timezone : 'UTC',
+            // A session's join and contact times, in the viewer's own zone and named (#419, #487)
+            'time' => $time,
         ]);
     }
 
