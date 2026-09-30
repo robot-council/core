@@ -26,6 +26,7 @@ declare(strict_types=1);
  */
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Models\TaskStatus;
+use RobotCouncil\Support\GitHubAccounts;
 use RobotCouncil\Support\Locks;
 use RobotCouncil\Support\Platform;
 use RobotCouncil\Support\SubLabel;
@@ -267,6 +268,11 @@ it('reports an interpolation in a URL attribute, and leaves a server-built URL a
     expect(urlAttributeInterpolations('<a href="{{ '.TicketLink::class.'::url($work[\'ticket\']) }}">x</a>'))->toBeEmpty();
     expect(urlAttributeInterpolations('<a href="{{ '.TicketLink::class.'::url($a).$b }}">x</a>'))
         ->toBe(['href="'.TicketLink::class.'::url($a).$b"']);
+
+    // An avatar is built the same way: null or a URL on GitHub's avatar host (#410)
+    expect(urlAttributeInterpolations('<img src="{{ '.GitHubAccounts::class.'::avatarOf($login) }}">'))->toBeEmpty();
+    expect(urlAttributeInterpolations('<img src="{{ '.GitHubAccounts::class.'::avatarOf($a).$b }}">'))
+        ->toBe(['src="'.GitHubAccounts::class.'::avatarOf($a).$b"']);
 
     // Not a URL attribute, so not this check's business -- `rawOutputIn()` covers the escaping
     expect(urlAttributeInterpolations('<p title="{{ $task->title }}">x</p>'))->toBeEmpty();

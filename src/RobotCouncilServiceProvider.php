@@ -58,6 +58,7 @@ use RobotCouncil\Models\Installation;
 use RobotCouncil\Support\Contracts\DrawsUserCodes;
 use RobotCouncil\Support\Contracts\SuppliesUserAttributes;
 use RobotCouncil\Support\Credentials;
+use RobotCouncil\Support\GitHubAccounts;
 use RobotCouncil\Support\HostUsers;
 use RobotCouncil\Support\Locks;
 use RobotCouncil\Support\SessionReleases;
@@ -196,6 +197,10 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
         // through `app()`, never a captured `$this->app`**, which under Octane is the base
         // application whose scoped instances nothing clears -- `registerAbilities()` says why.
         $this->app->scoped(Allowlist::class);
+
+        // Scoped for the same reason (#410): a page names several developers, and each avatar reads
+        // the one map `GitHubAccounts::avatarOf()` loads once per request rather than a query apiece
+        $this->app->scoped(GitHubAccounts::class);
     }
 
     /**

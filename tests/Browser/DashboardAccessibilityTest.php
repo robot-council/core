@@ -36,6 +36,7 @@ use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
 use RobotCouncil\Models\AssignmentHours;
 use RobotCouncil\Models\FleetEventType;
+use RobotCouncil\Models\GithubIdentity;
 use RobotCouncil\Models\HoldReason;
 use RobotCouncil\Models\Installation;
 use RobotCouncil\Models\Lock;
@@ -1208,4 +1209,65 @@ it('finds a wrapped value, a clipped table and a long line when they are planted
     expect($layout['clipped'])->not->toBeEmpty()
         ->and($layout['wrapped'])->not->toBeEmpty()
         ->and($layout['prose'])->toHaveCount(1);
+});
+
+/**
+ * Each avatar's circle, as drawn: its size, its corner radius, and whether a picture is in it.
+ *
+ * @return list<array{width: float|int, height: float|int, round: bool, picture: bool, initial: string}> One per avatar.
+ */
+function avatarShapes(PendingAwaitablePage $page): array
+{
+    /** @var list<array{width: float|int, height: float|int, round: bool, picture: bool, initial: string}> */
+    return pageList($page, 'avatar', <<<'JS'
+        () => [...document.querySelectorAll('[data-avatar] > span')].map(circle => {
+            const box = circle.getBoundingClientRect();
+            return {
+                width: Math.round(box.width * 10) / 10,
+                height: Math.round(box.height * 10) / 10,
+                round: parseFloat(getComputedStyle(circle).borderTopLeftRadius) >= box.width / 2,
+                picture: circle.querySelector('img') !== null,
+                initial: circle.textContent.trim(),
+            };
+        })
+    JS);
+}
+
+it("keeps each developer's avatar a circle sized in rem, and falls back to the initial when the picture fails (#410)", function (): void {
+    $fleet = seedAccessibilityFleet($this);
+    GithubIdentity::query()->where('github_login', 'octodev')->update(['avatar_url' => 'https://avatars.githubusercontent.com/u/4242?v=4']);
+
+    $this->actingAs($fleet['developer'], 'web');
+
+    $page = visit(route('robot-council.lanes'))->inLightMode();
+    $page->assertSee('Run the screen-reader pass');
+
+    $shapes = avatarShapes($page);
+
+    // Both developers on the board, one with a picture and one without, each a 1.5rem circle
+    expect($shapes)->not->toBeEmpty()
+        ->and(array_values(array_unique(array_column($shapes, 'initial'))))->toEqualCanonicalizing(['O', 'C'])
+        ->and(array_filter($shapes, static fn (array $shape): bool => $shape['picture']))->not->toBeEmpty()
+        ->and(array_filter($shapes, static fn (array $shape): bool => ! $shape['picture']))->not->toBeEmpty();
+
+    foreach ($shapes as $shape) {
+        expect($shape['width'])->toEqual(24)->and($shape['height'])->toEqual(24)->and($shape['round'])->toBeTrue();
+    }
+
+    // Text at 200%: a rem size doubles with it and stays round, where a px one would not
+    $page->script('() => { document.documentElement.style.fontSize = "200%"; }');
+
+    foreach (avatarShapes($page) as $shape) {
+        expect($shape['width'])->toEqual(48)->and($shape['height'])->toEqual(48)->and($shape['round'])->toBeTrue();
+    }
+
+    // A picture that fails to load is taken away, leaving the initial beneath it. Failed for real,
+    // by pointing it at an address that answers nothing, rather than by a synthetic event
+    $page->script('() => document.querySelectorAll("[data-avatar] img").forEach(image => { image.loading = "eager"; image.src = "data:image/png;base64,broken"; })');
+    $page->wait(0.5);
+
+    $after = avatarShapes($page);
+
+    expect(array_filter($after, static fn (array $shape): bool => $shape['picture']))->toBeEmpty()
+        ->and(array_column($after, 'initial'))->toContain('O');
 });

@@ -42,7 +42,7 @@
 
                             <p class="mt-1 text-meta opacity-80">
                                 @if ($event['actor']['github_login'] !== null)
-                                    {{ $event['actor']['github_login'] }}
+                                    <x-robot-council::avatar :login="$event['actor']['github_login']" />{{ $event['actor']['github_login'] }}
                                 @elseif ($event['actor']['session_id'] !== null)
                                     an unknown account
                                 @else

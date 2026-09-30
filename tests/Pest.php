@@ -496,6 +496,11 @@ function urlAttributeInterpolations(string $template): array
     // matched against `LaneHolds::LOGIN` (#484).
     $ticketLink = '/^\s*\\\\?RobotCouncil\\\\Support\\\\TicketLink::(?:url|profile)\s*(\((?:[^()]++|(?1))*\))\s*$/';
 
+    // `GitHubAccounts::avatarOf()` likewise (#410): it returns null or a stored avatar URL matched
+    // against `GitHubAccounts::AVATAR`, GitHub's avatar host with a numeric path and nothing else,
+    // and it is admitted only as the whole expression for the same reason.
+    $avatar = '/^\s*\\\\?RobotCouncil\\\\Support\\\\GitHubAccounts::avatarOf\s*(\((?:[^()]++|(?1))*\))\s*$/';
+
     $offenders = [];
 
     foreach ($matches as $match) {
@@ -522,7 +527,8 @@ function urlAttributeInterpolations(string $template): array
             $serverBuilt = preg_match($literalArgumentOnly, $expression) === 1
                 || (preg_match($routeOrAction, $expression) === 1
                     && preg_match($wholeExpression, $expression) === 1)
-                || preg_match($ticketLink, $expression) === 1;
+                || preg_match($ticketLink, $expression) === 1
+                || preg_match($avatar, $expression) === 1;
 
             // `=== 1` rather than a truthy test, deliberately: `preg_match` returns `false` on a
             // PCRE error -- a backtrack or recursion limit -- and `false === 1` is false, so an
@@ -1191,4 +1197,26 @@ function fakeGitHubProfiles(array $accounts): ArrayObject
     Http::preventStrayRequests();
 
     return $state;
+}
+
+/**
+ * A page with every developer avatar taken out (#410), for a test whose subject is the login beside
+ * it rather than the picture.
+ *
+ * Matched by the component's exact shape, the markers Livewire writes round a Blade condition
+ * included, so a page whose avatar markup changed shape keeps it and the test fails rather than
+ * silently reading the initial as part of the login.
+ *
+ * @param  string  $html  The page.
+ * @return string The page, each avatar removed.
+ */
+function withoutAvatars(string $html): string
+{
+    $markers = '(?:<!--\[if [A-Z]+\]><!\[endif\]-->)*';
+
+    return (string) preg_replace(
+        '#'.$markers.'<span class="avatar [^"]*"[^>]*\bdata-avatar><span[^>]*><span[^>]*>[^<]*</span>'.$markers.'(?:<img[^>]*>)?'.$markers.'</span></span>'.$markers.'#',
+        '',
+        $html
+    );
 }

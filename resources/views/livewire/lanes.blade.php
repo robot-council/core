@@ -84,9 +84,9 @@
                                     <td role="cell" data-label="Lane">
                                         {{-- Named as the queue and the locks page name a session (#421) --}}
                                         @if ($lane['label'] !== null)
-                                            <div class="font-medium"><code>{{ $lane['label'] }}</code> &middot; {{ $lane['developer'] ?? 'unknown developer' }}</div>
+                                            <div class="font-medium"><code>{{ $lane['label'] }}</code> &middot; <x-robot-council::avatar :login="$lane['developer']" />{{ $lane['developer'] ?? 'unknown developer' }}</div>
                                         @else
-                                            <div class="font-medium">{{ $lane['developer'] ?? 'unknown developer' }} &middot; <code>{{ $lane['machine'] }}</code>@if ($lane['slot'] !== null) / <code>{{ $lane['slot'] }}</code>@endif</div>
+                                            <div class="font-medium"><x-robot-council::avatar :login="$lane['developer']" />{{ $lane['developer'] ?? 'unknown developer' }} &middot; <code>{{ $lane['machine'] }}</code>@if ($lane['slot'] !== null) / <code>{{ $lane['slot'] }}</code>@endif</div>
                                         @endif
                                         <div class="text-meta opacity-90"><code>{{ $lane['harness'] }}</code>@if ($lane['is_gate']) &middot; gate @endif</div>
                                         {{-- Occupancy against capacity (#409): the number `lane_free` refuses a
@@ -214,7 +214,7 @@
                  `General` where it would stop being anyone's --}}
             @forelse ($board['waiting'] as $section)
                 <div wire:key="owed-{{ $section['developer'] ?? '-general' }}" data-owed-section="{{ $section['developer'] ?? 'General' }}">
-                    <h3 class="font-medium">{{ $section['developer'] ?? 'General' }}</h3>
+                    <h3 class="font-medium"><x-robot-council::avatar :login="$section['developer']" />{{ $section['developer'] ?? 'General' }}</h3>
                     <ul class="text-meta">
                         @foreach ($section['items'] as $item)
                             <li wire:key="owed-item-{{ $item['id'] }}" class="max-w-xl leading-relaxed" data-owed-item>

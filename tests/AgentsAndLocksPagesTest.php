@@ -181,7 +181,7 @@ it('leads from a session to the locks it holds, and only those', function (): vo
 });
 
 it('leads from a lock to the session holding it, and only that one', function (): void {
-    $locks = (string) $this->get(route('robot-council.locks'))->assertOk()->getContent();
+    $locks = withoutAvatars((string) $this->get(route('robot-council.locks'))->assertOk()->getContent());
 
     $link = route('robot-council.agents', ['session' => $this->session->id]);
 

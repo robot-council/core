@@ -93,9 +93,9 @@
                                     @if ($task['created_by'])
                                         @if (($task['created_by']['label'] ?? null) !== null)
                                             <div><code>{{ $task['created_by']['label'] }}</code></div>
-                                            <div class="text-meta opacity-80">{{ $task['created_by']['github_login'] ?? 'an unknown account' }}</div>
+                                            <div class="text-meta opacity-80"><x-robot-council::avatar :login="$task['created_by']['github_login'] ?? null" />{{ $task['created_by']['github_login'] ?? 'an unknown account' }}</div>
                                         @else
-                                            {{ $task['created_by']['github_login'] ?? 'an unknown account' }}
+                                            <x-robot-council::avatar :login="$task['created_by']['github_login'] ?? null" />{{ $task['created_by']['github_login'] ?? 'an unknown account' }}
                                         @endif
 
                                         {{-- #16 decides who may claim this, and the flag is what was
@@ -112,9 +112,9 @@
                                     @if ($task['claimed_by'])
                                         @if (($task['claimed_by']['label'] ?? null) !== null)
                                             <div><code>{{ $task['claimed_by']['label'] }}</code></div>
-                                            <div class="text-meta opacity-80">{{ $task['claimed_by']['github_login'] ?? 'an unknown account' }}</div>
+                                            <div class="text-meta opacity-80"><x-robot-council::avatar :login="$task['claimed_by']['github_login'] ?? null" />{{ $task['claimed_by']['github_login'] ?? 'an unknown account' }}</div>
                                         @else
-                                            {{ $task['claimed_by']['github_login'] ?? 'an unknown account' }}
+                                            <x-robot-council::avatar :login="$task['claimed_by']['github_login'] ?? null" />{{ $task['claimed_by']['github_login'] ?? 'an unknown account' }}
                                         @endif
                                     @else
                                         <span class="opacity-80">nobody</span>

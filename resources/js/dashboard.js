@@ -1,5 +1,8 @@
 /*
- * Keeps the reader's place when a poll re-renders a dashboard page (#444, #472).
+ * Two jobs, each small: keep the reader's place when a poll re-renders a dashboard page (#444, #472),
+ * and leave a developer's initial showing when their GitHub picture fails to load (#410).
+ *
+ * **The place.**
  *
  * When a poll adds rows above what the reader is looking at, Livewire's morph keeps `scrollY` and
  * focus but not the row being read: the content moves underneath. Chrome's own scroll anchoring does
@@ -8,13 +11,18 @@
  * is at or below the top of the viewport, and that top; once they are morphed, it finds the same key
  * again and scrolls by the difference, so that row stays where it was.
  *
- * It does that one job and nothing else. When the row is gone after the poll, nothing keyed is in
+ * When the row is gone after the poll, nothing keyed is in
  * view, or the reader is at the very top of the page, it does nothing, which is the page's behavior
  * without it. A partial morph of an `@island` fires `island.morph` instead and is not covered; no
  * view uses islands. It uses only Livewire's documented
  * `morph` and `morphed` hooks, which run once around a component's whole morph. The per-element
  * `morph.updated` is too early: Alpine's morph calls it for an element before patching its children,
  * so the rows a poll adds would land after the correction.
+ *
+ * **The picture.** An avatar draws its initial beneath the picture, so a picture that fails leaves the
+ * initial showing once the broken picture is taken away. `error` does not bubble, so one listener in
+ * the capture phase catches every picture, including those a poll's morph puts back; and a picture
+ * that failed before this script ran is found by what it left behind, complete with no size.
  *
  * Served as a file from the package's own route, as `dashboard.css` is, so `script-src 'self'`
  * covers it and no view carries an inline script.
@@ -78,6 +86,25 @@
             }
         });
     };
+
+    // A picture that failed to load, in an avatar and nowhere else
+    const failedAvatar = (el) => el instanceof HTMLImageElement && el.closest('[data-avatar]') !== null;
+
+    document.addEventListener('error', ({ target }) => {
+        if (failedAvatar(target)) target.remove();
+    }, true);
+
+    const sweep = () => {
+        for (const image of document.querySelectorAll('[data-avatar] img')) {
+            if (image.complete && image.naturalWidth === 0) image.remove();
+        }
+    };
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', sweep);
+    } else {
+        sweep();
+    }
 
     // Registered before Livewire starts, which is what its documentation asks of a script that loads
     // after it; and at once when this loads after Livewire has already started
