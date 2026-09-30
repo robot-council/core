@@ -207,7 +207,7 @@
                 </div>
             </header>
 
-            <main id="robot-council-main" tabindex="-1" class="focus:outline-none scroll-mt-20 mx-auto w-full max-w-7xl grow p-4 sm:p-6">
+            <main id="robot-council-main" tabindex="-1" class="focus:outline-none scroll-mt-20 w-full grow p-4 sm:p-6">
                 {{ $slot }}
             </main>
 

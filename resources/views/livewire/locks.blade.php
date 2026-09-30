@@ -40,7 +40,7 @@
         @endif
 
         @if ($locks['locks'] === [])
-            <p class="py-6 text-center opacity-80">
+            <p class="mx-auto max-w-xl py-6 text-center opacity-80">
                 @if ($holder !== null)
                     No locks: session <code>#{{ $holder }}</code> holds none in this list. Choose Show all to see every lock.
                 @else
@@ -93,7 +93,7 @@
                                     @endif
                                 </td>
 
-                                <td role="cell" data-label="Fence">{{ $lock['fence'] }}</td>
+                                <td role="cell" data-label="Fence" class="xl:whitespace-nowrap">{{ $lock['fence'] }}</td>
 
                                 {{-- A lapsed lease is shown rather than hidden: a row that
                                      still names a holder whose lease has run out is exactly

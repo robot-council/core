@@ -36,7 +36,7 @@
 
         @include('robot-council::partials.glossary', ['terms' => ['installation', 'harness', 'machine_label', 'usable', 'revoked', 'expired', 'session', 'active', 'stale', 'gone', 'role', 'coordinator', 'ephemeral', 'asked_for_role', 'make_role', 'revoke_session', 'revoke_installation']])
 
-        <p class="text-meta opacity-90">
+        <p class="max-w-xl text-meta opacity-90">
             What each machine may do, and which of its sessions are alive. Changes take effect on
             the next request, not on the next renewal.
         </p>
@@ -46,7 +46,7 @@
         @include('robot-council::partials.said', ['show' => $said !== null && ! in_array($saidAt, array_column($installations, 'id'), true), 'class' => ''])
 
         @if ($installations === [])
-            <p class="py-6 text-center opacity-80">
+            <p class="mx-auto max-w-xl py-6 text-center opacity-80">
                 {{ $installationScope === \RobotCouncil\Support\Scope::Live && $page['retired'] > 0
                     ? 'None usable: no machine can act right now. Choose All to see the revoked and expired ones.'
                     : 'No machines yet: a machine appears here once a developer approves its enrollment.' }}
@@ -217,7 +217,7 @@
                         {{-- Every live session is listed above (#414); the ones that have ended are
                              counted, said rather than left to be inferred --}}
                         @if ($installation['sessions']['gone'] > 0)
-                            <p class="mt-2 text-meta opacity-80">
+                            <p class="max-w-xl mt-2 text-meta opacity-80">
                                 {{ $installation['sessions']['gone'] }} session(s) have ended.
                             </p>
                         @endif

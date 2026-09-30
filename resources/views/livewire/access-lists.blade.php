@@ -68,7 +68,7 @@
                 @include('robot-council::partials.said', ['show' => $said !== null && $saidAt === $key, 'class' => ''])
 
                 @if ($lists[$key]['configured'] === [] && $lists[$key]['stored'] === [])
-                    <p class="py-4 opacity-80">None yet: nobody is on this list.</p>
+                    <p class="max-w-xl py-4 opacity-80">None yet: nobody is on this list.</p>
                 @else
                     <ul class="divide-y divide-base-200">
                         @foreach ($lists[$key]['configured'] as $entry)

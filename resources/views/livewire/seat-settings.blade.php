@@ -23,7 +23,7 @@
         <div class="card-body">
             <h2 class="card-title">My seats</h2>
 
-            <p class="text-meta opacity-90">
+            <p class="max-w-xl text-meta opacity-90">
                 A seat is one of your machines working in one repository. A parked seat takes no new
                 work until you lift it, and only you can lift it -- time never does. A seat whose hours
                 are ignored takes new work at any time, whatever your assignment hours say. Tasks at once caps how many tasks a coordinator may
@@ -31,7 +31,7 @@
             </p>
 
             @if ($seats === [])
-                <p class="py-6 text-center opacity-80">
+                <p class="mx-auto max-w-xl py-6 text-center opacity-80">
                     No seats yet: a seat appears once one of your sessions reports the repository it works in.
                 </p>
             @else
@@ -135,7 +135,7 @@
         <div class="card-body">
             <h2 class="card-title">Assignment hours</h2>
 
-            <p class="text-meta opacity-90">
+            <p class="max-w-xl text-meta opacity-90">
                 When your seats take new placements, on your own clock. Work already placed, gate
                 queues and hand-backs are never held to these.
                 @if ($hours === null)
@@ -189,7 +189,7 @@
         <div class="card-body">
             <h2 class="card-title">Days off</h2>
 
-            <p class="text-meta opacity-90">
+            <p class="max-w-xl text-meta opacity-90">
                 Your own holidays, as dates on your clock. They apply once you have set assignment
                 hours, since a date needs a time zone to say when it starts.
             </p>

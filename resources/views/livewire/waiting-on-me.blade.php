@@ -21,7 +21,7 @@
     @if ($waiting['owed'] === [] && $waiting['holds'] === [])
         <div class="card bg-base-100 shadow-sm">
             <div class="card-body">
-                <p class="leading-relaxed" data-waiting-empty>Nothing is waiting on you: no agent has asked you for a decision or an action, and no lane is held on you.</p>
+                <p class="max-w-xl leading-relaxed" data-waiting-empty>Nothing is waiting on you: no agent has asked you for a decision or an action, and no lane is held on you.</p>
             </div>
         </div>
     @else
@@ -30,7 +30,7 @@
                 <h2 class="card-title">Asked of you</h2>
 
                 @if ($waiting['owed'] === [])
-                    <p class="text-meta opacity-80">None: no agent has asked you for a decision or an action.</p>
+                    <p class="max-w-xl text-meta opacity-80">None: no agent has asked you for a decision or an action.</p>
                 @else
                     <ul class="divide-y divide-base-200">
                         @foreach ($waiting['owed'] as $item)
@@ -54,7 +54,7 @@
                 <h2 class="card-title">Lanes held on you</h2>
 
                 @if ($waiting['holds'] === [])
-                    <p class="text-meta opacity-80">None: no lane is held until you act.</p>
+                    <p class="max-w-xl text-meta opacity-80">None: no lane is held until you act.</p>
                 @else
                     <ul class="divide-y divide-base-200">
                         @foreach ($waiting['holds'] as $hold)

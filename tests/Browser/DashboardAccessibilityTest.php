@@ -1096,3 +1096,106 @@ it('finds an undersized control, so the check above is not blind', function (): 
 
     expect(undersizedControls($page))->toHaveCount(5);
 });
+
+/**
+ * How the main column, its prose and its tables lay out at the current width (#494).
+ *
+ * @return array{main: float, prose: list<string>, clipped: list<string>, wrapped: list<string>} The main column's width, any
+ *                                                                                               paragraph of running text wider than its measure, any table container that scrolls, and any
+ *                                                                                               one-line value that wrapped.
+ */
+function wideLayout(PendingAwaitablePage $page): array
+{
+    $layout = $page->script(<<<'JS'
+        () => {
+            const main = document.querySelector('main');
+            const describe = (el) => `${el.tagName.toLowerCase()} "${el.textContent.trim().replace(/\s+/g, ' ').slice(0, 60)}"`;
+            // Running text: a paragraph long enough to be read as a line, outside a table or a list
+            const prose = [...main.querySelectorAll('p')]
+                .filter((p) => p.textContent.trim().length > 80 && ! p.closest('table, ul, ol, dl'))
+                .filter((p) => p.getBoundingClientRect().width > 36 * 16 + 0.5)
+                .map(describe);
+            const clipped = [...main.querySelectorAll('.overflow-x-auto')]
+                .filter((box) => box.scrollWidth > box.clientWidth + 0.5)
+                .map((box) => `${describe(box.querySelector('th') ?? box)} ${box.scrollWidth} > ${box.clientWidth}`);
+            // A one-line value lays its text out on one line: the rectangles of its text share a top
+            const lines = (el) => {
+                const range = document.createRange();
+                range.selectNodeContents(el);
+                const tops = [...range.getClientRects()].filter((r) => r.width > 0).map((r) => r.top).sort((a, b) => a - b);
+                return tops.filter((top, i) => i === 0 || top > tops[i - 1] + 4).length;
+            };
+            // The short, fixed values: a machine, a role, a status, a state, a number, an age
+            const short = ['Machine', 'Role', 'Status', 'State', 'Priority', 'Fence', 'Last seen', 'Locks', 'Age', 'Lease', 'Known since']
+                .map((label) => `td[data-label="${label}"]`).join(', ');
+            const wrapped = [...main.querySelectorAll(short)]
+                .flatMap((td) => td.children.length > 0 ? [...td.children] : [td])
+                .filter((el) => lines(el) > 1)
+                .map(describe);
+            return { main: main.getBoundingClientRect().width, prose, clipped, wrapped };
+        }
+    JS);
+
+    if (! is_array($layout) || ! is_numeric($layout['main'] ?? null)) {
+        throw new RuntimeException('The layout read returned nothing.');
+    }
+
+    /** @var array{main: float, prose: list<string>, clipped: list<string>, wrapped: list<string>} $layout */
+    return $layout;
+}
+
+it('uses the width of a wide screen for its tables, and keeps prose to its measure (#494)', function (string $route, string $parameter, string $expect, int $width): void {
+    $page = visitSurface($this, $route, $parameter, $expect, 'light');
+    $page->resize($width, 900);
+
+    $layout = wideLayout($page);
+
+    // Wider than the 80rem the column was capped at, with no table scrolling inside its box, no
+    // one-line value wrapped, and no paragraph of running text past 36rem
+    expect($layout['main'])->toBeGreaterThan(80 * 16)
+        ->and($layout['clipped'])->toBe([], implode("\n", $layout['clipped']))
+        ->and($layout['wrapped'])->toBe([], implode("\n", $layout['wrapped']))
+        ->and($layout['prose'])->toBe([], implode("\n", $layout['prose']))
+        ->and(sidewaysScroll($page))->toBe(0);
+})->with([
+    'agents' => ['robot-council.agents', '', 'coordinator-mac'],
+    'locks' => ['robot-council.locks', '', 'branch:vocabulary'],
+    'lanes' => ['robot-council.lanes', '', 'Run the screen-reader pass'],
+    'queue' => ['robot-council.queue', '', 'Everyone stop and sync'],
+    'feed' => ['robot-council.feed', '', 'Running the gate before opening the pull request.'],
+    'administration' => ['robot-council.administration', '', 'gate-runner'],
+])->with([1920, 2560]);
+
+it('still fits a phone once the column is uncapped (#494)', function (string $route, string $parameter, string $expect): void {
+    $page = visitSurface($this, $route, $parameter, $expect, 'light');
+    $page->resize(390, 900);
+
+    expect(sidewaysScroll($page))->toBe(0)
+        ->and(wideLayout($page)['prose'])->toBeEmpty();
+})->with(accessibilitySurfaces());
+
+it('finds a wrapped value, a clipped table and a long line when they are planted (#494)', function (): void {
+    $page = visitSurface($this, 'robot-council.agents', '', 'coordinator-mac', 'light');
+    $page->resize(1920, 900);
+
+    // The canary: squeeze the column, let every cell wrap, and let one paragraph run the full width,
+    // so a check that could not see any of the three passes nothing here
+    $page->script(<<<'JS'
+        () => {
+            const main = document.querySelector('main');
+            main.style.maxWidth = '24rem';
+            main.querySelectorAll('td').forEach((td) => { td.style.whiteSpace = 'normal'; td.style.minWidth = '0'; });
+            main.querySelector('table').style.minWidth = '60rem';
+            const p = document.createElement('p');
+            p.textContent = 'A planted paragraph of running text, long enough to be read as a line and with no measure of its own.';
+            p.style.width = '40rem';
+            main.prepend(p);
+        }
+    JS);
+
+    $layout = wideLayout($page);
+
+    expect($layout['clipped'])->not->toBeEmpty()
+        ->and($layout['wrapped'])->not->toBeEmpty()
+        ->and($layout['prose'])->toHaveCount(1);
+});
