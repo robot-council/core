@@ -211,25 +211,39 @@
 
             {{-- `General` first, then one section per developer (#335). An item naming a developer
                  the fleet no longer knows is dropped by `Support\OwedItems::open()`, never moved to
-                 `General` where it would stop being anyone's --}}
-            @forelse ($board['waiting'] as $section)
-                <div wire:key="owed-{{ $section['developer'] ?? '-general' }}" data-owed-section="{{ $section['developer'] ?? 'General' }}">
-                    <h3 class="font-medium"><x-robot-council::avatar :login="$section['developer']" />{{ $section['developer'] ?? 'General' }}</h3>
-                    <ul class="text-meta">
+                 `General` where it would stop being anyone's.
+
+                 Built to be scanned at the load it carries (#390): each section is a bordered block
+                 whose heading says how many items it holds, items are divided by a rule, and each
+                 item reads as three parts -- the ticket on its own line, the question as the main
+                 text, and the reason and age beneath it as secondary. The same three parts, in the
+                 same order, as the Waiting on me page's items. --}}
+            @if ($board['waiting'] === [])
+                <p class="max-w-xl text-meta opacity-80">Nothing waiting: no agent has asked a developer for a decision or an action.</p>
+            @else
+                <div class="space-y-4">
+                @foreach ($board['waiting'] as $section)
+                <section wire:key="owed-{{ $section['developer'] ?? '-general' }}" class="rounded-box border border-base-300 p-3 sm:p-4" data-owed-section="{{ $section['developer'] ?? 'General' }}">
+                    <h3 class="text-lg font-semibold"><x-robot-council::avatar :login="$section['developer']" />{{ $section['developer'] ?? 'General' }} <span class="text-meta font-normal opacity-90" data-owed-count>&middot; {{ count($section['items']) }} {{ count($section['items']) === 1 ? 'item' : 'items' }}</span></h3>
+                    <ul class="divide-y divide-base-300">
                         @foreach ($section['items'] as $item)
-                            <li wire:key="owed-item-{{ $item['id'] }}" class="max-w-xl leading-relaxed" data-owed-item>
-                                @if (\RobotCouncil\Support\TicketLink::url($item['ticket']) !== null)
-                                    <x-robot-council::external-link :reference="$item['ticket']" class="link"><code>{{ $item['ticket'] }}</code></x-robot-council::external-link>
-                                @endif
-                                &mdash; {{ $item['question'] }}
-                                <span class="opacity-90">{{ $item['why'] }} &middot; waiting {{ $item['recorded_at']->diffForHumans(syntax: \Carbon\CarbonInterface::DIFF_ABSOLUTE) }}</span>
+                            <li wire:key="owed-item-{{ $item['id'] }}" class="max-w-xl space-y-1 py-3" data-owed-item>
+                                <div class="text-meta">
+                                    @if (\RobotCouncil\Support\TicketLink::url($item['ticket']) !== null)
+                                        <x-robot-council::external-link :reference="$item['ticket']" class="link"><code>{{ $item['ticket'] }}</code></x-robot-council::external-link>
+                                    @else
+                                        <code>{{ $item['ticket'] }}</code>
+                                    @endif
+                                </div>
+                                <p class="leading-relaxed" data-owed-question>{{ $item['question'] }}</p>
+                                <p class="text-meta leading-relaxed opacity-90">{{ $item['why'] }} &middot; waiting {{ $item['recorded_at']->diffForHumans(syntax: \Carbon\CarbonInterface::DIFF_ABSOLUTE) }}</p>
                             </li>
                         @endforeach
                     </ul>
+                </section>
+                @endforeach
                 </div>
-            @empty
-                <p class="max-w-xl text-meta opacity-80">Nothing waiting: no agent has asked a developer for a decision or an action.</p>
-            @endforelse
+            @endif
         </div>
     </div>
 

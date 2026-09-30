@@ -1317,3 +1317,31 @@ it("keeps a repository's ring apart from a developer's circle under forced color
         ->and(array_values(array_unique(array_column($repositories, 'style'))))->toBe(['double'])
         ->and(array_column($developers, 'style'))->not->toContain('double');
 });
+
+it('keeps the Waiting on a developer card inside a 360px phone, each section bordered and each item three parts (#390)', function (string $theme): void {
+    $page = visitSurface($this, 'robot-council.lanes', '', 'Run the screen-reader pass', $theme);
+
+    $page->resize(360, 900);
+
+    /** @var array{sections: int, bordered: int, parts: list<int>, overflowing: int} $card */
+    $card = $page->script(<<<'JS'
+        () => {
+            const sections = [...document.querySelectorAll('[data-owed-section]')];
+            const items = [...document.querySelectorAll('[data-owed-item]')];
+            return {
+                sections: sections.length,
+                bordered: sections.filter(s => parseFloat(getComputedStyle(s).borderTopWidth) >= 1).length,
+                parts: items.map(item => item.children.length),
+                overflowing: [...document.querySelectorAll('[data-owed-section], [data-owed-section] *')]
+                    .filter(el => el.scrollWidth > el.clientWidth + 0.5 && getComputedStyle(el).overflowX === 'visible' && el.clientWidth > 0).length,
+            };
+        }
+    JS);
+
+    expect(sidewaysScroll($page))->toBe(0)
+        ->and($card['sections'])->toBeGreaterThan(0)
+        ->and($card['bordered'])->toBe($card['sections'])
+        ->and($card['parts'])->not->toBeEmpty()
+        ->and(array_unique($card['parts']))->toBe([3])
+        ->and($card['overflowing'])->toBe(0);
+})->with(['light', 'dark']);
