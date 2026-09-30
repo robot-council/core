@@ -46,7 +46,9 @@ final class AllowlistEntries
      *
      * @param  AccessList  $list  The list.
      * @param  mixed  $githubId  The account's numeric GitHub user ID.
-     * @param  mixed  $login  Its login as of now, kept for display.
+     * @param  mixed  $login  Its login as of now, kept for display, or null when it could not be
+     *                        confirmed (#484): an ID added while GitHub was unreachable. Stored as
+     *                        an empty string, which the page shows as "not signed in yet".
      * @param  int|null  $addedBy  The adding administrator's GitHub user ID, if one did.
      * @param  string|null  $actor  The adding administrator's host user key, which the event
      *                              records as who made the change.
@@ -64,7 +66,7 @@ final class AllowlistEntries
             throw new InvalidArgumentException('A GitHub user ID is a positive whole number.');
         }
 
-        if (! \is_string($login) || preg_match(LaneHolds::LOGIN, $login) !== 1) {
+        if ($login !== null && (! \is_string($login) || preg_match(LaneHolds::LOGIN, $login) !== 1)) {
             throw new InvalidArgumentException('A GitHub login is 1 to 39 letters, digits and single hyphens, not leading or trailing.');
         }
 
@@ -84,14 +86,14 @@ final class AllowlistEntries
             $inserted = DB::table('robot_council_allowlist_entries')->insertOrIgnore([
                 'github_id' => $id,
                 'list' => $list->value,
-                'login' => $login,
+                'login' => $login ?? '',
                 'added_by' => $addedBy,
                 'created_at' => Carbon::now(),
             ]) === 1;
 
             // Only a row that was written is described
             if ($inserted) {
-                $this->record(FleetEventType::AllowlistEntryAdded, 'added to', $list, $id, $login, $actor);
+                $this->record(FleetEventType::AllowlistEntryAdded, 'added to', $list, $id, $login ?? '', $actor);
             }
 
             return $inserted;
@@ -164,7 +166,7 @@ final class AllowlistEntries
      * @param  string  $happened  `added to` or `removed from`.
      * @param  AccessList  $list  The list.
      * @param  int  $githubId  The account.
-     * @param  string  $login  Its login, as stored.
+     * @param  string  $login  Its login, as stored, or empty when none was confirmed.
      * @param  string|null  $actor  The administrator's host user key.
      */
     private function record(FleetEventType $type, string $happened, AccessList $list, int $githubId, string $login, ?string $actor): void
@@ -176,7 +178,9 @@ final class AllowlistEntries
         $this->events->record(
             $type,
             null,
-            sprintf('%s (GitHub user %d) was %s the %s list.', $login, $githubId, $happened, $list === AccessList::Admin ? 'administrator' : 'developer'),
+            $login === ''
+                ? sprintf('GitHub user %d was %s the %s list.', $githubId, $happened, $list === AccessList::Admin ? 'administrator' : 'developer')
+                : sprintf('%s (GitHub user %d) was %s the %s list.', $login, $githubId, $happened, $list === AccessList::Admin ? 'administrator' : 'developer'),
             ['list' => $list->value, 'github_id' => $githubId, 'login' => $login],
             actor: $actor,
             subject: HostKey::tryFrom($subject)

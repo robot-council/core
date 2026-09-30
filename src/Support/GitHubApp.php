@@ -22,14 +22,18 @@ use Throwable;
  * **A deliberate, bounded exception to #318's "core reads nothing from GitHub" (#383).** That rule
  * exists so no coordination decision depends on GitHub being reachable or honest. What this reads is
  * an open-issue count for the lane board's meters: a display for people that decides nothing, and
- * that reads unreadable when GitHub does not answer. **It covers display-only counts and nothing
- * else.** Everything that frees a lane, places work, or changes a task keeps learning from the
- * webhook alone, and a second caller of this class for anything but a count is the rule lapsing.
+ * that reads unreadable when GitHub does not answer. **It covers display-only counts, and public
+ * account profiles for the Access page (#484), and nothing else.** A profile names the account
+ * behind an allowlisted ID, and resolves a login an administrator typed to the ID they then
+ * confirm; the ID alone decides access, and the page can still add an ID when GitHub is down.
+ * Everything that frees a lane, places work, or changes a task keeps learning from the webhook
+ * alone, and a caller of this class for anything else is the rule lapsing.
  * `tests/SlackMirrorTest.php` names this file as the second and only other one that talks HTTP.
  *
- * Three requests, all to `api.github.com`: the App's installation on one account, signed with its
- * JWT; an installation token for it, minted with the same JWT; and one search per repository with
- * that token. The token is asked for with `issues: read` alone, so it carries less than the App
+ * Five requests, all to `api.github.com`: the App's installation on one account, signed with its
+ * JWT; an installation token for it, minted with the same JWT; one search per repository with
+ * that token; and a public profile, by ID or by login, with the same token. A profile needs no
+ * permission at all, so it asks for nothing the count's token does not already carry. The token is asked for with `issues: read` alone, so it carries less than the App
  * even if the App is later granted more -- and with `organization_projects: read` beside it only
  * for an owner whose count is narrowed to a project (#488).
  *
@@ -244,6 +248,86 @@ final class GitHubApp
         }
 
         return $total;
+    }
+
+    /**
+     * The public profile of the account with a numeric user ID (#484).
+     *
+     * @param  int  $id  The account's numeric user ID.
+     * @param  string  $token  An installation token; a profile needs no permission.
+     * @return GitHubAccount|null The account, or null when GitHub says there is none (404).
+     *
+     * @throws GitHubRefusal When GitHub could not be asked, refused otherwise, or answered with
+     *                       something that is not a profile.
+     * @throws InvalidArgumentException When the ID is not a positive whole number.
+     */
+    public function accountById(int $id, #[SensitiveParameter] string $token): ?GitHubAccount
+    {
+        if ($id < 1) {
+            throw new InvalidArgumentException('A GitHub user ID is a positive whole number.');
+        }
+
+        return $this->account(sprintf('/user/%d', $id), $token);
+    }
+
+    /**
+     * The public profile of the account with a login (#484).
+     *
+     * @param  string  $login  The login, compared without case by GitHub.
+     * @param  string  $token  An installation token; a profile needs no permission.
+     * @return GitHubAccount|null The account, or null when GitHub says there is none (404).
+     *
+     * @throws GitHubRefusal When GitHub could not be asked, refused otherwise, or answered with
+     *                       something that is not a profile.
+     * @throws InvalidArgumentException When the login is not a GitHub login, which would change the
+     *                                  path.
+     */
+    public function accountByLogin(string $login, #[SensitiveParameter] string $token): ?GitHubAccount
+    {
+        if (preg_match(LaneHolds::LOGIN, $login) !== 1) {
+            throw new InvalidArgumentException('A GitHub login is 1 to 39 letters, digits and single hyphens, not leading or trailing.');
+        }
+
+        return $this->account(sprintf('/users/%s', rawurlencode($login)), $token);
+    }
+
+    /**
+     * One public profile, checked field by field.
+     *
+     * **A login that does not match `LaneHolds::LOGIN` is unparseable rather than stored**, because
+     * what this returns goes onto a page, into a profile URL, and into the change feed. That refuses
+     * an App's `name[bot]` login too, which is right: a bot cannot sign in.
+     *
+     * @param  string  $path  `/user/{id}` or `/users/{login}`, already built from checked values.
+     * @param  string  $token  The installation token.
+     * @return GitHubAccount|null The account, or null on a 404.
+     *
+     * @throws GitHubRefusal When GitHub could not be asked, refused otherwise, or answered with
+     *                       something that is not a profile.
+     */
+    private function account(string $path, #[SensitiveParameter] string $token): ?GitHubAccount
+    {
+        try {
+            $response = $this->send(fn (): Response => $this->client()->withToken($token)->get($path));
+        } catch (GitHubRefusal $gitHubRefusal) {
+            // A 404 is an answer: no account has that ID or login
+            if ($gitHubRefusal->outcome === BacklogFetchOutcome::Refused && $gitHubRefusal->status === 404) {
+                return null;
+            }
+
+            throw $gitHubRefusal;
+        }
+
+        $id = $response->json('id');
+        $login = $response->json('login');
+        $type = $response->json('type');
+
+        if (! \is_int($id) || $id < 1 || ! \is_string($login) || preg_match(LaneHolds::LOGIN, $login) !== 1
+            || ! \in_array($type, [GitHubAccount::USER, 'Organization', 'Bot'], true)) {
+            throw new GitHubRefusal(BacklogFetchOutcome::Unparseable, $response->status());
+        }
+
+        return new GitHubAccount($id, $login, $type);
     }
 
     /**

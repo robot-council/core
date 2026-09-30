@@ -46,6 +46,8 @@ The lists are read on every request, so removing an ID locks that developer and 
 
 **Each list also admits the entries an administrator adds** to `robot_council_allowlist_entries`, through `RobotCouncil\Support\AllowlistEntries` (#406; the page for it is #407). The environment lists stay in effect permanently: an entry there cannot be removed through the store, which answers `FromConfiguration` instead, so an administrator named in `ROBOT_COUNCIL_ADMINS` is always one and the deployment's configuration is always the way back in. A table change takes effect on the next request, and is recorded in the change feed as `allowlist.entry_added` or `allowlist.entry_removed` (#408), naming the list, the GitHub ID, the login and the administrator. Like `installation.revoked`, every session reads them, and a refused or repeated change writes nothing. Until the migration has run, the table reads as empty and only the environment lists apply.
 
+**The Access page adds an account by its login or its numeric ID** (#484). It looks the value up through the GitHub App described under *Backlog counts* below, shows which account that is, and stores the ID once an administrator confirms it. It also shows the login of an allowlisted account that has not signed in yet, remembered in `robot_council_github_accounts` and refreshed by `robot-council:refresh-github-logins`, which `robot-council.schedule.github_logins` runs every fifteen minutes and which asks about each ID at most once a day. Neither decides access: the ID alone admits. Without the App, or while GitHub cannot be reached, the page shows the ID as before, and an ID can still be added, marked as unconfirmed. A profile needs no App permission beyond what the counts already use.
+
 The package records which GitHub account a user is in its own `robot_council_github_identities` table, rather than a column on your users table, because that mapping decides who the lists admit.
 
 Give your own `sanctum` guard a provider, if you use Sanctum for your own API:
@@ -560,8 +562,8 @@ Deliveries are rate-limited per source address by `robot-council.rate_limits.git
 
 The lane board shows each repository's open issues -- pull requests excluded -- against the count at
 08:00 in `robot-council.dashboard.timezone`. **Core fetches those counts itself, every five minutes,
-through a GitHub App** the deployment holds the key for. It is the one thing core reads from GitHub,
-and it is a display: when a fetch fails the meter reads `count unreadable`, and nothing that frees a
+through a GitHub App** the deployment holds the key for. It is one of two things core reads from GitHub
+-- the other is the account profiles the Access page shows (#484) -- and it is a display: when a fetch fails the meter reads `count unreadable`, and nothing that frees a
 lane, places work, or changes a task depends on it. Those still learn from the webhook alone.
 
 **Registering the App** (once, by whoever owns it):

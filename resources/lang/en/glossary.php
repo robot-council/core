@@ -327,7 +327,7 @@ return [
     ],
     'github_id' => [
         'term' => 'GitHub user ID',
-        'means' => 'The number GitHub gives every account. It never changes, unlike a login, so it is what decides who is let in.',
+        'means' => 'The whole number GitHub gives every account, such as 21082715. It never changes, unlike a login, so it is what decides who is let in. You can add someone by their login instead, and the number is looked up for you.',
     ],
 
     // Seats and hours

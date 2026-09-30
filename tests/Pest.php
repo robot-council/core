@@ -3,10 +3,15 @@
 declare(strict_types=1);
 
 use Carbon\CarbonInterface;
+use Illuminate\Http\Client\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Laravel\Socialite\Two\User as GitHubAccount;
 use RobotCouncil\Access\Ability;
 use RobotCouncil\Models\DeviceCode;
+use RobotCouncil\Support\BacklogFetches;
+use RobotCouncil\Support\BacklogFetchOutcome;
 use RobotCouncil\Support\Engines;
 use RobotCouncil\Support\WireArgument;
 use RobotCouncil\Tests\TestCase;
@@ -487,7 +492,9 @@ function urlAttributeInterpolations(string $template): array
     // host.** It returns `https://github.com/` followed by a reference already matched against
     // `IssueReference::PATTERN`, whose characters need no escaping in a URL, or null. Admitted only as
     // the whole expression, like `route()`, so `TicketLink::url($x).$y` is still refused (#317).
-    $ticketLink = '/^\s*\\\\?RobotCouncil\\\\Support\\\\TicketLink::url\s*(\((?:[^()]++|(?1))*\))\s*$/';
+    // `TicketLink::profile()` is admitted by the same rule: the same scheme and host, and a login
+    // matched against `LaneHolds::LOGIN` (#484).
+    $ticketLink = '/^\s*\\\\?RobotCouncil\\\\Support\\\\TicketLink::(?:url|profile)\s*(\((?:[^()]++|(?1))*\))\s*$/';
 
     $offenders = [];
 
@@ -1086,4 +1093,102 @@ function queriesIssuedBy(callable $work): int
         // In a `finally`, so a throwing subject does not leave the log on for whatever runs next
         DB::disableQueryLog();
     }
+}
+
+/**
+ * Configure a GitHub App for profile lookups (#484), and give it an owner to borrow an installation
+ * from: `robot-council`, through a fetch recorded for one of its repositories.
+ */
+function configureProfileLookups(): void
+{
+    /** @var string|null $private */
+    static $private = null;
+
+    if ($private === null) {
+        $key = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+
+        if ($key === false || ! openssl_pkey_export($key, $exported) || ! is_string($exported)) {
+            throw new RuntimeException('Could not generate the fixture key.');
+        }
+
+        $private = $exported;
+    }
+
+    config()->set('robot-council.github.app.id', '484484');
+    config()->set('robot-council.github.app.private_key', base64_encode($private));
+
+    app(BacklogFetches::class)->record('robot-council/core', BacklogFetchOutcome::Read, 200);
+}
+
+/**
+ * Fake GitHub for profile lookups (#484), refusing every request it does not model.
+ *
+ * Models the App's installation on any account (id 7), an installation token, and the two profile
+ * endpoints, answered from the state's `accounts`. A login is matched without case, as GitHub
+ * matches it. **Registered once; a test changes what GitHub answers through the state it returns**,
+ * because a second `Http::fake()` is consulted only after the first.
+ *
+ * - `accounts`: `array<int, array{login: string, type?: string}>`, accounts by numeric ID.
+ * - `override`: a `Closure(string $path): mixed` answering first when it returns non-null, or null.
+ *   One that throws is a connection failure, which `GitHubApp` reports as unreachable.
+ * - `sent`: every request sent, as `METHOD /path`, in order.
+ *
+ * @param  array<int, array{login: string, type?: string}>  $accounts  Accounts by numeric ID.
+ * @return ArrayObject<string, mixed> The state.
+ */
+function fakeGitHubProfiles(array $accounts): ArrayObject
+{
+    /** @var ArrayObject<string, mixed> $state */
+    $state = new ArrayObject(['accounts' => $accounts, 'override' => null, 'sent' => []]);
+
+    Http::fake(static function (Request $request) use ($state) {
+        if (parse_url($request->url(), PHP_URL_SCHEME) !== 'https' || parse_url($request->url(), PHP_URL_HOST) !== 'api.github.com') {
+            return null;
+        }
+
+        $path = (string) parse_url($request->url(), PHP_URL_PATH);
+        $state['sent'] = [...arrayValue($state['sent']), $request->method().' '.$path];
+
+        if ($state['override'] instanceof Closure) {
+            $answer = ($state['override'])($path);
+
+            if ($answer !== null) {
+                return $answer;
+            }
+        }
+
+        /** @var array<int, array{login: string, type?: string}> $accounts */
+        $accounts = arrayValue($state['accounts']);
+        $profile = static fn (int $id, array $account) => Http::response(['id' => $id, 'login' => $account['login'], 'type' => $account['type'] ?? 'User']);
+
+        if (preg_match('#^/users/[^/]+/installation$#', $path) === 1) {
+            return Http::response(['id' => 7]);
+        }
+
+        if (preg_match('#^/app/installations/7/access_tokens$#', $path) === 1) {
+            return Http::response(['token' => 'ghs_profilesSENTINEL', 'expires_at' => Carbon::now()->addHour()->utc()->format('Y-m-d\\TH:i:s\\Z')], 201);
+        }
+
+        if (preg_match('#^/user/(\\d+)$#', $path, $match) === 1) {
+            $account = $accounts[(int) $match[1]] ?? null;
+
+            return $account === null ? Http::response(['message' => 'Not Found'], 404) : $profile((int) $match[1], $account);
+        }
+
+        if (preg_match('#^/users/([^/]+)$#', $path, $match) === 1) {
+            foreach ($accounts as $id => $account) {
+                if (mb_strtolower($account['login']) === mb_strtolower(rawurldecode($match[1]))) {
+                    return $profile($id, $account);
+                }
+            }
+
+            return Http::response(['message' => 'Not Found'], 404);
+        }
+
+        return null;
+    });
+
+    Http::preventStrayRequests();
+
+    return $state;
 }

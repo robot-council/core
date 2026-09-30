@@ -178,8 +178,10 @@ return [
     | Core reads nothing from GitHub that decides anything, with one bounded exception (#383): the
     | lane board's open-issue counts, fetched every five minutes through a GitHub App with Issues
     | read-only. A count is a display for people and decides nothing, and when GitHub cannot be
-    | reached the meter reads unreadable. Everything that frees a lane, places work, or changes a
-    | task still learns from the webhook alone.
+    | reached the meter reads unreadable. The same App also reads public account profiles for the
+    | Access page (#484): the login behind an allowlisted ID, and the ID behind a login an
+    | administrator types and then confirms. That needs no further permission. Everything that
+    | frees a lane, places work, or changes a task still learns from the webhook alone.
     |
     | `app.id` is the App's numeric id. `app.private_key` is the PEM GitHub generated for it,
     | base64-encoded onto one line (`base64 < key.pem | tr -d '\n'`), because most environment
@@ -295,6 +297,11 @@ return [
 
         // Every five minutes: raises the lane conditions of #319 to the coordinators, once each
         'lane_conditions' => true,
+
+        // Every fifteen minutes: looks up, through the GitHub App, the login of each allowlisted
+        // account that has not signed in, for the Access page (#484). Asks about an ID at most daily,
+        // and does nothing while `github.app` is unset.
+        'github_logins' => true,
     ],
 
     /*

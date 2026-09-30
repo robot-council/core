@@ -32,6 +32,7 @@ use RobotCouncil\Console\PruneEventsCommand;
 use RobotCouncil\Console\PruneLocksCommand;
 use RobotCouncil\Console\PruneSessionsCommand;
 use RobotCouncil\Console\PruneTasksCommand;
+use RobotCouncil\Console\RefreshGitHubLoginsCommand;
 use RobotCouncil\Console\RevokeInstallationCommand;
 use RobotCouncil\Console\RevokeSessionCommand;
 use RobotCouncil\Console\SweepSessionsCommand;
@@ -161,6 +162,7 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
                 SweepSessionsCommand::class,
                 TakeBacklogBaselineCommand::class,
                 FetchBacklogCommand::class,
+                RefreshGitHubLoginsCommand::class,
                 CheckQuietLanesCommand::class,
                 CheckLaneConditionsCommand::class,
             ]);
@@ -706,12 +708,13 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
         $fetch = $config->get('robot-council.schedule.backlog_fetch', true) === true;
         $quiet = $config->get('robot-council.schedule.quiet_lanes', true) === true;
         $conditions = $config->get('robot-council.schedule.lane_conditions', true) === true;
+        $logins = $config->get('robot-council.schedule.github_logins', true) === true;
 
-        if (! $prune && ! $sweep && ! $pruneEvents && ! $pruneTasks && ! $pruneLocks && ! $pruneSessions && ! $backlog && ! $fetch && ! $quiet && ! $conditions) {
+        if (! $prune && ! $sweep && ! $pruneEvents && ! $pruneTasks && ! $pruneLocks && ! $pruneSessions && ! $backlog && ! $fetch && ! $quiet && ! $conditions && ! $logins) {
             return;
         }
 
-        $this->app->booted(static function () use ($prune, $sweep, $pruneEvents, $pruneTasks, $pruneLocks, $pruneSessions, $backlog, $fetch, $quiet, $conditions): void {
+        $this->app->booted(static function () use ($prune, $sweep, $pruneEvents, $pruneTasks, $pruneLocks, $pruneSessions, $backlog, $fetch, $quiet, $conditions, $logins): void {
             if ($prune) {
                 Schedule::command(PruneDeviceCodesCommand::class)->hourly();
             }
@@ -767,6 +770,16 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
             if ($fetch) {
                 Schedule::command(FetchBacklogCommand::class)
                     ->everyFiveMinutes()
+                    ->withoutOverlapping(10)
+                    ->runInBackground();
+            }
+
+            // After the fetch, and like it in the background and never overlapping itself, because
+            // it waits on GitHub too (#484). It asks only about IDs whose last answer has aged, so
+            // most runs make no request at all.
+            if ($logins) {
+                Schedule::command(RefreshGitHubLoginsCommand::class)
+                    ->everyFifteenMinutes()
                     ->withoutOverlapping(10)
                     ->runInBackground();
             }

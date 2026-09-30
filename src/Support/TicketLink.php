@@ -34,4 +34,23 @@ final class TicketLink
 
         return sprintf('https://github.com/%s/issues/%s', $repository, $number);
     }
+
+    /**
+     * The GitHub profile URL for a login (#484).
+     *
+     * Built the way `url()` is, from a fixed scheme and host and a value already matched against a
+     * pattern -- `LaneHolds::LOGIN`, whose letters, digits and hyphens need no escaping in a URL --
+     * so `EscapingGuardTest` admits it as a whole expression for the same reason.
+     *
+     * @param  string|null  $login  A GitHub login, or anything else.
+     * @return string|null The URL, or null when it is not a login.
+     */
+    public static function profile(?string $login): ?string
+    {
+        if ($login === null || preg_match(LaneHolds::LOGIN, $login) !== 1) {
+            return null;
+        }
+
+        return 'https://github.com/'.$login;
+    }
 }
