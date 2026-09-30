@@ -31,6 +31,14 @@ beforeEach(function (): void {
 
     $this->admin = $this->enrollDeveloper(4242, login: 'octoadmin');
     $this->developer = $this->enrollDeveloper(4243, login: 'octodev');
+
+    // GitHub, faked for every test and refusing anything else, so no test here reaches the network
+    configureProfileLookups();
+    $this->github = fakeGitHubProfiles([
+        4243 => ['login' => 'octodev'],
+        5150 => ['login' => 'new-dev'],
+        6060 => ['login' => 'newcomer'],
+    ]);
 });
 
 /**
@@ -58,7 +66,7 @@ it('refuses every action to an administrator demoted while the page is open, and
     app(AllowlistEntries::class)->add(AccessList::Developer, 5150, 'someone');
 
     $component = Livewire::actingAs($this->admin)->test(AccessLists::class)
-        ->set('githubId', '6060')->set('login', 'newcomer');
+        ->set('account', '6060')->call('lookUp');
 
     $this->setAccessLists(developers: [4242, 4243], admins: []);
 
@@ -67,7 +75,8 @@ it('refuses every action to an administrator demoted while the page is open, and
     expect(tableEntries(AccessList::Developer, 5150))->toBe(1)
         ->and(tableEntries(AccessList::Developer, 6060))->toBe(0);
 })->with([
-    'add' => ['add', []],
+    'look up' => ['lookUp', []],
+    'add' => ['add', [6060]],
     'remove' => ['remove', ['developer', 5150]],
     'render' => ['$refresh', []],
 ]);
@@ -93,9 +102,17 @@ it('adds a table entry that admits on the next request, and removes it again', f
 
     expect(app(Allowlist::class)->admits(5150))->toBeFalse();
 
-    $component->set('list', 'developer')->set('githubId', '5150')->set('login', 'new-dev')->call('add')
-        ->assertSet('said', 'Added: GitHub user 5150 is on the developer list from their next request.')
-        ->assertSet('refused', false);
+    $component->set('list', 'developer')->set('account', 'new-dev')->call('lookUp')
+        ->assertSet('said', "Found: new-dev is GitHub user 5150, a person's account. Check that it is who you mean, then add them.")
+        ->assertSet('candidates', [['github_id' => 5150, 'login' => 'new-dev']]);
+
+    // Nothing is stored by the lookup
+    expect(tableEntries(AccessList::Developer, 5150))->toBe(0);
+
+    $component->call('add', 5150)
+        ->assertSet('said', 'Added: new-dev (GitHub user 5150) is on the developer list from their next request.')
+        ->assertSet('refused', false)
+        ->assertSet('candidates', []);
 
     expect(tableEntries(AccessList::Developer, 5150))->toBe(1)
         ->and(DB::table('robot_council_allowlist_entries')->where('github_id', 5150)->value('added_by'))->toBe(4242)
@@ -130,17 +147,20 @@ it('refuses to remove an environment entry, in its own words, and changes nothin
     expect(app(Allowlist::class)->admits(4243))->toBeTrue();
 });
 
-it('reports a refused add in words and stores nothing', function (string $list, string $id, string $login, string $said): void {
+it('reports a refused lookup in words, offers nothing, and stores nothing', function (string $list, string $account, string $said): void {
     Livewire::actingAs($this->admin)->test(AccessLists::class)
-        ->set('list', $list)->set('githubId', $id)->set('login', $login)->call('add')
+        ->set('list', $list)->set('account', $account)->call('lookUp')
         ->assertSet('refused', true)
-        ->assertSet('said', $said);
+        ->assertSet('said', $said)
+        ->assertSet('candidates', []);
 
     expect(DB::table('robot_council_allowlist_entries')->count())->toBe(0);
 })->with([
-    'not a number' => ['developer', 'abc', 'someone', 'Not added: A GitHub user ID is a positive whole number.'],
-    'not a login' => ['developer', '5150', '<b>x</b>', 'Not added: A GitHub login is 1 to 39 letters, digits and single hyphens, not leading or trailing.'],
-    'not a list' => ['owner', '5150', 'someone', 'Not added: choose the developer or the administrator list.'],
+    'neither a login nor an ID' => ['developer', '<b>x</b>', 'Not added: type a GitHub login, such as octocat, or a numeric user ID, such as 583231.'],
+    'empty' => ['developer', '  ', 'Not added: type a GitHub login, such as octocat, or a numeric user ID, such as 583231.'],
+    'an unknown login' => ['developer', 'nobody-here', 'Not added: no GitHub account has the login or user ID nobody-here.'],
+    'an unknown ID' => ['developer', '9999999', 'Not added: no GitHub account has the login or user ID 9999999.'],
+    'not a list' => ['owner', 'new-dev', 'Not added: choose the developer or the administrator list.'],
 ]);
 
 it('warns before an administrator removes themselves', function (): void {
@@ -205,7 +225,7 @@ it('sends an administrator who removes their own administrator access to the das
 
 it('refuses on the page to add an account the configuration already lists', function (): void {
     Livewire::actingAs($this->admin)->test(AccessLists::class)
-        ->set('list', 'developer')->set('githubId', '4243')->set('login', 'octodev')->call('add')
+        ->set('list', 'developer')->set('account', '4243')->call('lookUp')->call('add', 4243)
         ->assertSet('refused', true)
         ->assertSet('said', 'Not added: GitHub user 4243 is already on the developer list through the host configuration (ROBOT_COUNCIL_DEVELOPERS). Nothing changed.');
 
@@ -229,7 +249,7 @@ it("puts the self-removal warning on the administrator's own row and no other", 
 
 it('records the administrator who made each change through the page (#408)', function (): void {
     Livewire::actingAs($this->admin)->test(AccessLists::class)
-        ->set('list', 'developer')->set('githubId', '5150')->set('login', 'new-dev')->call('add')
+        ->set('list', 'developer')->set('account', '5150')->call('lookUp')->call('add', 5150)
         ->call('remove', 'developer', 5150);
 
     $added = FleetEvent::query()->where('type', FleetEventType::AllowlistEntryAdded)->sole();

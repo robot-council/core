@@ -980,7 +980,7 @@ it('reports a class the stylesheet has no rule for, so the check above is not bl
     // form the reader handles: plain, escaped, conditional, and inside a ternary
     $source = <<<'BLADE'
         <label class="form-control"><span class="label-text">List</span></label>
-        <input class="input input-bordered sm:w-40"><select class="select select-bordered"></select>
+        <input class="input input-bordered sm:w-48"><select class="select select-bordered"></select>
         <span class="badg badge-sm {{ $on ? 'btn-primary' : 'btn-outlined' }}"></span>
         <a @class(['menu-active' => $here, 'menu-activ' => $near])></a>
         <ul class="sm:grid-cols-[max-content_1fr]"></ul>

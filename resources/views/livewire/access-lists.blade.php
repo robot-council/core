@@ -5,7 +5,8 @@
     Nothing is rendered unescaped, which the #67 guard enforces over every template here. Only
     values this package chose reach a `wire:` expression -- a list name from `Access\AccessList`
     and a GitHub ID the store read as a whole number. A login is rendered as text and reaches no
-    attribute; `aria-label`s name an entry by its ID alone for that reason.
+    attribute but a profile link, which `TicketLink::profile()` builds from a checked login;
+    `aria-label`s name an entry by its ID alone for that reason.
 --}}
 
 <div class="space-y-6">
@@ -23,7 +24,7 @@
                 changed there, so an administrator named there can always get back in.
             </p>
 
-            <form wire:submit="add" class="flex flex-wrap items-end gap-3">
+            <form wire:submit="lookUp" class="flex flex-wrap items-end gap-3">
                 <label class="flex w-full flex-col gap-1 sm:w-auto" data-field>
                     <span>List</span>
                     <select wire:model="list" class="select w-full sm:w-auto">
@@ -33,19 +34,28 @@
                 </label>
 
                 <label class="flex w-full flex-col gap-1 sm:w-auto" data-field>
-                    <span>GitHub user ID (a number)</span>
-                    <input type="text" inputmode="numeric" wire:model="githubId" maxlength="20" class="input w-full sm:w-40" autocomplete="off">
+                    <span>GitHub login or user ID</span>
+                    <input type="text" wire:model="account" maxlength="39" class="input w-full sm:w-48" autocomplete="off" spellcheck="false">
                 </label>
 
-                <label class="flex w-full flex-col gap-1 sm:w-auto" data-field>
-                    <span>GitHub login</span>
-                    <input type="text" wire:model="login" maxlength="39" class="input w-full sm:w-48" autocomplete="off">
-                </label>
-
-                <button type="submit" class="btn btn-target btn-primary w-full sm:w-auto">Add to list</button>
+                <button type="submit" class="btn btn-target btn-primary w-full sm:w-auto">Look up</button>
             </form>
 
             @include('robot-council::partials.said', ['show' => $said !== null && $saidAt === 'add', 'class' => ''])
+
+            {{-- The accounts the lookup offered, each added only by its own button, so what is stored
+                 is always an account the words above named (#484) --}}
+            @if ($candidates !== [])
+                <ul class="flex flex-wrap gap-3" data-candidates>
+                    @foreach ($candidates as $candidate)
+                        <li wire:key="candidate-{{ $candidate['github_id'] }}">
+                            <button type="button" wire:click="add({{ \RobotCouncil\Support\WireArgument::of($candidate['github_id']) }})" class="btn btn-target btn-primary w-full sm:w-auto">
+                                Add {{ $candidate['login'] ?? 'GitHub user '.$candidate['github_id'] }} to the {{ $list === 'admin' ? 'administrator' : 'developer' }} list
+                            </button>
+                        </li>
+                    @endforeach
+                </ul>
+            @endif
         </div>
     </div>
 
@@ -64,8 +74,7 @@
                         @foreach ($lists[$key]['configured'] as $entry)
                             <li wire:key="{{ $key }}-configured-{{ $entry['github_id'] }}" class="flex flex-wrap items-center justify-between gap-2 py-3">
                                 <div>
-                                    <span class="font-medium">{{ $logins['id:'.$entry['github_id']] ?? 'not signed in yet' }}</span>
-                                    <span class="opacity-90">&middot; GitHub user <code>{{ $entry['github_id'] }}</code></span>
+                                    @include('robot-council::partials.account-name', ['name' => $names['id:'.$entry['github_id']] ?? ['login' => null, 'signed_in' => false], 'id' => $entry['github_id']])
                                 </div>
 
                                 <span class="badge badge-outline">from configuration</span>
@@ -76,8 +85,7 @@
                             @unless ($entry['also_configured'])
                                 <li wire:key="{{ $key }}-stored-{{ $entry['github_id'] }}" class="flex flex-wrap items-center justify-between gap-2 py-3">
                                     <div>
-                                        <span class="font-medium">{{ $entry['login'] }}</span>
-                                        <span class="opacity-90">&middot; GitHub user <code>{{ $entry['github_id'] }}</code></span>
+                                        @include('robot-council::partials.account-name', ['name' => $names['id:'.$entry['github_id']] ?? ['login' => null, 'signed_in' => false], 'id' => $entry['github_id']])
                                         @if ($entry['is_self'])
                                             <strong>(you)</strong>
                                         @endif
