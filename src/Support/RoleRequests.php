@@ -37,6 +37,29 @@ use RobotCouncil\Models\FleetEventType;
 final class RoleRequests
 {
     /**
+     * The sentences role events are written in, each with its event type and the data keys that
+     * fill it, in order (#501).
+     *
+     * **One table for the writers and the reader**, so the change feed page's rendering cannot drift
+     * from what is written: `feedBody()` rebuilds a stored body from these and shows it with role
+     * labels only when the rebuild matches the stored body exactly. `how` is not a role, and passes
+     * through as written.
+     *
+     * @var array<string, array{0: FleetEventType, 1: list<string>, 2: string}>
+     */
+    private const array SENTENCES = [
+        'requested' => [FleetEventType::SessionRoleRequested, ['from', 'to'], 'asked to change from %s to %s'],
+        'refused' => [FleetEventType::SessionRoleRequested, ['refused', 'stays'], 'was refused %s and stays %s'],
+        'withdrawn' => [FleetEventType::SessionRoleWithdrawn, ['withdrawn', 'stays'], 'withdrew its request for %s and stays %s'],
+        'changed' => [FleetEventType::SessionRoleChanged, ['how', 'from', 'to'], '%s from %s to %s'],
+    ];
+
+    /**
+     * How a settled change was made, the one value in a role event's data that is not a role.
+     */
+    private const array HOW = ['approved', 'imposed'];
+
+    /**
      * @param  FleetEvents  $events  The change feed.
      */
     public function __construct(private readonly FleetEvents $events) {}
@@ -115,7 +138,7 @@ final class RoleRequests
             $this->record(
                 $current,
                 FleetEventType::SessionRoleRequested,
-                sprintf('asked to change from %s to %s', $current->role->value, $role->value),
+                sprintf(self::SENTENCES['requested'][2], $current->role->value, $role->value),
                 ['from' => $current->role->value, 'to' => $role->value],
                 null
             );
@@ -210,7 +233,7 @@ final class RoleRequests
             $this->record(
                 $current,
                 FleetEventType::SessionRoleRequested,
-                sprintf('was refused %s and stays %s', $refused->value, $current->role->value),
+                sprintf(self::SENTENCES['refused'][2], $refused->value, $current->role->value),
                 ['refused' => $refused->value, 'stays' => $current->role->value],
                 $actor
             );
@@ -297,7 +320,7 @@ final class RoleRequests
         $this->record(
             $session,
             FleetEventType::SessionRoleWithdrawn,
-            sprintf('withdrew its request for %s and stays %s', $withdrawn->value, $session->role->value),
+            sprintf(self::SENTENCES['withdrawn'][2], $withdrawn->value, $session->role->value),
             ['withdrawn' => $withdrawn->value, 'stays' => $session->role->value],
             null
         );
@@ -354,7 +377,7 @@ final class RoleRequests
         $this->record(
             $session,
             FleetEventType::SessionRoleChanged,
-            sprintf('%s from %s to %s', $how, $from->value, $role->value),
+            sprintf(self::SENTENCES['changed'][2], $how, $from->value, $role->value),
             ['from' => $from->value, 'to' => $role->value, 'how' => $how],
             $actor
         );
@@ -388,6 +411,58 @@ final class RoleRequests
         // no input can tell the two apart. `Support\AgentSessions::locked()` carries the same shape.
         // @pest-mutate-ignore: InstanceOfToTrue
         return $current instanceof AgentSession ? $current : null;
+    }
+
+    /**
+     * A role event's body as the change feed page shows it: each role named by its label, so the
+     * feed reads "gate" where the Agents and Administration pages do (#501).
+     *
+     * **Rendered on read, never rewritten.** The stored body and its data keep the stored value, so
+     * an agent reading `events_read` still sees `ci`, which the tools take, and an event written
+     * before this reads "gate" on the page as well. The body is rebuilt from the event's data with
+     * the stored values first, and relabeled only when that rebuild is the stored body exactly: an
+     * event whose body and data disagree, or any other event, is shown as it was written.
+     *
+     * @param  string  $type  The event's type.
+     * @param  string  $body  The stored body.
+     * @param  mixed  $meta  The event's structured data.
+     * @return string The body to show.
+     */
+    public static function feedBody(string $type, string $body, mixed $meta): string
+    {
+        if (! \is_array($meta) || preg_match('/^session ([0-9]{1,18}) (.+)\.$/sD', $body, $parts) !== 1) {
+            return $body;
+        }
+
+        foreach (self::SENTENCES as [$eventType, $keys, $sentence]) {
+            if ($eventType->value !== $type) {
+                continue;
+            }
+
+            $stored = [];
+            $shown = [];
+
+            foreach ($keys as $key) {
+                $value = $meta[$key] ?? null;
+                $role = \is_string($value) ? Role::tryFrom($value) : null;
+
+                if ($key === 'how' && \in_array($value, self::HOW, true)) {
+                    $stored[] = $value;
+                    $shown[] = $value;
+                } elseif ($key !== 'how' && $role instanceof Role) {
+                    $stored[] = $role->value;
+                    $shown[] = $role->label();
+                } else {
+                    continue 2;
+                }
+            }
+
+            if (sprintf($sentence, ...$stored) === $parts[2]) {
+                return sprintf('session %s %s.', $parts[1], sprintf($sentence, ...$shown));
+            }
+        }
+
+        return $body;
     }
 
     /**

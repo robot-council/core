@@ -14,6 +14,7 @@ use Livewire\Attributes\Title;
 use Livewire\Component;
 use RobotCouncil\Support\FleetFeed;
 use RobotCouncil\Support\PollInterval;
+use RobotCouncil\Support\RoleRequests;
 
 /**
  * The fleet's change feed, newest first.
@@ -152,6 +153,12 @@ final class ChangeFeed extends Component
     {
         /** @var array<string, mixed> $kept */
         $kept = Arr::except($event, ['meta']);
+
+        // A role event names each role by its label here, read from the data about to be dropped;
+        // what is stored, and what an agent reads, keeps the stored value (#501)
+        if (\is_string($event['type'] ?? null) && \is_string($event['body'] ?? null)) {
+            $kept['body'] = RoleRequests::feedBody($event['type'], $event['body'], $event['meta'] ?? null);
+        }
 
         return $this->withAge($kept);
     }
