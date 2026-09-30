@@ -340,8 +340,8 @@ return [
         'means' => 'Park stops new work being placed on the seat, and Lift allows it again. Only you can lift a seat you parked; it never lifts on its own.',
     ],
     'exempt' => [
-        'term' => 'Exempt from hours',
-        'means' => 'The seat takes new work at any time, whatever your assignment hours say. Apply my hours undoes it.',
+        'term' => 'Ignore my hours',
+        'means' => 'The seat takes new work at any time, whatever your assignment hours say, and reads Hours: ignored. Apply my hours undoes it, and the seat reads Hours: apply again.',
     ],
     'tickets_at_once' => [
         'term' => 'Tickets at once',

@@ -202,7 +202,7 @@
                     <form method="POST" action="{{ route('robot-council.sign-out') }}">
                         @csrf
 
-                        <button type="submit" class="btn btn-target btn-ghost">Sign out</button>
+                        <button type="submit" class="btn btn-target btn-outline">Sign out</button>
                     </form>
                 </div>
             </header>

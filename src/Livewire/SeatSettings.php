@@ -242,7 +242,7 @@ final class SeatSettings extends Component
      */
     public function exempt(int $seatId): void
     {
-        $this->report($seatId, $this->service(Seats::class)->exempt($this->developer(), $seatId, true), 'Exempted: %s takes new work at any time, whatever your hours say.');
+        $this->report($seatId, $this->service(Seats::class)->exempt($this->developer(), $seatId, true), 'Hours ignored: %s takes new work at any time, whatever your hours say.');
     }
 
     /**

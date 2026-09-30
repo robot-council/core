@@ -992,6 +992,84 @@ it('reports a class the stylesheet has no rule for, so the check above is not bl
     ]);
 });
 
+/**
+ * Each button in a view that is drawn with no boundary: ghost, or plain `btn` with no style (#482).
+ *
+ * A ghost button shows only its text, and a plain one a base-200 fill that barely differs from the
+ * card, so neither reads as a button (SC 1.4.11). A button passes when it names a style with a
+ * border or a strong fill, directly or in every branch of a ternary. The menu toggle alone may stay
+ * ghost, because its icon is what marks it as a control.
+ *
+ * @param  string  $source  A view's source, comments already stripped.
+ * @return list<string> The class attribute of each such button.
+ */
+function buttonsWithoutBoundary(string $source): array
+{
+    $styled = '/(^|\s)btn-(primary|outline|warning|error|success|info|secondary|accent|neutral)(\s|$)/';
+    $found = [];
+
+    preg_match_all('/\bclass="([^"]*)"/', $source, $attributes);
+
+    foreach ($attributes[1] as $attribute) {
+        $plain = (string) preg_replace('/\{\{.*?\}\}/s', ' ', $attribute);
+
+        if (preg_match('/(^|\s)btn(\s|$)/', $plain) !== 1 || preg_match('/(^|\s)drawer-button(\s|$)/', $plain) === 1) {
+            continue;
+        }
+
+        if (preg_match($styled, $plain) === 1 && preg_match('/(^|\s)btn-ghost(\s|$)/', $plain) !== 1) {
+            continue;
+        }
+
+        // Every branch of a ternary has to name a style, or one of its states is drawn bare
+        preg_match_all("/'([^']*)'/", $attribute, $branches);
+
+        if ($branches[1] !== [] && array_filter($branches[1], static fn (string $branch): bool => preg_match($styled, $branch) !== 1) === []) {
+            continue;
+        }
+
+        $found[] = trim((string) preg_replace('/\s+/', ' ', $attribute));
+    }
+
+    return $found;
+}
+
+it('draws every button with a boundary, the menu toggle aside', function (): void {
+    $bare = [];
+    $buttons = 0;
+
+    foreach (bladeTemplatesIn(__DIR__.'/../resources/views') as $view) {
+        $source = sourceWithoutComments($view);
+        $buttons += preg_match_all('/\bclass="[^"]*\bbtn\b[^"]*"/', $source);
+
+        foreach (buttonsWithoutBoundary($source) as $button) {
+            $bare[] = basename($view).': '.$button;
+        }
+    }
+
+    // The control: the views' buttons were read, so an empty list is not a read of none
+    expect($buttons)->toBeGreaterThan(40)
+        ->and($bare)->toBeEmpty(implode("\n", $bare));
+});
+
+it('reports a button drawn with no boundary, so the check above is not blind', function (): void {
+    $source = <<<'BLADE'
+        <button class="btn btn-target btn-ghost">Sign out</button>
+        <button class="btn btn-target">Look up</button>
+        <button class="btn btn-target {{ $on ? 'btn-primary' : 'btn-ghost' }}">Live</button>
+        <button class="btn btn-target btn-outline">Deny</button>
+        <button class="btn btn-target {{ $on ? 'btn-primary' : 'btn-outline' }}">All</button>
+        <label class="btn btn-square btn-target btn-ghost drawer-button lg:hidden">Menu</label>
+        <span class="badge badge-sm">btn</span>
+        BLADE;
+
+    expect(buttonsWithoutBoundary($source))->toBe([
+        'btn btn-target btn-ghost',
+        'btn btn-target',
+        "btn btn-target {{ \$on ? 'btn-primary' : 'btn-ghost' }}",
+    ]);
+});
+
 it('reflows every table into labelled rows where it would otherwise scroll sideways', function (): void {
     $css = stylesheet();
 
