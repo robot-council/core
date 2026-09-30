@@ -472,6 +472,107 @@ it('filters the Queue from its status list and returns to every status', functio
         ->assertValue('select[data-status-filter]', '');
 });
 
+/**
+ * Where each change-feed row's type badge and body sit, as rendered.
+ *
+ * @return list<array{type: string, badge: array{left: float, right: float, bottom: float, overflow: bool}, body: array{left: float, top: float}}>
+ */
+function feedRows(PendingAwaitablePage $page): array
+{
+    $rows = $page->script(<<<'JS'
+        () => [...document.querySelectorAll('[data-feed] > li')].map(li => {
+            const badge = li.querySelector('[data-feed-type]');
+            const body = li.querySelector('[data-feed-body]');
+            const b = badge.getBoundingClientRect();
+            const t = body.getBoundingClientRect();
+            return {
+                type: badge.textContent.trim(),
+                badge: { left: b.left, right: b.right, bottom: b.bottom, overflow: badge.scrollWidth > badge.clientWidth + 0.5 },
+                body: { left: t.left, top: t.top },
+            };
+        })
+    JS);
+
+    if (! is_array($rows)) {
+        throw new RuntimeException('The feed read returned nothing.');
+    }
+
+    /** @var list<array{type: string, badge: array{left: float, right: float, bottom: float, overflow: bool}, body: array{left: float, top: float}}> $rows */
+    return $rows;
+}
+
+/**
+ * Plant a row whose type is the longest core defines, copied from the first real one (#481).
+ */
+function plantLongestFeedType(PendingAwaitablePage $page): string
+{
+    $longest = collect(FleetEventType::cases())
+        ->map(static fn (FleetEventType $type): string => $type->value)
+        ->sortByDesc(static fn (string $type): int => strlen($type))
+        ->first();
+
+    if (! is_string($longest)) {
+        throw new RuntimeException('Core defines no event type.');
+    }
+
+    $page->script(sprintf(<<<'JS'
+        () => {
+            const first = document.querySelector('[data-feed] > li');
+            const copy = first.cloneNode(true);
+            copy.removeAttribute('wire:key');
+            copy.querySelector('[data-feed-type]').textContent = %s;
+            first.parentElement.appendChild(copy);
+        }
+    JS, json_encode($longest, JSON_THROW_ON_ERROR)));
+
+    return $longest;
+}
+
+it('starts every change-feed body at the same x on a wide screen, the longest type included', function (): void {
+    $page = visitSurface($this, 'robot-council.feed', '', 'Change feed', 'light');
+
+    $page->resize(1280, 900);
+
+    $longest = plantLongestFeedType($page);
+    $rows = feedRows($page);
+
+    // The controls: three types of different lengths, so equal starts are not equal badges, and
+    // the planted longest type among them
+    $types = array_values(array_unique(array_column($rows, 'type')));
+    $lengths = array_unique(array_map(strlen(...), $types));
+
+    expect(count($lengths))->toBeGreaterThanOrEqual(3)
+        ->and($types)->toContain($longest);
+
+    $starts = array_unique(array_map(static fn (array $row): int => (int) round($row['body']['left']), $rows));
+
+    expect($starts)->toHaveCount(1, 'body starts: '.implode(', ', $starts));
+
+    foreach ($rows as $row) {
+        // Not cut short, and not over the body it sits beside
+        expect($row['badge']['overflow'])->toBeFalse($row['type'])
+            ->and($row['badge']['right'])->toBeLessThanOrEqual($row['body']['left'], $row['type']);
+    }
+});
+
+it('stacks each change-feed badge above its body at a phone width', function (): void {
+    $page = visitSurface($this, 'robot-council.feed', '', 'Change feed', 'light');
+
+    $page->resize(390, 900);
+
+    plantLongestFeedType($page);
+    $rows = feedRows($page);
+
+    expect($rows)->not->toBeEmpty();
+
+    foreach ($rows as $row) {
+        expect($row['badge']['bottom'])->toBeLessThanOrEqual($row['body']['top'], $row['type'])
+            ->and($row['badge']['overflow'])->toBeFalse($row['type']);
+    }
+
+    expect(sidewaysScroll($page))->toBe(0);
+});
+
 it('fails on a planted violation, so a clean run means axe looked', function (): void {
     $page = visitSurface($this, 'robot-council.dashboard', '', 'Live agents', 'light');
 

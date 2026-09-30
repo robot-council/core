@@ -23,14 +23,19 @@
                 @endif
             </p>
         @else
-            <ul class="divide-y divide-base-200">
+            {{-- One type column for every row (#481). From `sm` up the list is a two-column grid,
+                 the first as wide as the page's longest type, and each row a subgrid spanning both,
+                 so every body starts at the same x rather than wherever that row's badge ended.
+                 Below it a row stacks, the badge above the body, so a long type does not squeeze
+                 the text into a narrow column on a phone. --}}
+            <ul class="divide-y divide-base-200 sm:grid sm:grid-cols-[max-content_1fr] sm:gap-x-3" data-feed>
                 @foreach ($events as $event)
-                    <li wire:key="event-{{ $event['id'] }}" class="flex gap-3 py-3">
-                        <div class="shrink-0">
-                            <span class="badge badge-sm">{{ $event['type'] }}</span>
+                    <li wire:key="event-{{ $event['id'] }}" class="flex flex-col gap-1 py-3 sm:col-span-2 sm:grid sm:grid-cols-subgrid sm:gap-y-0">
+                        <div>
+                            <span class="badge badge-sm" data-feed-type>{{ $event['type'] }}</span>
                         </div>
 
-                        <div class="min-w-0 grow">
+                        <div class="min-w-0" data-feed-body>
                             <p class="break-words">{{ $event['body'] }}</p>
 
                             <p class="mt-1 text-meta opacity-80">
