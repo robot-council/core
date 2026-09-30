@@ -563,7 +563,7 @@ it('stacks each change-feed badge above its body at a phone width', function ():
     expect(sidewaysScroll($page))->toBe(0);
 });
 
-it('lines up each machine\'s session ids, statuses, roles and details on Administration', function (): void {
+it("lines up each machine's session ids, statuses, roles and details on Administration", function (): void {
     $page = visitSurface($this, 'robot-council.administration', '', 'gate-runner', 'light');
 
     // A second session on the gate's machine, under a different repository, so its list has two
