@@ -58,7 +58,7 @@ function repositoryImagesIn(string $html): array
     $markers = '(?:<!--\[if [A-Z]+\]><!\[endif\]-->)*';
 
     preg_match_all(
-        '#<span class="avatar [^"]*" aria-hidden="true" data-avatar="repository"><span class="[^"]*\bborder-2\b[^"]*"><span class="text-meta leading-none select-none">([^<]*)</span>'.$markers.'(?:<img src="([^"]*)" alt=""[^>]*>)?'.$markers.'</span></span>#',
+        '#<span class="avatar [^"]*" aria-hidden="true" data-avatar="repository"><span class="[^"]*\bborder-2\b[^"]*"><span class="text-meta leading-none select-none group-has-\[img\]:invisible">([^<]*)</span>'.$markers.'(?:<img src="([^"]*)" alt=""[^>]*>)?'.$markers.'</span></span>#',
         $html,
         $found,
         PREG_SET_ORDER
