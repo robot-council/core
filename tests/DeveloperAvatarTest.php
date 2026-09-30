@@ -13,6 +13,7 @@ declare(strict_types=1);
  * @command  vendor/bin/pest --compact tests/DeveloperAvatarTest.php
  */
 
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -241,8 +242,9 @@ it('costs no query per developer: at most one read of every picture, whatever a 
 });
 
 it('reads no picture of its own on a page whose logins are read through AgentLogins', function (): void {
+    /** @var list<string> $read */
     $read = [];
-    DB::listen(function ($query) use (&$read): void {
+    DB::listen(function (QueryExecuted $query) use (&$read): void {
         $read[] = $query->sql;
     });
 
