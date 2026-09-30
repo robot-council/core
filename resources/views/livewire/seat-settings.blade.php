@@ -145,8 +145,18 @@
 
             <form wire:submit="saveHours" class="flex flex-wrap items-end gap-3">
                 <label class="flex w-full flex-col gap-1 sm:w-auto" data-field>
-                    <span>Timezone</span>
-                    <input type="text" wire:model="timezone" placeholder="America/Chicago" class="input" maxlength="64">
+                    <span>Time zone</span>
+                    {{-- A list rather than a typed name (#483), grouped by region. Nothing set
+                         preselects the fleet's zone, which is saved only with the hours --}}
+                    <select wire:model="timezone" class="select w-full sm:w-auto" data-time-zone>
+                        @foreach ($zones as $region => $inRegion)
+                            <optgroup label="{{ $region }}">
+                                @foreach ($inRegion as $zone)
+                                    <option value="{{ $zone }}" @selected($zone === $timezone)>{{ $zone }}</option>
+                                @endforeach
+                            </optgroup>
+                        @endforeach
+                    </select>
                 </label>
 
                 <label class="flex w-full flex-col gap-1 sm:w-auto" data-field>
@@ -181,7 +191,7 @@
 
             <p class="text-meta opacity-90">
                 Your own holidays, as dates on your clock. They apply once you have set assignment
-                hours, since a date needs a timezone to say when it starts.
+                hours, since a date needs a time zone to say when it starts.
             </p>
 
             <form wire:submit="addHoliday" class="flex flex-wrap items-end gap-3">

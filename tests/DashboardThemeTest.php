@@ -610,7 +610,9 @@ it('lifts every text daisyUI or the preflight dims below the bar, for everything
             : preg_match('/(?<![\w-])'.preg_quote($key, '/').'(?![\w-])/', $views) === 1,
     ));
 
-    expect($rendered)->toContain('table', 'stat-title', 'label', '::placeholder');
+    // No view sets a placeholder since #483 took the seats page's typed time zone away, so it is
+    // not among these; the detector's control above still requires the artifact to dim one
+    expect($rendered)->toContain('table', 'stat-title', 'label');
 
     $unlifted = array_values(array_filter($rendered, static fn (string $key): bool => ! isset($overridden[$key])));
 

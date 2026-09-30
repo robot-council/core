@@ -34,6 +34,7 @@ use RobotCouncil\Access\AccessList;
 use RobotCouncil\Access\Role;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
+use RobotCouncil\Models\AssignmentHours;
 use RobotCouncil\Models\FleetEventType;
 use RobotCouncil\Models\HoldReason;
 use RobotCouncil\Models\Installation;
@@ -536,6 +537,44 @@ it('filters the Queue from its status list and returns to every status', functio
         ->assertQueryStringMissing('status')
         ->assertSee('Everyone stop and sync')
         ->assertValue('select[data-status-filter]', '');
+});
+
+it('picks a time zone from a grouped list by keyboard, named by its label, and saves it (#483)', function (): void {
+    $page = visitSurface($this, 'robot-council.seats', '', 'robot-council-core-a', 'light');
+
+    // Named by the label wrapped round it, grouped by region, and on the stored zone
+    $picker = $page->script(<<<'JS'
+        () => {
+            const select = document.querySelector('select[data-time-zone]');
+            return {
+                name: select.labels[0].querySelector(':scope > span').textContent.trim(),
+                groups: select.querySelectorAll('optgroup').length,
+                value: select.value,
+            };
+        }
+    JS);
+
+    if (! is_array($picker)) {
+        throw new RuntimeException('The picker read returned nothing.');
+    }
+
+    expect($picker)->toMatchArray(['name' => 'Time zone', 'value' => 'America/Chicago'])
+        ->and($picker['groups'] ?? 0)->toBeGreaterThan(5);
+
+    // Saved without touching the picker, the stored zone is what is saved
+    $page->click('Save hours')->assertSee('America/Chicago time');
+
+    expect(AssignmentHours::query()->count())->toBe(1)
+        ->and(AssignmentHours::query()->first()?->timezone)->toBe('America/Chicago');
+
+    // Typing a zone's name chooses it, as a keyboard user would. Type-ahead rather than an arrow
+    // key, because on macOS Chromium opens the list on ArrowDown instead of moving the choice
+    $page->keys('select[data-time-zone]', str_split('Asia/Tokyo'))
+        ->assertValue('select[data-time-zone]', 'Asia/Tokyo')
+        ->click('Save hours')
+        ->assertSee('Asia/Tokyo time');
+
+    expect(AssignmentHours::query()->first()?->timezone)->toBe('Asia/Tokyo');
 });
 
 /**

@@ -366,7 +366,7 @@ return [
 
         'poll_seconds' => (int) env('ROBOT_COUNCIL_DASHBOARD_POLL_SECONDS', 5),
 
-        // The timezone the lane board's stamps are shown in and the backlog baseline is taken in
+        // The time zone the lane board's stamps are shown in and the backlog baseline is taken in
         // (#317, #339). An IANA name; anything else falls back to UTC rather than failing.
         'timezone' => env('ROBOT_COUNCIL_DASHBOARD_TIMEZONE', 'UTC'),
 

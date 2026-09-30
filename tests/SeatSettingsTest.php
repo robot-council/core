@@ -604,7 +604,7 @@ it('saves hours and days off through the page, and reports a refused value inste
         ->and($this->service(DeveloperSettings::class)->holidays(keyOf($this->alice)))->toBe(['2026-12-25']);
 
     $component->set('timezone', 'EST')->call('saveHours')
-        ->assertSet('said', 'Not saved: A timezone is an IANA zone name, such as America/Chicago.');
+        ->assertSet('said', 'Not saved: EST is not a time zone the list offers. Choose one from the list and save again.');
 
     expect(AssignmentHours::query()->find(keyOf($this->alice))?->timezone)->toBe('America/Chicago');
 
@@ -614,6 +614,103 @@ it('saves hours and days off through the page, and reports a refused value inste
         ->assertSet('startsAt', '08:00')
         ->assertSet('skipWeekends', false);
 });
+
+/**
+ * The picker's options as rendered: each selected option's value, and each group with its count.
+ *
+ * @return array{selected: list<string>, groups: array<string, int>, typed: int}
+ */
+function timeZonePicker(string $html): array
+{
+    preg_match('/<select[^>]*data-time-zone[^>]*>(.*?)<\/select>/s', $html, $select);
+    preg_match_all('/<option value="([^"]*)"\s*selected/', $select[1] ?? '', $selected);
+    preg_match_all('/<optgroup label="([^"]*)">(.*?)<\/optgroup>/s', $select[1] ?? '', $groups, PREG_SET_ORDER);
+
+    return [
+        'selected' => $selected[1],
+        'groups' => array_combine(array_column($groups, 1), array_map(static fn (array $group): int => substr_count($group[2], '<option '), $groups)),
+        'typed' => (int) preg_match_all('/<input[^>]*wire:model="timezone"/', $html),
+    ];
+}
+
+it("offers every listed zone grouped by region, and preselects the fleet's zone without storing it (#483)", function (): void {
+    config()->set('robot-council.dashboard.timezone', 'America/Chicago');
+
+    $component = Livewire::actingAs($this->alice)->test(SeatSettings::class)->assertSet('timezone', 'America/Chicago');
+    $picker = timeZonePicker($component->html());
+
+    // Every zone the server accepts, and nothing typed
+    expect($picker['selected'])->toBe(['America/Chicago'])
+        ->and(array_sum($picker['groups']))->toBe(count(DateTimeZone::listIdentifiers()))
+        ->and(array_keys($picker['groups']))->toContain('America', 'Europe', 'Other')
+        ->and($picker['typed'])->toBe(0)
+        ->and(AssignmentHours::query()->count())->toBe(0);
+
+    // Saving is what stores it
+    $component->call('saveHours')->assertSet('refused', false);
+
+    expect(AssignmentHours::query()->find(keyOf($this->alice))?->timezone)->toBe('America/Chicago');
+});
+
+it("preselects UTC when the fleet's zone is not one the list offers", function (mixed $fleet): void {
+    config()->set('robot-council.dashboard.timezone', $fleet);
+
+    $component = Livewire::actingAs($this->alice)->test(SeatSettings::class)->assertSet('timezone', 'UTC');
+
+    expect(timeZonePicker($component->html())['selected'])->toBe(['UTC'])
+        ->and(AssignmentHours::query()->count())->toBe(0);
+})->with(['an abbreviation' => 'EST', 'an offset' => '+05:00', 'nothing' => null]);
+
+it('keeps a stored zone when the hours are saved without touching the picker', function (): void {
+    config()->set('robot-council.dashboard.timezone', 'America/Chicago');
+    $this->service(DeveloperSettings::class)->setHours(keyOf($this->alice), 'Asia/Kolkata', '09:00', '17:00', true);
+
+    $component = Livewire::actingAs($this->alice)->test(SeatSettings::class);
+
+    // The stored zone is selected, not the fleet's
+    expect(timeZonePicker($component->html())['selected'])->toBe(['Asia/Kolkata']);
+
+    $component->set('startsAt', '10:00')->call('saveHours')->assertSet('refused', false);
+
+    $row = AssignmentHours::query()->find(keyOf($this->alice));
+
+    expect($row?->timezone)->toBe('Asia/Kolkata')
+        ->and($row?->starts_at)->toBe('10:00');
+});
+
+it('shows a stored zone PHP no longer lists as itself, and refuses to save it rather than move it', function (): void {
+    // Written past the store, as a zone a later PHP dropped would be: `US/Pacific` is an alias
+    // `listIdentifiers()` does not return
+    expect(AssignmentWindow::isTimezone('US/Pacific'))->toBeFalse();
+
+    DB::table((new AssignmentHours)->getTable())->insert([
+        'user_id' => keyOf($this->alice), 'timezone' => 'US/Pacific', 'starts_at' => '09:00', 'ends_at' => '17:00',
+        'skip_weekends' => false, 'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    $component = Livewire::actingAs($this->alice)->test(SeatSettings::class);
+    $picker = timeZonePicker($component->html());
+
+    expect($picker['selected'])->toBe(['US/Pacific'])
+        ->and($picker['groups']['No longer listed'] ?? null)->toBe(1);
+
+    $component->call('saveHours')->assertSet('said', 'Not saved: US/Pacific is not a time zone the list offers. Choose one from the list and save again.');
+
+    expect(AssignmentHours::query()->find(keyOf($this->alice))?->timezone)->toBe('US/Pacific');
+});
+
+it('refuses on the server a zone the list does not offer, and stores a listed one', function (string $zone, bool $stored): void {
+    $component = Livewire::actingAs($this->alice)->test(SeatSettings::class)->set('timezone', $zone)->call('saveHours');
+
+    expect(AssignmentHours::query()->find(keyOf($this->alice))?->timezone)->toBe($stored ? $zone : null)
+        ->and($component->get('refused'))->toBe(! $stored);
+})->with([
+    'a listed zone, the control' => ['Europe/Berlin', true],
+    'an abbreviation' => ['EST', false],
+    'an offset' => ['+05:00', false],
+    'an alias PHP does not list' => ['US/Pacific', false],
+    'a made-up name' => ['Mars/Olympus_Mons', false],
+]);
 
 it('refuses every entry point to a visitor the package guard does not resolve, and changes nothing', function (string $action, array $arguments): void {
     seatedSession($this, $this->alice);

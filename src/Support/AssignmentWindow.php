@@ -67,7 +67,7 @@ final class AssignmentWindow
     public static function ensure(mixed $timezone, mixed $startsAt, mixed $endsAt): void
     {
         if (! self::isTimezone($timezone)) {
-            throw new InvalidArgumentException('A timezone is an IANA zone name, such as America/Chicago.');
+            throw new InvalidArgumentException('A time zone is a zone name PHP lists, such as America/Chicago.');
         }
 
         if (! \is_string($startsAt) || preg_match(self::TIME, $startsAt) !== 1
