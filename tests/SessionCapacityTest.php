@@ -307,11 +307,11 @@ it('sets the cap from the seats page, and refuses an entry outside the bound in 
         ->call('setCapacity', $seat->id)
         ->assertSet('said', null)
         ->assertSet('capacityError', null)
-        ->assertSeeHtml('takes up to 4 tickets at once')
+        ->assertSeeHtml('takes up to 4 tasks at once')
         ->html();
 
     // Confirmed in words beside the control, and the field is not marked invalid
-    expect(capacityMarked($saved, 'data-capacity-saved'))->toBe(['Saved: up to 4 tickets at once.'])
+    expect(capacityMarked($saved, 'data-capacity-saved'))->toBe(['Saved: up to 4 tasks at once.'])
         ->and($saved)->not->toContain('aria-invalid')
         ->and(Seat::query()->whereKey($seat->id)->value('max_capacity'))->toBe(4);
 
@@ -341,9 +341,9 @@ it("names each seat's ticket-limit field and button for a screen reader", functi
 
     $html = Livewire::actingAs($this->developer)->test(SeatSettings::class)->html();
 
-    expect($html)->toContain('Tickets at once<span class="sr-only"> for robot-council/core / a</span>')
-        ->and($html)->toContain('Tickets at once<span class="sr-only"> for robot-council/core / b</span>')
-        ->and($html)->toContain('Set tickets at once<span class="sr-only"> for robot-council/core / a</span>');
+    expect($html)->toContain('Tasks at once<span class="sr-only"> for robot-council/core / a</span>')
+        ->and($html)->toContain('Tasks at once<span class="sr-only"> for robot-council/core / b</span>')
+        ->and($html)->toContain('Set tasks at once<span class="sr-only"> for robot-council/core / a</span>');
 });
 
 it("refuses a cap on another developer's seat through the page, whatever seat id the client sends", function (): void {
@@ -356,7 +356,7 @@ it("refuses a cap on another developer's seat through the page, whatever seat id
     Livewire::actingAs($other)->test(SeatSettings::class)
         ->set('capacities.'.$seat->id, '9')
         ->call('setCapacity', $seat->id)
-        ->assertSet('capacityError', "Not allowed: only a seat's own developer can change how many tickets it takes at once.");
+        ->assertSet('capacityError', "Not allowed: only a seat's own developer can change how many tasks it takes at once.");
 
     expect(Seat::query()->whereKey($seat->id)->value('max_capacity'))->toBe(1);
 });
@@ -442,13 +442,13 @@ it('shows occupancy against capacity, and every held task with its sub-label', f
         ->and(capacityMarked($html, 'data-occupancy'))->toContain('2 / 3')
         ->and(capacityMarked($html, 'data-sub-label'))->toBe(['wt-one', 'wt-two'])
         ->and(capacityMarked($html, 'data-held-task'))->toHaveCount(2)
-        ->and($html)->toContain('<span data-occupancy>2 / 3</span> tickets held')
+        ->and($html)->toContain('<span data-occupancy>2 / 3</span> tasks held')
         // One held reads in the singular
-        ->and($html)->toContain('<span data-occupancy>0 / 1</span> tickets held');
+        ->and($html)->toContain('<span data-occupancy>0 / 1</span> tasks held');
 
     $this->service(Tasks::class)->transition($second, TaskTransition::Release, $lane, false);
 
-    expect(Livewire::actingAs($this->developer)->test(Lanes::class)->html())->toContain('<span data-occupancy>1 / 3</span> ticket held');
+    expect(Livewire::actingAs($this->developer)->test(Lanes::class)->html())->toContain('<span data-occupancy>1 / 3</span> task held');
 });
 
 it('escapes a hostile sub-label on the board', function (string $payload, array $forbidden, ?string $escaped): void {

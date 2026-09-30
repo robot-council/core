@@ -304,7 +304,7 @@ final class SeatSettings extends Component
         $this->capacityError = match ($this->service(Seats::class)->cap($developer, $seatId, $capacity)) {
             Outcome::Applied => null,
             Outcome::NotFound => 'Not found: that seat no longer exists. Reload the page to see your seats as they are now.',
-            Outcome::Conflict, Outcome::Forbidden => "Not allowed: only a seat's own developer can change how many tickets it takes at once.",
+            Outcome::Conflict, Outcome::Forbidden => "Not allowed: only a seat's own developer can change how many tasks it takes at once.",
 
             // A task's alone (#433); `cap()` never answers it
             Outcome::Added => null,

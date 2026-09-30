@@ -44,7 +44,7 @@ final class DeveloperSettingsTool extends Tool
     public function description(): string
     {
         return "Read every developer's assignment hours and days off, and every seat's parked, exempt "
-            .'and ticket-cap settings, as they are right now. Needs `coordinator:direct`. Each developer '
+            .'and tasks-at-once settings, as they are right now. Needs `coordinator:direct`. Each developer '
             .'and seat carries `inside_hours` -- true, false, or "ungated" when no hours apply -- which '
             .'is the answer the placement check would give at this moment, and `next_opens_at` when it '
             ."is false. Settings change on the developer's own page at any time: call this when you "

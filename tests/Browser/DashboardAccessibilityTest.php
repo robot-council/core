@@ -578,6 +578,103 @@ it('picks a time zone from a grouped list by keyboard, named by its label, and s
 });
 
 /**
+ * How a page's glossary is spaced once opened: the gaps between entries, the gaps inside them, and
+ * the rule under each entry but the last (#486).
+ *
+ * Inside an entry is measured two ways and the larger kept: the term's bottom to its meaning's top,
+ * which is the gap on a phone where they stack, and the gap between one line of a wrapped meaning
+ * and the next, which is what ran into the next entry at desktop width. Line boxes are read from a
+ * Range over the meaning's text.
+ *
+ * @return array{entries: int, between: float, within: float, rules: int, ruleRatio: float}
+ */
+function glossarySpacing(PendingAwaitablePage $page): array
+{
+    $found = $page->script(<<<'JS'
+        () => {
+            const details = document.querySelector('details[data-glossary]');
+            details.open = true;
+            const entries = [...details.querySelectorAll('[data-glossary-entry]')];
+            const box = el => el.getBoundingClientRect();
+            let between = Infinity, within = 0, rules = 0;
+            const canvas = document.createElement('canvas');
+            canvas.width = canvas.height = 1;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            const paint = (...colors) => { ctx.clearRect(0, 0, 1, 1); for (const c of colors) { ctx.fillStyle = c; ctx.fillRect(0, 0, 1, 1); } return [...ctx.getImageData(0, 0, 1, 1).data.slice(0, 3)]; };
+            const lum = rgb => { const [r, g, b] = rgb.map(v => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+            const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+            const layers = el => { const out = ['rgb(255, 255, 255)']; for (let n = el.parentElement; n; n = n.parentElement) out.splice(1, 0, getComputedStyle(n).backgroundColor); return out; };
+            let ruleRatio = Infinity;
+            entries.forEach((entry, i) => {
+                const dt = entry.querySelector('dt'), dd = entry.querySelector('dd');
+                within = Math.max(within, box(dd).top - box(dt).bottom);
+                const range = document.createRange();
+                range.selectNodeContents(dd);
+                const lines = [...range.getClientRects()].sort((a, b) => a.top - b.top);
+                for (let l = 1; l < lines.length; l++) if (lines[l].top > lines[l - 1].top + 1) within = Math.max(within, lines[l].top - lines[l - 1].bottom);
+                if (i + 1 < entries.length) {
+                    between = Math.min(between, box(entries[i + 1].querySelector('dt')).top - Math.max(box(dt).bottom, box(dd).bottom));
+                    const cs = getComputedStyle(entry);
+                    if (parseFloat(cs.borderBottomWidth) >= 1) {
+                        rules++;
+                        const under = layers(entry);
+                        ruleRatio = Math.min(ruleRatio, ratio(paint(...under, cs.borderBottomColor), paint(...under)));
+                    }
+                }
+            });
+            return { entries: entries.length, between, within, rules, ruleRatio };
+        }
+    JS);
+
+    if (! is_array($found) || ! is_int($found['entries'] ?? null)) {
+        throw new RuntimeException('The glossary read returned nothing.');
+    }
+
+    /** @var array{entries: int, between: float, within: float, rules: int, ruleRatio: float} $found */
+    return $found;
+}
+
+it('sets each glossary entry apart by a rule and more space than lies within it', function (string $theme, int $width): void {
+    $page = visitSurface($this, 'robot-council.lanes', '', 'Run the screen-reader pass', $theme);
+
+    $page->resize($width, 900);
+
+    $spacing = glossarySpacing($page);
+
+    // The control: the Lanes glossary is the longest, and at least one meaning wraps, so the
+    // within-entry gap was read from real line boxes rather than defaulting to nothing
+    expect($spacing['entries'])->toBeGreaterThan(15)
+        ->and($spacing['within'])->toBeGreaterThan(0)
+        // Between entries is at least twice the widest gap inside one, and every boundary has a rule
+        ->and($spacing['between'])->toBeGreaterThanOrEqual(2 * $spacing['within'])
+        ->and($spacing['rules'])->toBe($spacing['entries'] - 1)
+        ->and($spacing['ruleRatio'])->toBeGreaterThan(1.5);
+})->with(['light', 'dark'])->with([390, 1280]);
+
+it('keeps each glossary term and its meaning on one row once the columns apply', function (): void {
+    $page = visitSurface($this, 'robot-council.lanes', '', 'Run the screen-reader pass', 'dark');
+
+    $page->resize(1280, 900);
+
+    $rows = $page->script(<<<'JS'
+        () => {
+            const details = document.querySelector('details[data-glossary]');
+            details.open = true;
+            return [...details.querySelectorAll('[data-glossary-entry]')].map(entry => {
+                const dt = entry.querySelector('dt').getBoundingClientRect(), dd = entry.querySelector('dd').getBoundingClientRect();
+                return { sameRow: Math.abs(dt.top - dd.top) < 1, meaningX: Math.round(dd.left), beside: dd.left > dt.right };
+            });
+        }
+    JS);
+
+    /** @var list<array{sameRow: bool, meaningX: int, beside: bool}> $rows */
+    expect($rows)->not->toBeEmpty()
+        ->and(array_unique(array_column($rows, 'sameRow')))->toBe([true])
+        ->and(array_unique(array_column($rows, 'beside')))->toBe([true])
+        ->and(array_values(array_unique(array_column($rows, 'meaningX'))))->toHaveCount(1);
+});
+
+/**
  * Where each change-feed row's type badge and body sit, as rendered.
  *
  * @return list<array{type: string, badge: array{left: float, right: float, bottom: float, overflow: bool}, body: array{left: float, top: float}}>

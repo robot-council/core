@@ -13,10 +13,18 @@
 --}}
 <details wire:ignore.self class="text-meta" data-glossary>
     <summary class="cursor-pointer py-3 font-medium">What the words on this page mean</summary>
-    <dl class="mt-1 grid max-w-3xl gap-x-4 gap-y-2 leading-relaxed sm:grid-cols-[max-content_1fr]">
+    {{-- Each term and its meaning are one `div`, which a `dl` allows, so an entry is a unit
+         (#486). Entries are set apart by a rule and by more space than lies within one, at every
+         width: before this the gap between entries equalled the gap inside one, and a wrapped
+         meaning ran into the next term. From `sm` up the list is two columns and each entry a
+         subgrid row, so every meaning starts at the same x; a row sets only its row gap, because a
+         subgrid's own column gap would replace the list's. --}}
+    <dl class="mt-1 max-w-3xl divide-y divide-base-content/25 leading-relaxed sm:grid sm:grid-cols-[max-content_1fr] sm:gap-x-4" data-glossary-list>
         @foreach (\RobotCouncil\Support\Glossary::entries($terms) as $entry)
-            <dt class="font-semibold"><dfn id="term-{{ $entry['key'] }}">{{ $entry['term'] }}</dfn></dt>
-            <dd>{{ $entry['means'] }}</dd>
+            <div class="flex flex-col gap-y-1 py-3 sm:col-span-2 sm:grid sm:grid-cols-subgrid sm:gap-y-0" data-glossary-entry>
+                <dt class="font-semibold"><dfn id="term-{{ $entry['key'] }}">{{ $entry['term'] }}</dfn></dt>
+                <dd>{{ $entry['means'] }}</dd>
+            </div>
         @endforeach
     </dl>
 </details>

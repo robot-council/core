@@ -264,13 +264,13 @@ final class Administration extends Component
             $this->unchanged($session, sprintf(
                 'Not approved: session #%d no longer asks to be %s. The list shows what it asks for now.',
                 $session->id,
-                $expected->value
+                $expected->label()
             ));
 
             return;
         }
 
-        $this->say($session->installation_id, sprintf('Approved: session #%d is now %s.', $session->id, $expected->value));
+        $this->say($session->installation_id, sprintf('Approved: session #%d is now %s.', $session->id, $expected->label()));
     }
 
     /**
@@ -294,7 +294,7 @@ final class Administration extends Component
             return;
         }
 
-        $this->say($session->installation_id, sprintf('Denied: session #%d stays %s.', $session->id, $session->refresh()->role->value));
+        $this->say($session->installation_id, sprintf('Denied: session #%d stays %s.', $session->id, $session->refresh()->role->label()));
     }
 
     /**
@@ -333,12 +333,12 @@ final class Administration extends Component
         }
 
         if (! $this->service(RoleRequests::class)->impose($session, $resolved, $this->actor())) {
-            $this->unchanged($session, sprintf('No change: session #%d was already %s.', $session->id, $resolved->value));
+            $this->unchanged($session, sprintf('No change: session #%d was already %s.', $session->id, $resolved->label()));
 
             return;
         }
 
-        $this->say($session->installation_id, sprintf('Changed: session #%d is now %s.', $session->id, $resolved->value));
+        $this->say($session->installation_id, sprintf('Changed: session #%d is now %s.', $session->id, $resolved->label()));
     }
 
     /**
