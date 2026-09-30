@@ -609,7 +609,7 @@ is the last of the package's scheduled entries and runs in the background withou
 itself, so a slow GitHub cannot hold back the coordination checks; the overlap lock uses the host's
 cache and expires after ten minutes. Each run looks up the App's installation on each owner
 (`GET /users/{owner}/installation`, once per owner per run), uses one installation token per
-installation -- cached, encrypted with the application key, in the host's configured cache until
+installation, asking for `issues: read` alone unless a project qualifier needs more (below) -- cached, encrypted with the application key, in the host's configured cache until
 five minutes before it expires -- and asks GitHub's search for `repo:OWNER/NAME is:issue is:open`,
 one request per repository and at most 25 a run. **A failed fetch stores no reading, never a
 zero**: a 401, 403, 404, 422, timeout, or unparseable answer leaves that repository's meter reading
@@ -621,6 +621,34 @@ second request in a row that got no answer, ends the run; the repositories it di
 tried first next time. On a host whose cache store is `array`, every run mints a new token, which
 works and costs one request per installation.
 
+**To count only some of a repository's issues**, such as the ones in a GitHub Project, set
+`robot-council.backlog.search_qualifiers` (#488). It maps an owner or a repository to qualifiers the
+fetch appends to its query, and a repository's entry replaces its owner's:
+
+```php
+'search_qualifiers' => ['UAMS-Web' => 'project:UAMS-Web/1'],
+```
+
+or, as an environment variable, `ROBOT_COUNCIL_BACKLOG_SEARCH_QUALIFIERS="UAMS-Web=project:UAMS-Web/1"`,
+with entries separated by `;`. A host that published its config before this key existed adds the
+line to its `backlog` section, because a published section replaces the package's whole. With the
+key unset the query is exactly `repo:OWNER/NAME is:issue is:open`. `repo:`, `org:`, `user:`, `is:`,
+`type:` and `state:` are refused, since GitHub ORs repeated `repo:` terms and the others are the
+fetch's own, as are `OR`, `AND`, `NOT` and parentheses, which could regroup the query past the
+repository, and so is anything longer than 90 characters or outside printable ASCII: a refused
+entry's repositories record `qualifiers invalid`, store no reading, and fail doctor, rather than
+storing the unfiltered count as if it were the filtered one. **A `project:` qualifier GitHub cannot
+resolve** -- a project that does not exist, or one the caller cannot see -- is answered `422 An
+invalid project was specified` (measured with a user token), which the fetch records as `refused`
+with no reading, never as `0`. **A `project:` qualifier needs the App to hold Projects (organization) read**, and the organization
+to accept it. Measured 2026-09-29 with the App's own installation token against
+`UAMS-Web/wordpress-importer`: with `issues: read` alone, the unfiltered search answered 98 and the
+same search with `project:UAMS-Web/1` answered 422. So for an owner with a `project:` (or
+`-project:`) qualifier in effect, the fetch asks for `organization_projects: read` beside
+`issues: read` when it mints the token, and for every other owner the request is unchanged. Until
+the App holds that permission GitHub refuses the mint with 422, so **every** repository under that
+owner records `refused (HTTP 422)` and reads `count unreadable`, never `0`.
+
 **A host running Laravel Telescope with its HTTP client watcher** records every outgoing request
 and its response. The response to minting an installation token carries the token in its `token`
 field, so add `'token'` to `Telescope::hideResponseParameters()` in the host's
@@ -628,7 +656,8 @@ field, so add `'token'` to `Telescope::hideResponseParameters()` in the host's
 
 `php artisan robot-council:doctor` reports two checks: **`github app`**, whether the App is configured
 and its key parses, and **`backlog fetch`**, per owner on the board whether it has an installation and
-per repository how its latest fetch went. A refusal, a missing installation, or an unusable key
+per repository how its latest fetch went, with the search qualifiers in effect for each owner and
+for each repository that has its own entry. A refusal, a missing installation, or an unusable key
 fails it; GitHub not answering, a rate limit, an incomplete search, or a failure outside GitHub
 leaves it undetermined, since those pass on their own. Neither check asks GitHub anything, and
 neither prints a credential.

@@ -26,12 +26,14 @@ final class GitHubAppDiagnosis
      * @param  BacklogFetches  $fetches  What the last fetch recorded.
      * @param  LaneBoard  $board  Which repositories are on the board.
      * @param  Repository  $config  For how old a fetch may be and still count as recent.
+     * @param  BacklogQualifiers  $qualifiers  What each repository's search is narrowed by.
      */
     public function __construct(
         private readonly GitHubAppKey $key,
         private readonly BacklogFetches $fetches,
         private readonly LaneBoard $board,
-        private readonly Repository $config
+        private readonly Repository $config,
+        private readonly BacklogQualifiers $qualifiers
     ) {}
 
     /**
@@ -123,9 +125,13 @@ final class GitHubAppDiagnosis
             $shown[$owner] ??= $spelled;
             $fetch = $latest[$repository] ?? null;
 
+            // A repository's own entry replaces its owner's, so it is shown where it applies
+            $own = $this->qualifiers->entry($repository);
+            $narrowed = $own === null ? '' : ', '.BacklogQualifiers::describe($own);
+
             if ($fetch === null || $fetch['attempted_at']->lessThan($recent)) {
                 $unknown = true;
-                $lines[] = sprintf('%s: not fetched in the last %d minutes', $repository, $this->staleAfterMinutes());
+                $lines[] = sprintf('%s: not fetched in the last %d minutes%s', $repository, $this->staleAfterMinutes(), $narrowed);
                 $owners[$owner] ??= null;
 
                 continue;
@@ -149,11 +155,12 @@ final class GitHubAppDiagnosis
             }
 
             $lines[] = sprintf(
-                '%s: %s%s at %s UTC',
+                '%s: %s%s at %s UTC%s',
                 $repository,
                 $fetch['outcome']->value,
                 $fetch['status'] === null ? '' : sprintf(' (HTTP %d)', $fetch['status']),
-                $fetch['attempted_at']->utc()->format('Y-m-d H:i')
+                $fetch['attempted_at']->utc()->format('Y-m-d H:i'),
+                $narrowed
             );
         }
 
@@ -161,11 +168,11 @@ final class GitHubAppDiagnosis
 
         $ownerLines = array_map(
             // A key that looks like a number arrives as an int, so it is taken as either
-            static fn (int|string $owner, ?bool $installed): string => sprintf('%s: %s', $shown[$owner] ?? (string) $owner, match ($installed) {
+            fn (int|string $owner, ?bool $installed): string => sprintf('%s: %s%s', $shown[$owner] ?? (string) $owner, match ($installed) {
                 true => 'installed',
                 false => 'no installation',
                 null => 'not confirmed by the latest fetch',
-            }),
+            }, $this->ownerQualifiers((string) $owner)),
             array_keys($owners),
             array_values($owners)
         );
@@ -175,7 +182,7 @@ final class GitHubAppDiagnosis
         if ($failed) {
             return Diagnosis::failed(
                 'backlog fetch',
-                $detail.' A repository not read shows "count unreadable" on the board. Install the App on an owner that has none, and check the App\'s key for a refusal.'
+                $detail.' A repository not read shows "count unreadable" on the board. Install the App on an owner that has none, and check the App\'s key for a refusal. A refusal (HTTP 422) where search qualifiers are set is GitHub unable to resolve them, a project the token cannot see among them; "qualifiers invalid" is `robot-council.backlog.search_qualifiers` naming one the fetch refuses.'
             );
         }
 
@@ -187,6 +194,20 @@ final class GitHubAppDiagnosis
         }
 
         return Diagnosis::passed('backlog fetch', $detail);
+    }
+
+    /**
+     * The qualifiers an owner's repositories are searched with, as a suffix to its line.
+     *
+     * @param  string  $owner  The owner, in any case.
+     * @return string The suffix, empty when the owner has no entry, so a host that sets none reads
+     *                exactly as it did before #488.
+     */
+    private function ownerQualifiers(string $owner): string
+    {
+        $entry = $this->qualifiers->entry($owner);
+
+        return $entry === null ? '' : ', '.BacklogQualifiers::describe($entry);
     }
 
     /**
