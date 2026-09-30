@@ -29,6 +29,8 @@ declare(strict_types=1);
 
 use Illuminate\Foundation\Auth\User;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\DB;
 use Pest\Browser\Api\PendingAwaitablePage;
 use RobotCouncil\Access\AccessList;
 use RobotCouncil\Access\Role;
@@ -1361,6 +1363,101 @@ it("keeps a repository's ring apart from a developer's circle under forced color
         ->and(array_values(array_unique(array_column($repositories, 'style'))))->toBe(['double'])
         ->and(array_column($developers, 'style'))->not->toContain('double');
 });
+
+/**
+ * A picture with a transparent background: an 8 by 8 PNG, transparent but for a dark square in the
+ * middle, which is what an organization's logo on no background amounts to (#515).
+ */
+const TRANSPARENT_LOGO = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAFklEQVR4nGNgoBoQEBD4j4wHQgHZAACu5xLxoxtuzAAAAABJRU5ErkJggg==';
+
+/**
+ * Put a developer's and a repository's avatar into the page as the component renders them with a
+ * stored picture, each loading the source given, and read back what shows in each circle.
+ *
+ * The component is rendered here rather than on the page, because a stored picture on the page would
+ * be fetched from GitHub; its URL is then swapped for `$source`, so the markup is the component's own.
+ *
+ * @param  string  $source  What each picture loads.
+ * @return list<array{kind: string, picture: bool, loaded: bool, letter: string, backing: string, covers: bool}> One per avatar planted.
+ */
+function plantPictures(PendingAwaitablePage $page, string $source): array
+{
+    $stored = 'https://avatars.githubusercontent.com/u/9919?v=4';
+
+    DB::table('robot_council_github_identities')->where('github_login', 'octodev')->update(['avatar_url' => $stored]);
+    DB::table('robot_council_github_owners')->updateOrInsert(['login' => 'robot-council'], ['avatar_url' => $stored, 'noted_at' => now()]);
+
+    // A fresh read of both, since what the component reads is remembered for the request
+    app()->forgetScopedInstances();
+
+    $markup = Blade::render('<x-robot-council::avatar login="octodev" /><x-robot-council::avatar repository="robot-council/core" />');
+
+    expect(substr_count($markup, 'src="'.$stored.'"'))->toBe(2);
+
+    $page->script(sprintf(
+        '() => { const box = document.createElement("p"); box.dataset.planted = ""; box.innerHTML = %s; document.querySelector("main").prepend(box); }',
+        json_encode(str_replace($stored, $source, $markup), JSON_THROW_ON_ERROR)
+    ));
+
+    $page->wait(0.5);
+
+    /** @var list<array{kind: string, picture: bool, loaded: bool, letter: string, backing: string, covers: bool}> */
+    return pageList($page, 'planted-avatar', <<<'JS'
+        () => [...document.querySelectorAll('[data-planted] [data-avatar] > span')].map(circle => {
+            const image = circle.querySelector('img');
+            const letter = circle.querySelector('span');
+            const drawn = image?.getBoundingClientRect();
+            return {
+                kind: circle.parentElement.dataset.avatar === 'repository' ? 'repository' : 'developer',
+                picture: image !== null,
+                loaded: image !== null && image.complete && image.naturalWidth > 0,
+                letter: getComputedStyle(letter).visibility,
+                backing: image ? getComputedStyle(image).backgroundColor : '',
+                // The inside of the circle, within its ring, which under forced colors is 4px wide
+                covers: drawn !== undefined && Math.abs(drawn.width - circle.clientWidth) < 0.5 && Math.abs(drawn.height - circle.clientHeight) < 0.5,
+            };
+        })
+    JS);
+}
+
+it('shows a transparent picture on its own, over no letter, and the letter alone when a picture fails (#515)', function (string $theme, bool $forced): void {
+    $page = visitSurface($this, 'robot-council.lanes', '', 'Run the screen-reader pass', $theme, $forced ? ['forcedColors' => 'active'] : []);
+
+    // The forced rows really are forced, or they would pass as copies of the plain ones
+    expect($page->script("() => window.matchMedia('(forced-colors: active)').matches"))->toBe($forced);
+
+    $shown = plantPictures($page, TRANSPARENT_LOGO);
+
+    // Both variants: the picture loaded, filling the circle on an opaque white backing, and the letter
+    // beneath it hidden -- so a transparent logo is not read through with a letter across it
+    expect(array_column($shown, 'kind'))->toBe(['developer', 'repository']);
+
+    foreach ($shown as $avatar) {
+        expect($avatar['loaded'])->toBeTrue($avatar['kind'])
+            ->and($avatar['covers'])->toBeTrue($avatar['kind'])
+            ->and($avatar['backing'])->toBe('rgb(255, 255, 255)', $avatar['kind'])
+            ->and($avatar['letter'])->toBe('hidden', $avatar['kind']);
+    }
+
+    $page->script('() => document.querySelector("[data-planted]").remove()');
+
+    // A picture that fails is taken away, and the letter shows alone
+    $failed = plantPictures($page, 'data:image/png;base64,broken');
+
+    expect(array_column($failed, 'kind'))->toBe(['developer', 'repository']);
+
+    foreach ($failed as $avatar) {
+        expect($avatar['picture'])->toBeFalse($avatar['kind'])
+            ->and($avatar['letter'])->toBe('visible', $avatar['kind']);
+    }
+})->with([
+    'light' => ['light', false],
+    'dark' => ['dark', false],
+    // Dark as well as light: a light palette's system background is white too, so only the dark one
+    // shows that the backing is kept rather than replaced
+    'forced colors, light' => ['light', true],
+    'forced colors, dark' => ['dark', true],
+]);
 
 it('keeps the Waiting on a developer card inside a 360px phone, each section bordered and each item three parts (#390)', function (string $theme): void {
     $page = visitSurface($this, 'robot-council.lanes', '', 'Run the screen-reader pass', $theme);
