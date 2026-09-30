@@ -479,7 +479,7 @@ changes them. The only writer is the developer's own page at `{prefix}/dashboard
   developer's own clock, including through daylight saving changes.
 - **Days off** are the developer's own list of dates. They apply once hours are set, since a date
   needs a timezone to say when it starts. A developer with no hours set is not gated at all.
-- **Exempting** a seat takes it out of its developer's hours.
+- **Ignore my hours** takes a seat out of its developer's hours, and the seat then reads "Hours: ignored"; **Apply my hours** puts it back. The API and the `developer_settings` tool still call this `exempt`.
 - **Tickets at once** caps how many tickets a coordinator may place on one session in the seat,
   from 1 to 16 (#409). A session declares its own number when it joins and gets no more than this;
   a session can never raise it. It is 1 until the developer changes it, so a seat nobody touched

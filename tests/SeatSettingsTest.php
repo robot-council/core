@@ -552,7 +552,7 @@ it('parks and lifts through the page, and refuses a seat belonging to somebody e
     expect(seatRow($seat)->parked_by)->toBeNull();
 });
 
-it('reads a seat\'s hours as a labelled state beside a verb in other words, in both states (#482)', function (): void {
+it("reads a seat's hours as a labelled state beside a verb in other words, in both states (#482)", function (): void {
     [$installation] = seatedSession($this, $this->alice);
     $seat = onlySeatOf($this, $installation);
 

@@ -1017,15 +1017,20 @@ function buttonsWithoutBoundary(string $source): array
             continue;
         }
 
-        if (preg_match($styled, $plain) === 1 && preg_match('/(^|\s)btn-ghost(\s|$)/', $plain) !== 1) {
-            continue;
-        }
+        // A ghost anywhere wins over a style beside it: daisyUI's ghost clears the border and fill
+        $ghost = "/(^|[\\s'])btn-ghost([\\s']|$)/";
 
-        // Every branch of a ternary has to name a style, or one of its states is drawn bare
-        preg_match_all("/'([^']*)'/", $attribute, $branches);
+        if (preg_match($ghost, $attribute) !== 1) {
+            if (preg_match($styled, $plain) === 1) {
+                continue;
+            }
 
-        if ($branches[1] !== [] && array_filter($branches[1], static fn (string $branch): bool => preg_match($styled, $branch) !== 1) === []) {
-            continue;
+            // Every branch of a ternary has to name a style, or one of its states is drawn bare
+            preg_match_all("/'([^']*)'/", $attribute, $branches);
+
+            if ($branches[1] !== [] && array_filter($branches[1], static fn (string $branch): bool => preg_match($styled, $branch) !== 1) === []) {
+                continue;
+            }
         }
 
         $found[] = trim((string) preg_replace('/\s+/', ' ', $attribute));
@@ -1057,6 +1062,8 @@ it('reports a button drawn with no boundary, so the check above is not blind', f
         <button class="btn btn-target btn-ghost">Sign out</button>
         <button class="btn btn-target">Look up</button>
         <button class="btn btn-target {{ $on ? 'btn-primary' : 'btn-ghost' }}">Live</button>
+        <button class="btn btn-ghost {{ $on ? 'btn-primary' : 'btn-outline' }}">Both</button>
+        <button class="btn btn-target {{ $on ? 'btn-primary' : 'btn-outline btn-ghost' }}">Either</button>
         <button class="btn btn-target btn-outline">Deny</button>
         <button class="btn btn-target {{ $on ? 'btn-primary' : 'btn-outline' }}">All</button>
         <label class="btn btn-square btn-target btn-ghost drawer-button lg:hidden">Menu</label>
@@ -1067,6 +1074,8 @@ it('reports a button drawn with no boundary, so the check above is not blind', f
         'btn btn-target btn-ghost',
         'btn btn-target',
         "btn btn-target {{ \$on ? 'btn-primary' : 'btn-ghost' }}",
+        "btn btn-ghost {{ \$on ? 'btn-primary' : 'btn-outline' }}",
+        "btn btn-target {{ \$on ? 'btn-primary' : 'btn-outline btn-ghost' }}",
     ]);
 });
 

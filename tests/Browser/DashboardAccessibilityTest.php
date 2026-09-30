@@ -401,7 +401,7 @@ function sidewaysScroll(PendingAwaitablePage $page): int
  * Every button whose boundary is under 3:1 against what it sits on (SC 1.4.11, #482).
  *
  * A button is told from a label by its border or its fill, so the stronger of the two is measured
- * against the first opaque background behind it. Colors are read through a canvas, which resolves
+ * against the backgrounds behind it, composited as drawn. Colors are read through a canvas, which resolves
  * daisyUI's `oklch()` and composites a translucent fill over its background exactly as it is drawn.
  * The menu toggle is the one button left without a boundary: its icon is what marks it as a control.
  * A warning button is skipped until #498 gives it one.
@@ -425,13 +425,16 @@ function faintButtons(PendingAwaitablePage $page): array
                 return 0.2126 * r + 0.7152 * g + 0.0722 * b;
             };
             const ratio = (a, b) => { const [x, y] = [luminance(a), luminance(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
-            // The first ancestor that paints a background at all
+            // Every ancestor's background from the outermost in, so a translucent one is composited
+            // over what is behind it rather than read as if it were opaque. The canvas starts white,
+            // which is what a page with no background of its own is drawn on
             const behind = el => {
+                const layers = ['rgb(255, 255, 255)'];
                 for (let node = el.parentElement; node; node = node.parentElement) {
-                    const bg = getComputedStyle(node).backgroundColor;
-                    if (bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') return bg;
+                    if (parseFloat(getComputedStyle(node).opacity) < 1) throw new Error('A button sits inside a translucent element, which this check does not measure');
+                    layers.splice(1, 0, getComputedStyle(node).backgroundColor);
                 }
-                return 'rgb(255, 255, 255)';
+                return layers;
             };
             const out = [];
             for (const el of document.querySelectorAll('.btn')) {
@@ -441,11 +444,13 @@ function faintButtons(PendingAwaitablePage $page): array
                 if (side && getComputedStyle(side).visibility === 'hidden') continue;
                 // A warning button's fill is 2.02:1 in the light theme, which #498 is to fix
                 if (el.matches('.drawer-button, .btn-warning')) continue;
+                // SC 1.4.11 does not cover a control that cannot be used
+                if (el.matches(':disabled, [aria-disabled=true]')) continue;
                 const cs = getComputedStyle(el);
                 const under = behind(el);
-                const ground = paint(under);
-                const fill = ratio(paint(under, cs.backgroundColor), ground);
-                const border = parseFloat(cs.borderTopWidth) > 0 ? ratio(paint(under, cs.borderTopColor), ground) : 1;
+                const ground = paint(...under);
+                const fill = ratio(paint(...under, cs.backgroundColor), ground);
+                const border = parseFloat(cs.borderTopWidth) > 0 ? ratio(paint(...under, cs.borderTopColor), ground) : 1;
                 const best = Math.max(fill, border);
                 if (best < 3) out.push(`${(el.getAttribute('aria-label') || el.textContent).trim().replace(/\s+/g, ' ').slice(0, 40)} ${best.toFixed(2)}:1`);
             }
@@ -876,7 +881,7 @@ it('finds a faint button, so the check above is not blind', function (string $th
 
     $page->resize(1280, 900);
 
-    expect(faintButtons($page))->toBe([]);
+    expect(faintButtons($page))->toBeEmpty();
 
     // The two styles #482 removed, planted on the card the seats page draws: a ghost button, with
     // no fill or border at rest, and a plain one, whose base-200 fill barely differs from the card

@@ -341,7 +341,7 @@ return [
     ],
     'exempt' => [
         'term' => 'Ignore my hours',
-        'means' => 'The seat takes new work at any time, whatever your assignment hours say, and reads Hours: ignored. Apply my hours undoes it, and the seat reads Hours: apply again.',
+        'means' => 'The seat takes new work at any time, whatever your assignment hours say, and its line reads "Hours: ignored". The "Apply my hours" button undoes it, and the line reads "Hours: apply" again.',
     ],
     'tickets_at_once' => [
         'term' => 'Tickets at once',
