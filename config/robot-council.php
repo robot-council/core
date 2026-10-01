@@ -407,6 +407,14 @@ return [
     | `user:`, `is:`, `type:`, `state:`, `OR`, `AND`, `NOT` and parentheses are
     | refused, because they would widen or redefine the count; a refused entry stores no reading and fails doctor.
     |
+    | The same qualifiers filter the shortlist and the documentation-ahead placement
+    | warning (#530): the fetch stores which open issues they match, and only those are
+    | listed. A repository whose matches are not known -- refused qualifiers, no fetch
+    | yet, a list older than `stale_after_minutes`, or more than 1,000 matches -- lists
+    | none of its tickets and says why. With the key unset every surface lists what it
+    | did before. The Waiting-on-a-developer card lists recorded owed items rather than
+    | the backlog, so it is not filtered.
+    |
     */
 
     'backlog' => [

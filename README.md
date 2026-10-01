@@ -627,7 +627,9 @@ cache and expires after ten minutes. Each run looks up the App's installation on
 (`GET /users/{owner}/installation`, once per owner per run), uses one installation token per
 installation, asking for `issues: read` alone unless a project qualifier needs more (below) -- cached, encrypted with the application key, in the host's configured cache until
 five minutes before it expires -- and asks GitHub's search for `repo:OWNER/NAME is:issue is:open`,
-one request per repository and at most 25 a run. **A failed fetch stores no reading, never a
+one request per repository -- or one per hundred matching issues for a repository with search
+qualifiers (below) -- and at most 25 searches a run, stopping before a repository whose searches
+might not fit what is left. **A failed fetch stores no reading, never a
 zero**: a 401, 403, 404, 422, timeout, or unparseable answer leaves that repository's meter reading
 `count unreadable` once its last reading is older than `robot-council.backlog.stale_after_minutes`
 (60), logs a warning naming the repository and the status, and the run goes on to the next. An
@@ -664,6 +666,23 @@ same search with `project:UAMS-Web/1` answered 422. So for an owner with a `proj
 `issues: read` when it mints the token, and for every other owner the request is unchanged. Until
 the App holds that permission GitHub refuses the mint with 422, so **every** repository under that
 owner records `refused (HTTP 422)` and reads `count unreadable`, never `0`.
+
+**The same qualifiers filter the shortlist and the documentation-ahead placement warning** (#530),
+so the tickets offered for placement are the ones the meter counts. The tickets mirror holds no
+project membership, so for a repository with qualifiers the fetch also pages through the same
+search (`sort=created`, 100 a page, at most 10 pages) and stores the matching issue numbers; the
+shortlist keeps only those. Each repository then reports one of three filter states: `unfiltered`
+(no qualifiers -- every placeable ticket, exactly as before), `filtered` (only the matching ones),
+or `unresolved`, which lists **none** of its tickets and says why: the qualifiers are refused, no
+fetch has listed their matches yet, the latest list is older than `stale_after_minutes`, or they
+match more than 1,000 open issues, which is more than GitHub's search will list. A list whose
+numbers do not add up to the count GitHub gave on its first page, or whose pages give different
+counts -- an issue closed or opened between two pages -- replaces nothing: the count is stored as
+usual and the previous list stays until it ages out. One race goes undetected: an issue closing and
+another opening between the same two pages keeps both figures right while a ticket was skipped, and
+it lasts until the next fetch. **This is the one place core reads a list from GitHub rather than a count**, and it decides
+which tickets a coordinator is shown, so it is a named exception to the rule that core learns state
+from the webhook alone; nothing that frees a lane, changes a task, or refuses a placement reads it.
 
 **A host running Laravel Telescope with its HTTP client watcher** records every outgoing request
 and its response. The response to minting an installation token carries the token in its `token`
@@ -716,6 +735,12 @@ already held by a lane. **It is ordered by number and implies no preference** --
 coordinator's. Each entry lists its blind spots: a `hitl` label, a title naming an act that needs a
 human, every acceptance criterion ticked while still open, and the file paths its body mentions,
 which are unverified and are never compared between tickets.
+
+Beside `repositories`, the answer carries `filters`: for every repository with a placeable ticket,
+its `status` (`unfiltered`, `filtered` or `unresolved`), the `qualifiers` in effect, and, when
+unresolved, a `reason`. A repository with `robot-council.backlog.search_qualifiers` lists only the
+tickets those qualifiers matched at the latest backlog fetch, and an unresolved one lists nothing
+rather than every open ticket as if it had been filtered (#530, described under the backlog meters).
 
 ## Lane conditions
 
@@ -861,7 +886,9 @@ placement spends it. A coordinator cannot. A successful placement also returns `
 block: a title naming an act that needs a human (delete, remove, retire, release, tag, publish,
 install, upgrade, rotate, spend), an open ticket whose acceptance criteria are all ticked, a branch
 whose name carries the ticket's number with no open pull request (matched by name), and a
-`documentation` ticket placed while functionality tickets are on the shortlist.
+`documentation` ticket placed while functionality tickets are on the shortlist, which counts only the
+tickets the repository's search qualifiers match; for a repository whose filter is unresolved it
+warns instead that whether functionality tickets are placeable is unknown, with the reason.
 
 A task may name the GitHub issue it is for when it is filed, as `issue: "owner/name#N"`. A bare
 `#N` is refused, because the same number exists in every tracker. Each task reports `placed_by`

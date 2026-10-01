@@ -31,6 +31,7 @@ use RobotCouncil\Models\TaskStatus;
 use RobotCouncil\Models\TaskTransition;
 use RobotCouncil\Support\DeveloperSettings;
 use RobotCouncil\Support\FleetFeed;
+use RobotCouncil\Support\GitHubState;
 use RobotCouncil\Support\HostKey;
 use RobotCouncil\Support\Tasks;
 use RobotCouncil\Tests\TestCase;
@@ -1107,4 +1108,22 @@ it('reads developer settings live through developer_settings, for a coordinator 
 
     expect(arrayValue(arrayValue(toolResult(callTool($this, $coordinatorToken, 'developer_settings'))['developers'] ?? [])))->toBeEmpty()
         ->and(toolError(callTool($this, $this->token, 'developer_settings')))->toContain('coordinator:direct');
+});
+
+it('serves the shortlist and its filters through the tool exactly as the endpoint does', function (): void {
+    $token = mcpCoordinatorToken($this);
+    config()->set('robot-council.backlog.search_qualifiers', ['robot-council/cli' => 'project:robot-council/1']);
+
+    foreach ([[1, 'robot-council/core'], [3, 'robot-council/cli']] as [$number, $repository]) {
+        $this->service(GitHubState::class)->import([
+            'number' => $number, 'state' => 'open', 'title' => 'Ticket '.$number, 'labels' => [], 'body' => null,
+            'updated_at' => '2026-09-24T12:00:00Z', 'repository_url' => 'https://api.github.com/repos/'.$repository,
+        ]);
+    }
+
+    $viaTool = toolResult(callTool($this, $token, 'shortlist_read'));
+    $viaRoute = $this->machine($token)->getJson(route('robot-council.shortlist'))->assertOk()->json();
+
+    expect($viaTool)->toBe($viaRoute)
+        ->and(array_keys(arrayValue($viaTool['filters'] ?? null)))->toBe(['robot-council/cli', 'robot-council/core']);
 });

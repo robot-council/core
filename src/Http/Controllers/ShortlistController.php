@@ -19,10 +19,10 @@ final class ShortlistController
      * List the placeable tickets.
      *
      * @param  Shortlist  $shortlist  The reader.
-     * @return JsonResponse The tickets by repository.
+     * @return JsonResponse The tickets by repository, and how each repository's were filtered.
      */
     public function __invoke(Shortlist $shortlist): JsonResponse
     {
-        return new JsonResponse(['repositories' => $shortlist->read()]);
+        return new JsonResponse($shortlist->report());
     }
 }
