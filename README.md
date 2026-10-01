@@ -185,6 +185,14 @@ protocol below is documented for anyone writing their own client.
    feed as its own developer's session, and whatever it claims or locks is released when it ends or
    is swept. JSON `true` and `false`, `1` and `0`, and `"1"` and `"0"` are accepted; anything else,
    the string `"true"` included, is refused with 422. Omitted, the session is an ordinary one.
+   A joined session that moves to another checkout says so with `PATCH {prefix}/api/agent/session`
+   (or the `session_move` tool), sending `work_location`, `repository`, or both; a field it leaves
+   out stays as it is. It keeps its id, role, tasks, locks and feed position, `sessions_list` and
+   the lane board show the new place at once, and so does its seat, since a seat is the place. A
+   value the start refuses is refused with the same message, a session that has ended is answered
+   409, and the move is recorded as a `session.moved` event whose data carries `from_repository`,
+   `from_work_location`, `to_repository` and `to_work_location`. It moves only the session the
+   token belongs to. `work_location` is a short label such as `a`, `ci` or `primary`, never a path.
 
 Every response that carries a bearer token names it `token`, every expiry is an `expires_in` in
 seconds, and `abilities` always describes the token beside it. Where a response also names
@@ -344,14 +352,14 @@ an agent's harness runs. Every tool calls the same store its REST endpoint does,
 cannot drift: a rule that lives in a conditional update is enforced by the write, whichever door the
 call came through.
 
-Twenty-nine tools, among them `task_list`, `task_create`, the eight task transitions, the four lock
-actions, `events_read`, `events_narrate`, `directive_post`, `presence_heartbeat` and
+Thirty-one tools, among them `task_list`, `task_create`, the eight task transitions, the four lock
+actions, `events_read`, `events_narrate`, `directive_post`, `presence_heartbeat`, `session_move` and
 `developer_settings`. Each enforces the same
 ability as its endpoint, and **a refusal comes back marked as a tool error rather than as content**:
 an MCP client cannot tell a result that describes a failure from one that describes success, so a
 refusal returned as ordinary text reads to a model as though the call had worked.
 
-**`tools/list` paginates, and the first page carries 15 of the 29.** It returns a `nextCursor` —
+**`tools/list` paginates, and the first page carries 15 of the 31.** It returns a `nextCursor` —
 base64 of `{"offset":15}` — and the rest arrive only when that cursor is passed back. Most MCP clients walk the pages for you; a hand-rolled probe
 does not, and a first page read as a total looks exactly like a complete answer, because the number
 that would contradict it is the one the page does not carry.

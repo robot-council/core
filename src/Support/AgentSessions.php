@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RobotCouncil\Support;
 
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 use RobotCouncil\Access\Role;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
@@ -231,6 +232,120 @@ final class AgentSessions
                 $this->cursors->of($session),
             );
         });
+    }
+
+    /**
+     * Move a session to another work location or repository without leaving (#535).
+     *
+     * **Everything the session holds stays with it.** Its id, its role, its tasks, its locks and
+     * its feed position are all keyed by the session, never by where it works, so this changes two
+     * columns and nothing else. Every reader -- `sessions_list`, the lane board, the dashboard --
+     * reads them off the row, so the new place shows on the next read. So does the seat: a seat is
+     * matched by place on every read (`Seats::of()`), which means a session moved into a parked
+     * seat is parked from then on, and its seat's cap is the one that applies.
+     *
+     * **Only the session itself can be moved, and the store has no other session to name.** It
+     * takes the session the request authenticated as and nothing that identifies a target, so
+     * neither edge can reach another session's row through it.
+     *
+     * **Refused with the reason `start()` gives, because it is the same check.** A host calling
+     * this directly reaches `WorkIdentity::ensure()` as a join does, and the values go into the
+     * feed every session reads.
+     *
+     * **The write is conditional on the row**, held from the read to the event, and a session that
+     * has gone is refused rather than moved: its lane is over. A move to where it already is
+     * changes nothing and records nothing, for the reason `RoleRequests::settle()` gives -- MySQL
+     * counts a write of the same values as no row changed, where SQLite and Postgres count one.
+     *
+     * An ephemeral session (#424) is moved without an event, since the fleet was never told it
+     * exists.
+     *
+     * @param  AgentSession  $session  The session moving, as the request authenticated it.
+     * @param  array{repository?: string|null, work_location?: string|null}  $place  The fields to
+     *                                                                               change; a key that is absent is left as it is.
+     * @return Outcome `Applied` when the session is where it was asked to be, `NotFound` when its
+     *                 row is gone, and `Conflict` when it has ended.
+     *
+     * @throws InvalidArgumentException When a value is outside what `WorkIdentity` admits, or
+     *                                  `$place` names neither field.
+     */
+    public function move(AgentSession $session, array $place): Outcome
+    {
+        if (! \array_key_exists('repository', $place) && ! \array_key_exists('work_location', $place)) {
+            throw new InvalidArgumentException('A move names a repository, a work location, or both.');
+        }
+
+        WorkIdentity::ensure($place['repository'] ?? null, $place['work_location'] ?? null);
+
+        return DB::transaction(function () use ($session, $place): Outcome {
+            $current = AgentSession::query()->whereKey($session->getKey())->lockForUpdate()->first();
+
+            if (! $current instanceof AgentSession) {
+                return Outcome::NotFound;
+            }
+
+            if ($current->hasGone()) {
+                return Outcome::Conflict;
+            }
+
+            $from = ['repository' => $current->repository, 'work_location' => $current->work_location];
+            $to = [
+                'repository' => \array_key_exists('repository', $place) ? $place['repository'] : $from['repository'],
+                'work_location' => \array_key_exists('work_location', $place) ? $place['work_location'] : $from['work_location'],
+            ];
+
+            if ($to === $from) {
+                return Outcome::Applied;
+            }
+
+            $changed = AgentSession::query()
+                ->whereKey($current->getKey())
+                ->where('status', '!=', AgentSessionStatus::Gone->value)
+                ->update($to);
+
+            // The row is held, so a gone status cannot arrive between the read above and this
+            // write on one connection; the count is still the decision, as everywhere in the package
+            if ($changed !== 1) {
+                return Outcome::Conflict;
+            }
+
+            if (! $current->isEphemeral()) {
+                // After the row, so the feed cannot describe a move that failed to write. Both
+                // values ride the event for the reason `start()` puts them on `session.joined`: a
+                // reader of the feed groups by them without parsing a sentence.
+                $this->events->record(
+                    FleetEventType::SessionMoved,
+                    $current,
+                    sprintf('session %d moved from %s to %s.', $current->id, self::place($from), self::place($to)),
+                    [
+                        'installation_id' => $current->installation_id,
+                        'from_repository' => $from['repository'],
+                        'from_work_location' => $from['work_location'],
+                        'to_repository' => $to['repository'],
+                        'to_work_location' => $to['work_location'],
+                    ],
+                    subject: $current->user_id
+                );
+            }
+
+            return Outcome::Applied;
+        });
+    }
+
+    /**
+     * A place as the move event's sentence names it.
+     *
+     * @param  array{repository: string|null, work_location: string|null}  $place  The two fields.
+     * @return string `owner/name at a`, or whichever half there is, or `nowhere`.
+     */
+    private static function place(array $place): string
+    {
+        return match (true) {
+            $place['repository'] !== null && $place['work_location'] !== null => sprintf('%s at %s', $place['repository'], $place['work_location']),
+            $place['repository'] !== null => $place['repository'],
+            $place['work_location'] !== null => 'location '.$place['work_location'],
+            default => 'nowhere',
+        };
     }
 
     /**

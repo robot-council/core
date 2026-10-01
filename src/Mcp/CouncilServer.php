@@ -24,6 +24,7 @@ use RobotCouncil\Mcp\Tools\OwedListTool;
 use RobotCouncil\Mcp\Tools\PostDirectiveTool;
 use RobotCouncil\Mcp\Tools\PostNarrationTool;
 use RobotCouncil\Mcp\Tools\ReadFeedTool;
+use RobotCouncil\Mcp\Tools\SessionMoveTool;
 use RobotCouncil\Mcp\Tools\ShortlistTool;
 use RobotCouncil\Mcp\Tools\TaskBranchTool;
 use RobotCouncil\Mcp\Tools\TaskTransitionTool;
@@ -100,6 +101,7 @@ final class CouncilServer extends Server
             new PostDirectiveTool,
             new DeveloperSettingsTool,
             new HeartbeatTool,
+            new SessionMoveTool,
             new ShortlistTool,
             new OwedItemTool,
             new OwedItemTool(settles: true),
