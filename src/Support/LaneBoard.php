@@ -26,7 +26,8 @@ use RobotCouncil\Models\TaskStatus;
  * **`Parked` is `Seats::of()`, the rule a placement refuses on (#320)**, so the label and the
  * refusal cannot disagree.
  *
- * @phpstan-type LaneRow array{id: int, repository: string|null, developer: string|null, machine: string, harness: string, slot: string|null, label: string|null, is_gate: bool, state: string, watcher: array{state: string, age_seconds: int|null}, holding: int, capacity: int, on_what: array<string, mixed>|null, known_since: Carbon}
+ * @phpstan-type SeatGroup array{role: Role, developers: list<array{developer: string|null, lanes: list<LaneRow>}>}
+ * @phpstan-type LaneRow array{id: int, repository: string|null, developer: string|null, machine: string, harness: string, slot: string|null, label: string|null, role: Role, is_gate: bool, state: string, watcher: array{state: string, age_seconds: int|null}, holding: int, capacity: int, on_what: array<string, mixed>|null, known_since: Carbon}
  *
  * The reader is for a developer on the dashboard, who #73 decided sees the whole fleet, so issue
  * references and branches are shown here though `TaskList` withholds them from agents that may not
@@ -179,6 +180,52 @@ final class LaneBoard
     }
 
     /**
+     * One repository's lanes, grouped by role and then by developer (#514).
+     *
+     * Roles in a fixed order -- coordinator, build, gate -- and a role with no seat is left out
+     * rather than shown empty. Developers by login, compared without case so the order does not
+     * depend on how somebody capitalized their account; a seat whose developer is not known goes
+     * last, since there is no name to sort it by. Within a developer the lanes keep the order
+     * `lanes()` gave them, machine and then slot.
+     *
+     * @param  list<LaneRow>  $lanes  One repository's lanes.
+     * @return list<SeatGroup> The groups, in order.
+     */
+    public static function seatGroups(array $lanes): array
+    {
+        $groups = [];
+
+        foreach ([Role::Coordinator, Role::Build, Role::Ci] as $role) {
+            $byDeveloper = [];
+
+            foreach ($lanes as $lane) {
+                if ($lane['role'] === $role) {
+                    $byDeveloper[$lane['developer'] ?? ''][] = $lane;
+                }
+            }
+
+            if ($byDeveloper === []) {
+                continue;
+            }
+
+            // The empty key is the unknown developer, and it sorts after every login
+            // A login that is all digits becomes an integer key, hence the casts
+            uksort($byDeveloper, static fn (int|string $a, int|string $b): int => [(string) $a === '', strtolower((string) $a), (string) $a]
+                <=> [(string) $b === '', strtolower((string) $b), (string) $b]);
+
+            $developers = [];
+
+            foreach ($byDeveloper as $developer => $group) {
+                $developers[] = ['developer' => (string) $developer === '' ? null : (string) $developer, 'lanes' => $group];
+            }
+
+            $groups[] = ['role' => $role, 'developers' => $developers];
+        }
+
+        return $groups;
+    }
+
+    /**
      * How many lanes are in each state, for the overview's summary.
      *
      * The same rows the board renders, without the pull-request queues the summary never shows.
@@ -270,6 +317,7 @@ final class LaneBoard
 
             // The session named as the queue and the locks page name it (#421), from the one helper
             'label' => SessionLabels::of($session->repository, $session->installation->machine_label, $session->work_location),
+            'role' => $session->role,
             'is_gate' => $session->role === Role::Ci,
             'state' => $state,
 

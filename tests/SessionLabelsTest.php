@@ -156,7 +156,7 @@ it('names a session the same way on the lane board and the agents list', functio
     $session = labelledSession($this, 'josh-office', 'robot-council/core', 'robot-council-core-a');
 
     expect(withoutAvatars(Livewire::test(Lanes::class)->html()))
-        ->toContain('<div class="font-medium"><code>core/josh-office/a</code> &middot; octodev</div>');
+        ->toContain('<div class="font-medium"><code>core/josh-office/a</code></div>');
 
     Livewire::test(Agents::class)
         ->assertSeeHtml('<th role="columnheader">Session</th>')
