@@ -1364,6 +1364,14 @@ it('measures the warning buttons the seats, administration and access pages draw
     // Each page draws at least one, so the pass above is a measurement of them and not of nothing
     expect($ratios)->not->toBeEmpty();
 
+    // And once pressed: daisyUI's pressed rule sets the border too, from a sublayer the warning
+    // border is meant to beat, so a move of that rule into a sublayer would show here first
+    $page->script(<<<'JS'
+        () => document.querySelectorAll('.btn-warning').forEach(button => button.setAttribute('aria-pressed', 'true'))
+    JS);
+
+    $ratios = [...$ratios, ...buttonRatios($page, '.btn-warning')];
+
     foreach ($ratios as $ratio) {
         fwrite(STDERR, sprintf("warning %s %s: %s\n", $route, $theme, $ratio));
 
@@ -1374,6 +1382,34 @@ it('measures the warning buttons the seats, administration and access pages draw
     'administration' => ['robot-council.administration', '', 'gate-runner'],
     'access' => ['robot-council.access', '', 'from configuration'],
 ])->with(['light', 'dark']);
+
+it('borders only a solid, usable warning button in its label color', function (string $theme): void {
+    $page = visitSurface($this, 'robot-council.seats', '', 'robot-council-core-a', $theme);
+
+    // Each planted style, with whether its border is the label color: an outline, ghost or disabled
+    // warning button keeps daisyUI's own border, which an unscoped rule would override
+    $bordered = $page->script(<<<'JS'
+        () => {
+            const card = document.querySelector('main .card-body');
+            const probe = document.createElement('span');
+            probe.style.color = 'var(--color-warning-content)';
+            card.appendChild(probe);
+            const brown = getComputedStyle(probe).color;
+            const out = {};
+            for (const [name, style, disabled] of [['solid', '', false], ['outline', 'btn-outline', false], ['ghost', 'btn-ghost', false], ['disabled', '', true]]) {
+                const button = document.createElement('button');
+                button.className = `btn btn-target btn-warning ${style}`;
+                button.disabled = disabled;
+                button.textContent = name;
+                card.appendChild(button);
+                out[name] = getComputedStyle(button).borderTopColor === brown;
+            }
+            return out;
+        }
+    JS);
+
+    expect($bordered)->toBe(['solid' => true, 'outline' => false, 'ghost' => false, 'disabled' => false]);
+})->with(['light', 'dark']);
 
 it('finds a faint button, so the check above is not blind', function (string $theme): void {
     $page = visitSurface($this, 'robot-council.seats', '', 'robot-council-core-a', $theme);
@@ -1394,8 +1430,8 @@ it('finds a faint button, so the check above is not blind', function (string $th
                 card.appendChild(button);
             }
 
-            // And the warning style as daisyUI ships it, bordered in its own fill (#498)
-            card.lastElementChild.style.setProperty('--btn-border', 'var(--btn-color)');
+            // And the warning style with daisyUI's stock border, its fill darkened 5% (#498)
+            card.lastElementChild.style.setProperty('--btn-border', 'color-mix(in oklab, var(--btn-color), #000 5%)');
         }
     JS);
 
