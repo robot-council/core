@@ -119,6 +119,16 @@ final class Installations
             // Every live row rather than the newest, because a fleet that predates this change can
             // already carry several for one identity, and leaving all but one is the same defect
             // with a smaller number.
+            //
+            // **The developer's whole live set for the harness is held first, as `rename()` holds
+            // it** (#550). Holding only the rows that already carry the label held nothing when none
+            // did, so an approval and a rename to that label had no row in common to wait on and
+            // both committed a live installation with one identity. A rename's row is in this set
+            // whatever it is being renamed to, so the two now queue on it. The supersede read below
+            // is a separate statement for the reason `heldLiveSet()` gives: it sees a label, or an
+            // installation, that committed while the hold was waiting.
+            $this->heldLiveSet($approver, $code->harness);
+
             $superseded = $this->liveQuery($approver, $code->harness, $code->machine_label)
                 ->lockForUpdate()
                 ->get();
@@ -213,16 +223,9 @@ final class Installations
      * silent supersede arriving through a different door.
      *
      * **Every live installation of that developer and harness is held before the label is checked
-     * against them.** Holding only the renamed row would let two renames to the same label each find
-     * it free and both commit. The query asks for id order, which is the order Postgres takes the
-     * rows in; InnoDB takes them in the order it scans the identity index, which is label order.
-     * Either way `createFrom()`'s rows are a contiguous run of the same scan, taken in the same
-     * direction, so the two cannot deadlock each other.
-     * What this does NOT close is an enrollment for a label nobody holds yet, racing a rename to
-     * it: neither side has a row to wait on, and there is no unique index to refuse the second,
-     * because a revoked installation keeps its identity. The cost is the one above -- the next
-     * approval for either machine supersedes both -- and it needs an approval to land in the same
-     * moment as a rename.
+     * against them**, through `heldLiveSet()`, which `createFrom()` takes too (#550). Holding only
+     * the renamed row would let two renames to the same label each find it free and both commit,
+     * and an enrollment for a label nobody held yet had no row in common with a rename to it.
      *
      * @param  int  $installationId  The installation to rename.
      * @param  string  $machineLabel  The label it should carry.
@@ -253,13 +256,7 @@ final class Installations
                 return Outcome::Forbidden;
             }
 
-            $siblings = Installation::query()
-                ->where('user_id', $found->user_id)
-                ->where('harness', $found->harness)
-                ->whereNull('revoked_at')
-                ->orderBy('id')
-                ->lockForUpdate()
-                ->get();
+            $siblings = $this->heldLiveSet($found->user_id, $found->harness);
 
             // Revoked between the two reads: nothing live to rename
             $installation = $siblings->firstWhere('id', $found->id);
@@ -352,6 +349,56 @@ final class Installations
             actor: $actor,
             subject: $installation->user_id
         );
+    }
+
+    /**
+     * Hold every live installation one developer has for one harness, and return them as they
+     * stand once held.
+     *
+     * **The set every write to an identity serializes on** (#550). `rename()` and `createFrom()`
+     * both take it before deciding anything about a label, and a rename's own row is always in it,
+     * so an enrollment and a rename to the same label wait for each other rather than both
+     * committing. No partial unique index does this instead: the operator chose holding the set on
+     * #550, and MySQL has no partial index to give the same answer on every engine.
+     *
+     * **Read twice, and the second read is the answer.** The first statement waits for whoever
+     * holds the rows and then returns them, but only the rows its own snapshot could see: on
+     * Postgres an installation another writer INSERTED while this one waited is not among them,
+     * because a statement under read committed keeps the snapshot it started with and re-checks only
+     * the rows it had already found. So a rename that waited on an enrollment would read the set
+     * without the installation that enrollment just created, find the label free, and commit a
+     * second live row with it. The second statement starts after the wait, so it sees what
+     * committed; it is a locking read rather than a plain one because InnoDB serves a plain read
+     * from the transaction's snapshot, and a locking read from the latest committed rows. Nothing
+     * can insert into a held set between the two, because every writer that inserts holds the set
+     * first and waits on these rows -- short of the empty set below.
+     *
+     * **Id order, which is the order Postgres takes the rows in**; InnoDB takes them in the order it
+     * scans the identity index. Either way both callers run the same query and take the same rows
+     * in the same direction, so neither can deadlock the other. `robot_council_installations` is
+     * first in the package's lock order, so holding it first inverts nothing.
+     *
+     * **What it cannot hold is an empty set.** Two first enrollments of one harness by one developer,
+     * approved in the same moment for the same label, find nothing to wait on and both commit. A
+     * rename cannot be one of them, because the renamed installation is in its own set.
+     *
+     * @param  string  $userId  The developer's host key.
+     * @param  string  $harness  The harness.
+     * @return Collection<int, Installation> The live installations, held, in id order.
+     */
+    private function heldLiveSet(string $userId, string $harness): Collection
+    {
+        $hold = static fn (): Collection => Installation::query()
+            ->where('user_id', $userId)
+            ->where('harness', $harness)
+            ->whereNull('revoked_at')
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+
+        $hold();
+
+        return $hold();
     }
 
     /**
