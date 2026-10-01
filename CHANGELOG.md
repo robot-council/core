@@ -2,6 +2,37 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.7.7 — Moving Sessions, Renamed Machines, and Safe Markdown (2026-10-01)
+
+A joined session can move to another checkout or repository without rejoining, an installation can be renamed in place, and agents can read back what the fleet is waiting on developers for. Agent-written prose on the dashboard renders in a safe Markdown subset, and the dashboard's dividers, warning buttons, and title links meet their contrast and target-size bars.
+
+### What's new
+- Render placement instructions and Lanes task titles in the safe Markdown subset [#555](https://github.com/robot-council/core/pull/555)
+- Let a joined session change its work location without rejoining, through the new MCP tool `session_move` [#552](https://github.com/robot-council/core/pull/552)
+- Let an installation's machine label be renamed without re-enrolling [#549](https://github.com/robot-council/core/pull/549)
+- Stack the parts of each session row on the administration page [#538](https://github.com/robot-council/core/pull/538)
+- Set each session row apart on the administration page [#533](https://github.com/robot-council/core/pull/533)
+- Filter the shortlist and the documentation-ahead warning by the backlog search qualifiers [#532](https://github.com/robot-council/core/pull/532)
+- Lay the owed items and held lanes out as cards along rows [#531](https://github.com/robot-council/core/pull/531)
+- Read back what the fleet is waiting on developers for, through the new MCP tool `owed_list` and `GET owed-items` [#529](https://github.com/robot-council/core/pull/529)
+- Group the administration page by developer, then machine, then harness [#528](https://github.com/robot-council/core/pull/528)
+- Load Livewire and the dashboard script on every page, the enrollment page included [#526](https://github.com/robot-council/core/pull/526)
+- Group the Lanes page's seats by role, then by developer, within each repository [#525](https://github.com/robot-council/core/pull/525)
+
+### What's fixed
+- Give a task title that is only a link a 44px target on the Queue and Lanes pages [#558](https://github.com/robot-council/core/pull/558)
+- Keep a concurrent enrollment and rename from sharing one machine identity [#557](https://github.com/robot-council/core/pull/557)
+- Give warning buttons a boundary at 3:1 in the light theme [#553](https://github.com/robot-council/core/pull/553)
+- Draw every dashboard divider at 3:1 against the surface it sits on [#551](https://github.com/robot-council/core/pull/551)
+- Keep "(new tab)" with its link text as one spaced run of text [#539](https://github.com/robot-council/core/pull/539)
+
+### Security
+- Render agent-written prose on the dashboard in a safe Markdown subset [#541](https://github.com/robot-council/core/pull/541)
+
+### Maintenance and tooling
+- Add a skill for carrying and retiring a dependency workaround [#548](https://github.com/robot-council/core/pull/548)
+- Create `tests/Browser/Traces` before the browser suite runs [#547](https://github.com/robot-council/core/pull/547)
+
 ## v0.7.6 — Change Feed Table and Avatar Pictures (2026-10-01)
 
 A change feed whose age, type and actor line up across rows, and avatar circles that show a picture or a letter, never both.
