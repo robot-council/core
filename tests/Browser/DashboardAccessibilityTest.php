@@ -1016,7 +1016,7 @@ it('finds each way a pair of session rows can fail to be set apart, so the check
     $faults = array_values(array_filter(array_map(sessionRowFault(...), sessionRowPairs($page))));
 
     expect($faults)->not->toBeEmpty()
-        ->and($faults[0])->toStartWith($fault);
+        ->and(str_starts_with($faults[0], $fault))->toBeTrue($faults[0]);
 })->with([
     // The markup before #516: the 4px row gap and no rule
     'the old 4px rows' => ["ul.classList.remove('session-rows'); ul.style.rowGap = '0.25rem';", 'contents 4.0px apart'],
