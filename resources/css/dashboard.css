@@ -479,6 +479,25 @@
         --btn-shade: #fff;
     }
 
+    /*
+     * A warning button's edge in its own label color (#498). daisyUI borders a button in its fill
+     * darkened 5%, which against a card in the light theme is 2.02:1 -- the yellow fill itself is
+     * 1.76:1 -- so nothing marked the button's edge at SC 1.4.11's 3:1. `warning-content` is the
+     * brown every warning label is already drawn in, so the border adds no color: it is the
+     * cautionary pairing a `badge-warning` already shows, and it stays distinct from `btn-primary`'s
+     * violet fill and `btn-outline`'s transparent one. Declared in this layer, it holds through
+     * hover and press, whose daisyUI rules sit in a sublayer below it. The dark theme's fill already
+     * passes, so the border there is a dark edge between the fill and the card.
+     *
+     * **Only a solid, usable warning button.** A rule in this layer also beats daisyUI's disabled
+     * rule, which clears the border, and the outline, ghost, soft, dash and link styles, which set
+     * their own: a disabled button would gain an outline that looks enabled, and an outline warning
+     * button in the dark theme would trade an 8.98:1 yellow edge for a 1.21:1 brown one.
+     */
+    :where(.btn-warning):not(.btn-outline, .btn-ghost, .btn-soft, .btn-dash, .btn-link, :disabled, [disabled], .btn-disabled, [aria-disabled="true"]) {
+        --btn-border: var(--color-warning-content);
+    }
+
     :where(.btn-primary, .btn-warning):is(:hover, :active, [aria-pressed="true"], [aria-checked="true"], [aria-current]:not([aria-current="false"], [aria-current=""])):not(:disabled, [disabled], .btn-disabled, [aria-disabled="true"]) {
         --btn-bg: color-mix(in oklab, var(--btn-color), var(--btn-shade) 7%);
     }
