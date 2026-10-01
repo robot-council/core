@@ -196,9 +196,10 @@ final class LaneBoard
     {
         $groups = [];
 
-        // The three in #514's order, then any role added later, so a new one's seats are not dropped
-        $order = [Role::Coordinator, Role::Build, Role::Ci];
-        $order = [...$order, ...array_filter(Role::cases(), static fn (Role $role): bool => ! \in_array($role, $order, true))];
+        // Every role, in #514's order. A `match` rather than a list, so a role added later fails
+        // analysis here instead of its seats silently dropping off the page
+        $order = Role::cases();
+        usort($order, static fn (Role $a, Role $b): int => self::roleRank($a) <=> self::roleRank($b));
 
         foreach ($order as $role) {
             $byDeveloper = [];
@@ -231,6 +232,21 @@ final class LaneBoard
         }
 
         return $groups;
+    }
+
+    /**
+     * Where a role's seats come on the page: coordinators, then builds, then gates (#514).
+     *
+     * @param  Role  $role  The role.
+     * @return int Its place.
+     */
+    private static function roleRank(Role $role): int
+    {
+        return match ($role) {
+            Role::Coordinator => 0,
+            Role::Build => 1,
+            Role::Ci => 2,
+        };
     }
 
     /**

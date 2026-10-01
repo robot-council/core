@@ -191,6 +191,7 @@ it('avatars each developer heading', function (): void {
 });
 
 it('orders logins of digits as text, the same whatever order the seats arrived in', function (array $order): void {
+    /** @var list<'9'|'10'|'1e1'> $order */
     $this->setAccessLists(developers: [501, 502, 503, 601, 602, 603]);
 
     $installations = [];
