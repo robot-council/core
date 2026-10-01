@@ -219,3 +219,54 @@ it('says "(continued)" on a page that carries on a group from the one before', f
     ])->and($next)->toContain('<code>claude-code</code>')
         ->not->toContain('<code>codex</code>');
 });
+
+it('marks a group of a machine named by digits alone continued', function (): void {
+    // A label of digits is legal, and as an array key PHP makes it an integer
+    groupedInstallation($this, $this->zara, '42', 'claude-code');
+    groupedInstallation($this, $this->zara, '42', 'codex');
+
+    $list = $this->service(InstallationList::class);
+    $first = $list->everything(1);
+
+    expect(groupLines($list->everything(1, Scope::Live, $first['cursor'])))->toBe(['Zara+ / 42+ / claude-code']);
+});
+
+it('counts only the earlier pages of the scope being read', function (): void {
+    groupedInstallation($this, $this->zara, 'zeta-box', 'claude-code');
+    groupedInstallation($this, $this->bob, 'bob-box', 'claude-code');
+    $revoked = groupedInstallation($this, $this->zara, 'zeta-box', 'codex');
+    Installation::query()->whereKey($revoked->id)->update(['revoked_at' => now()]);
+
+    $list = $this->service(InstallationList::class);
+
+    // Usable only: bob's is the first page, and Zara's revoked one is on no page, so Zara is new
+    $first = $list->everything(1, Scope::Live);
+    expect(groupLines($list->everything(1, Scope::Live, $first['cursor'])))->toBe(['Zara / zeta-box / claude-code']);
+
+    // Everything: the revoked one heads the first page, so Zara on the third carries it on
+    $first = $list->everything(1, Scope::All);
+    $second = $list->everything(1, Scope::All, $first['cursor']);
+    expect(groupLines($list->everything(1, Scope::All, $second['cursor'])))->toBe(['Zara+ / zeta-box+ / claude-code']);
+});
+
+it('marks the unknown developer continued, and orders its matching harnesses newest first', function (): void {
+    $other = $this->enrollDeveloper(704, login: 'shade');
+    GithubIdentity::query()->where('user_id', $other->getKey())->delete();
+
+    $older = groupedInstallation($this, $this->ghost, 'shared-box', 'claude-code');
+    $newer = groupedInstallation($this, $other, 'shared-box', 'claude-code');
+    $codex = groupedInstallation($this, $this->ghost, 'shared-box', 'codex');
+
+    $list = $this->service(InstallationList::class);
+
+    // Two host users with no login share one group, and a machine and harness: newest first
+    $all = $list->everything(50);
+    expect(array_column($all['groups'][0]['machines'][0]['installations'], 'id'))->toBe([$newer->id, $older->id, $codex->id]);
+
+    // The codex one is the first page, so the unknown developer's group carries on after it
+    $first = $list->everything(1);
+    expect(groupLines($list->everything(2, Scope::Live, $first['cursor'])))->toBe([
+        '(unknown)+ / shared-box+ / claude-code',
+        '(unknown)+ / shared-box+ / claude-code',
+    ]);
+});

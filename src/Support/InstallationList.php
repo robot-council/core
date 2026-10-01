@@ -226,31 +226,36 @@ final class InstallationList
      */
     private static function groups(array $rows, array $earlier): array
     {
+        // Keyed by `k` and the value, never the bare value: PHP makes a key of digits alone an
+        // integer, a login or machine label can be digits alone, and an integer would then fail
+        // every strict comparison against an earlier page's string. A cast where the key is read
+        // back does the same job, and Rector removes it as redundant -- which is how this broke once
         $byDeveloper = [];
 
         foreach ($rows as $row) {
             $developer = \is_string($row['github_login'] ?? null) ? $row['github_login'] : '';
             $machine = \is_string($row['machine_label'] ?? null) ? $row['machine_label'] : '';
-            $byDeveloper[$developer][$machine][] = $row;
+            $byDeveloper['k'.$developer]['k'.$machine][] = $row;
         }
 
-        // Compared as text, never as numbers: `<=>` reads a login or label of digits as a number,
-        // and an array key of digits alone becomes an integer, hence the casts. The empty developer
-        // is the unknown one, and it sorts after every login
-        $text = static fn (int|string $a, int|string $b): int => strcasecmp((string) $a, (string) $b) ?: strcmp((string) $a, (string) $b);
-        uksort($byDeveloper, static fn (int|string $a, int|string $b): int => (((string) $a === '') <=> ((string) $b === '')) ?: $text($a, $b));
+        // Compared as text, without regard to case and then exactly. The empty developer is the
+        // unknown one, and it sorts after every login
+        $text = static fn (string $a, string $b): int => strcasecmp($a, $b) ?: strcmp($a, $b);
+        uksort($byDeveloper, static fn (string $a, string $b): int => (($a === 'k') <=> ($b === 'k')) ?: $text($a, $b));
 
         $groups = [];
 
-        foreach ($byDeveloper as $developer => $machines) {
-            $developer = $developer === '' ? null : $developer;
+        foreach ($byDeveloper as $developerKey => $machines) {
+            $developer = $developerKey === 'k' ? null : substr($developerKey, 1);
             uksort($machines, $text);
 
             $grouped = [];
 
-            foreach ($machines as $machine => $installations) {
-                usort($installations, static fn (array $a, array $b): int => $text(\is_string($a['harness'] ?? null) ? $a['harness'] : '', \is_string($b['harness'] ?? null) ? $b['harness'] : '')
-                    ?: ($b['id'] ?? 0) <=> ($a['id'] ?? 0));
+            foreach ($machines as $machineKey => $installations) {
+                $machine = substr($machineKey, 1);
+
+                // `usort` is stable from PHP 8, so harnesses that match keep the page's newest-first order
+                usort($installations, static fn (array $a, array $b): int => $text(\is_string($a['harness'] ?? null) ? $a['harness'] : '', \is_string($b['harness'] ?? null) ? $b['harness'] : ''));
 
                 $grouped[] = [
                     'machine' => $machine,

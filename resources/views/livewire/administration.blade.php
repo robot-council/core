@@ -5,8 +5,10 @@
     the #67 guard enforces over every template under `resources/views/`. And **only values this
     package chose reach a `wire:` expression** -- a row id, and an ability from the fixed list in
     `Access\Ability`. Every agent-supplied string on this page (a harness, a machine label, a
-    project id) is rendered as text and reaches no attribute at all, which is what keeps #81's gap
-    theoretical here rather than load-bearing.
+    project id) is rendered as text and reaches no `wire:` expression, which is what keeps #81's gap
+    theoretical here rather than load-bearing. Two reach a plain attribute since #518, escaped: a
+    machine label and a developer's login name their group in a `wire:key` and a `data-` attribute.
+    A label is `[A-Za-z0-9._-]` by `MachineIdentity`, and a login is GitHub's.
 
     Nothing on this page is a credential. `Support\InstallationList` reads no column that holds one.
 --}}
@@ -71,15 +73,17 @@
                         </h2>
 
                         @foreach ($group['machines'] as $machine)
-                            <div wire:key="installations-machine-{{ $group['developer'] ?? '' }}-{{ $machine['machine'] }}" class="mt-3" data-installation-machine="{{ $machine['machine'] }}">
-                                <h3 class="font-medium">
+                            <div wire:key="installations-machine-{{ $group['developer'] ?? '' }}|{{ $machine['machine'] }}" class="mt-3" data-installation-machine="{{ $machine['machine'] }}">
+                                {{-- Set apart from the harness entries beneath it by weight and by the
+                                     rule the entries hang from, so the three levels read as three --}}
+                                <h3 class="font-semibold">
                                     <code>{{ $machine['machine'] }}</code>
                                     @if ($machine['continued'])
                                         <span class="opacity-90">(continued)</span>
                                     @endif
                                 </h3>
 
-                                <ul class="divide-y divide-base-200">
+                                <ul class="mt-1 ms-2 divide-y divide-base-200 border-s-2 border-base-300 ps-4">
                                     @foreach ($machine['installations'] as $installation)
                                         <li wire:key="installation-{{ $installation['id'] }}" class="py-4">
                                             <div class="flex flex-wrap items-start justify-between gap-2">
