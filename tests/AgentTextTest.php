@@ -14,6 +14,7 @@ use RobotCouncil\Livewire\ChangeFeed;
 use RobotCouncil\Livewire\Lanes;
 use RobotCouncil\Livewire\TaskBoard;
 use RobotCouncil\Models\FleetEventType;
+use RobotCouncil\Models\TaskTransition;
 use RobotCouncil\Support\AgentText;
 use RobotCouncil\Support\FleetEvents;
 use RobotCouncil\Support\OwedItems;
@@ -331,5 +332,85 @@ describe('the fields that use it', function (): void {
         expect($html)->toContain('<code>idx</code>')
             ->and($html)->toContain('<strong>now</strong>')
             ->and($html)->toContain('<p class="break-words">Task `raw` *as written*</p>');
+    });
+
+    it("renders a placement's instruction on the feed, escaped exactly as narration is (#540)", function (): void {
+        $this->actingAs($this->developer, 'web');
+
+        [$lane] = $this->startAgentSession($this->approveInstallation($this->developer));
+
+        $text = "Take `#540`; **no** release. <script>alert(1)</script>\n\n- build\n- merge";
+
+        app(FleetEvents::class)->record(FleetEventType::Narration, $this->coordinatorSession, $text, withCoordinator: true);
+        app(FleetEvents::class)->record(
+            FleetEventType::PlacementInstruction,
+            $this->coordinatorSession,
+            $text,
+            ['task_id' => 1, 'hand_back' => false, 'to' => [$lane->id]],
+            withCoordinator: true,
+            addressees: [$lane]
+        );
+
+        $html = withoutLivewireMarkers(Livewire::test(ChangeFeed::class)->html());
+
+        preg_match_all('#<td role="cell" data-label="What happened" data-feed-body>(.*?)</td>#s', $html, $bodies);
+
+        $rendered = array_values(array_filter($bodies[1], static fn (string $body): bool => str_contains($body, 'release')));
+
+        // Both events are on the page, rendered, and rendered identically: the instruction is
+        // escaped by exactly the path narration takes
+        expect($rendered)->toHaveCount(2)
+            ->and($rendered[0])->toBe($rendered[1])
+            ->and($rendered[0])->toContain('data-feed-prose')
+            ->and($rendered[0])->toContain('<code>#540</code>')
+            ->and($rendered[0])->toContain('<strong>no</strong>')
+            ->and($rendered[0])->toContain('<li>build</li>')
+            ->and($rendered[0])->toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
+            ->and($rendered[0])->not->toContain('<script');
+    });
+
+    it('leaves the body of every other event type plain on the feed', function (): void {
+        $this->actingAs($this->developer, 'web');
+
+        $rendered = [FleetEventType::Narration, FleetEventType::Directive, FleetEventType::PlacementInstruction];
+        $plain = array_values(array_filter(FleetEventType::cases(), static fn (FleetEventType $type): bool => ! in_array($type, $rendered, true)));
+
+        // With the coordinator flag, so a restricted type reaches this reader as well
+        foreach ($plain as $type) {
+            app(FleetEvents::class)->record($type, $this->coordinatorSession, sprintf('Body of %s with `code` and *stress*', $type->value), withCoordinator: true);
+        }
+
+        $html = withoutLivewireMarkers(Livewire::test(ChangeFeed::class)->html());
+
+        expect($plain)->not->toBeEmpty();
+
+        foreach ($plain as $type) {
+            expect($html)->toContain(sprintf('<p class="break-words">Body of %s with `code` and *stress*</p>', $type->value));
+        }
+    });
+
+    it('renders a task title on the Lanes page as the Queue does (#540)', function (): void {
+        [$lane] = $this->startAgentSession($this->approveInstallation($this->developer));
+
+        $lane->forceFill(['repository' => 'robot-council/core', 'work_location' => 'a'])->save();
+
+        $title = 'Bump `league/commonmark` *now* <img src=x onerror=alert(1)>';
+
+        $tasks = $this->service(Tasks::class);
+        $task = $tasks->create($lane, ['title' => $title], withCoordinator: false);
+        $tasks->transition($task->id, TaskTransition::Claim, $lane, asCoordinator: false);
+
+        $lanes = withoutLivewireMarkers(Livewire::actingAs($this->developer)->test(Lanes::class)->html());
+        $queue = withoutLivewireMarkers(Livewire::actingAs($this->developer)->test(TaskBoard::class)->html());
+
+        preg_match('#<span data-lane-task-title>(.*?)</span>\s*<span class="text-meta#s', $lanes, $onLanes);
+        preg_match('#data-task-title>(.*?)</div>#s', $queue, $onQueue);
+
+        expect($onLanes[1] ?? null)->toBeString()
+            ->and(trim($onLanes[1] ?? ''))->toBe(trim($onQueue[1] ?? ''))
+            ->and($onLanes[1] ?? '')->toContain('<code>league/commonmark</code>')
+            ->and($onLanes[1] ?? '')->toContain('<em>now</em>')
+            ->and($onLanes[1] ?? '')->toContain('&lt;img src=x onerror=alert(1)&gt;')
+            ->and($onLanes[1] ?? '')->not->toContain('<img');
     });
 });

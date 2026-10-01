@@ -97,9 +97,10 @@
                                          the smaller table size and this is the page's prose --}}
                                     <div class="max-w-xl text-body leading-relaxed">
                                         {{-- What an agent or a person wrote, in the safe Markdown
-                                             subset (#537); a body the package composed stays the
-                                             text it is --}}
-                                        @if (in_array($event['type'], [\RobotCouncil\Models\FleetEventType::Narration->value, \RobotCouncil\Models\FleetEventType::Directive->value], true))
+                                             subset (#537): narration, a directive, and a placement's
+                                             instruction, which is the coordinator's own words (#540).
+                                             A body the package composed stays the text it is --}}
+                                        @if (in_array($event['type'], [\RobotCouncil\Models\FleetEventType::Narration->value, \RobotCouncil\Models\FleetEventType::Directive->value, \RobotCouncil\Models\FleetEventType::PlacementInstruction->value], true))
                                             <x-robot-council::agent-text :text="$event['body']" class="break-words" data-feed-prose />
                                         @else
                                             <p class="break-words">{{ $event['body'] }}</p>
