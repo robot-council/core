@@ -2081,3 +2081,111 @@ it('finds a faint card and a card with no border, so the check above is not blin
         ->and($faint[0])->toStartWith('Planted faint 1.')
         ->and($faint[1])->toBe('Planted bare no border');
 })->with(['light', 'dark']);
+
+/**
+ * Every new-tab link on the page whose text is a reference in `<code>` (#536): its rendered text,
+ * and where "(new tab)" starts against the reference's last line and its left edge.
+ *
+ * @return list<array{text: string, gap: float|null, sameLine: bool, underneath: bool, lines: int, height: float}>
+ */
+function newTabRuns(PendingAwaitablePage $page): array
+{
+    $runs = $page->script(<<<'JS'
+        () => [...document.querySelectorAll('main a[target="_blank"]')]
+            .filter(a => a.querySelector('code') && a.getClientRects().length > 0)
+            .map(a => {
+                const code = a.querySelector('code');
+                const text = [...a.childNodes].find(n => n.nodeType === Node.TEXT_NODE && n.textContent.includes('(new tab)'));
+                const range = document.createRange();
+                const from = text.textContent.indexOf('(');
+                range.setStart(text, from);
+                range.setEnd(text, from + 1);
+                const mark = range.getBoundingClientRect();
+                // Read off the box and its line height rather than its client rects: a reference
+                // made a flex item is a block, which reports one rect however many lines it wraps
+                const box = code.getBoundingClientRect();
+                const height = parseFloat(getComputedStyle(code).lineHeight);
+                const lastTop = box.bottom - height;
+                const sameLine = Math.abs(mark.top - lastTop) < height / 2;
+                return {
+                    text: a.innerText.replace(/\s+/g, ' ').trim(),
+                    // Drawn apart, not merely apart in the text: a flex box keeps the space in
+                    // innerText and draws none
+                    gap: sameLine ? mark.left - (code.getClientRects().length > 1 ? [...code.getClientRects()].pop().right : box.right) : null,
+                    sameLine,
+                    // Wrapped to the line after the reference's last, keyed to the line height
+                    // rather than the box, whose padding and border run past the line box
+                    underneath: mark.top >= lastTop + height / 2 && mark.left <= box.left + 0.5,
+                    lines: Math.round(box.height / height),
+                    height: a.getBoundingClientRect().height,
+                };
+            })
+    JS);
+
+    if (! is_array($runs)) {
+        throw new RuntimeException('The new-tab link read returned nothing.');
+    }
+
+    /** @var list<array{text: string, gap: float|null, sameLine: bool, underneath: bool, lines: int, height: float}> $runs */
+    return $runs;
+}
+
+/**
+ * Why each new-tab run does not read as one spaced run of text, by its text (#536).
+ *
+ * @param  list<array{text: string, gap: float|null, sameLine: bool, underneath: bool, lines: int, height: float}>  $runs  The runs.
+ * @return list<string> One entry per fault.
+ */
+function newTabFaults(array $runs): array
+{
+    $faults = [];
+
+    foreach ($runs as $run) {
+        if (! $run['sameLine'] && ! $run['underneath']) {
+            $faults[] = 'a column of its own: '.$run['text'];
+        }
+
+        if ($run['gap'] !== null && $run['gap'] < 2) {
+            $faults[] = 'run together: '.$run['text'];
+        }
+    }
+
+    return $faults;
+}
+
+/**
+ * Seed an owed item whose reference is long enough to wrap on a phone, and re-render.
+ */
+function longOwedReference(PendingAwaitablePage $page): PendingAwaitablePage
+{
+    $coordinator = AgentSession::query()->where('role', Role::Coordinator->value)->firstOrFail();
+    app(OwedItems::class)->record($coordinator, 'octodev', 'UAMS-Web/wordpress-importer-exports-archive#12720', 'Decide whether the long reference wraps with its indicator', 'blocks a lane');
+
+    expect($page->script('async () => { await Promise.all(window.Livewire.all().map(c => c.$wire.$refresh())); return "polled"; }'))->toBe('polled');
+
+    return $page;
+}
+
+it('keeps "(new tab)" with its reference as one spaced run of text, at every width (#536)', function (string $route, string $expect, int $width): void {
+    $page = longOwedReference(visitSurface($this, $route, '', $expect, 'light'));
+    $page->resize($width, 900);
+
+    $runs = newTabRuns($page);
+    $described = json_encode($runs, JSON_THROW_ON_ERROR);
+
+    // The long reference is among them, and on a phone it really does wrap
+    $long = array_values(array_filter($runs, static fn (array $run): bool => str_starts_with($run['text'], 'UAMS-Web/wordpress-importer-exports-archive#12720')));
+    expect($long)->toHaveCount(1, $described);
+
+    if ($width === 390) {
+        expect($long[0]['lines'])->toBeGreaterThan(1, $described);
+    }
+
+    // A space between them, and "(new tab)" either on the reference's last line or wrapped under
+    // it, never a column of its own beside it
+    expect(newTabFaults($runs))->toBe([], $described)
+        ->and(sidewaysScroll($page))->toBe(0);
+})->with([
+    'Waiting on me' => ['robot-council.waiting', 'Run the screen-reader pass'],
+    'Lanes' => ['robot-council.lanes', 'Run the screen-reader pass'],
+])->with([390, 1280]);

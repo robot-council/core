@@ -151,7 +151,7 @@
                                                                     <li wire:key="lane-{{ $lane['id'] }}-task-{{ $work['task_id'] }}" data-held-task>
                                                                         <div>
                                                                             @if (\RobotCouncil\Support\TicketLink::url($work['ticket']) !== null)
-                                                                                <x-robot-council::external-link :reference="$work['ticket']" class="link inline-flex min-h-11 min-w-11 items-center"><code>{{ $work['ticket'] }}</code></x-robot-council::external-link>
+                                                                                <x-robot-council::external-link :reference="$work['ticket']" class="link inline-block min-h-11 min-w-11 py-3"><code>{{ $work['ticket'] }}</code></x-robot-council::external-link>
                                                                             @elseif ($work['ticket'] !== null)
                                                                                 <code>{{ $work['ticket'] }}</code>
                                                                             @else

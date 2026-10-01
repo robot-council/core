@@ -160,3 +160,71 @@ it('renders a value GitHub cannot link as plain text, never as a link to nowhere
     'a login GitHub would refuse' => ['login="-not-a-login"'],
     'nothing at all' => [''],
 ]);
+
+/**
+ * The `external-link` tags in some Blade source that make the link a flex or grid container (#536).
+ *
+ * Inside a flex box the slot and the words " (new tab)" become two flex items: the space between
+ * them is dropped, and at a narrow width each shrinks into a column of its own. A grid splits them
+ * the same way. A `class` or `:class`, quoted either way and read whole through any echo, with a
+ * `flex`, `inline-flex`, `grid` or `inline-grid` token at any breakpoint is refused; `flex-wrap`,
+ * `flex-1`, `grid-cols-2` and their kind are not display values and are left alone.
+ *
+ * @param  string  $source  The Blade source.
+ * @return list<string> The offending tags.
+ */
+function flexExternalLinks(string $source): array
+{
+    $source = (string) preg_replace('/\{\{--.*?--\}\}/s', '', $source);
+
+    preg_match_all('/<x-robot-council::external-link\b(?:\{\{.*?\}\}|[^>"\']|"[^"]*"|\'[^\']*\')*>/is', $source, $tags);
+
+    return array_values(array_filter($tags[0], static function (string $tag): bool {
+        preg_match_all('/\s:?class=("(?:\{\{.*?\}\}|[^"])*"|\'[^\']*\')/is', $tag, $classes);
+
+        return array_any($classes[1], fn (string $class): bool => preg_match('/(?<![\w-])(?:[\w\[\]-]+:)*!?(?:inline-)?(?:flex|grid)!?(?![\w-])/i', $class) === 1);
+    }));
+}
+
+it('refuses an external link made a flex or grid container, at any breakpoint, and admits the rest (#536)', function (string $class, bool $refused): void {
+    $source = sprintf('<x-robot-council::external-link :reference="$ticket" %s><code>{{ $ticket }}</code></x-robot-council::external-link>', str_contains($class, '=') ? $class : 'class="'.$class.'"');
+
+    expect(flexExternalLinks($source))->toHaveCount($refused ? 1 : 0);
+})->with([
+    'inline-flex' => ['link inline-flex min-h-11 items-center', true],
+    'flex' => ['link flex min-h-11', true],
+    'flex at a breakpoint' => ['link inline-block sm:flex', true],
+    'inline-flex at a stacked variant' => ['link md:hover:inline-flex', true],
+    'important flex' => ['link !flex', true],
+    'grid' => ['link grid', true],
+    'inline-grid at a breakpoint' => ['link max-sm:inline-grid', true],
+    'single-quoted' => ["class='link inline-flex'", true],
+    'bound' => [':class="$wide ? \'link flex\' : \'link\'"', true],
+    'built in an echo' => ['class="link {{ $wide ? "inline-flex" : "" }}"', true],
+    'the fix' => ['link inline-block min-h-11 py-3', false],
+    'flex-1 is not a display' => ['link flex-1', false],
+    'grid-cols-2 is not a display' => ['link grid-cols-2', false],
+    'a plain link' => ['link', false],
+    'flex-wrap is not a display' => ['link inline-block flex-wrap', false],
+    'flex-col is not a display' => ['link flex-col', false],
+]);
+
+it('finds no external link in any view made a flex or grid container (#536)', function (): void {
+    $scanned = 0;
+    $links = 0;
+    $offending = [];
+
+    foreach (Finder::create()->files()->in(__DIR__.'/../resources/views')->name('*.blade.php') as $file) {
+        $scanned++;
+        $links += preg_match_all('/<x-robot-council::external-link\b/', $file->getContents());
+
+        foreach (flexExternalLinks($file->getContents()) as $tag) {
+            $offending[] = $file->getRelativePathname().': '.$tag;
+        }
+    }
+
+    // A scan that found no link would pass on nothing
+    expect($scanned)->toBeGreaterThan(10)
+        ->and($links)->toBeGreaterThan(3)
+        ->and($offending)->toBeEmpty('External links made flex or grid containers:'.PHP_EOL.implode(PHP_EOL, $offending));
+});
