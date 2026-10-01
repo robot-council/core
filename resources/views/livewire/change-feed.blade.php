@@ -96,10 +96,14 @@
                                     {{-- At the body size, since a table's cells are otherwise at
                                          the smaller table size and this is the page's prose --}}
                                     <div class="max-w-xl text-body leading-relaxed">
-                                        {{-- What an agent or a person wrote, in the safe Markdown
-                                             subset (#537): narration, a directive, and a placement's
-                                             instruction, which is the coordinator's own words (#540).
-                                             A body the package composed stays the text it is --}}
+                                        {{-- The types whose body is what an agent or a person
+                                             wrote, in the safe Markdown subset (#537): narration, a
+                                             directive, and a placement's instruction, which is the
+                                             coordinator's own words (#540). A directive the package
+                                             writes itself, such as a placement's wake-up, passes
+                                             through too and carries no Markdown. Every other type's
+                                             body is a sentence the package composed, and stays the
+                                             text it is --}}
                                         @if (in_array($event['type'], [\RobotCouncil\Models\FleetEventType::Narration->value, \RobotCouncil\Models\FleetEventType::Directive->value, \RobotCouncil\Models\FleetEventType::PlacementInstruction->value], true))
                                             <x-robot-council::agent-text :text="$event['body']" class="break-words" data-feed-prose />
                                         @else
