@@ -924,14 +924,14 @@ function sessionRowPairs(PendingAwaitablePage $page): array
                         layers.splice(1, 0, getComputedStyle(node).backgroundColor);
                     }
                     const drawn = cs.borderTopStyle !== 'none' && parseFloat(cs.borderTopWidth) > 0;
-                    const detail = a.querySelector('[data-session-detail]').getBoundingClientRect();
+                    const actions = a.querySelector('[data-session-actions]').getBoundingClientRect();
                     out.push({
                         gap: content(b).top - content(a).bottom,
                         overlap: ra.bottom - rb.top,
                         escaped,
                         style: drawn ? cs.borderTopStyle : 'none',
                         ratio: drawn ? ratio(paint(...layers, cs.borderTopColor), paint(...layers)) : null,
-                        wrapped: detail.height > 60,
+                        wrapped: actions.height > 60,
                     });
                 }
             }
@@ -977,7 +977,7 @@ it('sets each session row apart on Administration, with its buttons inside it, a
         expect(sessionRowFault($pair))->toBeNull(json_encode($pair, JSON_THROW_ON_ERROR));
     }
 
-    // Where the buttons wrap the details onto several lines, the rows stay apart as well
+    // Where the actions wrap onto a second line of buttons, the rows stay apart as well
     if ($width === 390) {
         expect(array_filter(array_column($pairs, 'wrapped')))->not->toBeEmpty();
     }
@@ -1025,6 +1025,101 @@ it('finds each way a pair of session rows can fail to be set apart, so the check
     'buttons spilling out of a row' => ["[...ul.children].slice(1).forEach(li => { li.style.height = '20px'; li.style.overflow = 'visible'; li.style.marginBottom = '4rem'; });", 'buttons outside their row'],
     'a solid rule' => ["[...ul.children].slice(1).forEach(li => { li.style.borderTopStyle = 'solid'; });", 'a solid rule'],
     'a rule in the card color' => ["[...ul.children].slice(1).forEach(li => { li.style.borderTopColor = 'var(--color-base-100)'; });", 'a rule at 1.00:1'],
+]);
+
+/**
+ * Why the parts of the pending-request session row on Administration do not each take a line of
+ * their own, as drawn (#519): one entry per fault, empty when every part has its line.
+ *
+ * Read from the seeded `home-windows` session, which has asked to be a coordinator, so all four
+ * lines are present. A line "shares" with another part when their boxes overlap vertically.
+ *
+ * Below `sm` a group of buttons may wrap within its own block, and only there: at 390px the cell is
+ * 284px wide, and the request's badge and two answers need 334px and the actions 410px at the 44px
+ * target every control keeps, which no layout fits on one line without shrinking a target.
+ *
+ * @param  bool  $oneLine  Whether each group must also fit on a single line.
+ * @return array{parts: int, faults: list<string>} How many parts were measured, and each fault.
+ */
+function sessionRowLines(PendingAwaitablePage $page, bool $oneLine = true): array
+{
+    $found = $page->script(sprintf(<<<'JS'
+        () => {
+            const oneLine = %s;
+            const row = document.querySelector('[data-installation-machine="home-windows"] [data-admin-sessions] > li');
+            if (! row) { return null; }
+            // A part counts only when it is drawn: a hidden group measures as nothing and could
+            // otherwise never be found sharing a line
+            const part = (name, el) => {
+                const box = el ? el.getBoundingClientRect() : null;
+                return box && box.height > 0 ? { name, box } : null;
+            };
+            const lines = ['joined', 'seen', 'request', 'actions']
+                .map(name => part(name, row.querySelector(`[data-session-${name}]`)));
+            const others = [
+                ...[...row.children].filter(el => ! el.matches('[data-session-detail]'))
+                    .map(el => part(el.matches('[data-session-id]') ? 'id' : `badge ${el.textContent.trim()}`, el)),
+                part('where', row.querySelector('[data-session-where]')),
+            ];
+            const faults = [];
+            lines.forEach((line, i) => {
+                if (! line) { faults.push(`no ${['joined', 'seen', 'request', 'actions'][i]} line`); return; }
+                for (const other of [...lines.filter(l => l && l !== line), ...others.filter(Boolean)]) {
+                    const shared = Math.min(line.box.bottom, other.box.bottom) - Math.max(line.box.top, other.box.top);
+                    if (shared > 0.5) { faults.push(`${line.name} shares a line with ${other.name}`); }
+                }
+                // Together on one line: some height crosses every part of the group, which a badge
+                // centered beside taller buttons does and a group that wrapped does not
+                const boxes = [...row.querySelector(`[data-session-${line.name}]`).children].map(el => el.getBoundingClientRect());
+                if (oneLine && boxes.length > 1 && Math.max(...boxes.map(b => b.top)) >= Math.min(...boxes.map(b => b.bottom))) {
+                    faults.push(`${line.name} wraps onto another line`);
+                }
+            });
+            return { parts: lines.filter(Boolean).length + others.filter(Boolean).length, faults: [...new Set(faults)] };
+        }
+    JS, $oneLine ? 'true' : 'false'));
+
+    if (! is_array($found)) {
+        throw new RuntimeException('The pending-request session row was not found.');
+    }
+
+    /** @var array{parts: int, faults: list<string>} $found */
+    return $found;
+}
+
+it('stacks each session row so joined, last seen, a pending request and the actions each take a line (#519)', function (int $width): void {
+    $page = visitSurface($this, 'robot-council.administration', '', 'home-windows', 'light');
+    $page->resize($width, 900);
+
+    // The four lines, the id, two badges and the repository line, so a clean result measured them
+    expect(sessionRowLines($page, oneLine: $width >= 640))->toBe(['parts' => 8, 'faults' => []])
+        ->and(sidewaysScroll($page))->toBe(0);
+})->with([390, 700, 1280]);
+
+it('finds the parts of a session row run together, so the check above is not blind (#519)', function (string $plant, string $fault): void {
+    $page = visitSurface($this, 'robot-council.administration', '', 'home-windows', 'light');
+    $page->resize(1280, 900);
+
+    $page->script(sprintf("() => { const detail = document.querySelector('[data-installation-machine=\"home-windows\"] [data-session-detail]'); %s }", $plant));
+
+    $faults = sessionRowLines($page)['faults'];
+
+    // The planted fault, in part, since which badge or line it collides with depends on heights
+    expect(array_filter($faults, static fn (string $found): bool => str_contains($found, $fault)))->not->toBeEmpty(json_encode($faults, JSON_THROW_ON_ERROR));
+})->with([
+    // The request and the actions side by side on one line, under lines of their own above them
+    'request beside the actions' => ["detail.style.flexDirection = 'row'; detail.style.flexWrap = 'wrap'; detail.querySelectorAll('[data-session-where], [data-session-joined], [data-session-seen]').forEach(el => { el.style.flexBasis = '100%'; });", 'request shares a line with actions'],
+    // The request squeezed until its answers wrap under its badge
+    'request wrapping' => ["detail.querySelector('[data-session-request]').style.width = '8rem';", 'request wraps'],
+    // A line hidden, which measures as nothing
+    'a hidden joined line' => ["detail.querySelector('[data-session-joined]').style.display = 'none';", 'no joined line'],
+    // The markup before #519: one wrapping row holding every part. The groups are flattened into it
+    // as `display: contents`, which is what a single wrapping container amounts to
+    'the old single wrapping line' => ["detail.style.flexDirection = 'row'; detail.style.flexWrap = 'wrap'; detail.querySelectorAll('[data-session-where], [data-session-request], [data-session-actions]').forEach(el => { el.style.display = 'contents'; }); detail.querySelectorAll('[data-session-joined], [data-session-seen]').forEach(el => { el.style.display = 'inline'; });", 'joined shares a line with'],
+    // The badges centered against the whole stack, as the row's `items-center` would put them
+    'badges centered on the stack' => ["detail.parentElement.style.alignItems = 'center';", 'shares a line with badge'],
+    // The actions squeezed until they wrap within their own line
+    'actions wrapping' => ["detail.querySelector('[data-session-actions]').style.width = '8rem';", 'actions wraps'],
 ]);
 
 /**

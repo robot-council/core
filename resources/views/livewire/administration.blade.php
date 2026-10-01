@@ -128,7 +128,7 @@
                                                 <ul class="session-rows mt-3 sm:grid sm:grid-cols-[repeat(3,max-content)_1fr] sm:gap-x-2" data-admin-sessions>
                                                     @foreach ($installation['sessions']['shown'] as $session)
                                                         <li wire:key="admin-session-{{ $session['id'] }}"
-                                                            class="flex flex-wrap items-center gap-2 text-meta sm:col-span-4 sm:grid sm:grid-cols-subgrid">
+                                                            class="flex flex-wrap items-center gap-2 text-meta sm:col-span-4 sm:grid sm:grid-cols-subgrid sm:items-baseline">
                                                             {{-- The session's own id, which is how agents name it in a
                                                                  narration, a placement or `sessions_list` (#419) --}}
                                                             <code data-session-id>#{{ $session['id'] }}</code>
@@ -140,33 +140,43 @@
                                                                  the controls that wrote it are gone with it. --}}
                                                             <span class="badge badge-sm badge-outline">{{ \RobotCouncil\Access\Role::labelOf($session['role']) }}</span>
 
-                                                            <div class="flex min-w-0 flex-wrap items-center gap-2" data-session-detail>
-                                                                {{-- Where it is working, as the two fields #220 split the
-                                                                     one label into. The legacy fallback went with the
-                                                                     column in #285; a request that still sends the old
-                                                                     label is split before it is stored, so this reads the
-                                                                     same value it used to fall back to. Every stored
-                                                                     combination renders: a session naming only a location
-                                                                     is a shape the endpoint accepts, and an earlier version
-                                                                     printed `no project` for it. --}}
-                                                                @php($where = $session['repository'] ?? null)
+                                                            {{-- The rest of the row stacked, one group to a line (#519): where it works, when it joined,
+                                                                 when it was last seen, a pending request with its answers, then what an administrator
+                                                                 can do. On one wrapping line the buttons landed somewhere different on every row. The
+                                                                 lines sit closer together than #516 spaces the rows, so a row still reads as one unit.
+                                                                 Below `sm` the cell wraps under the id and badges, since its actions line alone is wider
+                                                                 than what is left beside them; from `sm` up the badges sit on the baseline of its first
+                                                                 line rather than centered against the whole stack, where they would share a line with
+                                                                 "joined". --}}
+                                                            <div class="flex min-w-0 flex-col gap-1" data-session-detail>
+                                                                <div class="flex flex-wrap items-center gap-2" data-session-where>
+                                                                    {{-- Where it is working, as the two fields #220 split the
+                                                                         one label into. The legacy fallback went with the
+                                                                         column in #285; a request that still sends the old
+                                                                         label is split before it is stored, so this reads the
+                                                                         same value it used to fall back to. Every stored
+                                                                         combination renders: a session naming only a location
+                                                                         is a shape the endpoint accepts, and an earlier version
+                                                                         printed `no project` for it. --}}
+                                                                    @php($where = $session['repository'] ?? null)
 
-                                                                @if ($where !== null)
-                                                                    <span class="opacity-90"><x-robot-council::avatar :repository="$where" /><code>{{ $where }}</code></span>
-                                                                @endif
+                                                                    @if ($where !== null)
+                                                                        <span class="opacity-90"><x-robot-council::avatar :repository="$where" /><code>{{ $where }}</code></span>
+                                                                    @endif
 
-                                                                @if (($session['work_location'] ?? null) !== null)
-                                                                    <span class="opacity-80"><code>{{ $session['work_location'] }}</code></span>
-                                                                @endif
+                                                                    @if (($session['work_location'] ?? null) !== null)
+                                                                        <span class="opacity-80"><code>{{ $session['work_location'] }}</code></span>
+                                                                    @endif
 
-                                                                @if ($where === null && ($session['work_location'] ?? null) === null)
-                                                                    <span class="opacity-80">no project</span>
-                                                                @endif
+                                                                    @if ($where === null && ($session['work_location'] ?? null) === null)
+                                                                        <span class="opacity-80">no project</span>
+                                                                    @endif
 
-                                                                {{-- Started around one read and on no other list (#424) --}}
-                                                                @if (($session['ephemeral'] ?? false) === true)
-                                                                    <span class="opacity-80">ephemeral</span>
-                                                                @endif
+                                                                    {{-- Started around one read and on no other list (#424) --}}
+                                                                    @if (($session['ephemeral'] ?? false) === true)
+                                                                        <span class="opacity-80">ephemeral</span>
+                                                                    @endif
+                                                                </div>
 
                                                                 {{-- When it joined and when it was last heard from (#419),
                                                                      which is what tells a restarted agent's new session from
@@ -176,15 +186,17 @@
                                                                      then how long ago; the exact instant is also in
                                                                      `datetime`, for software. --}}
                                                                 @php($when = fn (string $instant): string => $time->at(\Illuminate\Support\Carbon::parse($instant)).' ('.\Illuminate\Support\Carbon::parse($instant)->diffForHumans().')')
-                                                                <span data-session-times>
+                                                                <p data-session-joined>
                                                                     joined
                                                                     @if ($session['joined_at'] !== null)
-                                                                        <time datetime="{{ \RobotCouncil\Support\DisplayTime::iso(\Illuminate\Support\Carbon::parse($session['joined_at'])) }}">{{ $when($session['joined_at']) }}</time>,
+                                                                        <time datetime="{{ \RobotCouncil\Support\DisplayTime::iso(\Illuminate\Support\Carbon::parse($session['joined_at'])) }}">{{ $when($session['joined_at']) }}</time>
                                                                     @else
-                                                                        at an unrecorded time,
+                                                                        at an unrecorded time
                                                                     @endif
+                                                                </p>
+                                                                <p data-session-seen>
                                                                     last seen <time datetime="{{ \RobotCouncil\Support\DisplayTime::iso(\Illuminate\Support\Carbon::parse($session['last_seen_at'])) }}">{{ $when($session['last_seen_at']) }}</time>
-                                                                </span>
+                                                                </p>
 
                                                                 {{-- **What it ASKED to be, presented as information and
                                                                      never as a nomination.** With installations keyed on
@@ -196,48 +208,52 @@
                                                                      queue with a pre-filled answer trains its reader to
                                                                      accept it. --}}
                                                                 @if (($session['requested_role'] ?? null) !== null)
-                                                                    <span class="badge badge-sm badge-warning">asked for {{ \RobotCouncil\Access\Role::labelOf($session['requested_role']) }}</span>
+                                                                    <div class="flex flex-wrap items-center gap-2" data-session-request>
+                                                                        <span class="badge badge-sm badge-warning">asked for {{ \RobotCouncil\Access\Role::labelOf($session['requested_role']) }}</span>
 
-                                                                    <button type="button"
-                                                                        wire:click="approveRole({{ \RobotCouncil\Support\WireArgument::of($session['id']) }}, '{{ \RobotCouncil\Support\WireArgument::of($session['requested_role']) }}')"
-                                                                        @if ($session['requested_role'] === \RobotCouncil\Access\Role::Coordinator->value)
-                                                                            wire:confirm="Approve coordinator? This session will be able to release, reassign or cancel any developer's task, and post directives to the whole fleet."
-                                                                        @endif
-                                                                        class="btn btn-target btn-primary">
-                                                                        Approve
-                                                                    </button>
+                                                                        <button type="button"
+                                                                            wire:click="approveRole({{ \RobotCouncil\Support\WireArgument::of($session['id']) }}, '{{ \RobotCouncil\Support\WireArgument::of($session['requested_role']) }}')"
+                                                                            @if ($session['requested_role'] === \RobotCouncil\Access\Role::Coordinator->value)
+                                                                                wire:confirm="Approve coordinator? This session will be able to release, reassign or cancel any developer's task, and post directives to the whole fleet."
+                                                                            @endif
+                                                                            class="btn btn-target btn-primary">
+                                                                            Approve
+                                                                        </button>
 
-                                                                    <button type="button"
-                                                                        wire:click="denyRole({{ \RobotCouncil\Support\WireArgument::of($session['id']) }})"
-                                                                        class="btn btn-target btn-outline">
-                                                                        Deny
-                                                                    </button>
+                                                                        <button type="button"
+                                                                            wire:click="denyRole({{ \RobotCouncil\Support\WireArgument::of($session['id']) }})"
+                                                                            class="btn btn-target btn-outline">
+                                                                            Deny
+                                                                        </button>
+                                                                    </div>
                                                                 @endif
 
                                                                 {{-- Imposing needs no request, which is what makes an
                                                                      emergency demotion possible. One control per role, from
                                                                      the enum, minus the one it already holds. --}}
-                                                                @foreach ($roles as $role)
-                                                                    @if ($role->value !== $session['role'])
-                                                                        <button type="button"
-                                                                            wire:key="impose-{{ $session['id'] }}-{{ $role->value }}"
-                                                                            wire:click="imposeRole({{ \RobotCouncil\Support\WireArgument::of($session['id']) }}, '{{ \RobotCouncil\Support\WireArgument::of($role) }}')"
-                                                                            @if ($role === \RobotCouncil\Access\Role::Coordinator)
-                                                                                wire:confirm="Make this session a coordinator? It will be able to release, reassign or cancel any developer's task, and post directives to the whole fleet."
-                                                                            @endif
-                                                                            class="btn btn-target btn-outline">
-                                                                            Make {{ $role->label() }}
-                                                                        </button>
-                                                                    @endif
-                                                                @endforeach
+                                                                <div class="flex flex-wrap items-center gap-2" data-session-actions>
+                                                                    @foreach ($roles as $role)
+                                                                        @if ($role->value !== $session['role'])
+                                                                            <button type="button"
+                                                                                wire:key="impose-{{ $session['id'] }}-{{ $role->value }}"
+                                                                                wire:click="imposeRole({{ \RobotCouncil\Support\WireArgument::of($session['id']) }}, '{{ \RobotCouncil\Support\WireArgument::of($role) }}')"
+                                                                                @if ($role === \RobotCouncil\Access\Role::Coordinator)
+                                                                                    wire:confirm="Make this session a coordinator? It will be able to release, reassign or cancel any developer's task, and post directives to the whole fleet."
+                                                                                @endif
+                                                                                class="btn btn-target btn-outline">
+                                                                                Make {{ $role->label() }}
+                                                                            </button>
+                                                                        @endif
+                                                                    @endforeach
 
-                                                                {{-- Every listed session is live, so every one can be
-                                                                     revoked, and every live session is listed (#414). --}}
-                                                                <button type="button"
-                                                                    wire:click="revokeSession({{ \RobotCouncil\Support\WireArgument::of($session['id']) }})"
-                                                                    class="btn btn-target btn-outline">
-                                                                    Revoke session
-                                                                </button>
+                                                                    {{-- Every listed session is live, so every one can be
+                                                                         revoked, and every live session is listed (#414). --}}
+                                                                    <button type="button"
+                                                                        wire:click="revokeSession({{ \RobotCouncil\Support\WireArgument::of($session['id']) }})"
+                                                                        class="btn btn-target btn-outline">
+                                                                        Revoke session
+                                                                    </button>
+                                                                </div>
                                                             </div>
                                                         </li>
                                                     @endforeach

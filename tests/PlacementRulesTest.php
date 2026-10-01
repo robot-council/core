@@ -41,8 +41,9 @@ beforeEach(function (): void {
     $this->developer = $this->enrollDeveloper(4242, login: 'octodev');
     $this->installation = $this->approveInstallation($this->developer);
 
+    $this->coordinatorDeveloper = $this->enrollDeveloper(77, login: 'coordinator');
     [$this->coordinatorSession, $this->coordinatorToken] = $this->startCoordinatorSession(
-        $this->approveInstallation($this->enrollDeveloper(77, login: 'coordinator'), machineLabel: 'coordinator-box')
+        $this->approveInstallation($this->coordinatorDeveloper, machineLabel: 'coordinator-box')
     );
 
     // A lane in the ticket's repository, which every rule but the one under test is satisfied by
@@ -355,8 +356,13 @@ it("refuses a waiver from anyone but the seat's own developer", function (): voi
     $key = HostKey::from($this->developer->getAuthIdentifier());
     $seat = $this->service(Seats::class)->forDeveloper($key)[0];
 
-    // The coordinator's developer, through the store
-    expect($this->service(PlacementWaivers::class)->grant('77', $seat->id, PlacementRule::AssignmentHours))->toBe(Outcome::Forbidden)
+    // The coordinator's developer, through the store, by its host key. Not the literal '77', which is
+    // its GitHub id: on Postgres the user sequence is not rewound between tests, so the seat's own
+    // developer's key reaches 77 in some orders, and the grant was then the owner's and applied
+    $other = HostKey::from($this->coordinatorDeveloper->getAuthIdentifier());
+
+    expect($other)->not->toBe($key)
+        ->and($this->service(PlacementWaivers::class)->grant($other, $seat->id, PlacementRule::AssignmentHours))->toBe(Outcome::Forbidden)
         ->and(PlacementWaiver::query()->count())->toBe(0);
 
     // And nothing an agent session reaches calls `grant()`: its only caller in `src/` is the
