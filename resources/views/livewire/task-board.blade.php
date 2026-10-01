@@ -73,7 +73,7 @@
                         @foreach ($tasks as $task)
                             <tr role="row" wire:key="task-{{ $task['id'] }}">
                                 <td role="cell" data-label="Task">
-                                    <div class="font-medium" data-task-title><x-robot-council::agent-text :text="$task['title']" inline /></div>
+                                    <div class="font-medium" data-task-title><x-robot-council::agent-text :text="$task['title']" inline standalone /></div>
 
                                     @if ($task['project_id'])
                                         <div class="text-meta opacity-80"><code>{{ $task['project_id'] }}</code></div>

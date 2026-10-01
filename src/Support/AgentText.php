@@ -144,6 +144,34 @@ final class AgentText
     }
 
     /**
+     * Whether a run of inline nodes is one link and nothing else (#554).
+     *
+     * Emphasis or strong emphasis that wraps the whole run is looked through, because a field that
+     * is a link in italics is still only a link: there are no words round it to make it part of a
+     * sentence. `agent-text` sizes such a link as a 44px target where the field stands alone.
+     *
+     * @param  list<array<string, mixed>>  $nodes  What `inline()` returned.
+     * @return bool True when the run is exactly one link.
+     */
+    public static function isOneLink(array $nodes): bool
+    {
+        while (\count($nodes) === 1 && \in_array($nodes[0]['type'] ?? null, ['emphasis', 'strong'], true)) {
+            $children = $nodes[0]['children'] ?? null;
+
+            // The narrowing PHPStan needs, and unreachable otherwise: `inline()` gives every
+            // emphasis a list of children, so no test can tell `false` here from `true`
+            if (! \is_array($children) || ! array_is_list($children)) {
+                return false;
+            }
+
+            /** @var list<array<string, mixed>> $children */
+            $nodes = $children;
+        }
+
+        return \count($nodes) === 1 && ($nodes[0]['type'] ?? null) === 'link';
+    }
+
+    /**
      * The text parsed in one mode, or null when it must be shown exactly as written.
      *
      * **A reference definition is read by CommonMark's paragraph parser whatever is registered**,

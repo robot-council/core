@@ -157,6 +157,16 @@ function seedAccessibilityFleet(TestCase $case): array
     Task::query()->whereKey($held->id)->update(['hand_back' => true]);
 
     $tasks->create($coordinator, ['title' => 'Everyone stop and sync', 'priority' => 9], true);
+
+    // A title that is only a link, and one with a link inside it (#554): the first is a lone link,
+    // held to the 44px target, on the Queue and, held, on the Lanes page; the second is a link in a
+    // sentence, which keeps its line's height
+    $tasks->create($working, ['title' => '[Fix the queue crash](https://github.com/robot-council/core/pull/9)', 'priority' => 2], false);
+    $tasks->create($working, ['title' => 'Follow up on [#9](https://github.com/robot-council/core/pull/9) after the crash', 'priority' => 2], false);
+
+    $loneHeld = $tasks->create($working, ['title' => '[Fix the lane crash](https://github.com/robot-council/core/pull/10)', 'priority' => 2], false);
+    $tasks->transition($loneHeld->id, TaskTransition::Claim, $working, asCoordinator: false);
+    $tasks->transition($loneHeld->id, TaskTransition::Start, $working, asCoordinator: false, branch: 'lane-crash');
     $tasks->create($working, ['title' => 'Measure the gate', 'priority' => 3], false);
 
     $done = $tasks->create($working, ['title' => 'Port the rule', 'priority' => 1], false);
@@ -1343,6 +1353,54 @@ it('holds every control to the 44px target size', function (string $route, strin
     // stopped wrapping would push the page wider than a phone
     expect(sidewaysScroll($page))->toBe(0);
 })->with(accessibilitySurfaces())->with([390, 1280]);
+
+it('draws a task title that is only a link as a 44px target, and a link inside a title at its line height', function (string $route, string $parameter, string $expect, string $selector, string $theme): void {
+    $page = visitSurface($this, $route, $parameter, $expect, $theme);
+
+    $page->resize(1280, 900);
+
+    // Each title link: its size, and whether anything but the link is written in its title, which
+    // is what decides whether `undersizedControls()` measures it or exempts it as inline (#554)
+    $links = $page->script(str_replace('__SELECTOR__', json_encode($selector, JSON_THROW_ON_ERROR), <<<'JS'
+        () => [...document.querySelectorAll(__SELECTOR__ + ' a[href]')].map(a => {
+            const rect = a.getBoundingClientRect();
+            const title = a.closest(__SELECTOR__);
+            return {
+                text: a.textContent.trim(),
+                alone: title.textContent.replace(a.textContent, '').trim() === '',
+                width: Math.round(rect.width),
+                height: Math.round(rect.height),
+            };
+        })
+    JS));
+
+    if (! is_array($links)) {
+        throw new RuntimeException('The title-link read did not run: '.json_encode($links));
+    }
+
+    $alone = array_values(array_filter($links, static fn (mixed $link): bool => is_array($link) && ($link['alone'] ?? false) === true));
+    $inSentence = array_values(array_filter($links, static fn (mixed $link): bool => is_array($link) && ($link['alone'] ?? true) === false));
+
+    // The seeded lone-link title is on the page, so the size below is measured rather than vacuous
+    expect($alone)->not->toBeEmpty(json_encode($links, JSON_THROW_ON_ERROR));
+
+    foreach ($alone as $link) {
+        expect($link['width'])->toBeGreaterThanOrEqual(44, json_encode($link, JSON_THROW_ON_ERROR))
+            ->and($link['height'])->toBeGreaterThanOrEqual(44, json_encode($link, JSON_THROW_ON_ERROR));
+    }
+
+    // A link with words round it keeps the line's height: the Queue seeds one
+    foreach ($inSentence as $link) {
+        expect($link['height'])->toBeLessThan(44, json_encode($link, JSON_THROW_ON_ERROR));
+    }
+
+    if ($route === 'robot-council.queue') {
+        expect($inSentence)->not->toBeEmpty(json_encode($links, JSON_THROW_ON_ERROR));
+    }
+})->with([
+    'queue' => ['robot-council.queue', '', 'Everyone stop and sync', '[data-task-title]'],
+    'lanes' => ['robot-council.lanes', '', 'Run the screen-reader pass', '[data-lane-task-title]'],
+])->with(['light', 'dark']);
 
 it('gives every button a boundary at 3:1 against what it sits on', function (string $route, string $parameter, string $expect, string $theme): void {
     $page = visitSurface($this, $route, $parameter, $expect, $theme);

@@ -142,6 +142,47 @@ it('shows hostile input as the characters that were written, with no element or 
     return $cases;
 });
 
+it('sizes a field that is only a link as a 44px target when it stands alone, and changes nothing else (#554)', function (string $text, bool $lone): void {
+    $target = ' inline-block min-h-11 min-w-11 py-3';
+
+    $inline = agentText($text, inline: true);
+    $standalone = Blade::render('<x-robot-council::agent-text :text="$text" inline standalone />', ['text' => $text]);
+
+    // The same subset either way: with the sizing classes taken out, the two are byte for byte
+    expect(str_replace($target, '', $standalone))->toBe($inline)
+        ->and(str_contains($standalone, $target))->toBe($lone)
+        // Without `standalone`, a lone link keeps the line's height wherever else it is shown
+        ->and($inline)->not->toContain($target);
+})->with(function (): array {
+    $cases = [
+        'a lone issue link' => ['[Fix the crash](https://github.com/robot-council/core/issues/9)', true],
+        'a lone pull request link' => ['[Fix the crash](https://github.com/robot-council/core/pull/9)', true],
+        'a lone autolink' => ['<https://github.com/robot-council/core/pull/9>', true],
+        'a lone link with emphasis in its label' => ['[Fix *the* crash](https://github.com/robot-council/core/pull/9)', true],
+        'a link inside a title' => ['Follow up on [#9](https://github.com/robot-council/core/pull/9) after the crash', false],
+        'a link before more words' => ['[#9](https://github.com/robot-council/core/pull/9) follow-up', false],
+        'two links' => ['[a](https://github.com/a/b/issues/1)[b](https://github.com/a/b/issues/2)', false],
+        'a lone link inside emphasis' => ['*[Fix the crash](https://github.com/robot-council/core/pull/9)*', true],
+        'a lone link inside strong emphasis' => ['**[Fix the crash](https://github.com/robot-council/core/pull/9)**', true],
+        'a link and a word inside emphasis' => ['*[Fix the crash](https://github.com/robot-council/core/pull/9) now*', false],
+        'a lone link to somewhere else' => ['[Fix the crash](https://evil.example/issues/9)', false],
+        'plain text' => ['Fix the crash', false],
+    ];
+
+    // And the hostile corpus above, none of which may change by more than the classes
+    foreach ([
+        '<script>alert(1)</script>',
+        '[x](javascript:alert(1))',
+        '<a href="https://evil.example">x</a>',
+        '[x](https://github.com/a/b/issues/1 "a\" onmouseover=\"alert(1)")',
+        '[`robot-council/core#5`](https://github.com/evil/x/issues/5)',
+    ] as $i => $hostile) {
+        $cases['hostile '.$i] = [$hostile, str_starts_with($hostile, '[x](https://github.com/a/b/issues/1 ')];
+    }
+
+    return $cases;
+});
+
 it('renders a GitHub ticket link through external-link, with the new-tab words', function (): void {
     $html = agentText('See [the decision](https://github.com/robot-council/core/issues/537).');
 
@@ -387,6 +428,47 @@ describe('the fields that use it', function (): void {
         foreach ($plain as $type) {
             expect($html)->toContain(sprintf('<p class="break-words">Body of %s with `code` and *stress*</p>', $type->value));
         }
+    });
+
+    it('sizes a title that is only a link as a 44px target on the Queue and the Lanes page, and not an owed reason (#554)', function (): void {
+        [$lane] = $this->startAgentSession($this->approveInstallation($this->developer));
+
+        $lane->forceFill(['repository' => 'robot-council/core', 'work_location' => 'a'])->save();
+
+        $tasks = $this->service(Tasks::class);
+        $task = $tasks->create($lane, ['title' => '[Fix the crash](https://github.com/robot-council/core/pull/9)'], withCoordinator: false);
+        $tasks->transition($task->id, TaskTransition::Claim, $lane, asCoordinator: false);
+        $tasks->create($lane, ['title' => 'Follow up on [#9](https://github.com/robot-council/core/pull/9) later'], withCoordinator: false);
+
+        $this->service(OwedItems::class)->record(
+            $this->coordinatorSession,
+            'octodev',
+            'robot-council/core#12',
+            'Merge it?',
+            '[the pull request](https://github.com/robot-council/core/pull/9)'
+        );
+
+        $lanes = withoutLivewireMarkers(Livewire::actingAs($this->developer)->test(Lanes::class)->html());
+        $queue = withoutLivewireMarkers(Livewire::actingAs($this->developer)->test(TaskBoard::class)->html());
+
+        preg_match('#<span data-lane-task-title>(.*?)</span>\s*<span class="text-meta#s', $lanes, $onLanes);
+        preg_match_all('#data-task-title>(.*?)</div>#s', $queue, $onQueue);
+        preg_match('#<p [^>]*data-owed-why>(.*?)</p>#s', $lanes, $why);
+
+        $sized = 'class="link inline-block min-h-11 min-w-11 py-3"';
+
+        $lone = array_values(array_filter($onQueue[1], static fn (string $title): bool => str_contains($title, 'Fix the crash')));
+        $inside = array_values(array_filter($onQueue[1], static fn (string $title): bool => str_contains($title, 'Follow up')));
+
+        expect($onLanes[1] ?? '')->toContain($sized)
+            ->and($lone)->toHaveCount(1)
+            ->and($lone[0] ?? '')->toContain($sized)
+            ->and($inside)->toHaveCount(1)
+            ->and($inside[0] ?? '')->toContain('class="link"')
+            ->and($inside[0] ?? '')->not->toContain('min-h-11')
+            // An owed item's reason is followed by when it was recorded, so its link is in a line
+            ->and($why[1] ?? '')->toContain('class="link"')
+            ->and($why[1] ?? '')->not->toContain('min-h-11');
     });
 
     it('renders a task title on the Lanes page as the Queue does (#540)', function (): void {
