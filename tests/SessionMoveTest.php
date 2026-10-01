@@ -9,17 +9,22 @@ declare(strict_types=1);
  * @command  vendor/bin/pest --compact tests/SessionMoveTest.php
  */
 
+use Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull;
+use Illuminate\Foundation\Http\Middleware\TrimStrings;
 use RobotCouncil\Access\Role;
 use RobotCouncil\Mcp\Tools\SessionMoveTool;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
 use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\FleetEventType;
+use RobotCouncil\Models\HoldReason;
+use RobotCouncil\Models\LaneHold;
 use RobotCouncil\Models\Lock;
 use RobotCouncil\Models\Task;
 use RobotCouncil\Models\TaskStatus;
 use RobotCouncil\Support\AgentSessions;
 use RobotCouncil\Support\LaneBoard;
+use RobotCouncil\Support\LaneHolds;
 use RobotCouncil\Support\Outcome;
 use RobotCouncil\Tests\TestCase;
 
@@ -231,6 +236,61 @@ it('refuses a value the join refuses, with the reason the join gives', function 
     'a location past its length' => ['work_location', str_repeat('a', 33)],
     'a repository with no owner' => ['repository', 'core'],
     'a repository with a space' => ['repository', 'robot council/core'],
+]);
+
+it('refuses a blank value on both surfaces rather than failing inside the store', function (string $blank): void {
+    $this->machine($this->token)
+        ->patchJson(route('robot-council.agent.session.move'), ['repository' => 'robot-council/cli', 'work_location' => $blank])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['work_location']);
+
+    // The tool reads the raw body, so no middleware turns the blank into null first: this is the
+    // surface where it would otherwise reach the store and come back as an internal error
+    $result = moveThroughTool($this, $this->token, ['repository' => 'robot-council/cli', 'work_location' => $blank]);
+
+    expect($result['isError'] ?? false)->toBeTrue()
+        ->and(moveText($result))->toContain('work location')
+        ->and(AgentSession::query()->findOrFail($this->session->id)->only(['repository', 'work_location']))
+        ->toBe(['repository' => 'robot-council/core', 'work_location' => 'a'])
+        ->and(moveEvents())->toBeEmpty();
+})->with(['empty' => '', 'spaces' => '   ', 'a tab' => "\t"]);
+
+it('refuses a blank at the endpoint by its own rule, for a host without the empty-string middleware', function (string $blank): void {
+    // A default host turns a blank into null before validation, which the `string` rule then
+    // refuses; a host that dropped those two middleware relies on `filled` alone
+    $this->withoutMiddleware([TrimStrings::class, ConvertEmptyStringsToNull::class]);
+
+    $this->machine($this->token)
+        ->patchJson(route('robot-council.agent.session.move'), ['repository' => 'robot-council/cli', 'work_location' => $blank])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['work_location']);
+
+    expect(AgentSession::query()->findOrFail($this->session->id)->repository)->toBe('robot-council/core');
+})->with(['empty' => '', 'spaces' => '   ']);
+
+it('refuses a key the store does not know beside one it does, rather than dropping it', function (): void {
+    expect(fn () => $this->service(AgentSessions::class)->move($this->session, ['repository' => 'robot-council/cli', 'work_locaton' => 'b']))
+        ->toThrow(InvalidArgumentException::class, 'only a repository and a work location')
+        ->and(AgentSession::query()->findOrFail($this->session->id)->repository)->toBe('robot-council/core');
+});
+
+it('refuses a null through the store, which would otherwise clear the field', function (): void {
+    expect(fn () => $this->service(AgentSessions::class)->move($this->session, ['repository' => null]))
+        ->toThrow(InvalidArgumentException::class, 'does not clear one')
+        ->and(AgentSession::query()->findOrFail($this->session->id)->repository)->toBe('robot-council/core')
+        ->and(moveEvents())->toBeEmpty();
+});
+
+it('drops a hold naming the repository the lane leaves, and keeps any other', function (array $place, HoldReason $reason, string $party, bool $kept): void {
+    [$coordinator] = $this->startCoordinatorSession($this->installation);
+
+    expect($this->service(LaneHolds::class)->hold($coordinator, $this->session->id, $party, $reason))->toBe(Outcome::Applied)
+        ->and($this->service(AgentSessions::class)->move($this->session, $place))->toBe(Outcome::Applied)
+        ->and(LaneHold::query()->whereKey($this->session->id)->exists())->toBe($kept);
+})->with([
+    'nothing startable, and the repository changes' => [['repository' => 'robot-council/cli'], HoldReason::NothingStartable, 'robot-council/core', false],
+    'nothing startable, and only the location changes' => [['work_location' => 'b'], HoldReason::NothingStartable, 'robot-council/core', true],
+    'waiting on a developer, and the repository changes' => [['repository' => 'robot-council/cli'], HoldReason::Decision, 'octodev', true],
 ]);
 
 it('refuses a move that names neither field, and records nothing', function (): void {

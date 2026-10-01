@@ -189,9 +189,9 @@ protocol below is documented for anyone writing their own client.
    (or the `session_move` tool), sending `work_location`, `repository`, or both; a field it leaves
    out stays as it is. It keeps its id, role, tasks, locks and feed position, `sessions_list` and
    the lane board show the new place at once, and so does its seat, since a seat is the place. A
-   value the start refuses is refused with the same message, a session that has ended is answered
-   409, and the move is recorded as a `session.moved` event whose data carries `from_repository`,
-   `from_work_location`, `to_repository` and `to_work_location`. It moves only the session the
+   value the start refuses is refused with the same message, a blank one is refused, and the move is recorded as a `session.moved` event whose data carries `from_repository`,
+   `from_work_location`, `to_repository` and `to_work_location`. A move to another repository drops
+   a lane hold naming the repository it left, since that hold says nothing is startable there. It moves only the session the
    token belongs to. `work_location` is a short label such as `a`, `ci` or `primary`, never a path.
 
 Every response that carries a bearer token names it `token`, every expiry is an `expires_in` in

@@ -10,6 +10,7 @@ use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\ResponseFactory;
 use Laravel\Mcp\Server\Tool;
+use LogicException;
 use RobotCouncil\Mcp\ActsAsAgent;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Support\AgentSessions;
@@ -79,10 +80,12 @@ final class SessionMoveTool extends Tool
     public function handle(Request $request, HttpRequest $http, AgentSessions $sessions): Response|ResponseFactory
     {
         // The rules the join endpoint applies, so a value refused there is refused here with the
-        // same message
+        // same message. `filled` matters more here than at the endpoint: the transport reads the raw
+        // body, so no `ConvertEmptyStringsToNull` runs, and a blank would pass every other rule and
+        // reach the store, which throws -- an internal error rather than a refusal
         $request->validate([
-            'repository' => ['required_without:work_location', 'string', 'max:'.WorkIdentity::MAX_REPOSITORY, 'regex:'.WorkIdentity::REPOSITORY],
-            'work_location' => ['required_without:repository', 'string', 'max:'.WorkIdentity::MAX_LOCATION, 'regex:'.WorkIdentity::LOCATION],
+            'repository' => ['required_without:work_location', 'filled', 'string', 'max:'.WorkIdentity::MAX_REPOSITORY, 'regex:'.WorkIdentity::REPOSITORY],
+            'work_location' => ['required_without:repository', 'filled', 'string', 'max:'.WorkIdentity::MAX_LOCATION, 'regex:'.WorkIdentity::LOCATION],
         ]);
 
         $place = [];
@@ -101,9 +104,7 @@ final class SessionMoveTool extends Tool
         if ($outcome !== Outcome::Applied) {
             return Response::error(match ($outcome) {
                 Outcome::NotFound, Outcome::Conflict => 'This session has ended. Join again to work somewhere else.',
-
-                // `move()` answers neither
-                Outcome::Forbidden, Outcome::Added => 'Applied.',
+                Outcome::Forbidden, Outcome::Added => throw new LogicException('AgentSessions::move() answers neither.'),
             });
         }
 

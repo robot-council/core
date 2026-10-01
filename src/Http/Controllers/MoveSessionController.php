@@ -32,10 +32,11 @@ final class MoveSessionController
     {
         // The rules `SessionStartController` applies at join, so a value refused there is refused
         // here with the same message. Each is optional and neither may be blank or null: leaving a
-        // field out keeps it, and clearing one is not something a move does.
+        // field out keeps it, and clearing one is not something a move does. `filled` is what
+        // refuses a blank, because every other rule here is skipped for a value that trims to ''.
         $request->validate([
-            'repository' => ['required_without:work_location', 'string', 'max:'.WorkIdentity::MAX_REPOSITORY, 'regex:'.WorkIdentity::REPOSITORY],
-            'work_location' => ['required_without:repository', 'string', 'max:'.WorkIdentity::MAX_LOCATION, 'regex:'.WorkIdentity::LOCATION],
+            'repository' => ['required_without:work_location', 'filled', 'string', 'max:'.WorkIdentity::MAX_REPOSITORY, 'regex:'.WorkIdentity::REPOSITORY],
+            'work_location' => ['required_without:repository', 'filled', 'string', 'max:'.WorkIdentity::MAX_LOCATION, 'regex:'.WorkIdentity::LOCATION],
         ]);
 
         $place = [];

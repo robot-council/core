@@ -10,7 +10,9 @@ use RobotCouncil\Access\Role;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
 use RobotCouncil\Models\FleetEventType;
+use RobotCouncil\Models\HoldParty;
 use RobotCouncil\Models\Installation;
+use RobotCouncil\Models\LaneHold;
 
 /**
  * Starting and renewing the session one agent process runs under.
@@ -257,27 +259,52 @@ final class AgentSessions
      * changes nothing and records nothing, for the reason `RoleRequests::settle()` gives -- MySQL
      * counts a write of the same values as no row changed, where SQLite and Postgres count one.
      *
+     * **A hold that names the repository it is leaving goes with the move.** A coordinator holds a
+     * lane on `nothing_startable` naming the lane's own repository (`LaneHolds::hold()`), and a held
+     * lane is never reported free, so a lane that moved to another repository would sit there
+     * marked idle about the one it left, unseen by the signal that would have told its coordinator
+     * it is free. A hold naming a developer, a ticket or a pull request is about that party, not
+     * about where the lane works, and stays. Cleared as `Tasks::transition()` clears one: after the
+     * session row and before the feed sentinel, and with no event of its own.
+     *
      * An ephemeral session (#424) is moved without an event, since the fleet was never told it
      * exists.
      *
      * @param  AgentSession  $session  The session moving, as the request authenticated it.
-     * @param  array{repository?: string|null, work_location?: string|null}  $place  The fields to
-     *                                                                               change; a key that is absent is left as it is.
+     * @param  array<array-key, mixed>  $place  The fields to change, `repository` and
+     *                                          `work_location`; a key that is absent is left as it
+     *                                          is. Taken as any array and narrowed here, for the
+     *                                          reason `WorkIdentity::ensure()` takes `mixed`.
      * @return Outcome `Applied` when the session is where it was asked to be, `NotFound` when its
      *                 row is gone, and `Conflict` when it has ended.
      *
-     * @throws InvalidArgumentException When a value is outside what `WorkIdentity` admits, or
-     *                                  `$place` names neither field.
+     * @throws InvalidArgumentException When a value is outside what `WorkIdentity` admits or is
+     *                                  null, or `$place` names neither field or any other key.
      */
     public function move(AgentSession $session, array $place): Outcome
     {
-        if (! \array_key_exists('repository', $place) && ! \array_key_exists('work_location', $place)) {
+        $named = array_intersect_key($place, ['repository' => true, 'work_location' => true]);
+
+        if ($named === []) {
             throw new InvalidArgumentException('A move names a repository, a work location, or both.');
         }
 
-        WorkIdentity::ensure($place['repository'] ?? null, $place['work_location'] ?? null);
+        // A misspelled key beside a real one would otherwise be dropped without a word
+        if (\count($named) !== \count($place)) {
+            throw new InvalidArgumentException('A move changes only a repository and a work location.');
+        }
 
-        return DB::transaction(function () use ($session, $place): Outcome {
+        WorkIdentity::ensure($named['repository'] ?? null, $named['work_location'] ?? null);
+
+        // Null passes `ensure()`, which allows it at join, so it is refused here: a store that
+        // cleared a field would do what neither the endpoint nor the tool lets a session do
+        $changes = array_filter($named, \is_string(...));
+
+        if (\count($changes) !== \count($named)) {
+            throw new InvalidArgumentException('A move sets a repository or a work location, and does not clear one.');
+        }
+
+        return DB::transaction(function () use ($session, $changes): Outcome {
             $current = AgentSession::query()->whereKey($session->getKey())->lockForUpdate()->first();
 
             if (! $current instanceof AgentSession) {
@@ -290,8 +317,8 @@ final class AgentSessions
 
             $from = ['repository' => $current->repository, 'work_location' => $current->work_location];
             $to = [
-                'repository' => \array_key_exists('repository', $place) ? $place['repository'] : $from['repository'],
-                'work_location' => \array_key_exists('work_location', $place) ? $place['work_location'] : $from['work_location'],
+                'repository' => $changes['repository'] ?? $from['repository'],
+                'work_location' => $changes['work_location'] ?? $from['work_location'],
             ];
 
             if ($to === $from) {
@@ -309,6 +336,13 @@ final class AgentSessions
                 return Outcome::Conflict;
             }
 
+            if ($to['repository'] !== $from['repository']) {
+                LaneHold::query()
+                    ->whereKey($current->getKey())
+                    ->where('party_kind', HoldParty::Repository->value)
+                    ->delete();
+            }
+
             if (! $current->isEphemeral()) {
                 // After the row, so the feed cannot describe a move that failed to write. Both
                 // values ride the event for the reason `start()` puts them on `session.joined`: a
@@ -323,8 +357,7 @@ final class AgentSessions
                         'from_work_location' => $from['work_location'],
                         'to_repository' => $to['repository'],
                         'to_work_location' => $to['work_location'],
-                    ],
-                    subject: $current->user_id
+                    ]
                 );
             }
 
