@@ -20,11 +20,15 @@ use League\CommonMark\Extension\CommonMark\Parser\Inline\CloseBracketParser;
 use League\CommonMark\Extension\CommonMark\Parser\Inline\EscapableParser;
 use League\CommonMark\Extension\CommonMark\Parser\Inline\OpenBracketParser;
 use League\CommonMark\Extension\ConfigurableExtensionInterface;
+use League\CommonMark\Node\Block\Document;
 use League\CommonMark\Node\Block\Paragraph;
 use League\CommonMark\Node\Inline\Newline;
 use League\CommonMark\Node\Inline\Text;
 use League\CommonMark\Node\Node;
+use League\CommonMark\Parser\Inline\InlineParserInterface;
+use League\CommonMark\Parser\Inline\InlineParserMatch;
 use League\CommonMark\Parser\Inline\NewlineParser;
+use League\CommonMark\Parser\InlineParserContext;
 use League\CommonMark\Parser\MarkdownParser;
 use League\Config\ConfigurationBuilderInterface;
 use Nette\Schema\Expect;
@@ -78,7 +82,16 @@ final class AgentText
             return [];
         }
 
-        return self::children(self::parser('blocks')->parse($text), 0);
+        $document = self::document('blocks', $text);
+
+        if (! $document instanceof Document) {
+            return array_map(
+                static fn (array $lines): array => ['type' => 'paragraph', 'children' => $lines],
+                self::writtenParagraphs($text)
+            );
+        }
+
+        return self::children($document, 0);
     }
 
     /**
@@ -96,8 +109,21 @@ final class AgentText
         }
 
         $nodes = [];
+        $document = self::document('inline', $text);
 
-        foreach (self::children(self::parser('inline')->parse($text), 0) as $paragraph) {
+        if (! $document instanceof Document) {
+            foreach (self::writtenParagraphs($text) as $lines) {
+                if ($nodes !== []) {
+                    $nodes[] = ['type' => 'break'];
+                }
+
+                array_push($nodes, ...$lines);
+            }
+
+            return $nodes;
+        }
+
+        foreach (self::children($document, 0) as $paragraph) {
             if ($nodes !== []) {
                 $nodes[] = ['type' => 'break'];
             }
@@ -115,6 +141,54 @@ final class AgentText
 
         /** @var list<array<string, mixed>> $nodes */
         return $nodes;
+    }
+
+    /**
+     * The text parsed in one mode, or null when it must be shown exactly as written.
+     *
+     * **A reference definition is read by CommonMark's paragraph parser whatever is registered**,
+     * and the line holding it is removed from the document: a task titled `[Bug]: crash` parsed to
+     * nothing at all, and a definition elsewhere in a body turned every `[label]` in it into a link.
+     * Such a text is shown as written instead, so nothing an agent wrote silently disappears.
+     *
+     * A line that would be a thematic break, `* * *` or `- - -`, is a nested empty list to the
+     * list parser, which would show nothing, so its first character is escaped and it stays text.
+     *
+     * @param  'blocks'|'inline'  $mode  Whether lists are recognized.
+     */
+    private static function document(string $mode, string $text): ?Document
+    {
+        $document = self::parser($mode)->parse(
+            (string) preg_replace('/^( {0,3})([-*_])((?:[ \t]*\2){2,}[ \t]*)$/m', '$1\\\\$2$3', $text)
+        );
+
+        return \count($document->getReferenceMap()) === 0 ? $document : null;
+    }
+
+    /**
+     * The text as written, as paragraphs of text nodes with each line break kept.
+     *
+     * @return list<list<array<string, mixed>>> Each paragraph's nodes.
+     */
+    private static function writtenParagraphs(string $text): array
+    {
+        $paragraphs = [];
+
+        foreach (preg_split('/\R[ \t]*\R\s*/', trim($text)) ?: [] as $paragraph) {
+            $lines = [];
+
+            foreach (preg_split('/\R/', $paragraph) ?: [] as $line) {
+                if ($lines !== []) {
+                    $lines[] = ['type' => 'break'];
+                }
+
+                $lines[] = ['type' => 'text', 'text' => $line];
+            }
+
+            $paragraphs[] = $lines;
+        }
+
+        return $paragraphs;
     }
 
     /**
@@ -155,8 +229,25 @@ final class AgentText
                     }
 
                     // No HtmlInlineParser, BangParser or EntityParser, and no block parser but
-                    // lists: what is not recognized stays text
+                    // lists: what is not recognized stays text. An image's `![` is consumed as
+                    // text before the bracket parser sees it, or one pointing at a GitHub ticket
+                    // would become a `!` and a link
                     $environment
+                        ->addInlineParser(new readonly class implements InlineParserInterface
+                        {
+                            public function getMatchDefinition(): InlineParserMatch
+                            {
+                                return InlineParserMatch::string('![');
+                            }
+
+                            public function parse(InlineParserContext $inlineContext): bool
+                            {
+                                $inlineContext->getCursor()->advanceBy(2);
+                                $inlineContext->getContainer()->appendChild(new Text('!['));
+
+                                return true;
+                            }
+                        }, 25)
                         ->addInlineParser(new NewlineParser, 200)
                         ->addInlineParser(new BacktickParser, 150)
                         ->addInlineParser(new EscapableParser, 80)
@@ -239,6 +330,12 @@ final class AgentText
         $children = self::children($link, $depth + 1);
         $reference = TicketLink::reference($url);
 
+        // A label naming another ticket would show one ticket and open another, in markup that is
+        // byte for byte the package's own ticket link, so such a link is shown as written
+        if ($reference !== null && ! self::namesOnly(self::plain($link), $reference)) {
+            $reference = null;
+        }
+
         if ($reference !== null) {
             return [['type' => 'link', 'reference' => $reference, 'children' => $children]];
         }
@@ -251,6 +348,33 @@ final class AgentText
         }
 
         return [['type' => 'text', 'text' => '['], ...$children, ['type' => 'text', 'text' => ']('.$url.')']];
+    }
+
+    /**
+     * Whether every ticket a label names is the one its link goes to.
+     *
+     * @param  string  $label  The label's text.
+     * @param  string  $reference  `owner/name#N`, as the link's URL names it.
+     */
+    private static function namesOnly(string $label, string $reference): bool
+    {
+        [$repository, $number] = explode('#', strtolower($reference), 2);
+
+        preg_match_all('#https?://\S+#i', $label, $urls);
+
+        foreach ($urls[0] as $url) {
+            $named = TicketLink::reference(rtrim($url, '.,;:!?)'));
+
+            if ($named === null || strtolower($named) !== strtolower($reference)) {
+                return false;
+            }
+        }
+
+        $label = (string) preg_replace('#https?://\S+#i', '', $label);
+
+        preg_match_all('#([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?\#([0-9]+)#', $label, $named, PREG_SET_ORDER);
+
+        return array_all($named, fn (array $match): bool => $match[2] === $number && ($match[1] === '' || strtolower($match[1]) === $repository));
     }
 
     /**

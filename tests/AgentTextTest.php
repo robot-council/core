@@ -118,8 +118,13 @@ it('shows hostile input as the characters that were written, with no element or 
         'a GitHub link that is not a ticket' => ['[x](https://github.com/robot-council/core/settings)', '[x](https://github.com/robot-council/core/settings)'],
         'a GitHub look-alike host' => ['[x](https://github.com.evil.example/a/b/issues/1)', '[x](https://github.com.evil.example/a/b/issues/1)'],
         'a link with a title that breaks out' => ['[x](https://github.com/a/b/issues/1 "a\" onmouseover=\"alert(1)")', 'x'],
-        // The definition is read, and the link it makes is shown as the text of a refused link
-        'a reference-style link' => ["[x][r]\n\n[r]: javascript:alert(1)", '[x](javascript:alert(1))'],
+        // A text holding a definition is shown exactly as written, the definition included
+        'a reference-style link' => ["[x][r]\n\n[r]: javascript:alert(1)", '[r]: javascript:alert(1)'],
+        'a definition to a ticket' => ["[a][a][a]\n\n[a]: https://github.com/a/b/issues/1", '[a][a][a]'],
+        'an image of a ticket' => ['![shot](https://github.com/a/b/issues/2)', '![shot](https://github.com/a/b/issues/2)'],
+        'a label naming another ticket' => ['[`robot-council/core#5`](https://github.com/evil/x/issues/5)', '](https://github.com/evil/x/issues/5)'],
+        'a label naming another number' => ['[#6](https://github.com/a/b/issues/5)', '[#6](https://github.com/a/b/issues/5)'],
+        'a label naming another URL' => ['[https://github.com/a/b/issues/9](https://github.com/a/b/issues/8)', '[https://github.com/a/b/issues/9](https://github.com/a/b/issues/8)'],
         'an entity' => ['&lt;script&gt;', '&lt;script&gt;'],
         'an emphasis wrapping HTML' => ['*<b onclick="x">bold</b>*', '<b onclick="x">bold</b>'],
         'code holding HTML' => ['`<svg onload=alert(1)>`', '<svg onload=alert(1)>'],
@@ -190,6 +195,27 @@ it('shows headings, block quotes, fenced code, and tables as the characters writ
     'a block quote' => ['> quoted'],
     'a table' => ["| a | b |\n| - | - |\n| 1 | 2 |"],
     'a thematic break' => ['***'],
+    'a spaced thematic break' => ['* * *'],
+    'a dashed thematic break' => ['- - -'],
+]);
+
+it('shows a title shaped like a reference definition as written, in either mode', function (string $text): void {
+    foreach ([false, true] as $inline) {
+        expect(trim(html_entity_decode(strip_tags(agentText($text, $inline)), ENT_QUOTES | ENT_HTML5)))
+            ->toBe(str_replace("\n", '', $text));
+    }
+})->with([
+    'an issue-template title' => ['[Bug]: crash'],
+    'a definition above a question' => ["[x]: y\nreal question?"],
+]);
+
+it('keeps a link whose label names the ticket it goes to', function (string $label): void {
+    expect(agentText('['.$label.'](https://github.com/robot-council/core/issues/5)', true))->toContain('class="link">');
+})->with([
+    'the reference' => ['robot-council/core#5'],
+    'the number' => ['#5'],
+    'the URL' => ['https://github.com/robot-council/core/issues/5'],
+    'words' => ['the decision'],
 ]);
 
 it('shows a fence as a code span at most, never a code block', function (): void {
@@ -208,7 +234,8 @@ it('keeps an inline field inline: a list marker stays text and paragraphs join w
 });
 
 it('flattens what nests past the cap into text, so the view recursion is bounded', function (): void {
-    $deep = str_repeat('- ', 40).'bottom';
+    // Emphasis, which CommonMark does not bound itself, so the cap reached is this class's own
+    $deep = str_repeat('*a ', 12).'bottom'.str_repeat(' b*', 12);
     $nodes = AgentText::blocks($deep);
 
     $depth = static function (array $nodes) use (&$depth): int {
@@ -225,7 +252,8 @@ it('flattens what nests past the cap into text, so the view recursion is bounded
         return $max;
     };
 
-    expect($depth($nodes))->toBeLessThanOrEqual(AgentText::MAX_DEPTH * 2)
+    // The paragraph, then at most MAX_DEPTH levels of emphasis below it
+    expect($depth($nodes))->toBe(AgentText::MAX_DEPTH + 1)
         ->and(html_entity_decode(strip_tags(agentText($deep))))->toContain('bottom');
 });
 
