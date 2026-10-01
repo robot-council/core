@@ -19,7 +19,7 @@
          meaning ran into the next term. From `sm` up the list is two columns and each entry a
          subgrid row, so every meaning starts at the same x; a row sets only its row gap, because a
          subgrid's own column gap would replace the list's. --}}
-    <dl class="mt-1 max-w-3xl divide-y divide-base-content/25 leading-relaxed sm:grid sm:grid-cols-[max-content_1fr] sm:gap-x-4" data-glossary-list>
+    <dl class="mt-1 max-w-3xl divide-y divide-separator leading-relaxed sm:grid sm:grid-cols-[max-content_1fr] sm:gap-x-4" data-glossary-list>
         @foreach (\RobotCouncil\Support\Glossary::entries($terms) as $entry)
             <div class="flex flex-col gap-y-1 py-3 sm:col-span-2 sm:grid sm:grid-cols-subgrid sm:gap-y-0" data-glossary-entry>
                 <dt class="font-semibold"><dfn id="term-{{ $entry['key'] }}">{{ $entry['term'] }}</dfn></dt>

@@ -251,7 +251,7 @@
             @else
                 <div class="space-y-4">
                 @foreach ($board['waiting'] as $section)
-                <section wire:key="owed-{{ $section['developer'] ?? '-general' }}" class="rounded-box border border-base-300 p-3 sm:p-4" data-owed-section="{{ $section['developer'] ?? 'General' }}">
+                <section wire:key="owed-{{ $section['developer'] ?? '-general' }}" class="rounded-box border border-separator p-3 sm:p-4" data-owed-section="{{ $section['developer'] ?? 'General' }}">
                     <h3 class="text-lg font-semibold"><x-robot-council::avatar :login="$section['developer']" />{{ $section['developer'] ?? 'General' }} <span class="text-meta font-normal opacity-90" data-owed-count>&middot; {{ count($section['items']) }} {{ count($section['items']) === 1 ? 'item' : 'items' }}</span></h3>
                     <x-robot-council::card-grid class="mt-3">
                         @foreach ($section['items'] as $item)

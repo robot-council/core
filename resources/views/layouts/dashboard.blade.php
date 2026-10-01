@@ -55,7 +55,7 @@
         <div class="drawer-side z-40">
             <label for="robot-council-navigation" class="drawer-overlay" aria-label="Hide navigation"></label>
 
-            <nav class="min-h-full w-64 bg-base-100 lg:border-r lg:border-base-300"
+            <nav class="min-h-full w-64 bg-base-100 lg:border-r lg:border-separator"
                 aria-labelledby="robot-council-menu-heading">
                 <h2 id="robot-council-menu-heading"
                     class="px-4 pt-4 text-meta font-semibold uppercase tracking-wide opacity-80">Menu</h2>
@@ -167,7 +167,7 @@
         </div>
 
         <div class="drawer-content flex min-h-screen min-w-0 flex-col">
-            <header class="navbar sticky top-0 z-30 gap-2 border-b border-base-300 bg-base-100 px-4">
+            <header class="navbar sticky top-0 z-30 gap-2 border-b border-separator bg-base-100 px-4">
                 <label for="robot-council-navigation"
                     class="btn btn-square btn-target btn-ghost drawer-button lg:hidden"
                     aria-label="Show navigation">

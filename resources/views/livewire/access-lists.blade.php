@@ -70,7 +70,7 @@
                 @if ($lists[$key]['configured'] === [] && $lists[$key]['stored'] === [])
                     <p class="max-w-xl py-4 opacity-80">None yet: nobody is on this list.</p>
                 @else
-                    <ul class="divide-y divide-base-200">
+                    <ul class="divide-y divide-separator">
                         @foreach ($lists[$key]['configured'] as $entry)
                             <li wire:key="{{ $key }}-configured-{{ $entry['github_id'] }}" class="flex flex-wrap items-center justify-between gap-2 py-3">
                                 <div>
