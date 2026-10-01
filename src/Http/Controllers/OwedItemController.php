@@ -13,13 +13,51 @@ use RobotCouncil\Support\IssueReference;
 use RobotCouncil\Support\OwedItems;
 
 /**
- * A coordinator records what the fleet is waiting on a developer for, or settles it (#335).
+ * A coordinator records what the fleet is waiting on a developer for, settles it (#335), or reads
+ * the items back (#503).
  *
  * Behind `coordinator:direct`. `Support\OwedItems` refuses a developer the fleet does not know and a
  * bare `#N`; the refusal is returned as a validation error so a client reads it like any other.
  */
 final class OwedItemController
 {
+    /**
+     * Read the items back, filtered (#503).
+     *
+     * The flags arrive on the query string, so `true` and `false` are accepted beside `1` and `0`:
+     * Laravel's `boolean` rule refuses the words, which is what a caller writing a URL types. An
+     * empty filter arrives as null, through the host's `ConvertEmptyStringsToNull`, and means no
+     * filter, as it does through the tool.
+     *
+     * @param  Request  $request  The incoming request.
+     * @param  OwedItems  $owed  The store.
+     * @return JsonResponse The items.
+     *
+     * @throws ValidationException When a value is refused.
+     */
+    public function index(Request $request, OwedItems $owed): JsonResponse
+    {
+        $request->validate([
+            'developer' => ['sometimes', 'nullable', 'string', 'max:39', 'prohibited_if_accepted:general'],
+            'general' => ['sometimes', 'in:0,1,true,false'],
+            'ticket' => ['sometimes', 'nullable', 'string', 'max:'.IssueReference::MAX],
+            'include_settled' => ['sometimes', 'in:0,1,true,false'],
+        ]);
+
+        try {
+            $items = $owed->list(
+                $request->filled('developer') ? $request->string('developer')->value() : null,
+                $request->boolean('general'),
+                $request->filled('ticket') ? $request->string('ticket')->value() : null,
+                $request->boolean('include_settled')
+            );
+        } catch (InvalidArgumentException $invalidArgumentException) {
+            throw ValidationException::withMessages(['ticket' => $invalidArgumentException->getMessage()]);
+        }
+
+        return new JsonResponse(['items' => $items]);
+    }
+
     /**
      * Record an item.
      *

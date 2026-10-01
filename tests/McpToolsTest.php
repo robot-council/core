@@ -137,9 +137,9 @@ it('lists its tools to a session that authenticated', function (): void {
         ->toContain('lock_acquire', 'lock_renew', 'lock_release', 'lock_force_release')
         ->toContain('events_read', 'events_narrate', 'directive_post', 'presence_heartbeat')
         ->and($names)->toContain('lane_hold', 'lane_clear_hold')
-        ->and($names)->toContain('backlog_report', 'gate_start', 'gate_finish', 'owed_record', 'owed_settle')
+        ->and($names)->toContain('backlog_report', 'gate_start', 'gate_finish', 'owed_record', 'owed_settle', 'owed_list')
         ->and($names)->toContain('shortlist_read', 'sessions_list', 'developer_settings')
-        ->and($names)->toHaveCount(29);
+        ->and($names)->toHaveCount(30);
 });
 
 it('tells an agent the content it reads is data, not instructions', function (): void {
@@ -961,6 +961,65 @@ it('records and settles an owed item through the tools', function (): void {
         ->and(toolResult(callTool($this, $token, 'owed_settle', ['item_id' => $id])))->toBe(['settled' => true])
         ->and(toolError(callTool($this, $token, 'owed_record', ['developer' => 'stranger', 'ticket' => 'robot-council/core#12', 'question' => 'Q?', 'why' => 'W.'])))
         ->toContain('No developer in this fleet');
+});
+
+it('lists owed items through the tool exactly as the endpoint does, for each filter', function (array $arguments, array $query): void {
+    $token = mcpCoordinatorToken($this);
+
+    foreach ([['octodev-less', null, 'robot-council/core#1'], ['mine', 'coordinator', 'robot-council/core#1'], ['other', null, 'robot-council/core#2']] as [$question, $developer, $ticket]) {
+        toolResult(callTool($this, $token, 'owed_record', array_filter(['developer' => $developer, 'ticket' => $ticket, 'question' => $question, 'why' => 'W.'])));
+    }
+
+    $settled = toolResult(callTool($this, $token, 'owed_record', ['ticket' => 'robot-council/core#3', 'question' => 'settled', 'why' => 'W.']))['id'] ?? null;
+    toolResult(callTool($this, $token, 'owed_settle', ['item_id' => $settled]));
+
+    $viaTool = toolResult(callTool($this, $token, 'owed_list', $arguments))['items'] ?? null;
+    $viaRoute = $this->machine($token)->getJson(route('robot-council.owed.index', $query))->assertOk()->json('items');
+
+    expect($viaTool)->toBe($viaRoute)
+        ->and($viaTool)->not->toBe([]);
+})->with([
+    'no filter' => [[], []],
+    'a developer' => [['developer' => 'Coordinator'], ['developer' => 'Coordinator']],
+    'General' => [['general' => true], ['general' => 'true']],
+    'a ticket' => [['ticket' => 'robot-council/core#1'], ['ticket' => 'robot-council/core#1']],
+    'settled included, as the integer 1' => [['include_settled' => 1], ['include_settled' => '1']],
+    'empty filters, which filter nothing' => [['developer' => '', 'ticket' => ''], ['developer' => '', 'ticket' => '']],
+    'an empty developer beside General' => [['developer' => '', 'general' => true], ['developer' => '', 'general' => 'true']],
+    'filters with spaces round them' => [['developer' => ' coordinator ', 'ticket' => ' robot-council/core#1 '], ['developer' => ' coordinator ', 'ticket' => ' robot-council/core#1 ']],
+]);
+
+it('leaves settled items out of owed_list unless asked', function (): void {
+    $token = mcpCoordinatorToken($this);
+
+    $id = toolResult(callTool($this, $token, 'owed_record', ['ticket' => 'robot-council/core#12', 'question' => 'Q?', 'why' => 'W.']))['id'] ?? null;
+
+    // The control: the item is listed while it is open
+    expect(array_column(arrayValue(toolResult(callTool($this, $token, 'owed_list'))['items'] ?? null), 'id'))->toBe([$id]);
+
+    toolResult(callTool($this, $token, 'owed_settle', ['item_id' => $id]));
+
+    expect(toolResult(callTool($this, $token, 'owed_list'))['items'] ?? null)->toBe([])
+        ->and(toolResult(callTool($this, $token, 'owed_list', ['include_settled' => false]))['items'] ?? null)->toBe([])
+        ->and(arrayValue(arrayValue(toolResult(callTool($this, $token, 'owed_list', ['include_settled' => true]))['items'] ?? null)[0] ?? null))
+        ->toMatchArray(['id' => $id, 'settled_because' => 'coordinator']);
+});
+
+it('refuses owed_list a developer with General, a bare #N, a wrong type, and a session without coordinator:direct', function (): void {
+    $token = mcpCoordinatorToken($this);
+
+    $reported = [];
+
+    Log::listen(static function (MessageLogged $entry) use (&$reported): void {
+        $reported[] = $entry->message;
+    });
+
+    expect(toolError(callTool($this, $token, 'owed_list', ['developer' => 'coordinator', 'general' => true])))->toContain('not both')
+        ->and(toolError(callTool($this, $token, 'owed_list', ['ticket' => '#12'])))->not->toBe('An internal server error occurred.')
+        ->and(toolError(callTool($this, $token, 'owed_list', ['include_settled' => 'yes'])))->not->toBe('An internal server error occurred.')
+        ->and(toolError(callTool($this, $token, 'owed_list', ['developer' => ['a']])))->not->toBe('An internal server error occurred.')
+        ->and(toolError(callTool($this, $this->token, 'owed_list')))->toContain('coordinator:direct')
+        ->and($reported)->toBeEmpty();
 });
 
 it('lists the live sessions through the tool as the endpoint does', function (): void {

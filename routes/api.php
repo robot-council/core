@@ -131,7 +131,11 @@ Route::middleware(['throttle:'.RobotCouncilServiceProvider::AGENT_LIMITER, Ensur
             ->middleware(RequireAbility::class.':'.Ability::TasksClaim->value)
             ->name('gates.finish');
 
-        // What the fleet is waiting on a developer for (#335). The coordinator's record
+        // What the fleet is waiting on a developer for (#335). The coordinator's record, and its
+        // read back (#503)
+        Route::get('owed-items', [OwedItemController::class, 'index'])
+            ->middleware(RequireAbility::class.':'.Ability::CoordinatorDirect->value)
+            ->name('owed.index');
         Route::post('owed-items', [OwedItemController::class, 'store'])
             ->middleware(RequireAbility::class.':'.Ability::CoordinatorDirect->value)
             ->name('owed.store');

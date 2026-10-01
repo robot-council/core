@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RobotCouncil\Support;
 
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -114,13 +115,7 @@ final class OwedItems
     {
         $rows = DB::table('robot_council_owed_items')->whereNull('settled_at')->orderBy('recorded_at')->orderBy('id')->get();
 
-        $known = [];
-
-        foreach (GithubIdentity::query()->pluck('github_login') as $login) {
-            if (\is_string($login)) {
-                $known[mb_strtolower($login)] = $login;
-            }
-        }
+        $known = $this->knownLogins();
 
         $general = [];
         $byDeveloper = [];
@@ -150,6 +145,95 @@ final class OwedItems
         }
 
         return $sections;
+    }
+
+    /**
+     * The items, filtered, oldest first, for a coordinator to read back (#503).
+     *
+     * The same items the board shows, on the same rule: an item naming a developer the fleet no
+     * longer knows is left out, and with `$includeSettled` that holds for a settled one too, so
+     * the two reads never disagree about who an item belongs to. `General` is its own flag rather
+     * than a value of `$developer`, because `General` is also a login somebody can hold.
+     *
+     * @param  string|null  $developer  Only this developer's items, by GitHub login, compared without case.
+     * @param  bool  $general  Only the items with no developer.
+     * @param  string|null  $ticket  Only the items on this ticket, `owner/name#N`, compared without case.
+     * @param  bool  $includeSettled  Also the settled items, each with when and why it settled.
+     * @return list<array{id: int, developer: string|null, ticket: string, question: string, why: string, recorded_at: string, settled_at?: string|null, settled_because?: string|null}>
+     *                                                                                                                                                                                   The items.
+     *
+     * @throws InvalidArgumentException When `$developer` and `$general` are both given, or the ticket is not `owner/name#N`.
+     */
+    public function list(?string $developer = null, bool $general = false, ?string $ticket = null, bool $includeSettled = false): array
+    {
+        if ($developer !== null && $general) {
+            throw new InvalidArgumentException('Name a developer or ask for General, not both.');
+        }
+
+        if ($ticket !== null) {
+            IssueReference::ensure($ticket);
+        }
+
+        $rows = DB::table('robot_council_owed_items')
+            ->when(! $includeSettled, static fn (Builder $query): Builder => $query->whereNull('settled_at'))
+            ->when($general, static fn (Builder $query): Builder => $query->whereNull('developer'))
+            ->when($developer !== null, static fn (Builder $query): Builder => $query->whereRaw('lower(developer) = ?', [mb_strtolower((string) $developer)]))
+            ->when($ticket !== null, static fn (Builder $query): Builder => $query->whereRaw('lower(ticket) = ?', [mb_strtolower((string) $ticket)]))
+            ->orderBy('recorded_at')
+            ->orderBy('id')
+            ->get();
+
+        $known = $this->knownLogins();
+        $items = [];
+
+        foreach ($rows as $row) {
+            if ($row->developer === null) {
+                $owner = null;
+            } elseif (\is_string($row->developer) && isset($known[mb_strtolower($row->developer)])) {
+                $owner = $known[mb_strtolower($row->developer)];
+            } else {
+                continue;
+            }
+
+            $item = [
+                'id' => is_numeric($row->id) ? (int) $row->id : 0,
+                'developer' => $owner,
+                'ticket' => \is_string($row->ticket) ? $row->ticket : '',
+                'question' => \is_string($row->question) ? $row->question : '',
+                'why' => \is_string($row->why) ? $row->why : '',
+                'recorded_at' => Carbon::parse(\is_string($row->recorded_at) ? $row->recorded_at : 'now')->toIso8601String(),
+            ];
+
+            if ($includeSettled) {
+                $item['settled_at'] = \is_string($row->settled_at) ? Carbon::parse($row->settled_at)->toIso8601String() : null;
+                $item['settled_because'] = \is_string($row->settled_because) ? $row->settled_because : null;
+            }
+
+            $items[] = $item;
+        }
+
+        return $items;
+    }
+
+    /**
+     * Every login the fleet signs in as, keyed by its lower case.
+     *
+     * Keyed by a string that may be all digits, so PHP may make the key an integer; only the
+     * values are ever read back as logins.
+     *
+     * @return array<array-key, string> The fleet's spelling of each login.
+     */
+    private function knownLogins(): array
+    {
+        $known = [];
+
+        foreach (GithubIdentity::query()->pluck('github_login') as $login) {
+            if (\is_string($login)) {
+                $known[mb_strtolower($login)] = $login;
+            }
+        }
+
+        return $known;
     }
 
     /**
