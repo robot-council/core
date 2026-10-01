@@ -162,7 +162,9 @@ it('sizes a field that is only a link as a 44px target when it stands alone, and
         'a link inside a title' => ['Follow up on [#9](https://github.com/robot-council/core/pull/9) after the crash', false],
         'a link before more words' => ['[#9](https://github.com/robot-council/core/pull/9) follow-up', false],
         'two links' => ['[a](https://github.com/a/b/issues/1)[b](https://github.com/a/b/issues/2)', false],
-        'a link inside emphasis' => ['*[Fix the crash](https://github.com/robot-council/core/pull/9)*', false],
+        'a lone link inside emphasis' => ['*[Fix the crash](https://github.com/robot-council/core/pull/9)*', true],
+        'a lone link inside strong emphasis' => ['**[Fix the crash](https://github.com/robot-council/core/pull/9)**', true],
+        'a link and a word inside emphasis' => ['*[Fix the crash](https://github.com/robot-council/core/pull/9) now*', false],
         'a lone link to somewhere else' => ['[Fix the crash](https://evil.example/issues/9)', false],
         'plain text' => ['Fix the crash', false],
     ];

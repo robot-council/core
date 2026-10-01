@@ -10,15 +10,23 @@
     them: a `div` or a cell, never a `p` or a `span`.
 
     `standalone`, with `inline`, is for a field that is the whole of its element, such as a task
-    title on the Queue or the Lanes page (#554). Text that is nothing but one link then renders that
-    link as a 44px target, the size of the ticket link beside it on Lanes, because with no words
-    round it SC 2.5.8's Inline exception no longer applies. A link with any text beside it keeps the
-    line's height, and what is rendered is the same subset either way: only the link's size changes.
+    title on the Queue or the Lanes page (#554). Text that is nothing but one link, emphasized or
+    not, then renders that link as a 44px target, the size of the Lanes ticket link, because with no
+    words round it SC 2.5.8's Inline exception no longer applies. A link with any text beside it
+    keeps the line's height, and what is rendered is the same subset either way: only the link's
+    size changes.
 --}}
 @props(['text' => null, 'inline' => false, 'standalone' => false])
 @if ($inline)
-@php($nodes = \RobotCouncil\Support\AgentText::inline($text))
-@include('robot-council::partials.agent-text-nodes', ['nodes' => $nodes, 'loneLink' => $standalone && count($nodes) === 1 && $nodes[0]['type'] === 'link'])
+@php
+    $nodes = \RobotCouncil\Support\AgentText::inline($text);
+    // Down through emphasis that wraps the whole field, to whatever it wraps
+    $within = $nodes;
+    while (count($within) === 1 && in_array($within[0]['type'], ['emphasis', 'strong'], true)) {
+        $within = $within[0]['children'];
+    }
+@endphp
+@include('robot-council::partials.agent-text-nodes', ['nodes' => $nodes, 'loneLink' => $standalone && count($within) === 1 && $within[0]['type'] === 'link'])
 @else
 <div {{ $attributes->class(['agent-text']) }}>@include('robot-council::partials.agent-text-nodes', ['nodes' => \RobotCouncil\Support\AgentText::blocks($text)])</div>
 @endif
