@@ -161,7 +161,7 @@
                                                                                 {{-- A task that names no ticket, in its issue or at the start of
                                                                                      its title, is shown by its title (#422), whole: a task id says
                                                                                      nothing to a person, and no text here is cut short (#401) --}}
-                                                                                <span data-lane-task-title><x-robot-council::agent-text :text="$work['title']" inline /></span>
+                                                                                <span data-lane-task-title><x-robot-council::agent-text :text="$work['title']" inline standalone /></span>
                                                                                 <span class="text-meta opacity-90">(task <code>#{{ $work['task_id'] }}</code>)</span>
                                                                             @endif
                                                                             @if ($work['hand_back'])
