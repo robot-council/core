@@ -14,9 +14,9 @@
 
     {{-- A seat action about a seat this page does not list -- somebody else's, or one that has
          gone -- has no row to be shown beside, so its words are shown here instead (#402) --}}
-    @include('robot-council::partials.said', ['show' => $said !== null && ! in_array($saidAt, ['hours', 'days-off', ...array_map(static fn ($seat): string => 'seat-'.$seat->id, $seats)], true)])
+    @include('robot-council::partials.said', ['show' => $said !== null && ! in_array($saidAt, ['hours', 'days-off', ...array_map(static fn ($seat): string => 'seat-'.$seat->id, $seats), ...array_map(static fn (array $machine): string => 'machine-'.$machine['id'], $machines)], true)])
 
-    @include('robot-council::partials.glossary', ['terms' => ['seat', 'harness', 'machine_label', 'park', 'exempt', 'tickets_at_once', 'placement', 'waive', 'assignment_hours', 'days_off', 'gate', 'hand_back', 'coordinator']])
+    @include('robot-council::partials.glossary', ['terms' => ['seat', 'installation', 'harness', 'machine_label', 'park', 'exempt', 'tickets_at_once', 'placement', 'waive', 'assignment_hours', 'days_off', 'gate', 'hand_back', 'coordinator']])
 
 
     <div class="card bg-base-100 shadow-sm">
@@ -124,6 +124,40 @@
                                     @endforeach
                                 </ul>
                             </details>
+                        </li>
+                    @endforeach
+                </ul>
+            @endif
+        </div>
+    </div>
+
+    {{-- #534: a machine's label, renamed in place rather than by enrolling again. Every live
+         installation of this developer's is listed, whether or not it has a seat yet. --}}
+    <div class="card bg-base-100 shadow-sm">
+        <div class="card-body">
+            <h2 class="card-title">My machines</h2>
+
+            <p class="max-w-xl text-meta leading-relaxed opacity-90">
+                Each of your machines, by the harness it runs. Renaming one changes the name the whole
+                fleet sees for it from now on: the lane board, session lists, and new events. Events
+                already in the feed keep the name they were written with.
+            </p>
+
+            @if ($machines === [])
+                <p class="mx-auto max-w-xl py-6 text-center opacity-80">
+                    No machines yet: a machine appears once you approve its enrollment.
+                </p>
+            @else
+                <ul class="divide-y divide-base-200">
+                    @foreach ($machines as $machine)
+                        <li wire:key="machine-{{ $machine['id'] }}" class="py-3" data-machine="{{ $machine['id'] }}">
+                            <div class="font-medium">
+                                <code>{{ $machine['harness'] }}</code> on <code>{{ $machine['machine_label'] }}</code>
+                            </div>
+
+                            @include('robot-council::partials.said', ['show' => $said !== null && $saidAt === 'machine-'.$machine['id'], 'class' => 'mt-2'])
+
+                            @include('robot-council::partials.rename-installation', ['installation' => $machine])
                         </li>
                     @endforeach
                 </ul>

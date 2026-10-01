@@ -69,6 +69,17 @@ enum FleetEventType: string
     case InstallationRevoked = 'installation.revoked';
 
     /**
+     * An installation's machine label was changed in place, by its developer or an administrator
+     * (#534).
+     *
+     * An administrative change like `installation.revoked`, and visible to the same readers: every
+     * session, since a label is how the whole fleet tells machines apart. `meta` names the old
+     * label and the new one, both bounded by `Support\MachineIdentity`; `performed_by` names who
+     * changed it and `user_id` the installation's developer.
+     */
+    case InstallationRenamed = 'installation.renamed';
+
+    /**
      * An administrator added a GitHub account to the developer or administrator allowlist (#408).
      *
      * An administrative change like `installation.revoked`, and visible to the same readers: every

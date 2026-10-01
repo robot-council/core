@@ -116,6 +116,13 @@
 
                                             @include('robot-council::partials.said', ['show' => $said !== null && $saidAt === $installation['id'], 'class' => 'mt-2'])
 
+                                            {{-- #534: a new machine label, in place. Only the id reaches the
+                                                 `wire:` expressions; the label is read back by the component
+                                                 as untrusted input and refused for what enrollment refuses. --}}
+                                            @if (! $installation['revoked'])
+                                                @include('robot-council::partials.rename-installation', ['installation' => $installation])
+                                            @endif
+
                                             @if ($installation['sessions']['shown'] !== [])
                                                 {{-- The id, the status and the role in shared columns from `sm` up (#481),
                                                      the same way the change feed aligns its types: three `max-content`

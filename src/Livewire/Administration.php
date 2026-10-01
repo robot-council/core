@@ -6,6 +6,7 @@ namespace RobotCouncil\Livewire;
 
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\View\View;
+use InvalidArgumentException;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
@@ -19,6 +20,7 @@ use RobotCouncil\Models\Installation;
 use RobotCouncil\Support\DisplayTime;
 use RobotCouncil\Support\InstallationList;
 use RobotCouncil\Support\Installations;
+use RobotCouncil\Support\Outcome;
 use RobotCouncil\Support\PollInterval;
 use RobotCouncil\Support\RoleRequests;
 use RobotCouncil\Support\Scope;
@@ -89,6 +91,16 @@ final class Administration extends Component
      */
     #[Locked]
     public bool $refused = false;
+
+    /**
+     * Each live installation's machine label as its rename field holds it, by installation id (#534).
+     *
+     * Client-writable, like any field, so `renameInstallation()` reads it as untrusted and the store
+     * refuses what enrollment would.
+     *
+     * @var array<int|string, mixed>
+     */
+    public array $labels = [];
 
     /**
      * Which installations are listed: those that can still act, or every row.
@@ -190,6 +202,59 @@ final class Administration extends Component
             $installation->harness,
             $installation->machine_label
         ));
+    }
+
+    /**
+     * Give an installation the machine label its field holds, without the machine re-enrolling
+     * (#534).
+     *
+     * @param  int  $installationId  The installation to rename.
+     */
+    public function renameInstallation(int $installationId): void
+    {
+        $this->authorizeAdmin();
+
+        $installation = Installation::query()->find($installationId);
+
+        if (! $installation instanceof Installation) {
+            $this->say(null, 'Not found: that installation no longer exists. The list shows the ones that do.', refused: true);
+
+            return;
+        }
+
+        $actor = $this->actor();
+
+        if ($actor === null) {
+            $this->say($installation->id, 'Not renamed: your account has no key a change can be recorded against.', refused: true);
+
+            return;
+        }
+
+        $typed = $this->labels[$installation->id] ?? null;
+        $label = \is_string($typed) ? trim($typed) : '';
+
+        try {
+            $outcome = $this->service(Installations::class)->rename($installation->id, $label, $actor, asAdmin: true);
+        } catch (InvalidArgumentException $invalidArgumentException) {
+            $this->say($installation->id, 'Not renamed: '.$invalidArgumentException->getMessage(), refused: true);
+
+            return;
+        }
+
+        match ($outcome) {
+            Outcome::Applied => $this->say($installation->id, sprintf(
+                'Renamed: %s on %s is now %s on %s. Its sessions carry on under the new name.',
+                $installation->harness,
+                $installation->machine_label,
+                $installation->harness,
+                $label
+            )),
+            Outcome::Conflict => $this->say($installation->id, sprintf('No change: %s on %s already has that name.', $installation->harness, $label), refused: true),
+
+            // `Forbidden` cannot answer an administrator, and `Added` is a task's alone (#433);
+            // both read as the one thing left, an installation that is no longer live
+            Outcome::NotFound, Outcome::Forbidden, Outcome::Added => $this->say($installation->id, sprintf('Not renamed: %s on %s has been revoked, so it has no name to change.', $installation->harness, $installation->machine_label), refused: true),
+        };
     }
 
     /**
@@ -358,6 +423,14 @@ final class Administration extends Component
         $template = 'robot-council::livewire.administration';
 
         $page = $installations->everything(self::PER_PAGE, Scope::orDefault($this->scope, Scope::Live), $this->after);
+
+        // Each rename field starts at the label stored, and a value an administrator is part-way
+        // through typing is left alone by the poll
+        foreach ($page['installations'] as $listed) {
+            if (\is_int($listed['id'] ?? null) && \is_string($listed['machine_label'] ?? null)) {
+                $this->labels[$listed['id']] ??= $listed['machine_label'];
+            }
+        }
 
         return view($template, [
             'page' => $page,

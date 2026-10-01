@@ -184,7 +184,7 @@ final class Installations
                 // `agent_sessions`, then the feed sentinel, then `personal_access_tokens`, and
                 // recording the event below the deletes would hold token rows while reaching for
                 // the sentinel -- the inversion the documented order exists to prevent.
-                $this->record($installation, FleetEventType::InstallationRevoked, 'was revoked', $actor);
+                $this->record($installation, FleetEventType::InstallationRevoked, sprintf('%s on %s was revoked.', $installation->harness, $installation->machine_label), $actor);
             }
 
             $deleted = Tokens::deleted($installation->tokens()->delete());
@@ -198,30 +198,142 @@ final class Installations
     }
 
     /**
+     * Change a live installation's machine label in place, without the machine re-enrolling (#534).
+     *
+     * **Every surface reads the label off the installation row**, so changing the row is the whole
+     * change: `sessions_list`, the lane board and every presence event written from now on name the
+     * machine by its new label, and the sessions it has running carry on. An event already in the
+     * feed keeps the label it was written with, because its body is text recorded at write time.
+     *
+     * **Refused, in words, for a label enrollment would refuse**, through the same
+     * `MachineIdentity::ensureLabel()`, so the reason a developer reads here is the one enrollment
+     * gives. **And for a label another live installation of the same developer and harness already
+     * holds**, because that triple is the identity a re-enrollment supersedes on: two live rows
+     * sharing it would both be revoked by the next approval for either machine, which is #106's
+     * silent supersede arriving through a different door.
+     *
+     * **Every live installation of that developer and harness is held, in id order, before the
+     * label is checked against them.** Holding only the renamed row would let two renames to the
+     * same label each find it free and both commit. Holding the whole set, ascending, is the order
+     * `createFrom()` takes its subset of the same rows in, so the two cannot deadlock each other.
+     * What this does NOT close is an enrollment for a label nobody holds yet, racing a rename to
+     * it: neither side has a row to wait on, and there is no unique index to refuse the second,
+     * because a revoked installation keeps its identity. The cost is the one above -- the next
+     * approval for either machine supersedes both -- and it needs an approval to land in the same
+     * moment as a rename.
+     *
+     * @param  int  $installationId  The installation to rename.
+     * @param  string  $machineLabel  The label it should carry.
+     * @param  string  $actor  The developer renaming it.
+     * @param  bool  $asAdmin  Whether that developer is an administrator, who may rename anybody's.
+     * @return Outcome `Applied`; `NotFound` when there is no live installation by that id;
+     *                 `Forbidden` when it is somebody else's and the actor is no administrator; or
+     *                 `Conflict` when it already carries that label.
+     *
+     * @throws InvalidArgumentException When the label is refused, with the reason.
+     */
+    public function rename(int $installationId, string $machineLabel, string $actor, bool $asAdmin): Outcome
+    {
+        MachineIdentity::ensureLabel($machineLabel);
+
+        $actor = HostKey::from($actor);
+
+        return DB::transaction(function () use ($installationId, $machineLabel, $actor, $asAdmin): Outcome {
+            // Unlocked, only to learn which set to hold: the decision is made from the held row
+            // below, so a change between the two reads is decided on what it changed to
+            $found = Installation::query()->whereKey($installationId)->whereNull('revoked_at')->first(['id', 'user_id', 'harness']);
+
+            if (! $found instanceof Installation) {
+                return Outcome::NotFound;
+            }
+
+            if ($found->user_id !== $actor && ! $asAdmin) {
+                return Outcome::Forbidden;
+            }
+
+            $siblings = Installation::query()
+                ->where('user_id', $found->user_id)
+                ->where('harness', $found->harness)
+                ->whereNull('revoked_at')
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+
+            // Revoked between the two reads: nothing live to rename
+            $installation = $siblings->firstWhere('id', $found->id);
+
+            if (! $installation instanceof Installation) {
+                return Outcome::NotFound;
+            }
+
+            $previous = $installation->machine_label;
+
+            if ($previous === $machineLabel) {
+                return Outcome::Conflict;
+            }
+
+            // Compared in PHP, against rows already held, so the answer cannot go stale before the
+            // update. Byte-exact, as the supersede's own `where` is on every engine but MySQL's
+            // default collation -- which #54 made binary for the key columns and not this one, so
+            // there a label differing only in case would still find the other row. Refusing on a
+            // case-insensitive match as well keeps the rename from creating two rows MySQL's
+            // supersede would treat as one.
+            $taken = $siblings->contains(
+                static fn (Installation $sibling): bool => $sibling->id !== $installation->id
+                    && mb_strtolower($sibling->machine_label) === mb_strtolower($machineLabel)
+            );
+
+            if ($taken) {
+                throw new InvalidArgumentException(sprintf(
+                    "Another of this developer's live %s installations is already called %s, and two would both be replaced by the next enrollment of either.",
+                    $installation->harness,
+                    $machineLabel
+                ));
+            }
+
+            $installation->machine_label = $machineLabel;
+            $installation->save();
+
+            // After the installation row, which is first in the lock order; the feed sentinel
+            // comes later in it
+            $this->record(
+                $installation,
+                FleetEventType::InstallationRenamed,
+                sprintf('%s on %s was renamed to %s.', $installation->harness, $previous, $machineLabel),
+                $actor,
+                ['old_label' => $previous, 'new_label' => $machineLabel]
+            );
+
+            return Outcome::Applied;
+        });
+    }
+
+    /**
      * Record one administrative change against an installation.
      *
-     * The body names the installation the way the rest of the feed names a machine, so a reader
-     * scanning it sees an authorization change in the same vocabulary as an enrollment. Both parts
-     * are charset-limited at the edge by `MachineIdentity` and together cannot approach
-     * `FleetEvent::MAX_BODY`.
+     * The caller writes the body, naming the installation the way the rest of the feed names a
+     * machine -- `<harness> on <label>` -- so a reader scanning it sees an authorization change in
+     * the same vocabulary as an enrollment. A rename has two labels to name, which is why the body
+     * is no longer composed here. Every part is charset-limited at the edge by `MachineIdentity`,
+     * and together they cannot approach `FleetEvent::MAX_BODY`.
      *
-     * **It takes no `meta`, and used to.** The caller that passed any was
-     * `setAbility()`, which named the ability that moved; `robot-council/core#231` retired it, and
-     * the one remaining caller passes nothing. Mutation testing is what found this: removing the
-     * spread left every test green, because no surviving path could put anything in it. Deleted
-     * rather than annotated -- a parameter one private call site always passes empty is dead code,
-     * not an unkillable mutant.
+     * **`meta` came back with #534.** `robot-council/core#231` retired the caller that passed any,
+     * and the parameter was deleted rather than left for one call site to pass empty; a rename
+     * names the label it replaced and the one it took, so a reader of the feed can tell which
+     * machine this was without the body's prose.
      *
      * @param  Installation  $installation  The installation that changed.
      * @param  FleetEventType  $type  What changed.
-     * @param  string  $happened  What happened to it, as a predicate.
+     * @param  string  $body  What happened to it, as a sentence.
      * @param  string|null  $actor  The developer responsible, when a signed-in one is.
+     * @param  array<string, string>  $meta  What else the event names, beside the installation.
      */
     private function record(
         Installation $installation,
         FleetEventType $type,
-        string $happened,
-        ?string $actor
+        string $body,
+        ?string $actor,
+        array $meta = []
     ): void {
         $this->events->record(
             $type,
@@ -229,8 +341,8 @@ final class Installations
             // No session: the change was made by a developer, through the dashboard or the
             // console, rather than by a process the fleet knows about
             null,
-            sprintf('%s on %s %s.', $installation->harness, $installation->machine_label, $happened),
-            ['installation_id' => $installation->id],
+            $body,
+            ['installation_id' => $installation->id, ...$meta],
 
             // Both, and they are different people: the event is ABOUT this installation's owner
             // and was DONE by the admin. Before #115 only the admin was recorded, in the column

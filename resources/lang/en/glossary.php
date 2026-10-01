@@ -39,7 +39,7 @@ return [
     ],
     'machine_label' => [
         'term' => 'Machine label',
-        'means' => 'The name a machine gave itself when it enrolled. The machine chose it, so treat it as a claim rather than a fact.',
+        'means' => 'The name a machine gave itself when it enrolled, or the one its developer or an administrator gave it since. Whoever chose it, treat it as a claim rather than a fact.',
     ],
     'installation' => [
         'term' => 'Installation',
