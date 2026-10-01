@@ -362,4 +362,5 @@ Skills (activate when working in that area):
 
 - **Code:** `laravel-best-practices`, `php-coding-standards`, `php-documentation`, `pest-testing`.
 - **Tooling:** `pcov-setup`, `security-audit`, `wcag-contrast`.
+- **Dependencies:** `upstream-workaround-lifecycle` (carrying a workaround for a dependency defect, reporting it upstream, and retiring it).
 - **Writing:** `writing-commits`, `writing-issues` (labels, templates, the `afk`/`hitl` convention), `writing-pull-requests`, `writing-release-notes`.
