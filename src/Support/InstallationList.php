@@ -62,7 +62,7 @@ final class InstallationList
      * @param  int  $limit  How many to return, clamped to `MAX_PAGE`.
      * @param  Scope  $scope  Installations that can still act, or every row.
      * @param  int|null  $after  The id of the last installation the reader has seen.
-     * @return array{installations: list<array<string, mixed>>, cursor: int|null, more: bool, live: int, retired: int}
+     * @return array{installations: list<array<string, mixed>>, groups: list<array{developer: string|null, continued: bool, machines: list<array{machine: string, continued: bool, installations: list<array<string, mixed>>}>}>, cursor: int|null, more: bool, live: int, retired: int}
      */
     public function everything(int $limit, Scope $scope = Scope::Live, ?int $after = null): array
     {
@@ -97,11 +97,21 @@ final class InstallationList
             ->limit($size + 1)
             ->get();
 
+        // The developer and machine of every installation on an EARLIER page, so a group this page
+        // continues says so (#518). Distinct pairs, which is developers times machines rather than
+        // installations, and only read past the first page, which has no earlier one.
+        $earlier = $after === null ? collect() : Installation::query()
+            ->toBase()
+            ->when($scope === Scope::Live, fn (\Illuminate\Database\Query\Builder $query) => $query->whereNull('revoked_at')->where('expires_at', '>', $now))
+            ->where('id', '>=', $after)
+            ->distinct()
+            ->get(['user_id', 'machine_label']);
+
         $more = $installations->count() > $size;
 
         $installations = $installations->take($size);
 
-        $logins = $this->logins->forUsers($installations->pluck('user_id')->all());
+        $logins = $this->logins->forUsers([...$installations->pluck('user_id')->all(), ...$earlier->pluck('user_id')->all()]);
 
         // Both totals in one pass. They were two `count()` queries and the second was only ever
         // `total - live`, so the table was scanned twice to answer one question -- the same shape
@@ -156,7 +166,7 @@ final class InstallationList
             // `tests/AdminReadShapeTest.php` covers both, one test each, and removing this call
             // turns both red.
             // @pest-mutate-ignore: UnwrapArrayValues
-            'installations' => array_values($installations->map(fn (Installation $installation): array => [
+            'installations' => $rows = array_values($installations->map(fn (Installation $installation): array => [
                 'id' => $installation->id,
                 'github_login' => $logins[$installation->user_id] ?? null,
                 'harness' => $installation->harness,
@@ -169,7 +179,94 @@ final class InstallationList
                 'expired' => $installation->expires_at->isBefore($now),
                 'sessions' => $this->sessionsOf($installation),
             ])->all()),
+
+            'groups' => self::groups($rows, $this->earlierGroups($earlier->all(), $logins)),
         ];
+    }
+
+    /**
+     * The developer and machine of each installation on an earlier page, by login.
+     *
+     * @param  array<mixed>  $pairs  Distinct `user_id` and `machine_label` rows.
+     * @param  array<string, string>  $logins  GitHub logins by host key.
+     * @return list<array{developer: string|null, machine: string}> The pairs.
+     */
+    private function earlierGroups(array $pairs, array $logins): array
+    {
+        $groups = [];
+
+        foreach ($pairs as $pair) {
+            if (! \is_object($pair)) {
+                continue;
+            }
+
+            $user = $pair->user_id ?? null;
+            $machine = $pair->machine_label ?? null;
+
+            $groups[] = [
+                'developer' => \is_string($user) || \is_int($user) ? ($logins[(string) $user] ?? null) : null,
+                'machine' => \is_string($machine) ? $machine : '',
+            ];
+        }
+
+        return $groups;
+    }
+
+    /**
+     * One page's installations grouped by developer, then machine, then harness (#518).
+     *
+     * Developers by login without regard to case, with the installations whose developer is not
+     * known last; machines by label; harnesses by name, and the newest first where two match. The
+     * page is grouped as read, so the cursor stays on `id`: a group that began on an earlier page
+     * is marked `continued` rather than moved.
+     *
+     * @param  list<array<string, mixed>>  $rows  The page's installations.
+     * @param  list<array{developer: string|null, machine: string}>  $earlier  Every developer and machine on earlier pages.
+     * @return list<array{developer: string|null, continued: bool, machines: list<array{machine: string, continued: bool, installations: list<array<string, mixed>>}>}> The groups.
+     */
+    private static function groups(array $rows, array $earlier): array
+    {
+        $byDeveloper = [];
+
+        foreach ($rows as $row) {
+            $developer = \is_string($row['github_login'] ?? null) ? $row['github_login'] : '';
+            $machine = \is_string($row['machine_label'] ?? null) ? $row['machine_label'] : '';
+            $byDeveloper[$developer][$machine][] = $row;
+        }
+
+        // Compared as text, never as numbers: `<=>` reads a login or label of digits as a number,
+        // and an array key of digits alone becomes an integer, hence the casts. The empty developer
+        // is the unknown one, and it sorts after every login
+        $text = static fn (int|string $a, int|string $b): int => strcasecmp((string) $a, (string) $b) ?: strcmp((string) $a, (string) $b);
+        uksort($byDeveloper, static fn (int|string $a, int|string $b): int => (((string) $a === '') <=> ((string) $b === '')) ?: $text($a, $b));
+
+        $groups = [];
+
+        foreach ($byDeveloper as $developer => $machines) {
+            $developer = $developer === '' ? null : $developer;
+            uksort($machines, $text);
+
+            $grouped = [];
+
+            foreach ($machines as $machine => $installations) {
+                usort($installations, static fn (array $a, array $b): int => $text(\is_string($a['harness'] ?? null) ? $a['harness'] : '', \is_string($b['harness'] ?? null) ? $b['harness'] : '')
+                    ?: ($b['id'] ?? 0) <=> ($a['id'] ?? 0));
+
+                $grouped[] = [
+                    'machine' => $machine,
+                    'continued' => \in_array(['developer' => $developer, 'machine' => $machine], $earlier, true),
+                    'installations' => $installations,
+                ];
+            }
+
+            $groups[] = [
+                'developer' => $developer,
+                'continued' => \in_array($developer, array_column($earlier, 'developer'), true),
+                'machines' => $grouped,
+            ];
+        }
+
+        return $groups;
     }
 
     /**

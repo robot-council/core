@@ -1588,3 +1588,40 @@ it('runs Alpine on the enrollment page and acts on nothing the requester sent (#
         ->and($read['shown'] ?? null)->toBeTrue()
         ->and($read['directives'] ?? null)->toBe(0);
 });
+
+it('groups the administration page by developer and machine, nests its headings, and fits a phone (#518)', function (int $width): void {
+    $page = visitSurface($this, 'robot-council.administration', '', 'gate-runner', 'light');
+    $page->resize($width, 900);
+
+    $found = $page->script(<<<'JS'
+        () => {
+            const main = document.querySelector('main');
+            return {
+                outline: [...main.querySelectorAll('h1, h2, h3')]
+                    .map((el) => `${el.tagName.toLowerCase()} ${el.textContent.trim().replace(/\s+/g, ' ')}`),
+                // Every installation entry sits in a list under a machine heading's group
+                orphans: [...main.querySelectorAll('[wire\\:key^="installation-"]')]
+                    .filter((li) => ! li.closest('[data-installation-machine] > ul')).length,
+                entries: main.querySelectorAll('[wire\\:key^="installation-"]').length,
+            };
+        }
+    JS);
+
+    // The seed's two developers, octodev's four machines and the colleague's two, each by label.
+    // The avatar's letter is part of each developer heading's text, hidden from a screen reader
+    expect($found)->toBe([
+        'outline' => [
+            'h1 Installations',
+            'h2 Ccolleague',
+            'h3 colleague-desktop',
+            'h3 colleague-laptop',
+            'h2 Ooctodev',
+            'h3 coordinator-mac',
+            'h3 gate-runner',
+            'h3 home-windows',
+            'h3 office-mac',
+        ],
+        'orphans' => 0,
+        'entries' => 6,
+    ])->and(sidewaysScroll($page))->toBe(0);
+})->with([390, 1280]);
