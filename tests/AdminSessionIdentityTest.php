@@ -60,8 +60,10 @@ function adminSessionLines(string $html, int $session, string $attribute): array
 
     $lines = [];
 
-    foreach ((new DOMXPath($document))->query('//*[@data-session-'.$attribute.']') ?: [] as $node) {
-        $lines[] = trim((string) preg_replace('/\s+/', ' ', $node->textContent));
+    foreach (new DOMXPath($document)->query('//*[@data-session-'.$attribute.']') ?: [] as $node) {
+        if ($node instanceof DOMElement) {
+            $lines[] = trim((string) preg_replace('/\s+/', ' ', $node->textContent));
+        }
     }
 
     return $lines;
@@ -152,6 +154,6 @@ it('gives each part of a session row an element of its own (#519)', function ():
         ->and(adminSessionLines($html, $asking->id, 'actions')[0])->toStartWith('Make ')->toEndWith('Revoke session')
         ->not->toContain('Approve', 'Deny', 'asked for', 'joined', 'last seen')
         // A session that asked for nothing has no request line at all
-        ->and(adminSessionLines($html, $quiet->id, 'request'))->toBe([])
+        ->and(adminSessionLines($html, $quiet->id, 'request'))->toBeEmpty()
         ->and(adminSessionLines($html, $quiet->id, 'actions'))->toHaveCount(1);
 });
