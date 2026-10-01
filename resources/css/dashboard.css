@@ -477,6 +477,18 @@
 
     :where(.btn-warning) {
         --btn-shade: #fff;
+
+        /*
+         * A warning button's edge in its own label colour (#498). daisyUI borders a button in its
+         * fill, and the stock yellow fill is 2.02:1 against a card in the light theme, so nothing
+         * marked the button's edge at SC 1.4.11's 3:1. `warning-content` is the brown every warning
+         * label is already drawn in, so the border adds no colour: it is the cautionary pairing a
+         * `badge-warning` already shows, and it stays distinct from `btn-primary`'s violet fill and
+         * `btn-outline`'s transparent one. Declared in this layer, it also holds through hover and
+         * press, whose daisyUI rules sit in a sublayer below it. The dark theme's fill already
+         * passes, so the border there is a dark edge between the fill and the card.
+         */
+        --btn-border: var(--color-warning-content);
     }
 
     :where(.btn-primary, .btn-warning):is(:hover, :active, [aria-pressed="true"], [aria-checked="true"], [aria-current]:not([aria-current="false"], [aria-current=""])):not(:disabled, [disabled], .btn-disabled, [aria-disabled="true"]) {

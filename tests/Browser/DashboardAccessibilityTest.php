@@ -415,14 +415,38 @@ function sidewaysScroll(PendingAwaitablePage $page): int
  * against the backgrounds behind it, composited as drawn. Colors are read through a canvas, which resolves
  * daisyUI's `oklch()` and composites a translucent fill over its background exactly as it is drawn.
  * The menu toggle is the one button left without a boundary: its icon is what marks it as a control.
- * A warning button is skipped until #498 gives it one.
  *
  * @return list<string> Each faint button, with its best ratio.
  */
 function faintButtons(PendingAwaitablePage $page): array
 {
-    return pageList($page, 'button-boundary', <<<'JS'
+    return buttonBoundaries($page, null);
+}
+
+/**
+ * Every button matching a selector, with its best boundary ratio, whether or not it is faint.
+ *
+ * What `faintButtons()` measures, reported for every match rather than only the faint ones, so a
+ * test can show the buttons it means were on the page and record what they measured (#498).
+ *
+ * @return list<string> Each matching button, with its best ratio.
+ */
+function buttonRatios(PendingAwaitablePage $page, string $selector): array
+{
+    return buttonBoundaries($page, $selector);
+}
+
+/**
+ * The boundary measurement behind `faintButtons()` and `buttonRatios()`.
+ *
+ * @param  string|null  $selector  Report every button matching this, or, when null, only the faint ones.
+ * @return list<string> Each reported button, with its best ratio.
+ */
+function buttonBoundaries(PendingAwaitablePage $page, ?string $selector): array
+{
+    $script = <<<'JS'
         () => {
+            const only = __SELECTOR__;
             const canvas = document.createElement('canvas');
             canvas.width = canvas.height = 1;
             const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -453,8 +477,7 @@ function faintButtons(PendingAwaitablePage $page): array
                 if (rect.width === 0 && rect.height === 0) continue;
                 const side = el.closest('.drawer-side');
                 if (side && getComputedStyle(side).visibility === 'hidden') continue;
-                // A warning button's fill is 2.02:1 in the light theme, which #498 is to fix
-                if (el.matches('.drawer-button, .btn-warning')) continue;
+                if (el.matches('.drawer-button')) continue;
                 // SC 1.4.11 does not cover a control that cannot be used
                 if (el.matches(':disabled, [aria-disabled=true]')) continue;
                 const cs = getComputedStyle(el);
@@ -463,11 +486,13 @@ function faintButtons(PendingAwaitablePage $page): array
                 const fill = ratio(paint(...under, cs.backgroundColor), ground);
                 const border = parseFloat(cs.borderTopWidth) > 0 ? ratio(paint(...under, cs.borderTopColor), ground) : 1;
                 const best = Math.max(fill, border);
-                if (best < 3) out.push(`${(el.getAttribute('aria-label') || el.textContent).trim().replace(/\s+/g, ' ').slice(0, 40)} ${best.toFixed(2)}:1`);
+                if (only === null ? best < 3 : el.matches(only)) out.push(`${(el.getAttribute('aria-label') || el.textContent).trim().replace(/\s+/g, ' ').slice(0, 40)} ${best.toFixed(2)}:1`);
             }
             return out;
         }
-    JS);
+    JS;
+
+    return pageList($page, 'button-boundary', str_replace('__SELECTOR__', json_encode($selector, JSON_THROW_ON_ERROR), $script));
 }
 
 beforeAll(function (): void {
@@ -1329,6 +1354,27 @@ it('gives every button a boundary at 3:1 against what it sits on', function (str
     expect($faint)->toBe([], implode("\n", $faint));
 })->with(accessibilitySurfaces())->with(['light', 'dark']);
 
+it('measures the warning buttons the seats, administration and access pages draw', function (string $route, string $parameter, string $expect, string $theme): void {
+    $page = visitSurface($this, $route, $parameter, $expect, $theme);
+
+    $page->resize(1280, 900);
+
+    $ratios = buttonRatios($page, '.btn-warning');
+
+    // Each page draws at least one, so the pass above is a measurement of them and not of nothing
+    expect($ratios)->not->toBeEmpty();
+
+    foreach ($ratios as $ratio) {
+        fwrite(STDERR, sprintf("warning %s %s: %s\n", $route, $theme, $ratio));
+
+        expect((float) preg_replace('/^.* ([0-9.]+):1$/', '$1', $ratio))->toBeGreaterThanOrEqual(3.0);
+    }
+})->with([
+    'seats' => ['robot-council.seats', '', 'robot-council-core-a'],
+    'administration' => ['robot-council.administration', '', 'gate-runner'],
+    'access' => ['robot-council.access', '', 'from configuration'],
+])->with(['light', 'dark']);
+
 it('finds a faint button, so the check above is not blind', function (string $theme): void {
     $page = visitSurface($this, 'robot-council.seats', '', 'robot-council-core-a', $theme);
 
@@ -1341,20 +1387,28 @@ it('finds a faint button, so the check above is not blind', function (string $th
     $page->script(<<<'JS'
         () => {
             const card = document.querySelector('main .card-body');
-            for (const [style, text] of [['btn-ghost', 'Planted ghost'], ['', 'Planted plain']]) {
+            for (const [style, text] of [['btn-ghost', 'Planted ghost'], ['', 'Planted plain'], ['btn-warning', 'Planted warning']]) {
                 const button = document.createElement('button');
                 button.className = `btn btn-target ${style}`;
                 button.textContent = text;
                 card.appendChild(button);
             }
+
+            // And the warning style as daisyUI ships it, bordered in its own fill (#498)
+            card.lastElementChild.style.setProperty('--btn-border', 'var(--btn-color)');
         }
     JS);
 
     $faint = faintButtons($page);
 
-    expect($faint)->toHaveCount(2)
+    // The stock warning button is faint only in the light theme: its yellow fill passes on the dark card
+    expect($faint)->toHaveCount($theme === 'light' ? 3 : 2)
         ->and($faint[0])->toStartWith('Planted ghost ')
         ->and($faint[1])->toStartWith('Planted plain ');
+
+    if ($theme === 'light') {
+        expect($faint[2])->toStartWith('Planted warning ');
+    }
 })->with(['light', 'dark']);
 
 it('finds a page that scrolls sideways, so the check above is not blind', function (): void {
