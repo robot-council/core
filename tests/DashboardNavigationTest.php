@@ -63,9 +63,9 @@ function anchorTagFor(string|false $html, string $url): string
  * a test that rendered the dashboard leaves the flag set and the next page -- which renders no
  * component at all -- has assets injected into it by `shouldInjectLivewireAssets()`.
  *
- * Production is unaffected: the flag is per request there, and a request for the enrollment page
- * renders no component. The reset exists so this assertion measures what production does rather
- * than which order the suite happened to run in. It is the same leak `DashboardShellTest` resets
+ * Since #521 the layout prints the assets itself on every page, so the reset no longer decides
+ * whether a page has them. It stays so the tags compared are the layout's own rather than an
+ * injection's, whichever order the suite ran in. It is the same leak `DashboardShellTest` resets
  * for `SupportDisablingBackButtonCache`.
  */
 function withoutLivewiresAutoInjectedAssets(): void
@@ -347,28 +347,32 @@ it('marks the enrollment page as current when that is the page being shown', fun
         ->and($overviewTag)->not->toContain('menu-active');
 });
 
-it('loads no script on the page whose whole job is a human decision', function (): void {
-    // The enrollment page mounts no Livewire component, so it declines Livewire's assets. Asserted
-    // as "no script or style tag at all" rather than against an asset's name: Livewire 4 serves its
-    // script from a per-application randomized path (`/livewire-<hex>/livewire.min.js`) and the
-    // filename itself changes with debug mode, so a name-shaped assertion is a trap -- the first
-    // draft of this test asserted `livewire.js` and failed against `livewire.min.js`.
-    //
-    // The dashboard is asserted in the same test, because "no script here" means nothing beside a
-    // page that loads none either: without the second half, a broken check reads as a pass.
+it('loads Livewire and the dashboard script on the enrollment page as on every other (#521)', function (): void {
+    // The enrollment page mounts no component, and still loads both, so the script that takes away a
+    // failed picture runs there too. Asserted as the same set of script and style tags the overview
+    // loads rather than against an asset's name: Livewire 4 serves its script from a per-application
+    // randomized path (`/livewire-<hex>/livewire.min.js`) and the filename changes with debug mode,
+    // so a name-shaped assertion is a trap. The dashboard script is the package's own route, so it
+    // is named.
     withoutLivewiresAutoInjectedAssets();
 
     $enroll = $this->actingAs($this->developer, 'web')
         ->get(route('robot-council.enroll.show'))
         ->assertOk();
 
-    expect(tagsIn($enroll->getContent()))->toBeEmpty();
-
     forgetResolvedGuards();
+
+    // Livewire prints its assets once and keeps a record that it did, cleared by `flush-state`. One
+    // test keeps one application across both requests, so without this the second page would
+    // print none -- which a real request, booting its own application, never sees
+    app('livewire')->flushState();
 
     $dashboard = $this->actingAs($this->developer, 'web')
         ->get(route('robot-council.dashboard'))
         ->assertOk();
 
-    expect(tagsIn($dashboard->getContent()))->not->toBeEmpty();
+    // Not empty, or two pages loading nothing would compare equal
+    expect(tagsIn($dashboard->getContent()))->not->toBeEmpty()
+        ->and(tagsIn($enroll->getContent()))->toBe(tagsIn($dashboard->getContent()))
+        ->and((string) $enroll->getContent())->toContain('<script src="'.e(route('robot-council.dashboard.script')));
 });

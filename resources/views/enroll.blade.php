@@ -8,11 +8,11 @@
 
     It renders inside the dashboard's shell as of #189, through `@component` rather than an
     `x-` component: the layout's contract is a `$slot`, `@component` supplies one from any plain
-    Blade view, and neither the layout nor the service provider has to learn anything new. Livewire's
-    assets are declined, because this page mounts no component and is the one page whose entire job
-    is a human decision.
+    Blade view, and neither the layout nor the service provider has to learn anything new. It loads
+    Livewire and the dashboard script like every other page (#521), though it mounts no component;
+    every value stays escaped, so nothing a requester sends can become an Alpine attribute.
 --}}
-@component('robot-council::layouts.dashboard', ['title' => 'Enroll a machine', 'livewireAssets' => false])
+@component('robot-council::layouts.dashboard', ['title' => 'Enroll a machine'])
     <div class="mx-auto w-full max-w-3xl">
         <header class="mb-6">
             <h1 class="text-xl font-semibold">Approve a machine</h1>

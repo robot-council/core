@@ -454,8 +454,8 @@ initial drawn beneath it shows (#410). It does nothing else. It is written by ha
 still nothing to build or publish. It is loaded by `src` from the page's own origin and no view
 carries an inline script, so a host's `script-src 'self'` covers this file. That is a statement
 about this file alone: Livewire and Alpine have their own needs under a CSP, which Livewire's
-`csp_safe` setting governs. A page that declines Livewire, such as the enrollment page, loads
-neither script.
+`csp_safe` setting governs. Every page in the dashboard layout loads both, the enrollment page
+included (#521).
 
 **Developers' pictures load from GitHub, in the browser** (#410). Each is the avatar URL GitHub gave
 at sign-in, shown only when it is on `https://avatars.githubusercontent.com`; core itself requests

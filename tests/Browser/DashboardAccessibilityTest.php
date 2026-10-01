@@ -37,6 +37,7 @@ use RobotCouncil\Access\Role;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
 use RobotCouncil\Models\AssignmentHours;
+use RobotCouncil\Models\DeviceCode;
 use RobotCouncil\Models\FleetEventType;
 use RobotCouncil\Models\HoldReason;
 use RobotCouncil\Models\Installation;
@@ -1526,3 +1527,64 @@ it('groups the lane board by role and developer, names every table, and fits a p
         'clipped' => 0,
     ])->and(sidewaysScroll($page))->toBe(0);
 })->with([390, 1280]);
+
+it('takes a picture that fails to load out of its avatar on the enrollment page too (#521)', function (): void {
+    $page = visitSurface($this, 'robot-council.enroll.show', 'code', 'What the machine says about itself', 'light');
+
+    $failed = plantPictures($page, 'data:image/png;base64,broken');
+
+    expect(array_column($failed, 'kind'))->toBe(['developer', 'repository']);
+
+    foreach ($failed as $avatar) {
+        expect($avatar['picture'])->toBeFalse($avatar['kind'])
+            ->and($avatar['letter'])->toBe('visible', $avatar['kind']);
+    }
+
+    // The dashboard script did it, which this page did not load before
+    expect($page->script('() => [...document.scripts].some((s) => s.src.includes("/dashboard.js"))'))->toBeTrue();
+});
+
+it('runs Alpine on the enrollment page and acts on nothing the requester sent (#521)', function (): void {
+    $page = visitSurface($this, 'robot-council.enroll.show', 'code', 'What the machine says about itself', 'light');
+    $url = $page->script('() => location.href');
+
+    if (! is_string($url)) {
+        throw new RuntimeException('The page address read returned no string.');
+    }
+
+    // A tag carrying Alpine directives and a quote that would open an attribute, within each column
+    DeviceCode::query()->whereNull('approved_at')->whereNull('denied_at')->update([
+        'machine_label' => '<b x-data x-init="document.title=1">x</b>',
+        'harness' => '" x-init="document.title=1" @a="',
+    ]);
+
+    $page = visit($url);
+
+    // The control: a directive that does reach this page's markup runs, so the title check below
+    // could fail rather than passing because Alpine never got to the page
+    $page->script(<<<'JS'
+        () => document.querySelector('main').insertAdjacentHTML('beforeend', '<i x-data x-init="document.body.dataset.alpineRan = 1"></i>')
+    JS);
+    $page->wait(0.5);
+
+    expect($page->script('() => document.body.dataset.alpineRan ?? null'))->toBe('1');
+
+    $read = $page->script(<<<'JS'
+        () => ({
+            alpine: typeof window.Alpine === 'object',
+            title: document.title,
+            shown: document.querySelector('main').textContent.includes('<b x-data x-init="document.title=1">x</b>'),
+            directives: document.querySelectorAll('main [x-init]:not(i)').length,
+        })
+    JS);
+
+    if (! is_array($read)) {
+        throw new RuntimeException('The page read returned nothing.');
+    }
+
+    // Alpine is running, so a directive that reached the markup would have changed the title
+    expect($read['alpine'] ?? null)->toBeTrue()
+        ->and($read['title'] ?? null)->not->toBe('1')
+        ->and($read['shown'] ?? null)->toBeTrue()
+        ->and($read['directives'] ?? null)->toBe(0);
+});

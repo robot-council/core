@@ -336,6 +336,37 @@ it('escapes what the requester supplied, whatever reached the row', function ():
         ->toContain('&lt;img src=x onerror=alert(1)&gt;');
 });
 
+it('prints Alpine syntax from the requester as text, now that the page loads Alpine (#521)', function (): void {
+    $enrollment = requestDeviceCode($this);
+
+    // Within each column's width, so the row would hold on every engine. A tag carrying Alpine
+    // directives, and a quote and directive that would act if the value ever moved into an attribute
+    $enrollment['record']->forceFill([
+        'machine_label' => '<b x-data x-init="document.title=1">x</b>',
+        'harness' => '" x-init="document.title=1" @a="',
+    ])->save();
+
+    $response = $this->actingAs($this->developer, 'web')
+        ->get(route('robot-council.enroll.show', ['user_code' => $enrollment['record']->user_code]));
+
+    $html = (string) $response->assertOk()->getContent();
+
+    expect($html)
+        ->not->toContain('<b x-data')
+        ->not->toContain('x-init="document.title=1"')
+        ->toContain('&lt;b x-data x-init=&quot;document.title=1&quot;&gt;x&lt;/b&gt;')
+        ->toContain('&quot; x-init=&quot;document.title=1&quot; @a=&quot;');
+
+    // The one value a visitor puts into an attribute is the typed code, which is reduced to letters
+    $typed = (string) $this->actingAs($this->developer, 'web')
+        ->get(route('robot-council.enroll.show', ['user_code' => '" x-init="document.title=1']))
+        ->assertOk()
+        ->getContent();
+
+    expect($typed)->toContain('value="XINITDOCUMENTTITLE"')
+        ->not->toContain('x-init="document.title=1"');
+});
+
 it('does not look up a code that is not the right length', function (string $typed): void {
     $enrollment = requestDeviceCode($this);
 
