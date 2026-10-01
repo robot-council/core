@@ -1486,3 +1486,43 @@ it('keeps the Waiting on a developer card inside a 360px phone, each section bor
         ->and(array_unique($card['parts']))->toBe([3])
         ->and($card['overflowing'])->toBe(0);
 })->with(['light', 'dark']);
+
+it('groups the lane board by role and developer, names every table, and fits a phone (#514)', function (int $width): void {
+    $page = visitSurface($this, 'robot-council.lanes', '', 'Run the screen-reader pass', 'light');
+    $page->resize($width, 900);
+
+    $found = $page->script(<<<'JS'
+        () => {
+            const card = [...document.querySelectorAll('main h2')].find((h) => h.textContent.trim().endsWith('robot-council/core')).closest('.card-body');
+            const outline = [...card.querySelectorAll('h3, h4, caption')]
+                .map((el) => `${el.tagName.toLowerCase()} ${el.textContent.trim().replace(/\s+/g, ' ')}`);
+            const tables = [...document.querySelectorAll('main [data-developer-group] table')];
+            return {
+                outline,
+                tables: tables.length,
+                unnamed: tables.filter((t) => ! t.caption || t.caption.textContent.trim() === '').length,
+                clipped: [...card.querySelectorAll('.overflow-x-auto')].filter((box) => box.scrollWidth > box.clientWidth + 0.5).length,
+            };
+        }
+    JS);
+
+    // The seed's core lanes: octodev's two build lanes and gate, and the colleague's build lane.
+    // The avatar's letter is part of each heading's text, hidden from a screen reader
+    expect($found)->toBe([
+        'outline' => [
+            'h3 Build seats',
+            'h4 Ccolleague',
+            'caption colleague, build seats',
+            'h4 Ooctodev',
+            'caption octodev, build seats',
+            'h3 Gate seats',
+            'h4 Ooctodev',
+            'caption octodev, gate seats',
+            'h3 Pull requests',
+        ],
+        // Every table on the page: those four, and the colleague's lane in `robot-council/cli`
+        'tables' => 5,
+        'unnamed' => 0,
+        'clipped' => 0,
+    ])->and(sidewaysScroll($page))->toBe(0);
+})->with([390, 1280]);

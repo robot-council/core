@@ -67,115 +67,141 @@
             <div class="card-body">
                 <h2 class="card-title"><x-robot-council::avatar :repository="$repository" />{{ $repository === '' ? 'No repository reported' : $repository }}</h2>
 
-                <div class="overflow-x-auto">
-                    <table class="table table-stack" role="table">
-                        <thead role="rowgroup">
-                            <tr role="row">
-                                <th role="columnheader">Lane</th>
-                                <th role="columnheader">State</th>
-                                <th role="columnheader">Watcher</th>
-                                <th role="columnheader">On what</th>
-                                <th role="columnheader">Known since</th>
-                            </tr>
-                        </thead>
-                        <tbody role="rowgroup">
-                            @foreach ($lanes as $lane)
-                                <tr role="row" wire:key="lane-{{ $lane['id'] }}" @class(['bg-base-200' => $lane['is_gate']])>
-                                    <td role="cell" data-label="Lane">
-                                        {{-- Named as the queue and the locks page name a session (#421) --}}
-                                        @if ($lane['label'] !== null)
-                                            <div class="font-medium"><code>{{ $lane['label'] }}</code> &middot; <x-robot-council::avatar :login="$lane['developer']" />{{ $lane['developer'] ?? 'unknown developer' }}</div>
-                                        @else
-                                            <div class="font-medium"><x-robot-council::avatar :login="$lane['developer']" />{{ $lane['developer'] ?? 'unknown developer' }} &middot; <code>{{ $lane['machine'] }}</code>@if ($lane['slot'] !== null) / <code>{{ $lane['slot'] }}</code>@endif</div>
-                                        @endif
-                                        <div class="text-meta opacity-90"><code>{{ $lane['harness'] }}</code>@if ($lane['is_gate']) &middot; gate @endif</div>
-                                        {{-- Occupancy against capacity (#409): the number `lane_free` refuses a
-                                             placement on once the two are equal --}}
-                                        <div class="text-meta opacity-90"><span data-occupancy>{{ $lane['holding'] }} / {{ $lane['capacity'] }}</span> {{ $lane['holding'] === 1 ? 'task' : 'tasks' }} held</div>
-                                    </td>
-                                    <td role="cell" data-label="State" class="2xl:whitespace-nowrap" data-state="{{ $lane['state'] }}">{{ $lane['state'] }}</td>
-                                    {{-- Its own column, separate from State, from the watcher's own heartbeat (#337) --}}
-                                    <td role="cell" data-label="Watcher" data-watcher="{{ $lane['watcher']['state'] }}">
-                                        @switch ($lane['watcher']['state'])
-                                            @case('alive')
-                                                alive <span class="text-meta opacity-90">{{ $lane['watcher']['age_seconds'] }}s ago</span>
-                                                @break
-                                            @case('stale')
-                                                <span class="font-semibold text-error">stale {{ $lane['watcher']['age_seconds'] }}s</span>
-                                                @break
-                                            @case('unknown')
-                                                <span class="opacity-90">unknown, re-read</span>
-                                                @break
-                                            @default
-                                                <span class="opacity-90">absent</span>
-                                        @endswitch
-                                    </td>
-                                    <td role="cell" data-label="On what">
-                                        @if ($lane['state'] === 'Working' && is_array($lane['on_what']) && isset($lane['on_what']['gate_pull_request']))
-                                            <span data-gate-run>
-                                                validating
-                                                @if (\RobotCouncil\Support\TicketLink::url($lane['on_what']['gate_pull_request']) !== null)
-                                                    <x-robot-council::external-link :reference="$lane['on_what']['gate_pull_request']" class="link"><code>{{ $lane['on_what']['gate_pull_request'] }}</code></x-robot-council::external-link>
-                                                @endif
-                                                @if ($lane['repository'] !== null)
-                                                    &middot; {{ $board['queue_depth'][$lane['repository']] ?? 0 }} queued
-                                                @endif
-                                            </span>
-                                        @elseif ($lane['state'] === 'Working' && is_array($lane['on_what']))
-                                            {{-- Every held ticket, not the first with a count (#409). The sub-label is
-                                                 the lane's own word for which subagent works it, rendered as text --}}
-                                            <ul class="flex flex-col gap-2">
-                                                @foreach ($lane['on_what']['tasks'] as $work)
-                                                    <li wire:key="lane-{{ $lane['id'] }}-task-{{ $work['task_id'] }}" data-held-task>
-                                                        <div>
-                                                            @if (\RobotCouncil\Support\TicketLink::url($work['ticket']) !== null)
-                                                                <x-robot-council::external-link :reference="$work['ticket']" class="link inline-flex min-h-11 min-w-11 items-center"><code>{{ $work['ticket'] }}</code></x-robot-council::external-link>
-                                                            @elseif ($work['ticket'] !== null)
-                                                                <code>{{ $work['ticket'] }}</code>
+                {{-- Grouped by role, then by developer (#514): who a seat belongs to and what it
+                     does are read once, from the headings, rather than from every row --}}
+                @foreach (\RobotCouncil\Support\LaneBoard::seatGroups($lanes) as $group)
+                    @php($roleName = $group['role']->label())
+                    <section wire:key="lanes-{{ $repository }}-{{ $group['role']->value }}" class="mt-2" data-role-group="{{ $group['role']->value }}">
+                        <h3 class="text-lg font-semibold">{{ ucfirst($roleName) }} seats</h3>
+
+                        @foreach ($group['developers'] as $developer)
+                            <div wire:key="lanes-{{ $repository }}-{{ $group['role']->value }}-{{ $developer['developer'] ?? '' }}" class="mt-2" data-developer-group="{{ $developer['developer'] ?? '' }}">
+                                <h4 class="font-medium">
+                                    @if ($developer['developer'] !== null)
+                                        <x-robot-council::avatar :login="$developer['developer']" />{{ $developer['developer'] }}
+                                    @else
+                                        Unknown developer
+                                    @endif
+                                </h4>
+
+                                <div class="overflow-x-auto">
+                                    <table class="table table-stack" role="table">
+                                        {{-- Named for a screen reader that reaches the table rather than the
+                                             headings above it, e.g. "octodev, gate seats" --}}
+                                        <caption class="sr-only">{{ $developer['developer'] ?? 'Unknown developer' }}, {{ $roleName }} seats</caption>
+                                        <thead role="rowgroup">
+                                            <tr role="row">
+                                                <th role="columnheader">Lane</th>
+                                                <th role="columnheader">State</th>
+                                                <th role="columnheader">Watcher</th>
+                                                <th role="columnheader">On what</th>
+                                                <th role="columnheader">Known since</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody role="rowgroup">
+                                            @foreach ($developer['lanes'] as $lane)
+                                                <tr role="row" wire:key="lane-{{ $lane['id'] }}">
+                                                    <td role="cell" data-label="Lane">
+                                                        {{-- Named as the queue and the locks page name a session (#421) --}}
+                                                        {{-- The developer and the role are the headings above, so the row
+                                                             repeats neither (#514) --}}
+                                                        @if ($lane['label'] !== null)
+                                                            <div class="font-medium"><code>{{ $lane['label'] }}</code></div>
+                                                        @else
+                                                            <div class="font-medium"><code>{{ $lane['machine'] }}</code>@if ($lane['slot'] !== null) / <code>{{ $lane['slot'] }}</code>@endif</div>
+                                                        @endif
+                                                        <div class="text-meta opacity-90"><code>{{ $lane['harness'] }}</code></div>
+                                                        {{-- Occupancy against capacity (#409): the number `lane_free` refuses a
+                                                             placement on once the two are equal --}}
+                                                        <div class="text-meta opacity-90"><span data-occupancy>{{ $lane['holding'] }} / {{ $lane['capacity'] }}</span> {{ $lane['holding'] === 1 ? 'task' : 'tasks' }} held</div>
+                                                    </td>
+                                                    <td role="cell" data-label="State" class="2xl:whitespace-nowrap" data-state="{{ $lane['state'] }}">{{ $lane['state'] }}</td>
+                                                    {{-- Its own column, separate from State, from the watcher's own heartbeat (#337) --}}
+                                                    <td role="cell" data-label="Watcher" data-watcher="{{ $lane['watcher']['state'] }}">
+                                                        @switch ($lane['watcher']['state'])
+                                                            @case('alive')
+                                                                alive <span class="text-meta opacity-90">{{ $lane['watcher']['age_seconds'] }}s ago</span>
+                                                                @break
+                                                            @case('stale')
+                                                                <span class="font-semibold text-error">stale {{ $lane['watcher']['age_seconds'] }}s</span>
+                                                                @break
+                                                            @case('unknown')
+                                                                <span class="opacity-90">unknown, re-read</span>
+                                                                @break
+                                                            @default
+                                                                <span class="opacity-90">absent</span>
+                                                        @endswitch
+                                                    </td>
+                                                    <td role="cell" data-label="On what">
+                                                        @if ($lane['state'] === 'Working' && is_array($lane['on_what']) && isset($lane['on_what']['gate_pull_request']))
+                                                            <span data-gate-run>
+                                                                validating
+                                                                @if (\RobotCouncil\Support\TicketLink::url($lane['on_what']['gate_pull_request']) !== null)
+                                                                    <x-robot-council::external-link :reference="$lane['on_what']['gate_pull_request']" class="link"><code>{{ $lane['on_what']['gate_pull_request'] }}</code></x-robot-council::external-link>
+                                                                @endif
+                                                                @if ($lane['repository'] !== null)
+                                                                    &middot; {{ $board['queue_depth'][$lane['repository']] ?? 0 }} queued
+                                                                @endif
+                                                            </span>
+                                                        @elseif ($lane['state'] === 'Working' && is_array($lane['on_what']))
+                                                            {{-- Every held ticket, not the first with a count (#409). The sub-label is
+                                                                 the lane's own word for which subagent works it, rendered as text --}}
+                                                            <ul class="flex flex-col gap-2">
+                                                                @foreach ($lane['on_what']['tasks'] as $work)
+                                                                    <li wire:key="lane-{{ $lane['id'] }}-task-{{ $work['task_id'] }}" data-held-task>
+                                                                        <div>
+                                                                            @if (\RobotCouncil\Support\TicketLink::url($work['ticket']) !== null)
+                                                                                <x-robot-council::external-link :reference="$work['ticket']" class="link inline-flex min-h-11 min-w-11 items-center"><code>{{ $work['ticket'] }}</code></x-robot-council::external-link>
+                                                                            @elseif ($work['ticket'] !== null)
+                                                                                <code>{{ $work['ticket'] }}</code>
+                                                                            @else
+                                                                                {{-- A task that names no ticket, in its issue or at the start of
+                                                                                     its title, is shown by its title (#422), whole: a task id says
+                                                                                     nothing to a person, and no text here is cut short (#401) --}}
+                                                                                {{ $work['title'] }}
+                                                                                <span class="text-meta opacity-90">(task <code>#{{ $work['task_id'] }}</code>)</span>
+                                                                            @endif
+                                                                            @if ($work['hand_back'])
+                                                                                <span class="badge badge-sm badge-warning" data-hand-back>hand-back</span>
+                                                                            @endif
+                                                                            @if ($work['sub_label'] !== null)
+                                                                                <span class="text-meta">subagent <code data-sub-label>{{ $work['sub_label'] }}</code></span>
+                                                                            @endif
+                                                                        </div>
+                                                                        <div class="text-meta opacity-90">
+                                                                            <code>{{ $work['branch'] }}</code>
+                                                                            &middot; {{ $work['taken_up'] ? 'taken up' : ($work['blocked'] ? 'taken up, blocked' : 'placed, not taken up') }}
+                                                                            &middot; {{ $work['provenance'] }}
+                                                                        </div>
+                                                                    </li>
+                                                                @endforeach
+                                                            </ul>
+                                                        @elseif (is_array($lane['on_what']) && ($lane['on_what']['kind'] ?? null) === 'repository')
+                                                            {{-- Idle on purpose (#471): its repository has nothing it could start --}}
+                                                            <span data-on-what>Nothing startable in <code>{{ $lane['on_what']['party'] }}</code></span>
+                                                        @elseif (is_array($lane['on_what']))
+                                                            <span data-on-what>
+                                                            @if (\RobotCouncil\Support\TicketLink::url($lane['on_what']['party']) !== null)
+                                                                <x-robot-council::external-link :reference="$lane['on_what']['party']" class="link"><code>{{ $lane['on_what']['party'] }}</code></x-robot-council::external-link>
                                                             @else
-                                                                {{-- A task that names no ticket, in its issue or at the start of
-                                                                     its title, is shown by its title (#422), whole: a task id says
-                                                                     nothing to a person, and no text here is cut short (#401) --}}
-                                                                {{ $work['title'] }}
-                                                                <span class="text-meta opacity-90">(task <code>#{{ $work['task_id'] }}</code>)</span>
+                                                                {{ $lane['on_what']['party'] }}
                                                             @endif
-                                                            @if ($work['hand_back'])
-                                                                <span class="badge badge-sm badge-warning" data-hand-back>hand-back</span>
-                                                            @endif
-                                                            @if ($work['sub_label'] !== null)
-                                                                <span class="text-meta">subagent <code data-sub-label>{{ $work['sub_label'] }}</code></span>
-                                                            @endif
-                                                        </div>
-                                                        <div class="text-meta opacity-90">
-                                                            <code>{{ $work['branch'] }}</code>
-                                                            &middot; {{ $work['taken_up'] ? 'taken up' : ($work['blocked'] ? 'taken up, blocked' : 'placed, not taken up') }}
-                                                            &middot; {{ $work['provenance'] }}
-                                                        </div>
-                                                    </li>
-                                                @endforeach
-                                            </ul>
-                                        @elseif (is_array($lane['on_what']) && ($lane['on_what']['kind'] ?? null) === 'repository')
-                                            {{-- Idle on purpose (#471): its repository has nothing it could start --}}
-                                            <span data-on-what>Nothing startable in <code>{{ $lane['on_what']['party'] }}</code></span>
-                                        @elseif (is_array($lane['on_what']))
-                                            <span data-on-what>
-                                            @if (\RobotCouncil\Support\TicketLink::url($lane['on_what']['party']) !== null)
-                                                <x-robot-council::external-link :reference="$lane['on_what']['party']" class="link"><code>{{ $lane['on_what']['party'] }}</code></x-robot-council::external-link>
-                                            @else
-                                                {{ $lane['on_what']['party'] }}
-                                            @endif
-                                            &mdash; {{ $lane['on_what']['what'] }}
-                                            </span>
-                                        @else
-                                            <span class="opacity-80">&mdash;</span>
-                                        @endif
-                                    </td>
-                                    <td role="cell" data-label="Known since" class="2xl:whitespace-nowrap text-meta opacity-90">{{ $lane['known_since']?->diffForHumans() ?? 'never' }}</td>
-                                </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
-                </div>
+                                                            &mdash; {{ $lane['on_what']['what'] }}
+                                                            </span>
+                                                        @else
+                                                            <span class="opacity-80">&mdash;</span>
+                                                        @endif
+                                                    </td>
+                                                    <td role="cell" data-label="Known since" class="2xl:whitespace-nowrap text-meta opacity-90">{{ $lane['known_since']?->diffForHumans() ?? 'never' }}</td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        @endforeach
+                    </section>
+                @endforeach
 
                 @if ($repository !== '')
                     <div class="mt-2">

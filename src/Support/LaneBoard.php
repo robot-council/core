@@ -26,7 +26,8 @@ use RobotCouncil\Models\TaskStatus;
  * **`Parked` is `Seats::of()`, the rule a placement refuses on (#320)**, so the label and the
  * refusal cannot disagree.
  *
- * @phpstan-type LaneRow array{id: int, repository: string|null, developer: string|null, machine: string, harness: string, slot: string|null, label: string|null, is_gate: bool, state: string, watcher: array{state: string, age_seconds: int|null}, holding: int, capacity: int, on_what: array<string, mixed>|null, known_since: Carbon}
+ * @phpstan-type SeatGroup array{role: Role, developers: list<array{developer: string|null, lanes: list<LaneRow>}>}
+ * @phpstan-type LaneRow array{id: int, repository: string|null, developer: string|null, machine: string, harness: string, slot: string|null, label: string|null, role: Role, is_gate: bool, state: string, watcher: array{state: string, age_seconds: int|null}, holding: int, capacity: int, on_what: array<string, mixed>|null, known_since: Carbon}
  *
  * The reader is for a developer on the dashboard, who #73 decided sees the whole fleet, so issue
  * references and branches are shown here though `TaskList` withholds them from agents that may not
@@ -166,7 +167,8 @@ final class LaneBoard
             $rows[$row['repository'] ?? ''][] = $row;
         }
 
-        // Builds before gates; then developer, machine and slot -- #314's order
+        // Builds before gates; then developer, machine and slot -- #314's order. The page regroups
+        // by role and developer (#514), so on the board this decides machine and slot within one
         foreach ($rows as $repository => $group) {
             usort($group, static fn (array $a, array $b): int => [$a['is_gate'], $a['developer'] ?? '', $a['machine'], $a['slot'] ?? '']
                 <=> [$b['is_gate'], $b['developer'] ?? '', $b['machine'], $b['slot'] ?? '']);
@@ -176,6 +178,75 @@ final class LaneBoard
         ksort($rows, SORT_STRING);
 
         return [$rows, $truncated];
+    }
+
+    /**
+     * One repository's lanes, grouped by role and then by developer (#514).
+     *
+     * Roles in a fixed order -- coordinator, build, gate -- and a role with no seat is left out
+     * rather than shown empty. Developers by login, compared without case so the order does not
+     * depend on how somebody capitalized their account; a seat whose developer is not known goes
+     * last, since there is no name to sort it by. Within a developer the lanes keep the order
+     * `lanes()` gave them, machine and then slot.
+     *
+     * @param  list<LaneRow>  $lanes  One repository's lanes.
+     * @return list<SeatGroup> The groups, in order.
+     */
+    public static function seatGroups(array $lanes): array
+    {
+        $groups = [];
+
+        // Every role, in #514's order. A `match` rather than a list, so a role added later fails
+        // analysis here instead of its seats silently dropping off the page
+        $order = Role::cases();
+        usort($order, static fn (Role $a, Role $b): int => self::roleRank($a) <=> self::roleRank($b));
+
+        foreach ($order as $role) {
+            $byDeveloper = [];
+
+            foreach ($lanes as $lane) {
+                if ($lane['role'] === $role) {
+                    $byDeveloper[$lane['developer'] ?? ''][] = $lane;
+                }
+            }
+
+            if ($byDeveloper === []) {
+                continue;
+            }
+
+            // The empty key is the unknown developer, and it sorts after every login
+            // Compared as text, never as numbers: `<=>` reads `9` and `10` as numbers and `1e1` as ten,
+            // which is not a total order over logins, and a login of digits alone becomes an
+            // integer key, hence the casts
+            uksort($byDeveloper, static fn (int|string $a, int|string $b): int => (((string) $a === '') <=> ((string) $b === ''))
+                ?: strcasecmp((string) $a, (string) $b)
+                ?: strcmp((string) $a, (string) $b));
+
+            $developers = [];
+
+            foreach ($byDeveloper as $developer => $group) {
+                $developers[] = ['developer' => (string) $developer === '' ? null : (string) $developer, 'lanes' => $group];
+            }
+
+            $groups[] = ['role' => $role, 'developers' => $developers];
+        }
+
+        return $groups;
+    }
+
+    /**
+     * Where a role's seats come on the page: coordinators, then builds, then gates (#514).
+     *
+     * @param  Role  $role  The role.
+     * @return int Its place.
+     */
+    private static function roleRank(Role $role): int
+    {
+        return match ($role) {
+            Role::Coordinator => 0,
+            Role::Build => 1,
+            Role::Ci => 2,
+        };
     }
 
     /**
@@ -270,6 +341,7 @@ final class LaneBoard
 
             // The session named as the queue and the locks page name it (#421), from the one helper
             'label' => SessionLabels::of($session->repository, $session->installation->machine_label, $session->work_location),
+            'role' => $session->role,
             'is_gate' => $session->role === Role::Ci,
             'state' => $state,
 
