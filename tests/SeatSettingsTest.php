@@ -13,6 +13,7 @@ declare(strict_types=1);
  */
 
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Auth\User;
 use Illuminate\Routing\Route;
 use Illuminate\Support\Carbon;
@@ -950,4 +951,46 @@ it('rolls the three tables back and forward again', function (): void {
         $migration->up();
         expect(Schema::hasTable($table))->toBeTrue();
     }
+});
+
+it('records new seats in installation order, the order an approval holds installations in', function (): void {
+    // A seat row's foreign key takes a share lock on its installation as it is inserted, and an
+    // approval or a rename holds every live installation of the developer in id order (#550).
+    // Inserted in any other order, a seat write could hold one installation while waiting on
+    // another the approval already holds, which is a deadlock rather than a wait.
+    $developer = $this->alice;
+    $first = $this->approveInstallation($developer, 'office-mac')->refresh();
+    $second = $this->approveInstallation($developer, 'laptop')->refresh();
+
+    // Joined from the later installation first, so the session order is the reverse of id order
+    $this->service(AgentSessions::class)->start($second, 'robot-council/core', 'a');
+    $this->service(AgentSessions::class)->start($first, 'robot-council/core', 'a');
+
+    $inserted = [];
+
+    DB::listen(static function (QueryExecuted $query) use (&$inserted): void {
+        if (str_contains($query->sql, 'robot_council_seats') && str_starts_with(strtolower(ltrim($query->sql)), 'insert')) {
+            $inserted[] = [$query->sql, $query->bindings];
+        }
+    });
+
+    $this->service(Seats::class)->forDeveloper(HostKey::from($developer->getAuthIdentifier()));
+
+    // The control: one insert, carrying both seats, so the order below is the statement's own
+    expect($inserted)->toHaveCount(1);
+
+    [$sql, $bindings] = $inserted[0];
+
+    // The builder sorts a row's columns, so the installation's place is read from the statement
+    preg_match('/\(([^)]*)\)\s+values/i', $sql, $columns);
+    $names = array_map(static fn (string $name): string => trim($name, ' "`'), explode(',', $columns[1] ?? ''));
+    $at = array_search('installation_id', $names, true);
+
+    if (! is_int($at)) {
+        throw new RuntimeException('The seat insert names no installation_id column: '.$sql);
+    }
+
+    $rows = array_chunk($bindings, count($names));
+
+    expect(array_column($rows, $at))->toBe([$first->id, $second->id]);
 });

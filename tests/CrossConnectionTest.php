@@ -7,7 +7,7 @@ declare(strict_types=1);
  * row another connection has not committed is invisible, and it becomes visible once committed.
  * The `cross-connection` group never runs on SQLite, because each connection to its in-memory
  * `testing` database opens a separate, empty one. **This file is the only member that is engine
- * neutral**, so it is the only one the `mysql` job executes; the other three set `lock_timeout`,
+ * neutral**, so it is the only one the `mysql` job executes; every other member sets `lock_timeout`,
  * which is Postgres's spelling, and skip themselves elsewhere rather than stalling (#39).
  *
  * @command  DB_CONNECTION=pgsql vendor/bin/pest --compact --group=cross-connection

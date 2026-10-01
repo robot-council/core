@@ -19,8 +19,14 @@ declare(strict_types=1);
  * a few seconds when it never does, and then says so in its exit code, so a path that takes no lock
  * fails on the rows AND on the wait rather than hanging.
  *
- * The `cross-connection` group runs only in CI's `postgres` job: SQLite serializes writers and gives
- * each connection its own in-memory database.
+ * The `cross-connection` group runs only in CI's `postgres` job, and these tests skip themselves on
+ * any other engine as well, because the child speaks `pgsql` and reads `pg_stat_activity`.
+ *
+ * **The child says it is ready by renaming its connection after its statements ran**, not by being
+ * idle in a transaction: `BEGIN` alone reads as idle in transaction, so a parent polling for that
+ * could start its side before the child held anything, and both would commit. The name carries the
+ * parent's pid, and the probe reads only this database, so two runs against one server cannot
+ * mistake each other's child for their own.
  *
  * @command  DB_CONNECTION=pgsql vendor/bin/pest --compact --group=cross-connection tests/InstallationIdentityRaceTest.php
  */
@@ -47,12 +53,14 @@ const RACE_CHILD = <<<'PHP'
     $connect = static fn (): PDO => new PDO($dsn, $config['username'], $config['password'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 
     $writer = $connect();
-    $writer->exec("set application_name = 'rc-race-child'");
     $writer->beginTransaction();
 
     foreach ($config['statements'] as [$sql, $bindings]) {
         $writer->prepare($sql)->execute($bindings);
     }
+
+    // Only now, with every row it took held, does the child say so
+    $writer->prepare('select set_config(?, ?, false)')->execute(['application_name', 'rc-race-ready-'.$config['parent']]);
 
     $watcher = $connect();
     $waiting = $watcher->prepare("select count(*) from pg_stat_activity where pid = ? and wait_event_type = 'Lock'");
@@ -88,10 +96,16 @@ function raceChild(array $statements): Process
         ['host', 'port', 'database', 'username', 'password']
     );
 
+    $parent = DB::scalar('select pg_backend_pid()');
+
+    if (! is_int($parent)) {
+        throw new RuntimeException('Postgres reported no backend pid.');
+    }
+
     $child = new Process([PHP_BINARY, '-r', RACE_CHILD], null, ['RC_RACE' => json_encode([
         ...$connection,
         'statements' => $statements,
-        'parent' => DB::scalar('select pg_backend_pid()'),
+        'parent' => $parent,
     ], JSON_THROW_ON_ERROR)]);
 
     $child->start();
@@ -99,7 +113,8 @@ function raceChild(array $statements): Process
     // The child is ready once its writer sits idle inside the transaction, holding what it took
     for ($tick = 0; $tick < 200; $tick++) {
         $ready = DB::table('pg_stat_activity')
-            ->where('application_name', 'rc-race-child')
+            ->whereRaw('datname = current_database()')
+            ->where('application_name', 'rc-race-ready-'.$parent)
             ->where('state', 'idle in transaction')
             ->exists();
 

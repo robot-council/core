@@ -376,11 +376,15 @@ final class Installations
      * **Id order, which is the order Postgres takes the rows in**; InnoDB takes them in the order it
      * scans the identity index. Either way both callers run the same query and take the same rows
      * in the same direction, so neither can deadlock the other. `robot_council_installations` is
-     * first in the package's lock order, so holding it first inverts nothing.
+     * first in the package's lock order, so holding it first inverts nothing. A seat insert takes a
+     * share lock on each installation through its foreign key, which is why `Seats::forDeveloper()`
+     * inserts in installation order too.
      *
      * **What it cannot hold is an empty set.** Two first enrollments of one harness by one developer,
-     * approved in the same moment for the same label, find nothing to wait on and both commit. A
-     * rename cannot be one of them, because the renamed installation is in its own set.
+     * approved in the same moment for the same label, find nothing to wait on, and on Postgres both
+     * commit; on InnoDB their gap locks may fail one of them with a deadlock instead, which has not
+     * been measured. A rename alone cannot open that gap, because the renamed installation is in its
+     * own set; it takes a first enrollment racing the enrollment that created that installation too.
      *
      * @param  string  $userId  The developer's host key.
      * @param  string  $harness  The harness.

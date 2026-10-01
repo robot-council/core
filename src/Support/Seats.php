@@ -66,7 +66,12 @@ final class Seats
         if ($places->isNotEmpty()) {
             $now = PresenceClock::now();
 
-            Seat::query()->insertOrIgnore($places->values()->map(static fn (AgentSession $session): array => [
+            // **In installation order** (#550). Each seat row's foreign key takes a share lock on
+            // its installation as it is inserted, and an approval or a rename holds every live
+            // installation of the developer for a harness in id order; taking them here in any
+            // other order could hold one while waiting on another that the approval already holds,
+            // which is a deadlock rather than a wait.
+            Seat::query()->insertOrIgnore($places->sortBy('installation_id')->values()->map(static fn (AgentSession $session): array => [
                 'installation_id' => $session->installation_id,
                 'user_id' => $developer,
                 'repository' => $session->repository,
