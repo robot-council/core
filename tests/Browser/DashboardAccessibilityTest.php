@@ -883,8 +883,7 @@ function twoSessionRows(TestCase $case, string $theme = 'light', array $options 
  * contents are, whether every button lies inside its own row's box, and the rule between them with
  * its contrast against what it sits on.
  *
- * @return list<array{gap: float, overlap: float, escaped: list<string>, style: string, ratio: float|null, wrapped: bool}> One per
- *                                                                                                                         pair.
+ * @return list<array{gap: float, overlap: float, escaped: list<string>, style: string, ratio: float|null, wrapped: bool}> One per pair.
  */
 function sessionRowPairs(PendingAwaitablePage $page): array
 {
@@ -998,22 +997,34 @@ it('draws the session-row rule under forced colors (#516)', function (): void {
 
     expect($page->script("() => window.matchMedia('(forced-colors: active)').matches"))->toBeTrue();
 
-    foreach (sessionRowPairs($page) as $pair) {
+    $pairs = sessionRowPairs($page);
+
+    expect($pairs)->not->toBeEmpty();
+
+    foreach ($pairs as $pair) {
         expect($pair['style'])->toBe('dashed');
     }
 });
 
-it('finds rows that run together without the separation, so the check above is not blind (#516)', function (): void {
+it('finds each way a pair of session rows can fail to be set apart, so the check above is not blind (#516)', function (string $plant, string $fault): void {
     $page = twoSessionRows($this);
     $page->resize(1280, 900);
 
-    // The markup before #516: the 4px row gap and no rule, restored on the rendered list
-    $page->script("() => document.querySelectorAll('[data-admin-sessions]').forEach(ul => { ul.classList.remove('session-rows'); ul.style.rowGap = '0.25rem'; })");
+    // Applied to every row after the first in each list, on the rendered page
+    $page->script(sprintf("() => document.querySelectorAll('[data-admin-sessions]').forEach(ul => { %s })", $plant));
 
-    $faults = array_filter(array_map(sessionRowFault(...), sessionRowPairs($page)));
+    $faults = array_values(array_filter(array_map(sessionRowFault(...), sessionRowPairs($page))));
 
-    expect($faults)->not->toBeEmpty();
-});
+    expect($faults)->not->toBeEmpty()
+        ->and($faults[0])->toStartWith($fault);
+})->with([
+    // The markup before #516: the 4px row gap and no rule
+    'the old 4px rows' => ["ul.classList.remove('session-rows'); ul.style.rowGap = '0.25rem';", 'contents 4.0px apart'],
+    // A row held shorter than its contents, so its buttons spill over the rule into the next
+    'buttons spilling out of a row' => ["[...ul.children].slice(1).forEach(li => { li.style.height = '20px'; li.style.overflow = 'visible'; li.style.marginBottom = '4rem'; });", 'buttons outside their row'],
+    'a solid rule' => ["[...ul.children].slice(1).forEach(li => { li.style.borderTopStyle = 'solid'; });", 'a solid rule'],
+    'a rule in the card color' => ["[...ul.children].slice(1).forEach(li => { li.style.borderTopColor = 'var(--color-base-100)'; });", 'a rule at 1.00:1'],
+]);
 
 /**
  * Each form field whose label does not sit wholly above it, as rendered (#485).
