@@ -8,6 +8,7 @@ declare(strict_types=1);
  * @command  vendor/bin/pest --compact tests/ShortlistTest.php
  */
 
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
 use RobotCouncil\Models\TaskTransition;
 use RobotCouncil\Support\BacklogMembers;
@@ -241,6 +242,14 @@ it('lists nothing for a repository whose matches are not known, and says why, ra
         },
         'too long ago',
     ],
+    'a stored list that is not a list of numbers' => [
+        ['robot-council/core' => 'project:robot-council/1'],
+        function (TestCase $case): void {
+            $case->service(BacklogMembers::class)->record('robot-council/core', 'project:robot-council/1', [1]);
+            DB::table('robot_council_backlog_members')->update(['numbers' => '{"a":1}']);
+        },
+        'cannot be read',
+    ],
     'more matches than a search lists' => [
         ['robot-council/core' => 'project:robot-council/1'],
         fn (TestCase $case) => $case->service(BacklogMembers::class)->record('robot-council/core', 'project:robot-council/1', null),
@@ -271,4 +280,24 @@ it('serves the filters beside the tickets through the route', function (): void 
         ->assertJsonPath('filters.robot-council/core.status', 'unfiltered')
         ->assertJsonPath('filters.robot-council/cli.status', 'unresolved')
         ->assertJsonPath('filters.robot-council/cli.qualifiers', 'project:robot-council/1');
+});
+
+it('asks the store nothing while no search qualifiers are set', function (): void {
+    ticket($this, 1);
+
+    $asked = 0;
+    DB::listen(function (QueryExecuted $query) use (&$asked): void {
+        if (str_contains($query->sql, 'robot_council_backlog_members')) {
+            $asked++;
+        }
+    });
+
+    expect(listed($this))->toBe(['robot-council/core#1'])
+        ->and($asked)->toBe(0);
+
+    // The control: with qualifiers set, the same read asks it
+    config()->set('robot-council.backlog.search_qualifiers', ['robot-council' => 'project:robot-council/1']);
+    listed($this);
+
+    expect($asked)->toBe(1);
 });

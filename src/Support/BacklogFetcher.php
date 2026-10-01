@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RobotCouncil\Support;
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -11,7 +12,8 @@ use Throwable;
  * Fetch each board repository's open-issue count through the GitHub App, and store what it answers
  * (#383) -- and, for a repository with search qualifiers, which issues they matched, so the
  * shortlist can keep only those (#530). The count and the set come from one paged search and are
- * stored together or not at all.
+ * written in one transaction. A set that could not be listed whole leaves the previous one in
+ * place, which the shortlist reads only within the meter's window; the count is stored either way.
  *
  * **Failure is a missing reading, never a wrong one.** A repository GitHub refused, did not answer
  * for, or answered for with no usable count gets no reading, so its meter reads unreadable once its
@@ -256,6 +258,8 @@ final class BacklogFetcher
             return $gitHubRefusal;
         }
 
+        $matching = null;
+
         try {
             if ($qualifiers === '') {
                 $this->searches++;
@@ -277,11 +281,14 @@ final class BacklogFetcher
             return $gitHubRefusal;
         }
 
-        $this->backlog->record($repository, $count);
+        DB::transaction(function () use ($repository, $count, $qualifiers, $matching): void {
+            $this->backlog->record($repository, $count);
 
-        if (isset($matching)) {
-            $this->members->record($repository, $qualifiers, $matching['numbers']);
-        }
+            // Too many matches is a standing answer, recorded; a shift is a race, retried next run
+            if ($matching !== null && $matching['unlisted'] !== 'shifted') {
+                $this->members->record($repository, $qualifiers, $matching['numbers']);
+            }
+        });
 
         $this->fetches->record($repository, BacklogFetchOutcome::Read, 200);
 

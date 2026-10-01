@@ -102,7 +102,17 @@ final class BacklogMembers
     public function filters(array $repositories): array
     {
         $rows = [];
-        $lower = array_values(array_unique(array_map(mb_strtolower(...), $repositories)));
+        $qualifiers = [];
+
+        foreach ($repositories as $repository) {
+            $qualifiers[$repository] = $this->qualifiers->for($repository);
+        }
+
+        // Only a repository with qualifiers reads a set, so with none configured nothing is asked
+        $lower = array_values(array_unique(array_map(
+            mb_strtolower(...),
+            array_keys(array_filter($qualifiers, static fn (?string $value): bool => $value !== ''))
+        )));
 
         if ($lower !== []) {
             foreach (DB::table('robot_council_backlog_members')->whereIn('repository', $lower)->get(['repository', 'qualifiers', 'numbers', 'fetched_at']) as $row) {
@@ -116,15 +126,13 @@ final class BacklogMembers
         $filters = [];
 
         foreach ($repositories as $repository) {
-            $qualifiers = $this->qualifiers->for($repository);
-
-            if ($qualifiers === '') {
+            if ($qualifiers[$repository] === '') {
                 $filters[$repository] = ['status' => self::UNFILTERED, 'qualifiers' => null, 'reason' => null, 'numbers' => null];
 
                 continue;
             }
 
-            $filters[$repository] = $this->resolve($qualifiers, $rows[mb_strtolower($repository)] ?? null, $fresh);
+            $filters[$repository] = $this->resolve($qualifiers[$repository], $rows[mb_strtolower($repository)] ?? null, $fresh);
         }
 
         return $filters;
@@ -156,18 +164,24 @@ final class BacklogMembers
             return $unresolved('The tickets its search qualifiers match were last listed too long ago to rely on.');
         }
 
-        $decoded = property_exists($row, 'numbers') && \is_string($row->numbers) ? json_decode($row->numbers, true) : null;
-
-        if (! \is_array($decoded)) {
+        if (! property_exists($row, 'numbers') || $row->numbers === null) {
             return $unresolved(sprintf('Its search qualifiers match more than %s open issues, more than a search lists.', number_format(GitHubApp::MAX_MATCHING)));
         }
 
+        $decoded = \is_string($row->numbers) ? json_decode($row->numbers, true) : null;
         $numbers = [];
 
+        // Only a list of issue numbers is a set; anything else stored there is not read as one
+        if (! \is_array($decoded) || ! array_is_list($decoded)) {
+            return $unresolved('The stored list of the tickets its search qualifiers match cannot be read.');
+        }
+
         foreach ($decoded as $number) {
-            if (\is_int($number)) {
-                $numbers[$number] = true;
+            if (! \is_int($number) || $number < 1) {
+                return $unresolved('The stored list of the tickets its search qualifiers match cannot be read.');
             }
+
+            $numbers[$number] = true;
         }
 
         return ['status' => self::FILTERED, 'qualifiers' => $qualifiers, 'reason' => null, 'numbers' => $numbers];

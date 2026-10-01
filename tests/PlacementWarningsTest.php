@@ -142,8 +142,11 @@ it('names only the functionality tickets the search qualifiers matched, and none
     knownItem(319, ['labels' => json_encode(['development'])]);
     knownItem(320, ['labels' => json_encode(['development'])]);
 
-    // Unresolved: nothing has listed what the qualifiers match, so no ticket is named
-    expect(warningsFor($this))->toBeEmpty();
+    // Unresolved: nothing has listed what the qualifiers match, so no ticket is named, and the
+    // warning says it could not tell rather than reading as nothing ahead
+    expect(warningsFor($this))->toBe([
+        'This is documentation, and whether functionality tickets are placeable in robot-council/core is unknown: No fetch has listed the tickets its search qualifiers match.',
+    ]);
 
     // 319 is outside the project, as the meter counts it
     $this->service(BacklogMembers::class)->record('robot-council/core', 'project:robot-council/1', [318, 320]);

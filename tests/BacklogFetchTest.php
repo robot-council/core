@@ -39,6 +39,7 @@ use RobotCouncil\Support\Backlog;
 use RobotCouncil\Support\BacklogFetcher;
 use RobotCouncil\Support\BacklogFetches;
 use RobotCouncil\Support\BacklogFetchOutcome;
+use RobotCouncil\Support\BacklogMembers;
 use RobotCouncil\Support\DiagnosisStatus;
 use RobotCouncil\Support\Doctor;
 use RobotCouncil\Support\GitHubApp;
@@ -1441,19 +1442,73 @@ it('lists exactly a thousand matches whole, across ten pages', function (): void
         ->and(sentTo('/search/issues'))->toHaveCount(GitHubApp::MAX_PAGES);
 });
 
-it('stores neither the count nor a set when the pages do not add up to the count', function (): void {
+it('stores the count but replaces no set when the pages do not tile the matches', function (Closure $pages): void {
     config()->set('robot-council.backlog.search_qualifiers', ['UAMS-Web' => 'project:UAMS-Web/1']);
     configureFetchApp();
     fetchLane($this, $this->installation, 'UAMS-Web/site');
 
-    // An issue closed between the two pages shifts the second back by one, so issue 101 is never
-    // listed and issue 100 is listed twice
+    // A set from an earlier fetch, which a shifted one must not replace
+    $this->service(BacklogMembers::class)->record('UAMS-Web/site', 'project:UAMS-Web/1', [7]);
+
     $calls = 0;
 
-    $answer = static function () use (&$calls): PromiseInterface {
-        $numbers = ++$calls === 1 ? range(1, 100) : array_merge([100], range(102, 150));
+    $answer = static function () use (&$calls, $pages): PromiseInterface {
+        $page = arrayValue($pages(++$calls));
 
-        return Http::response(['total_count' => 150, 'incomplete_results' => false, 'items' => array_map(static fn (int $number): array => ['number' => $number], $numbers)]);
+        return Http::response(['total_count' => intValue($page[0] ?? null), 'incomplete_results' => false, 'items' => array_map(static fn (mixed $number): array => ['number' => intValue($number)], arrayValue($page[1] ?? null))]);
+    };
+
+    fakeGitHub($this, ['uams-web' => 9], ['UAMS-Web/site' => $answer]);
+
+    runBacklogFetch();
+
+    expect(fetchedReadings())->toBe(['UAMS-Web/site' => 150])
+        ->and(storedMembers())->toBe(['uams-web/site' => ['qualifiers' => 'project:UAMS-Web/1', 'numbers' => [7]]])
+        ->and(sentTo('/search/issues'))->toHaveCount(2)
+        ->and($this->service(BacklogFetches::class)->latest(['UAMS-Web/site'])['UAMS-Web/site']['outcome'])->toBe(BacklogFetchOutcome::Read);
+})->with([
+    // An issue closed between the pages shifts the second back by one: 101 is never listed, and
+    // 100 is listed twice
+    'an issue closed between pages' => [static fn (int $call): array => $call === 1 ? [150, range(1, 100)] : [149, array_merge([100], range(102, 150))]],
+    // The same, with the second page still claiming the first page's count
+    'the count unchanged but a number repeated' => [static fn (int $call): array => $call === 1 ? [150, range(1, 100)] : [150, array_merge([100], range(102, 150))]],
+    // An issue opened between the pages: the count moves on the second
+    // Only the second page's count says anything moved: the numbers still add up to the first's
+    'the count moved but the numbers add up' => [static fn (int $call): array => $call === 1 ? [150, range(1, 100)] : [149, range(101, 150)]],
+    'an issue opened between pages' => [static fn (int $call): array => $call === 1 ? [150, range(1, 100)] : [151, range(101, 151)]],
+]);
+
+it('lists exactly a hundred matches with one search', function (): void {
+    config()->set('robot-council.backlog.search_qualifiers', ['UAMS-Web' => 'project:UAMS-Web/1']);
+    configureFetchApp();
+    fetchLane($this, $this->installation, 'UAMS-Web/site');
+
+    // A second page, if asked for, would answer a set that does not tile the first
+    $calls = 0;
+    $answer = static function () use (&$calls): PromiseInterface {
+        $numbers = ++$calls === 1 ? range(1, 100) : [500];
+
+        return Http::response(['total_count' => 100, 'incomplete_results' => false, 'items' => array_map(static fn (int $number): array => ['number' => $number], $numbers)]);
+    };
+
+    fakeGitHub($this, ['uams-web' => 9], ['UAMS-Web/site' => $answer]);
+
+    runBacklogFetch();
+
+    expect(sentTo('/search/issues'))->toHaveCount(1)
+        ->and(storedMembers()['uams-web/site']['numbers'])->toBe(range(1, 100));
+});
+
+it('stores nothing when a later page is incomplete or an item carries no usable number', function (array $second, string $outcome): void {
+    config()->set('robot-council.backlog.search_qualifiers', ['UAMS-Web' => 'project:UAMS-Web/1']);
+    configureFetchApp();
+    fetchLane($this, $this->installation, 'UAMS-Web/site');
+
+    $calls = 0;
+    $answer = static function () use (&$calls, $second): PromiseInterface {
+        return ++$calls === 1
+            ? Http::response(['total_count' => 150, 'incomplete_results' => false, 'items' => array_map(static fn (int $number): array => ['number' => $number], range(1, 100))])
+            : Http::response(['total_count' => 150, ...$second]);
     };
 
     fakeGitHub($this, ['uams-web' => 9], ['UAMS-Web/site' => $answer]);
@@ -1462,8 +1517,31 @@ it('stores neither the count nor a set when the pages do not add up to the count
 
     expect(fetchedReadings())->toBeEmpty()
         ->and(storedMembers())->toBeEmpty()
-        ->and(sentTo('/search/issues'))->toHaveCount(2)
-        ->and($this->service(BacklogFetches::class)->latest(['UAMS-Web/site'])['UAMS-Web/site']['outcome'])->toBe(BacklogFetchOutcome::Incomplete);
+        ->and($this->service(BacklogFetches::class)->latest(['UAMS-Web/site'])['UAMS-Web/site']['outcome'])->toBe(BacklogFetchOutcome::from($outcome));
+})->with([
+    'incomplete on page two' => [['incomplete_results' => true, 'items' => []], 'incomplete'],
+    'a number of zero' => [['incomplete_results' => false, 'items' => [['number' => 0]]], 'unparseable'],
+    'a number as a string' => [['incomplete_results' => false, 'items' => [['number' => '101']]], 'unparseable'],
+    'an item that is not an object' => [['incomplete_results' => false, 'items' => [101]], 'unparseable'],
+]);
+
+it('charges a qualified repository only the searches it took, so small ones share a run', function (): void {
+    config()->set('robot-council.backlog.search_qualifiers', ['UAMS-Web' => 'project:UAMS-Web/1']);
+    configureFetchApp();
+
+    $repositories = ['UAMS-Web/a', 'UAMS-Web/b', 'UAMS-Web/c', 'UAMS-Web/d', 'UAMS-Web/e'];
+
+    foreach ($repositories as $repository) {
+        fetchLane($this, $this->installation, $repository);
+    }
+
+    // One page each: charged ten apiece, three would not fit a run
+    fakeGitHub($this, ['uams-web' => 9], array_fill_keys($repositories, ['issues' => 20, 'pulls' => 0, 'projects' => ['UAMS-Web/1' => 5]]));
+
+    runBacklogFetch();
+
+    expect(array_keys(storedMembers()))->toEqualCanonicalizing(array_map(mb_strtolower(...), $repositories))
+        ->and(sentTo('/search/issues'))->toHaveCount(5);
 });
 
 it('stops a run before a qualified repository whose pages might not fit, and reaches it first next run', function (): void {

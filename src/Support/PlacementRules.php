@@ -182,6 +182,18 @@ final class PlacementRules
 
         $ahead = $item instanceof GitHubItem ? $this->functionalityAhead($item) : [];
 
+        // The repository's search qualifiers matched nothing knowable, so its shortlist is empty
+        // and an empty list here would read as nothing being ahead (#530)
+        if (\is_string($ahead)) {
+            $warnings[] = sprintf(
+                'This is documentation, and whether functionality tickets are placeable in %s is unknown: %s',
+                $item->repository,
+                $ahead
+            );
+
+            $ahead = [];
+        }
+
         if ($ahead !== []) {
             $warnings[] = sprintf(
                 'This is documentation, and %d functionality ticket(s) are placeable in %s: %s. The service cannot know why they were passed over; their blind spots are on the shortlist.',
@@ -212,17 +224,25 @@ final class PlacementRules
      * otherwise need the other to be constructed first.
      *
      * @param  GitHubItem  $item  The ticket being placed.
-     * @return list<string> The functionality tickets, `owner/name#N`, up to ten.
+     * @return list<string>|string The functionality tickets, `owner/name#N`, up to ten; or, when the
+     *                             repository's shortlist filter is unresolved (#530), why.
      */
-    private function functionalityAhead(GitHubItem $item): array
+    private function functionalityAhead(GitHubItem $item): array|string
     {
         if (! \in_array('documentation', $item->labels, true)) {
             return [];
         }
 
+        $report = app(Shortlist::class)->report();
+        $filter = $report['filters'][$item->repository] ?? null;
+
+        if ($filter !== null && $filter['status'] === BacklogMembers::UNRESOLVED) {
+            return $filter['reason'] ?? 'its search qualifiers could not be resolved.';
+        }
+
         $ahead = [];
 
-        foreach (app(Shortlist::class)->read()[$item->repository] ?? [] as $entry) {
+        foreach ($report['repositories'][$item->repository] ?? [] as $entry) {
             if ($entry['ticket'] !== $item->reference() && ! \in_array('documentation', $entry['labels'], true)) {
                 $ahead[] = $entry['ticket'];
             }

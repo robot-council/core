@@ -676,9 +676,11 @@ shortlist keeps only those. Each repository then reports one of three filter sta
 or `unresolved`, which lists **none** of its tickets and says why: the qualifiers are refused, no
 fetch has listed their matches yet, the latest list is older than `stale_after_minutes`, or they
 match more than 1,000 open issues, which is more than GitHub's search will list. A list whose
-numbers do not add up to the count GitHub gave on its first page -- an issue closed between two
-pages -- is not stored, and the fetch records `incomplete` with no reading, as for an incomplete
-count. **This is the one place core reads a list from GitHub rather than a count**, and it decides
+numbers do not add up to the count GitHub gave on its first page, or whose pages give different
+counts -- an issue closed or opened between two pages -- replaces nothing: the count is stored as
+usual and the previous list stays until it ages out. One race goes undetected: an issue closing and
+another opening between the same two pages keeps both figures right while a ticket was skipped, and
+it lasts until the next fetch. **This is the one place core reads a list from GitHub rather than a count**, and it decides
 which tickets a coordinator is shown, so it is a named exception to the rule that core learns state
 from the webhook alone; nothing that frees a lane, changes a task, or refuses a placement reads it.
 
@@ -885,8 +887,8 @@ block: a title naming an act that needs a human (delete, remove, retire, release
 install, upgrade, rotate, spend), an open ticket whose acceptance criteria are all ticked, a branch
 whose name carries the ticket's number with no open pull request (matched by name), and a
 `documentation` ticket placed while functionality tickets are on the shortlist, which counts only the
-tickets the repository's search qualifiers match and names none for a repository whose filter is
-unresolved.
+tickets the repository's search qualifiers match; for a repository whose filter is unresolved it
+warns instead that whether functionality tickets are placeable is unknown, with the reason.
 
 A task may name the GitHub issue it is for when it is filed, as `issue: "owner/name#N"`. A bare
 `#N` is refused, because the same number exists in every tracker. Each task reports `placed_by`

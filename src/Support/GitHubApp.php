@@ -278,19 +278,19 @@ final class GitHubApp
      * creation, oldest first, so an issue opened while the pages are read lands on the last one
      * rather than shifting the rest.
      *
-     * **A set that may be short is not returned.** GitHub's search lists at most 1,000 results, so
-     * past `MAX_MATCHING` the numbers are null and only the count is used; and when the numbers
-     * collected do not add up to the count GitHub gave -- an issue closed between two pages shifts
-     * the next one, and one is skipped -- the whole answer is refused as incomplete, because a
-     * skipped number would quietly drop a ticket from the shortlist.
+     * **A set that may be short is not returned; the count still is.** GitHub's search lists at
+     * most 1,000 results, so past `MAX_MATCHING` there is no set (`too_many`). When the numbers
+     * collected do not add up to the count the first page gave, or a later page gives another count
+     * -- an issue closed or opened between two pages shifts the next one -- there is no set either
+     * (`shifted`), because a skipped number would quietly drop a ticket from the shortlist. In both
+     * the count is the first page's, exactly what `openIssues()` would have stored. **One race is
+     * not caught**: an issue closing and another opening between two pages leaves the total and the
+     * number of results both right while one ticket was skipped. It lasts until the next fetch.
      *
      * @param  string  $repository  `owner/name`.
      * @param  string  $token  The installation token for the repository's owner.
      * @param  string  $qualifiers  Qualifiers to append, never `''`: with none, nothing is filtered.
-     * @return array{total: int, numbers: list<int>|null, searches: int} The count, the numbers or
-     *                                                                   null when there are more than
-     *                                                                   can be listed, and how many
-     *                                                                   searches it took.
+     * @return array{total: int, numbers: list<int>|null, unlisted: 'too_many'|'shifted'|null, searches: int} The count, the numbers or null and why, and how many searches it took.
      *
      * @throws GitHubRefusal When GitHub could not be asked, refused, or answered with no usable list.
      * @throws InvalidArgumentException When the repository is not `owner/name`, or the qualifiers are
@@ -333,7 +333,12 @@ final class GitHubApp
 
             // More than search will list: the count stands, and no set is claimed
             if ($total > self::MAX_MATCHING) {
-                return ['total' => $total, 'numbers' => null, 'searches' => $searches];
+                return ['total' => $total, 'numbers' => null, 'unlisted' => 'too_many', 'searches' => $searches];
+            }
+
+            // The matches changed between pages, so the pages no longer tile them
+            if ($count !== $total) {
+                return ['total' => $total, 'numbers' => null, 'unlisted' => 'shifted', 'searches' => $searches];
             }
 
             foreach ($items as $item) {
@@ -351,15 +356,15 @@ final class GitHubApp
             }
         }
 
-        // A set that does not add up to the count missed or gained an issue between pages
+        // A set that does not add up to the count missed or repeated an issue between pages
         if (\count($numbers) !== $total) {
-            throw new GitHubRefusal(BacklogFetchOutcome::Incomplete, 200);
+            return ['total' => $total, 'numbers' => null, 'unlisted' => 'shifted', 'searches' => $searches];
         }
 
         $listed = array_keys($numbers);
         sort($listed);
 
-        return ['total' => $total, 'numbers' => $listed, 'searches' => $searches];
+        return ['total' => $total, 'numbers' => $listed, 'unlisted' => null, 'searches' => $searches];
     }
 
     /**
