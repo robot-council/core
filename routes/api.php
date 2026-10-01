@@ -31,6 +31,7 @@ use RobotCouncil\Http\Controllers\LaneHoldController;
 use RobotCouncil\Http\Controllers\ListSessionsController;
 use RobotCouncil\Http\Controllers\ListTasksController;
 use RobotCouncil\Http\Controllers\LockController;
+use RobotCouncil\Http\Controllers\MoveSessionController;
 use RobotCouncil\Http\Controllers\OwedItemController;
 use RobotCouncil\Http\Controllers\PostDirectiveController;
 use RobotCouncil\Http\Controllers\PostNarrationController;
@@ -93,6 +94,10 @@ Route::middleware(['throttle:'.RobotCouncilServiceProvider::SESSIONS_LIMITER, En
 Route::middleware(['throttle:'.RobotCouncilServiceProvider::AGENT_LIMITER, EnsureAgentSession::class])
     ->group(function (): void {
         Route::get('agent/session', AgentSessionController::class)->name('agent.session');
+
+        // Where the session works, changed without leaving (#535). It names no session, so it
+        // moves only the one the request authenticated as.
+        Route::patch('agent/session', MoveSessionController::class)->name('agent.session.move');
 
         // Contact is recorded for every route in this group, so this one is for a process that has
         // nothing else to send rather than the only thing that keeps a session alive

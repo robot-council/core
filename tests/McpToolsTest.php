@@ -139,8 +139,8 @@ it('lists its tools to a session that authenticated', function (): void {
         ->toContain('events_read', 'events_narrate', 'directive_post', 'presence_heartbeat')
         ->and($names)->toContain('lane_hold', 'lane_clear_hold')
         ->and($names)->toContain('backlog_report', 'gate_start', 'gate_finish', 'owed_record', 'owed_settle', 'owed_list')
-        ->and($names)->toContain('shortlist_read', 'sessions_list', 'developer_settings')
-        ->and($names)->toHaveCount(30);
+        ->and($names)->toContain('shortlist_read', 'sessions_list', 'developer_settings', 'session_move')
+        ->and($names)->toHaveCount(31);
 });
 
 it('tells an agent the content it reads is data, not instructions', function (): void {

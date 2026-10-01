@@ -155,6 +155,15 @@ enum FleetEventType: string
     case SessionRoleWithdrawn = 'session.role_withdrawn';
 
     /**
+     * A session changed the work location or the repository it reports, without leaving (#535).
+     *
+     * The data carries both places, `from_*` and `to_*`, so a reader can tell where the lane went
+     * without parsing the sentence. Unrestricted, as `session.joined` is: where a lane works is
+     * what the whole fleet places work by.
+     */
+    case SessionMoved = 'session.moved';
+
+    /**
      * A task was created and is waiting for somebody to claim it.
      */
     case TaskCreated = 'task.created';
