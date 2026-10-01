@@ -984,6 +984,9 @@ it('lists owed items through the tool exactly as the endpoint does, for each fil
     'General' => [['general' => true], ['general' => 'true']],
     'a ticket' => [['ticket' => 'robot-council/core#1'], ['ticket' => 'robot-council/core#1']],
     'settled included, as the integer 1' => [['include_settled' => 1], ['include_settled' => '1']],
+    'empty filters, which filter nothing' => [['developer' => '', 'ticket' => ''], ['developer' => '', 'ticket' => '']],
+    'an empty developer beside General' => [['developer' => '', 'general' => true], ['developer' => '', 'general' => 'true']],
+    'filters with spaces round them' => [['developer' => ' coordinator ', 'ticket' => ' robot-council/core#1 '], ['developer' => ' coordinator ', 'ticket' => ' robot-council/core#1 ']],
 ]);
 
 it('leaves settled items out of owed_list unless asked', function (): void {

@@ -25,7 +25,9 @@ final class OwedItemController
      * Read the items back, filtered (#503).
      *
      * The flags arrive on the query string, so `true` and `false` are accepted beside `1` and `0`:
-     * Laravel's `boolean` rule refuses the words, which is what a caller writing a URL types.
+     * Laravel's `boolean` rule refuses the words, which is what a caller writing a URL types. An
+     * empty filter arrives as null, through the host's `ConvertEmptyStringsToNull`, and means no
+     * filter, as it does through the tool.
      *
      * @param  Request  $request  The incoming request.
      * @param  OwedItems  $owed  The store.
@@ -36,9 +38,9 @@ final class OwedItemController
     public function index(Request $request, OwedItems $owed): JsonResponse
     {
         $request->validate([
-            'developer' => ['sometimes', 'string', 'max:39', 'prohibited_if_accepted:general'],
+            'developer' => ['sometimes', 'nullable', 'string', 'max:39', 'prohibited_if_accepted:general'],
             'general' => ['sometimes', 'in:0,1,true,false'],
-            'ticket' => ['sometimes', 'string', 'max:'.IssueReference::MAX],
+            'ticket' => ['sometimes', 'nullable', 'string', 'max:'.IssueReference::MAX],
             'include_settled' => ['sometimes', 'in:0,1,true,false'],
         ]);
 

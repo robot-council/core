@@ -84,14 +84,15 @@ final class OwedListTool extends Tool
             'include_settled' => ['sometimes', 'boolean'],
         ]);
 
-        $developer = $request->get('developer');
-        $ticket = $request->get('ticket');
+        // Trimmed, as the route's `TrimStrings` trims them, so the two doors read one value alike
+        $developer = \is_string($request->get('developer')) ? trim(Arguments::string($request->get('developer'))) : null;
+        $ticket = \is_string($request->get('ticket')) ? trim(Arguments::string($request->get('ticket'))) : null;
 
         try {
             $items = $owed->list(
-                \is_string($developer) && $developer !== '' ? $developer : null,
+                $developer === '' ? null : $developer,
                 \in_array($request->get('general'), [true, 1, '1'], true),
-                \is_string($ticket) && $ticket !== '' ? Arguments::string($ticket) : null,
+                $ticket === '' ? null : $ticket,
                 \in_array($request->get('include_settled'), [true, 1, '1'], true)
             );
         } catch (InvalidArgumentException $invalidArgumentException) {
