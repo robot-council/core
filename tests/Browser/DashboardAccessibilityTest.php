@@ -1652,11 +1652,11 @@ function owedCardsSeeded(PendingAwaitablePage $page): PendingAwaitablePage
  * Every card list on the page: its role, how many columns its grid draws, how many cards it holds
  * and where each sits, and whether reading order is the order drawn (#527).
  *
- * @return list<array{list: string, role: string|null, columns: int, cards: int, perRow: int, narrowest: float, widest: float, minimum: float, inOrder: bool}>
+ * @return list<array{list: string, role: string|null, display: string, width: float, columns: int, cards: int, perRow: int, narrowest: float, widest: float, minimum: float, inOrder: bool}>
  */
 function cardLists(PendingAwaitablePage $page): array
 {
-    /** @var list<array{list: string, role: string|null, columns: int, cards: int, perRow: int, narrowest: float, widest: float, minimum: float, inOrder: bool}> $lists */
+    /** @var list<array{list: string, role: string|null, display: string, width: float, columns: int, cards: int, perRow: int, narrowest: float, widest: float, minimum: float, inOrder: bool}> $lists */
     $lists = pageList($page, 'card-lists', <<<'JS'
         () => [...document.querySelectorAll('main ul.card-grid')].map((ul) => {
             const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
@@ -1668,6 +1668,8 @@ function cardLists(PendingAwaitablePage $page): array
             return {
                 list: (ul.closest('section, .card-body')?.querySelector('h2, h3')?.textContent ?? '').trim().replace(/\s+/g, ' '),
                 role: ul.getAttribute('role'),
+                display: getComputedStyle(ul).display,
+                width: ul.getBoundingClientRect().width,
                 columns: getComputedStyle(ul).gridTemplateColumns.split(' ').length,
                 cards: cards.length,
                 perRow: tops.filter((t) => t === tops[0]).length,
@@ -1694,8 +1696,12 @@ it('lays owed items and held lanes out as cards along rows, and one per row on a
     expect($lists)->toHaveCount($route === 'robot-council.waiting' ? 2 : 1);
 
     foreach ($lists as $list) {
+        // A grid at every width, so one column on a phone is the grid's answer rather than a list
+        // that lost its layout; and at 1920px every list, the held lanes too, has its columns
         expect($list['role'])->toBe('list')
-            ->and($list['columns'])->toBe($width === 390 ? 1 : $list['columns'])
+            ->and($list['display'])->toBe('grid')
+            ->and($list['columns'])->toBe($width === 1920 ? $list['columns'] : 1)
+            ->and($list['columns'])->toBeGreaterThanOrEqual($columns)
             ->and($list['inOrder'])->toBeTrue()
             // Never narrower than the minimum, and never wider than the prose measure
             ->and($list['narrowest'])->toBeGreaterThanOrEqual($list['minimum'] - 0.5)
@@ -1704,13 +1710,20 @@ it('lays owed items and held lanes out as cards along rows, and one per row on a
 
     // The owed list is the long one: eight items, the seed's and seven more
     expect($lists[0]['cards'])->toBe(8)
-        ->and($lists[0]['columns'])->toBeGreaterThanOrEqual($columns)
-        ->and($lists[0]['perRow'])->toBe($width === 390 ? 1 : $lists[0]['columns'])
+        ->and($lists[0]['perRow'])->toBe($width === 1920 ? $lists[0]['columns'] : 1)
         ->and(sidewaysScroll($page))->toBe(0);
+
+    // At 800px one column is wider than the prose measure, so the cap is what holds the card to it
+    if ($width === 800) {
+        expect($lists[0]['width'])->toBeGreaterThan(36 * $rem)
+            ->and($lists[0]['widest'])->toEqualWithDelta(36 * $rem, 0.5);
+    }
 })->with([
     'Lanes on a phone' => ['robot-council.lanes', 390, 1],
+    'Lanes at 800px, one column wider than the measure' => ['robot-council.lanes', 800, 1],
     'Lanes at 1920px' => ['robot-council.lanes', 1920, 3],
     'Waiting on me on a phone' => ['robot-council.waiting', 390, 1],
+    'Waiting on me at 800px, one column wider than the measure' => ['robot-council.waiting', 800, 1],
     'Waiting on me at 1920px' => ['robot-council.waiting', 1920, 2],
 ]);
 
