@@ -3,9 +3,10 @@
 
     The region is always on the page and only its words change, because a screen reader often
     announces nothing for a live region that arrives with its text already inside it. `show` says
-    whether this is the place the words belong; everything printed is escaped.
+    whether this is the place the words belong; everything printed is escaped. Pass `id` when a
+    field names this region in its `aria-describedby`, so a refusal is read with the field.
 --}}
-<div role="status" @class([$class ?? '']) data-said-region>
+<div role="status" @isset($id) id="{{ $id }}" @endisset @class([$class ?? '']) data-said-region>
     @if ($show)
         <p @class(['font-semibold text-error' => $refused, 'font-medium' => ! $refused]) data-said>{{ $said }}</p>
     @endif

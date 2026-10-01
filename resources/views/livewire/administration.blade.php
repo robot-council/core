@@ -114,13 +114,13 @@
                                                 </div>
                                             </div>
 
-                                            @include('robot-council::partials.said', ['show' => $said !== null && $saidAt === $installation['id'], 'class' => 'mt-2'])
+                                            @include('robot-council::partials.said', ['show' => $said !== null && $saidAt === $installation['id'], 'class' => 'mt-2', 'id' => 'installation-'.$installation['id'].'-said'])
 
                                             {{-- #534: a new machine label, in place. Only the id reaches the
                                                  `wire:` expressions; the label is read back by the component
                                                  as untrusted input and refused for what enrollment refuses. --}}
                                             @if (! $installation['revoked'])
-                                                @include('robot-council::partials.rename-installation', ['installation' => $installation])
+                                                @include('robot-council::partials.rename-installation', ['installation' => $installation, 'said' => 'installation-'.$installation['id'].'-said', 'failed' => $refused && $saidAt === $installation['id']])
                                             @endif
 
                                             @if ($installation['sessions']['shown'] !== [])

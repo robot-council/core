@@ -156,6 +156,10 @@ it('refuses a label enrollment would refuse, with the reason enrollment gives', 
 })->with([
     'empty' => [''],
     'a space' => ['office mac'],
+
+    // Not trimmed into an accepted label, since enrollment refuses it as typed
+    'a leading space' => [' office-mac'],
+    'a trailing newline' => ["office-mac\n"],
     'markup' => ['<b>box</b>'],
     'one past the limit' => [str_repeat('a', MachineIdentity::MAX_LABEL + 1)],
     'non-ASCII' => ['büro'],
@@ -275,4 +279,52 @@ it('renders a rename field per machine with only the id in its wire expression',
         ->test(Administration::class)
         ->assertSeeHtml('wire:submit="renameInstallation('.$installation->id.')"')
         ->assertSet('labels.'.$installation->id, 'unknown-machine');
+});
+
+it('marks the field invalid and reads the refusal with it', function (): void {
+    $installation = $this->approveInstallation($this->owner, 'unknown-machine');
+
+    Livewire::actingAs($this->owner)
+        ->test(SeatSettings::class)
+        ->assertDontSeeHtml('aria-invalid="true"')
+        ->set('labels.'.$installation->id, 'office mac')
+        ->call('renameInstallation', $installation->id)
+        ->assertSeeHtml('aria-invalid="true" aria-describedby="machine-'.$installation->id.'-said installation-'.$installation->id.'-rename-help"')
+        ->assertSeeHtml('id="machine-'.$installation->id.'-said"');
+});
+
+it('sets no length on the field, so a long label is refused in words rather than cut short', function (): void {
+    $installation = $this->approveInstallation($this->owner, 'unknown-machine');
+
+    Livewire::actingAs($this->owner)
+        ->test(SeatSettings::class)
+        ->assertDontSeeHtml('maxlength');
+});
+
+it('refills an untouched field when somebody else renames the machine, so it cannot undo them', function (): void {
+    $installation = $this->approveInstallation($this->owner, 'unknown-machine');
+
+    $page = Livewire::actingAs($this->admin)->test(Administration::class)
+        ->assertSet('labels.'.$installation->id, 'unknown-machine');
+
+    // The owner renames it while the administrator's page is open
+    $this->service(Installations::class)->rename($installation->id, 'office-mac', HostKey::from($this->owner->getKey()), asAdmin: false);
+
+    $page->call('$refresh')->assertSet('labels.'.$installation->id, 'office-mac');
+
+    // Pressing Rename now changes nothing, rather than putting the old name back
+    $page->call('renameInstallation', $installation->id)->assertSet('refused', true);
+
+    expect($installation->refresh()->machine_label)->toBe('office-mac');
+});
+
+it('leaves a field alone while somebody is typing in it', function (): void {
+    $installation = $this->approveInstallation($this->owner, 'unknown-machine');
+
+    $page = Livewire::actingAs($this->owner)->test(SeatSettings::class)
+        ->set('labels.'.$installation->id, 'half-typ');
+
+    $this->service(Installations::class)->rename($installation->id, 'office-mac', HostKey::from($this->admin->getKey()), asAdmin: true);
+
+    $page->call('$refresh')->assertSet('labels.'.$installation->id, 'half-typ');
 });

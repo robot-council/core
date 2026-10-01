@@ -155,9 +155,9 @@
                                 <code>{{ $machine['harness'] }}</code> on <code>{{ $machine['machine_label'] }}</code>
                             </div>
 
-                            @include('robot-council::partials.said', ['show' => $said !== null && $saidAt === 'machine-'.$machine['id'], 'class' => 'mt-2'])
+                            @include('robot-council::partials.said', ['show' => $said !== null && $saidAt === 'machine-'.$machine['id'], 'class' => 'mt-2', 'id' => 'machine-'.$machine['id'].'-said'])
 
-                            @include('robot-council::partials.rename-installation', ['installation' => $machine])
+                            @include('robot-council::partials.rename-installation', ['installation' => $machine, 'said' => 'machine-'.$machine['id'].'-said', 'failed' => $refused && $saidAt === 'machine-'.$machine['id']])
                         </li>
                     @endforeach
                 </ul>

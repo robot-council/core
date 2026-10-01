@@ -212,10 +212,12 @@ final class Installations
      * sharing it would both be revoked by the next approval for either machine, which is #106's
      * silent supersede arriving through a different door.
      *
-     * **Every live installation of that developer and harness is held, in id order, before the
-     * label is checked against them.** Holding only the renamed row would let two renames to the
-     * same label each find it free and both commit. Holding the whole set, ascending, is the order
-     * `createFrom()` takes its subset of the same rows in, so the two cannot deadlock each other.
+     * **Every live installation of that developer and harness is held before the label is checked
+     * against them.** Holding only the renamed row would let two renames to the same label each find
+     * it free and both commit. The query asks for id order, which is the order Postgres takes the
+     * rows in; InnoDB takes them in the order it scans the identity index, which is label order.
+     * Either way `createFrom()`'s rows are a contiguous run of the same scan, taken in the same
+     * direction, so the two cannot deadlock each other.
      * What this does NOT close is an enrollment for a label nobody holds yet, racing a rename to
      * it: neither side has a row to wait on, and there is no unique index to refuse the second,
      * because a revoked installation keeps its identity. The cost is the one above -- the next

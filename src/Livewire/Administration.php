@@ -103,6 +103,19 @@ final class Administration extends Component
     public array $labels = [];
 
     /**
+     * The stored label each rename field was last filled from, by installation id.
+     *
+     * Locked, so only the server sets it. A field still holding what it was filled with is one
+     * nobody has touched, and is filled again when the stored label moves -- otherwise a page left
+     * open would keep the old name in the field, and pressing Rename would quietly undo somebody
+     * else's rename.
+     *
+     * @var array<int|string, string>
+     */
+    #[Locked]
+    public array $seeded = [];
+
+    /**
      * Which installations are listed: those that can still act, or every row.
      */
     #[Url(as: 'installations', keep: false)]
@@ -231,7 +244,9 @@ final class Administration extends Component
         }
 
         $typed = $this->labels[$installation->id] ?? null;
-        $label = \is_string($typed) ? trim($typed) : '';
+        // Not trimmed: enrollment refuses a label with a space anywhere in it, and a rename has
+        // to refuse exactly what enrollment does, with the same reason
+        $label = \is_string($typed) ? $typed : '';
 
         try {
             $outcome = $this->service(Installations::class)->rename($installation->id, $label, $actor, asAdmin: true);
@@ -424,11 +439,9 @@ final class Administration extends Component
 
         $page = $installations->everything(self::PER_PAGE, Scope::orDefault($this->scope, Scope::Live), $this->after);
 
-        // Each rename field starts at the label stored, and a value an administrator is part-way
-        // through typing is left alone by the poll
         foreach ($page['installations'] as $listed) {
             if (\is_int($listed['id'] ?? null) && \is_string($listed['machine_label'] ?? null)) {
-                $this->labels[$listed['id']] ??= $listed['machine_label'];
+                $this->seed($listed['id'], $listed['machine_label']);
             }
         }
 
@@ -450,6 +463,23 @@ final class Administration extends Component
             // A session's join and contact times, in the viewer's own zone and named (#419, #487)
             'time' => $time,
         ]);
+    }
+
+    /**
+     * Fill one rename field from the stored label, unless somebody is part-way through typing in it.
+     *
+     * @param  int  $installationId  The installation.
+     * @param  string  $stored  Its label as stored now.
+     */
+    private function seed(int $installationId, string $stored): void
+    {
+        $untouched = ! \array_key_exists($installationId, $this->labels)
+            || $this->labels[$installationId] === ($this->seeded[$installationId] ?? null);
+
+        if ($untouched) {
+            $this->labels[$installationId] = $stored;
+            $this->seeded[$installationId] = $stored;
+        }
     }
 
     /**

@@ -96,6 +96,19 @@ final class SeatSettings extends Component
     public array $labels = [];
 
     /**
+     * The stored label each rename field was last filled from, by installation id.
+     *
+     * Locked, so only the server sets it. A field still holding what it was filled with is one
+     * nobody has touched, and is filled again when the stored label moves -- otherwise a page left
+     * open would keep the old name in the field, and pressing Rename would quietly undo somebody
+     * else's rename.
+     *
+     * @var array<int|string, string>
+     */
+    #[Locked]
+    public array $seeded = [];
+
+    /**
      * The seat whose ticket limit the last save was about, or null.
      *
      * Locked, like `said`: the page shows its confirmation or its error next to that seat's field,
@@ -353,7 +366,9 @@ final class SeatSettings extends Component
         }
 
         $typed = $this->labels[$installation->id] ?? null;
-        $label = \is_string($typed) ? trim($typed) : '';
+        // Not trimmed: enrollment refuses a label with a space anywhere in it, and a rename has
+        // to refuse exactly what enrollment does, with the same reason
+        $label = \is_string($typed) ? $typed : '';
         try {
             $outcome = $this->service(Installations::class)->rename($installation->id, $label, $developer, asAdmin: false);
         } catch (InvalidArgumentException $invalidArgumentException) {
@@ -437,8 +452,8 @@ final class SeatSettings extends Component
             $this->capacities[$seat->id] ??= $seat->max_capacity;
         }
 
-        // This developer's machines that can still be renamed, each field starting at the label
-        // stored, and left alone while the developer is part-way through typing
+        // This developer's machines that can still be renamed, each field filled from the label
+        // stored unless the developer is part-way through typing in it
         $machines = Installation::query()
             ->where('user_id', HostKey::from($developer))
             ->whereNull('revoked_at')
@@ -448,7 +463,7 @@ final class SeatSettings extends Component
             ->get(['id', 'harness', 'machine_label']);
 
         foreach ($machines as $machine) {
-            $this->labels[$machine->id] ??= $machine->machine_label;
+            $this->seed($machine->id, $machine->machine_label);
         }
 
         return view($template, [
@@ -524,6 +539,23 @@ final class SeatSettings extends Component
         }
 
         return $key;
+    }
+
+    /**
+     * Fill one rename field from the stored label, unless somebody is part-way through typing in it.
+     *
+     * @param  int  $installationId  The installation.
+     * @param  string  $stored  Its label as stored now.
+     */
+    private function seed(int $installationId, string $stored): void
+    {
+        $untouched = ! \array_key_exists($installationId, $this->labels)
+            || $this->labels[$installationId] === ($this->seeded[$installationId] ?? null);
+
+        if ($untouched) {
+            $this->labels[$installationId] = $stored;
+            $this->seeded[$installationId] = $stored;
+        }
     }
 
     /**
