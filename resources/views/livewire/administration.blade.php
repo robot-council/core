@@ -140,16 +140,14 @@
                                                                  the controls that wrote it are gone with it. --}}
                                                             <span class="badge badge-sm badge-outline">{{ \RobotCouncil\Access\Role::labelOf($session['role']) }}</span>
 
-                                                            {{-- The rest of the row stacked, one group to a line (#519): where it works, when
-                                                                 it joined, when it was last seen, a pending request with its
-                                                                 answers, then what an administrator can do. On one wrapping
-                                                                 line the buttons landed somewhere different on every row. The
-                                                                 lines sit closer together than #516 spaces the rows, so a row
-                                                                 still reads as one unit. Below `sm` the cell wraps under the
-                                                                 id and badges, since its actions line alone is wider than what
-                                                                 is left beside them; from `sm` up the badges sit
-                                                                 on the baseline of its first line rather than centered against
-                                                                 the whole stack, where they would share a line with "joined". --}}
+                                                            {{-- The rest of the row stacked, one group to a line (#519): where it works, when it joined,
+                                                                 when it was last seen, a pending request with its answers, then what an administrator
+                                                                 can do. On one wrapping line the buttons landed somewhere different on every row. The
+                                                                 lines sit closer together than #516 spaces the rows, so a row still reads as one unit.
+                                                                 Below `sm` the cell wraps under the id and badges, since its actions line alone is wider
+                                                                 than what is left beside them; from `sm` up the badges sit on the baseline of its first
+                                                                 line rather than centered against the whole stack, where they would share a line with
+                                                                 "joined". --}}
                                                             <div class="flex min-w-0 flex-col gap-1" data-session-detail>
                                                                 <div class="flex flex-wrap items-center gap-2" data-session-where>
                                                                     {{-- Where it is working, as the two fields #220 split the

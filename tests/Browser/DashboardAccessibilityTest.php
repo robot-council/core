@@ -924,14 +924,14 @@ function sessionRowPairs(PendingAwaitablePage $page): array
                         layers.splice(1, 0, getComputedStyle(node).backgroundColor);
                     }
                     const drawn = cs.borderTopStyle !== 'none' && parseFloat(cs.borderTopWidth) > 0;
-                    const detail = a.querySelector('[data-session-detail]').getBoundingClientRect();
+                    const actions = a.querySelector('[data-session-actions]').getBoundingClientRect();
                     out.push({
                         gap: content(b).top - content(a).bottom,
                         overlap: ra.bottom - rb.top,
                         escaped,
                         style: drawn ? cs.borderTopStyle : 'none',
                         ratio: drawn ? ratio(paint(...layers, cs.borderTopColor), paint(...layers)) : null,
-                        wrapped: detail.height > 60,
+                        wrapped: actions.height > 60,
                     });
                 }
             }
@@ -977,7 +977,7 @@ it('sets each session row apart on Administration, with its buttons inside it, a
         expect(sessionRowFault($pair))->toBeNull(json_encode($pair, JSON_THROW_ON_ERROR));
     }
 
-    // Where the buttons wrap the details onto several lines, the rows stay apart as well
+    // Where the actions wrap onto a second line of buttons, the rows stay apart as well
     if ($width === 390) {
         expect(array_filter(array_column($pairs, 'wrapped')))->not->toBeEmpty();
     }
@@ -1048,7 +1048,12 @@ function sessionRowLines(PendingAwaitablePage $page, bool $oneLine = true): arra
             const oneLine = %s;
             const row = document.querySelector('[data-installation-machine="home-windows"] [data-admin-sessions] > li');
             if (! row) { return null; }
-            const part = (name, el) => el ? { name, box: el.getBoundingClientRect() } : null;
+            // A part counts only when it is drawn: a hidden group measures as nothing and could
+            // otherwise never be found sharing a line
+            const part = (name, el) => {
+                const box = el ? el.getBoundingClientRect() : null;
+                return box && box.height > 0 ? { name, box } : null;
+            };
             const lines = ['joined', 'seen', 'request', 'actions']
                 .map(name => part(name, row.querySelector(`[data-session-${name}]`)));
             const others = [
@@ -1102,6 +1107,12 @@ it('finds the parts of a session row run together, so the check above is not bli
     // The planted fault, in part, since which badge or line it collides with depends on heights
     expect(array_filter($faults, static fn (string $found): bool => str_contains($found, $fault)))->not->toBeEmpty(json_encode($faults, JSON_THROW_ON_ERROR));
 })->with([
+    // The request and the actions side by side on one line, under lines of their own above them
+    'request beside the actions' => ["detail.style.flexDirection = 'row'; detail.style.flexWrap = 'wrap'; detail.querySelectorAll('[data-session-where], [data-session-joined], [data-session-seen]').forEach(el => { el.style.flexBasis = '100%'; });", 'request shares a line with actions'],
+    // The request squeezed until its answers wrap under its badge
+    'request wrapping' => ["detail.querySelector('[data-session-request]').style.width = '8rem';", 'request wraps'],
+    // A line hidden, which measures as nothing
+    'a hidden joined line' => ["detail.querySelector('[data-session-joined]').style.display = 'none';", 'no joined line'],
     // The markup before #519: one wrapping row holding every part. The groups are flattened into it
     // as `display: contents`, which is what a single wrapping container amounts to
     'the old single wrapping line' => ["detail.style.flexDirection = 'row'; detail.style.flexWrap = 'wrap'; detail.querySelectorAll('[data-session-where], [data-session-request], [data-session-actions]').forEach(el => { el.style.display = 'contents'; }); detail.querySelectorAll('[data-session-joined], [data-session-seen]').forEach(el => { el.style.display = 'inline'; });", 'joined shares a line with'],
