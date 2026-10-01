@@ -208,9 +208,19 @@ it('marks an identifier as code on the queue and the seats page too', function (
 it('names the seat in every control a seat repeats', function (): void {
     $this->actingAs($this->developer, 'web');
 
-    $buttons = keyboardElements(keyboardPage($this, 'robot-council.seats'), '//main//li//button');
+    $page = keyboardPage($this, 'robot-council.seats');
+
+    // A machine's row on the same page names its machine instead (#534), asserted below
+    $buttons = keyboardElements($page, '//main//li[not(@data-machine)]//button');
 
     expect($buttons)->not->toBeEmpty();
+
+    $renames = array_map(
+        static fn (DOMElement $button): string => (string) preg_replace('/\s+/', ' ', trim($button->textContent)),
+        keyboardElements($page, '//main//li[@data-machine]//button'),
+    );
+
+    expect($renames)->toBe(['Rename claude-code on office-mac']);
 
     $unnamed = [];
 

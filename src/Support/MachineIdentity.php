@@ -75,6 +75,22 @@ final class MachineIdentity
             ));
         }
 
+        self::ensureLabel($machineLabel);
+    }
+
+    /**
+     * Refuse a machine label the package will not store.
+     *
+     * Its own entry point because a rename (#534) changes the label alone, and it has to refuse
+     * exactly what enrollment refuses, with the same reason. One check called from both places
+     * rather than a copy of it, so the two cannot drift.
+     *
+     * @param  string  $machineLabel  What the machine calls itself.
+     *
+     * @throws InvalidArgumentException When it is outside its bound.
+     */
+    public static function ensureLabel(string $machineLabel): void
+    {
         if ($machineLabel === '' || mb_strlen($machineLabel) > self::MAX_LABEL || preg_match(self::LABEL, $machineLabel) !== 1) {
             throw new InvalidArgumentException(sprintf(
                 'A machine label is 1 to %d characters of [A-Za-z0-9._-], and this one is %d.',

@@ -15,6 +15,7 @@ use Livewire\Attributes\Title;
 use Livewire\Component;
 use RobotCouncil\Access\CurrentDeveloper;
 use RobotCouncil\Models\AssignmentHours;
+use RobotCouncil\Models\Installation;
 use RobotCouncil\Models\PlacementRule;
 use RobotCouncil\Models\Seat;
 use RobotCouncil\Support\AssignmentWindow;
@@ -22,6 +23,7 @@ use RobotCouncil\Support\Capacity;
 use RobotCouncil\Support\DeveloperSettings;
 use RobotCouncil\Support\DisplayTime;
 use RobotCouncil\Support\HostKey;
+use RobotCouncil\Support\Installations;
 use RobotCouncil\Support\Outcome;
 use RobotCouncil\Support\PlacementWaivers;
 use RobotCouncil\Support\Seats;
@@ -83,6 +85,30 @@ final class SeatSettings extends Component
     public array $capacities = [];
 
     /**
+     * Each of this developer's live installations' machine label as its rename field holds it, by
+     * installation id (#534).
+     *
+     * Client-writable, like `capacities`, so `renameInstallation()` reads it as untrusted and the
+     * store refuses an installation that is not this developer's.
+     *
+     * @var array<int|string, mixed>
+     */
+    public array $labels = [];
+
+    /**
+     * The stored label each rename field was last filled from, by installation id.
+     *
+     * Locked, so only the server sets it. A field still holding what it was filled with is one
+     * nobody has touched, and is filled again when the stored label moves -- otherwise a page left
+     * open would keep the old name in the field, and pressing Rename would quietly undo somebody
+     * else's rename.
+     *
+     * @var array<int|string, string>
+     */
+    #[Locked]
+    public array $seeded = [];
+
+    /**
      * The seat whose ticket limit the last save was about, or null.
      *
      * Locked, like `said`: the page shows its confirmation or its error next to that seat's field,
@@ -108,7 +134,8 @@ final class SeatSettings extends Component
     public ?string $said = null;
 
     /**
-     * Where the page shows `said`: `seat-` and a seat id, `hours`, or `days-off`.
+     * Where the page shows `said`: `seat-` and a seat id, `machine-` and an installation id,
+     * `hours`, or `days-off`.
      *
      * Each action's words appear beside the control that caused them rather than in one alert at
      * the top, so a reader hears the answer where they are (`.claude/rules/accessibility.md`).
@@ -314,6 +341,58 @@ final class SeatSettings extends Component
     }
 
     /**
+     * Give one of this developer's installations the machine label its field holds, without the
+     * machine re-enrolling (#534).
+     *
+     * Not an administrator's action, whatever the developer is: this page edits their own things,
+     * so the store is told so and refuses somebody else's installation however the snapshot is
+     * shaped. An administrator renames another developer's machine from the Administration page.
+     *
+     * @param  int  $installationId  The installation to rename.
+     */
+    public function renameInstallation(int $installationId): void
+    {
+        $developer = $this->developer();
+        $at = 'machine-'.$installationId;
+
+        // Read only among this developer's own, so a refused rename of somebody else's machine
+        // never learns its name
+        $installation = Installation::query()->whereKey($installationId)->where('user_id', HostKey::from($developer))->first();
+
+        if (! $installation instanceof Installation) {
+            $this->say($at, 'Not found: that machine is not one of yours, or no longer exists. Reload the page to see your machines as they are now.', refused: true);
+
+            return;
+        }
+
+        $typed = $this->labels[$installation->id] ?? null;
+        // Not trimmed: enrollment refuses a label with a space anywhere in it, and a rename has
+        // to refuse exactly what enrollment does, with the same reason
+        $label = \is_string($typed) ? $typed : '';
+        try {
+            $outcome = $this->service(Installations::class)->rename($installation->id, $label, $developer, asAdmin: false);
+        } catch (InvalidArgumentException $invalidArgumentException) {
+            $this->say($at, 'Not renamed: '.$invalidArgumentException->getMessage(), refused: true);
+
+            return;
+        }
+
+        match ($outcome) {
+            Outcome::Applied => $this->say($at, sprintf(
+                'Renamed: %s on %s is now %s on %s. Its sessions carry on under the new name.',
+                $installation->harness,
+                $installation->machine_label,
+                $installation->harness,
+                $label
+            )),
+            Outcome::Conflict => $this->say($at, sprintf('No change: %s on %s already has that name.', $installation->harness, $label), refused: true),
+            // `Forbidden` cannot answer the installation's own developer, and `Added` is a task's
+            // alone (#433); both read as the one thing left, an installation that is no longer live
+            Outcome::NotFound, Outcome::Forbidden, Outcome::Added => $this->say($at, sprintf('Not renamed: %s on %s has been revoked, so it has no name to change.', $installation->harness, $installation->machine_label), refused: true),
+        };
+    }
+
+    /**
      * Waive one placement refusal for the next placement on a seat (#320).
      *
      * The rule arrives as a string from rendered markup, so it goes through the enum rather than
@@ -373,8 +452,27 @@ final class SeatSettings extends Component
             $this->capacities[$seat->id] ??= $seat->max_capacity;
         }
 
+        // This developer's machines that can still be renamed, each field filled from the label
+        // stored unless the developer is part-way through typing in it
+        $machines = Installation::query()
+            ->where('user_id', HostKey::from($developer))
+            ->whereNull('revoked_at')
+            ->orderBy('machine_label')
+            ->orderBy('harness')
+            ->orderBy('id')
+            ->get(['id', 'harness', 'machine_label']);
+
+        foreach ($machines as $machine) {
+            $this->seed($machine->id, $machine->machine_label);
+        }
+
         return view($template, [
             'seats' => $mine,
+            'machines' => $machines->map(static fn (Installation $machine): array => [
+                'id' => $machine->id,
+                'harness' => $machine->harness,
+                'machine_label' => $machine->machine_label,
+            ])->all(),
             'rules' => PlacementRule::cases(),
             'waived' => array_combine(
                 array_map(static fn (Seat $seat): int => $seat->id, $mine),
@@ -444,6 +542,23 @@ final class SeatSettings extends Component
     }
 
     /**
+     * Fill one rename field from the stored label, unless somebody is part-way through typing in it.
+     *
+     * @param  int  $installationId  The installation.
+     * @param  string  $stored  Its label as stored now.
+     */
+    private function seed(int $installationId, string $stored): void
+    {
+        $untouched = ! \array_key_exists($installationId, $this->labels)
+            || $this->labels[$installationId] === ($this->seeded[$installationId] ?? null);
+
+        if ($untouched) {
+            $this->labels[$installationId] = $stored;
+            $this->seeded[$installationId] = $stored;
+        }
+    }
+
+    /**
      * Run a write, turning a refused value into a message on the page rather than a 500.
      *
      * @param  string  $at  Where the page shows the refusal.
@@ -509,7 +624,8 @@ final class SeatSettings extends Component
     /**
      * Record what the last action did, for the page to show beside the control that caused it.
      *
-     * @param  string  $at  Where: `seat-` and a seat id, `hours`, or `days-off`.
+     * @param  string  $at  Where: `seat-` and a seat id, `machine-` and an installation id, `hours`,
+     *                      or `days-off`.
      * @param  string  $words  What happened, leading with the word that sums it up.
      * @param  bool  $refused  Whether it was refused or changed nothing.
      */

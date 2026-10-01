@@ -6,6 +6,7 @@ namespace RobotCouncil\Livewire;
 
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\View\View;
+use InvalidArgumentException;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
@@ -19,6 +20,7 @@ use RobotCouncil\Models\Installation;
 use RobotCouncil\Support\DisplayTime;
 use RobotCouncil\Support\InstallationList;
 use RobotCouncil\Support\Installations;
+use RobotCouncil\Support\Outcome;
 use RobotCouncil\Support\PollInterval;
 use RobotCouncil\Support\RoleRequests;
 use RobotCouncil\Support\Scope;
@@ -89,6 +91,29 @@ final class Administration extends Component
      */
     #[Locked]
     public bool $refused = false;
+
+    /**
+     * Each live installation's machine label as its rename field holds it, by installation id (#534).
+     *
+     * Client-writable, like any field, so `renameInstallation()` reads it as untrusted and the store
+     * refuses what enrollment would.
+     *
+     * @var array<int|string, mixed>
+     */
+    public array $labels = [];
+
+    /**
+     * The stored label each rename field was last filled from, by installation id.
+     *
+     * Locked, so only the server sets it. A field still holding what it was filled with is one
+     * nobody has touched, and is filled again when the stored label moves -- otherwise a page left
+     * open would keep the old name in the field, and pressing Rename would quietly undo somebody
+     * else's rename.
+     *
+     * @var array<int|string, string>
+     */
+    #[Locked]
+    public array $seeded = [];
 
     /**
      * Which installations are listed: those that can still act, or every row.
@@ -190,6 +215,61 @@ final class Administration extends Component
             $installation->harness,
             $installation->machine_label
         ));
+    }
+
+    /**
+     * Give an installation the machine label its field holds, without the machine re-enrolling
+     * (#534).
+     *
+     * @param  int  $installationId  The installation to rename.
+     */
+    public function renameInstallation(int $installationId): void
+    {
+        $this->authorizeAdmin();
+
+        $installation = Installation::query()->find($installationId);
+
+        if (! $installation instanceof Installation) {
+            $this->say(null, 'Not found: that installation no longer exists. The list shows the ones that do.', refused: true);
+
+            return;
+        }
+
+        $actor = $this->actor();
+
+        if ($actor === null) {
+            $this->say($installation->id, 'Not renamed: your account has no key a change can be recorded against.', refused: true);
+
+            return;
+        }
+
+        $typed = $this->labels[$installation->id] ?? null;
+        // Not trimmed: enrollment refuses a label with a space anywhere in it, and a rename has
+        // to refuse exactly what enrollment does, with the same reason
+        $label = \is_string($typed) ? $typed : '';
+
+        try {
+            $outcome = $this->service(Installations::class)->rename($installation->id, $label, $actor, asAdmin: true);
+        } catch (InvalidArgumentException $invalidArgumentException) {
+            $this->say($installation->id, 'Not renamed: '.$invalidArgumentException->getMessage(), refused: true);
+
+            return;
+        }
+
+        match ($outcome) {
+            Outcome::Applied => $this->say($installation->id, sprintf(
+                'Renamed: %s on %s is now %s on %s. Its sessions carry on under the new name.',
+                $installation->harness,
+                $installation->machine_label,
+                $installation->harness,
+                $label
+            )),
+            Outcome::Conflict => $this->say($installation->id, sprintf('No change: %s on %s already has that name.', $installation->harness, $label), refused: true),
+
+            // `Forbidden` cannot answer an administrator, and `Added` is a task's alone (#433);
+            // both read as the one thing left, an installation that is no longer live
+            Outcome::NotFound, Outcome::Forbidden, Outcome::Added => $this->say($installation->id, sprintf('Not renamed: %s on %s has been revoked, so it has no name to change.', $installation->harness, $installation->machine_label), refused: true),
+        };
     }
 
     /**
@@ -359,6 +439,12 @@ final class Administration extends Component
 
         $page = $installations->everything(self::PER_PAGE, Scope::orDefault($this->scope, Scope::Live), $this->after);
 
+        foreach ($page['installations'] as $listed) {
+            if (\is_int($listed['id'] ?? null) && \is_string($listed['machine_label'] ?? null)) {
+                $this->seed($listed['id'], $listed['machine_label']);
+            }
+        }
+
         return view($template, [
             'page' => $page,
 
@@ -377,6 +463,23 @@ final class Administration extends Component
             // A session's join and contact times, in the viewer's own zone and named (#419, #487)
             'time' => $time,
         ]);
+    }
+
+    /**
+     * Fill one rename field from the stored label, unless somebody is part-way through typing in it.
+     *
+     * @param  int  $installationId  The installation.
+     * @param  string  $stored  Its label as stored now.
+     */
+    private function seed(int $installationId, string $stored): void
+    {
+        $untouched = ! \array_key_exists($installationId, $this->labels)
+            || $this->labels[$installationId] === ($this->seeded[$installationId] ?? null);
+
+        if ($untouched) {
+            $this->labels[$installationId] = $stored;
+            $this->seeded[$installationId] = $stored;
+        }
     }
 
     /**

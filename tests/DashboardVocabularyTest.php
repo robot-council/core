@@ -56,7 +56,7 @@ function vocabularyPages(): array
         'queue' => ['robot-council.queue', [], ['task', 'ticket', 'pending', 'claimed', 'in_progress', 'blocked_task', 'done', 'failed', 'cancelled', 'priority', 'filed_by', 'project', 'held_by_task', 'lane', 'coordinator']],
         'feed' => ['robot-council.feed', [], ['change_feed', 'entry_type', 'narration', 'directive', 'lane_quiet', 'lane_condition', 'placement_instruction', 'coordinator', 'session', 'task', 'lock', 'lane']],
         'administration' => ['robot-council.administration', [], ['installation', 'harness', 'machine_label', 'usable', 'revoked', 'expired', 'session', 'active', 'stale', 'gone', 'role', 'coordinator', 'ephemeral', 'asked_for_role', 'make_role', 'revoke_session', 'revoke_installation']],
-        'seats' => ['robot-council.seats', [], ['seat', 'harness', 'machine_label', 'park', 'exempt', 'tickets_at_once', 'placement', 'waive', 'assignment_hours', 'days_off', 'gate', 'hand_back', 'coordinator']],
+        'seats' => ['robot-council.seats', [], ['seat', 'installation', 'harness', 'machine_label', 'park', 'exempt', 'tickets_at_once', 'placement', 'waive', 'assignment_hours', 'days_off', 'gate', 'hand_back', 'coordinator']],
     ];
 }
 
@@ -464,8 +464,9 @@ it('keeps every live region on the page before anything is said in it', function
 
     $xpath = vocabularyDocument(Livewire::actingAs($this->developer)->test(SeatSettings::class)->html());
 
-    // One for the page, one per seat, one for the hours and one for the days off; all empty
-    expect(vocabularyElements($xpath, '//*[@data-said-region][@role="status"]'))->toHaveCount(4)
+    // One for the page, one per seat, one per machine (#534), one for the hours and one for the
+    // days off; all empty
+    expect(vocabularyElements($xpath, '//*[@data-said-region][@role="status"]'))->toHaveCount(5)
         ->and(vocabularyElements($xpath, '//*[@data-said]'))->toBeEmpty();
 });
 
