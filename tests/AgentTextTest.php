@@ -1,0 +1,303 @@
+<?php
+
+declare(strict_types=1);
+
+/**
+ * The safe Markdown subset agent-written prose is shown in on the dashboard (#537).
+ *
+ * @command  vendor/bin/pest --compact tests/AgentTextTest.php
+ */
+
+use Illuminate\Support\Facades\Blade;
+use Livewire\Livewire;
+use RobotCouncil\Livewire\ChangeFeed;
+use RobotCouncil\Livewire\Lanes;
+use RobotCouncil\Livewire\TaskBoard;
+use RobotCouncil\Models\FleetEventType;
+use RobotCouncil\Support\AgentText;
+use RobotCouncil\Support\FleetEvents;
+use RobotCouncil\Support\OwedItems;
+use RobotCouncil\Support\Tasks;
+use RobotCouncil\Support\TicketLink;
+
+/**
+ * Agent text rendered through the component, in either mode.
+ */
+function agentText(string $text, bool $inline = false): string
+{
+    return Blade::render(
+        $inline ? '<x-robot-council::agent-text :text="$text" inline />' : '<x-robot-council::agent-text :text="$text" />',
+        ['text' => $text]
+    );
+}
+
+/**
+ * Rendered markup without the markers Livewire writes round each Blade condition and loop.
+ */
+function withoutLivewireMarkers(string $html): string
+{
+    return (string) preg_replace('#<!--\[if [A-Z]+\]><!\[endif\]-->#', '', $html);
+}
+
+/**
+ * Every element and attribute in some rendered markup that the component itself does not write.
+ *
+ * The component writes only these elements, a class on its container, `start` on a numbered list,
+ * and through `external-link` a link to GitHub with its fixed `target` and `rel`. Anything else in
+ * the output came from what an agent wrote.
+ *
+ * @return list<string>
+ */
+function foreignMarkup(string $html): array
+{
+    $foreign = [];
+
+    preg_match_all('#<(/?)([a-zA-Z][a-zA-Z0-9-]*)((?:[^>"\']|"[^"]*"|\'[^\']*\')*)>#', $html, $tags, PREG_SET_ORDER);
+
+    foreach ($tags as [$whole, $closing, $name, $attributes]) {
+        if (! in_array(strtolower($name), ['div', 'p', 'ul', 'ol', 'li', 'em', 'strong', 'code', 'br', 'a'], true)) {
+            $foreign[] = $whole;
+
+            continue;
+        }
+
+        if ($closing !== '') {
+            continue;
+        }
+
+        preg_match_all('#([a-zA-Z_:][-a-zA-Z0-9_:.]*)(?:\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+))?#', $attributes, $pairs, PREG_SET_ORDER);
+
+        foreach ($pairs as $pair) {
+            $attribute = strtolower($pair[1]);
+            $value = trim($pair[2] ?? '', '"\'');
+
+            $allowed = match ($attribute) {
+                'class' => true,
+                'start' => strtolower($name) === 'ol' && preg_match('/^[0-9]+$/', $value) === 1,
+                'href' => strtolower($name) === 'a' && preg_match('#^https://github\.com/[^"\'<>\s]+$#', $value) === 1,
+                'target' => $value === '_blank',
+                'rel' => $value === 'noopener noreferrer',
+                default => false,
+            };
+
+            if (! $allowed) {
+                $foreign[] = $whole;
+            }
+        }
+    }
+
+    return $foreign;
+}
+
+it('admits only the markup the component writes, so the check above can tell the two apart', function (): void {
+    // The instrument's controls: a forged element and a forged attribute are both found
+    expect(foreignMarkup('<p><img src=x></p>'))->toBe(['<img src=x>'])
+        ->and(foreignMarkup('<a href="https://evil.example">x</a>'))->toBe(['<a href="https://evil.example">'])
+        ->and(foreignMarkup('<p onclick="x">y</p>'))->toBe(['<p onclick="x">'])
+        ->and(foreignMarkup('<a href="https://github.com/a/b/issues/1" target="_blank" rel="noopener noreferrer" class="link">x</a>'))->toBeEmpty();
+});
+
+it('shows hostile input as the characters that were written, with no element or attribute an agent supplied', function (string $text, string $shown, bool $inline): void {
+    $html = agentText($text, $inline);
+
+    expect(foreignMarkup($html))->toBeEmpty()
+        ->and($html)->not->toContain('<script')
+        ->and($html)->not->toContain('<img')
+        ->and($html)->not->toMatch('/\shref="(?!https:\/\/github\.com\/)/')
+        ->and(html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5))->toContain($shown);
+})->with(function (): array {
+    $corpus = [
+        'a script element' => ['<script>alert(1)</script>', '<script>alert(1)</script>'],
+        'an image with an error handler' => ['<img src=x onerror=alert(1)>', '<img src=x onerror=alert(1)>'],
+        'a javascript: link' => ['[x](javascript:alert(1))', '[x](javascript:alert(1))'],
+        'a data: link' => ['[x](data:text/html;base64,PHNjcmlwdD4=)', '[x](data:text/html;base64,PHNjcmlwdD4=)'],
+        'an image' => ['![x](https://example.com/a.png)', '![x](https://example.com/a.png)'],
+        'a raw link' => ['<a href="https://evil.example">x</a>', '<a href="https://evil.example">x</a>'],
+        'a non-GitHub autolink' => ['<https://evil.example>', 'https://evil.example'],
+        'a non-GitHub link' => ['[the ticket](https://evil.example/issues/1)', '[the ticket](https://evil.example/issues/1)'],
+        'a GitHub link that is not a ticket' => ['[x](https://github.com/robot-council/core/settings)', '[x](https://github.com/robot-council/core/settings)'],
+        'a GitHub look-alike host' => ['[x](https://github.com.evil.example/a/b/issues/1)', '[x](https://github.com.evil.example/a/b/issues/1)'],
+        'a link with a title that breaks out' => ['[x](https://github.com/a/b/issues/1 "a\" onmouseover=\"alert(1)")', 'x'],
+        // The definition is read, and the link it makes is shown as the text of a refused link
+        'a reference-style link' => ["[x][r]\n\n[r]: javascript:alert(1)", '[x](javascript:alert(1))'],
+        'an entity' => ['&lt;script&gt;', '&lt;script&gt;'],
+        'an emphasis wrapping HTML' => ['*<b onclick="x">bold</b>*', '<b onclick="x">bold</b>'],
+        'code holding HTML' => ['`<svg onload=alert(1)>`', '<svg onload=alert(1)>'],
+        'a comment' => ['<!-- x --> after', '<!-- x --> after'],
+    ];
+
+    $cases = [];
+
+    foreach ($corpus as $name => [$text, $shown]) {
+        $cases[$name.' (blocks)'] = [$text, $shown, false];
+        $cases[$name.' (inline)'] = [$text, $shown, true];
+    }
+
+    return $cases;
+});
+
+it('renders a GitHub ticket link through external-link, with the new-tab words', function (): void {
+    $html = agentText('See [the decision](https://github.com/robot-council/core/issues/537).');
+
+    expect($html)->toContain('<a href="https://github.com/robot-council/core/issues/537" target="_blank" rel="noopener noreferrer" class="link">the decision (new tab)</a>.')
+        ->and(foreignMarkup($html))->toBeEmpty();
+});
+
+it('links a pull request, and shows a bare GitHub autolink by its reference', function (): void {
+    expect(agentText('[the fix](https://github.com/robot-council/core/pull/539)', true))
+        ->toContain('<a href="https://github.com/robot-council/core/issues/539" target="_blank" rel="noopener noreferrer" class="link">the fix (new tab)</a>')
+        ->and(agentText('<https://github.com/robot-council/core/issues/12>', true))
+        ->toContain('class="link">https://github.com/robot-council/core/issues/12 (new tab)</a>');
+});
+
+it('adds no auto-linking: a bare reference or a bare URL stays text', function (string $text): void {
+    $html = agentText($text, true);
+
+    expect($html)->not->toContain('<a ')
+        ->and(trim(html_entity_decode(strip_tags($html))))->toBe($text);
+})->with([
+    'a reference' => ['robot-council/core#537'],
+    'a URL' => ['https://github.com/robot-council/core/issues/537'],
+]);
+
+it('renders the owed item that asked for this with two code spans (#537)', function (): void {
+    $html = agentText('Confirm with the holder whether the `patientslearn.uams.edu` `hkey` link parameter is still read.');
+
+    expect(substr_count($html, '<code>'))->toBe(2)
+        ->and($html)->toContain('<code>patientslearn.uams.edu</code> <code>hkey</code>');
+});
+
+it('renders emphasis, strong, and real lists', function (): void {
+    $html = (string) preg_replace('/\s+</', '<', agentText("Two *options* and a **choice**:\n\n- one\n- two\n\n3. three\n4. four"));
+
+    expect($html)->toContain('<em>options</em>')
+        ->and($html)->toContain('<strong>choice</strong>')
+        ->and($html)->toContain('<ul><li>one</li><li>two</li></ul>')
+        ->and($html)->toContain('<ol start="3"><li>three</li><li>four</li></ol>');
+});
+
+it('shows headings, block quotes, fenced code, and tables as the characters written', function (string $text): void {
+    $html = agentText($text);
+
+    expect($html)->not->toMatch('#<(h[1-6]|blockquote|pre|table|hr)\b#')
+        ->and(foreignMarkup($html))->toBeEmpty();
+
+    foreach (preg_split('/\n/', $text) ?: [] as $line) {
+        expect(html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5))->toContain(trim($line));
+    }
+})->with([
+    'a heading' => ['# Heading'],
+    'a block quote' => ['> quoted'],
+    'a table' => ["| a | b |\n| - | - |\n| 1 | 2 |"],
+    'a thematic break' => ['***'],
+]);
+
+it('shows a fence as a code span at most, never a code block', function (): void {
+    $html = agentText("```\nfenced\n```");
+
+    expect($html)->not->toContain('<pre')
+        ->and($html)->toContain('<code>fenced</code>');
+});
+
+it('keeps an inline field inline: a list marker stays text and paragraphs join with a break', function (): void {
+    $html = agentText("- one\n\nnext", true);
+
+    expect($html)->not->toContain('<ul')
+        ->and($html)->not->toContain('<p')
+        ->and($html)->toContain('<br>');
+});
+
+it('flattens what nests past the cap into text, so the view recursion is bounded', function (): void {
+    $deep = str_repeat('- ', 40).'bottom';
+    $nodes = AgentText::blocks($deep);
+
+    $depth = static function (array $nodes) use (&$depth): int {
+        $max = 0;
+
+        foreach ($nodes as $node) {
+            foreach (['children', 'items'] as $key) {
+                foreach (is_array($node[$key] ?? null) ? $node[$key] : [] as $child) {
+                    $max = max($max, 1 + $depth(is_array($child) && array_is_list($child) ? $child : [$child]));
+                }
+            }
+        }
+
+        return $max;
+    };
+
+    expect($depth($nodes))->toBeLessThanOrEqual(AgentText::MAX_DEPTH * 2)
+        ->and(html_entity_decode(strip_tags(agentText($deep))))->toContain('bottom');
+});
+
+it('reads a ticket reference out of a GitHub issue or pull request URL, and nothing else', function (string $url, ?string $reference): void {
+    expect(TicketLink::reference($url))->toBe($reference);
+})->with([
+    'an issue' => ['https://github.com/robot-council/core/issues/537', 'robot-council/core#537'],
+    'a pull request, trailing slash' => ['https://github.com/robot-council/core/pull/539/', 'robot-council/core#539'],
+    'http' => ['http://github.com/robot-council/core/issues/537', null],
+    'another host' => ['https://github.com.evil.example/a/b/issues/1', null],
+    'a query' => ['https://github.com/a/b/issues/1?x=1', null],
+    'a fragment' => ['https://github.com/a/b/issues/1#issuecomment-1', null],
+    'a deeper path' => ['https://github.com/a/b/issues/1/files', null],
+    'a zero' => ['https://github.com/a/b/issues/0', null],
+    'a trailing newline' => ["https://github.com/a/b/issues/1\n", null],
+    'credentials' => ['https://user@github.com/a/b/issues/1', null],
+    'a settings page' => ['https://github.com/a/b/settings', null],
+]);
+
+describe('the fields that use it', function (): void {
+    beforeEach(function (): void {
+        $this->migrateUsersTableWithPackageColumns();
+        $this->setAccessLists(developers: [4242, 77]);
+
+        $this->developer = $this->enrollDeveloper(4242, login: 'octodev');
+
+        [$this->coordinatorSession] = $this->startCoordinatorSession(
+            $this->approveInstallation($this->enrollDeveloper(77, login: 'coordinator'), machineLabel: 'coordinator-box')
+        );
+    });
+
+    it("renders an owed item's question and reason", function (): void {
+        $this->service(OwedItems::class)->record(
+            $this->coordinatorSession,
+            'octodev',
+            'robot-council/core#12',
+            'Keep `hkey`? <img src=x onerror=alert(1)>',
+            'Blocks **two** lanes.'
+        );
+
+        $html = withoutLivewireMarkers(Livewire::actingAs($this->developer)->test(Lanes::class)->html());
+
+        preg_match('#data-owed-question="data-owed-question">(.*?)</div>#s', $html, $question);
+        preg_match('#<p [^>]*data-owed-why>(.*?)</p>#s', $html, $why);
+
+        expect($question[1] ?? '')->toContain('<code>hkey</code>')
+            ->and($question[1] ?? '')->toContain('&lt;img src=x onerror=alert(1)&gt;')
+            ->and($why[1] ?? '')->toContain('<strong>two</strong>');
+    });
+
+    it('renders a task title on the Queue', function (): void {
+        $this->service(Tasks::class)->create($this->coordinatorSession, ['title' => 'Bump `league/commonmark` *now*'], false);
+
+        $html = withoutLivewireMarkers(Livewire::actingAs($this->developer)->test(TaskBoard::class)->html());
+
+        preg_match('#data-task-title>(.*?)</div>#s', $html, $title);
+
+        expect($title[1] ?? '')->toContain('<code>league/commonmark</code>')
+            ->and($title[1] ?? '')->toContain('<em>now</em>');
+    });
+
+    it('renders narration and directive bodies on the feed, and leaves a body the package wrote plain', function (): void {
+        $this->actingAs($this->developer, 'web');
+
+        app(FleetEvents::class)->record(FleetEventType::Narration, $this->coordinatorSession, 'Rebuilding `idx`.', withCoordinator: true);
+        app(FleetEvents::class)->record(FleetEventType::Directive, $this->coordinatorSession, 'Sync **now**.', withCoordinator: true);
+        app(FleetEvents::class)->record(FleetEventType::TaskCreated, $this->coordinatorSession, 'Task `raw` *as written*');
+
+        $html = withoutLivewireMarkers(Livewire::test(ChangeFeed::class)->html());
+
+        expect($html)->toContain('<code>idx</code>')
+            ->and($html)->toContain('<strong>now</strong>')
+            ->and($html)->toContain('<p class="break-words">Task `raw` *as written*</p>');
+    });
+});

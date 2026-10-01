@@ -367,7 +367,7 @@
      * `wcag-contrast` skill against `base-100`.
      *
      * **Dashed, so it is not the installation rule.** The installations above are separated by a
-     * solid `divide-y`, and #520 brings that to 3:1 as well, so a weight or a colour would stop
+     * solid `divide-y`, and #520 brings that to 3:1 as well, so a weight or a color would stop
      * telling the two levels apart once it lands; a pattern still does. Vertical padding only: a
      * row is a subgrid of the list's columns from `sm` up, and horizontal padding would move its
      * cells off the shared edges #496 lines up. Under forced colors the rule is drawn in the
@@ -379,6 +379,30 @@
 
     :where(.session-rows) > li + li {
         border-top: var(--border) dashed color-mix(in oklab, var(--color-base-content) 50%, var(--color-base-100));
+    }
+
+    /*
+     * Agent-written prose in the safe Markdown subset (#537), from `components/agent-text`.
+     *
+     * Preflight strips every list's marker and indent and every paragraph's margin, so a list an
+     * agent wrote would read as run-on lines. Lists get their markers back, numbered or bulleted
+     * as written, and stacked paragraphs and lists are set half a line apart, so the space between
+     * them is one and a half times the line spacing (SC 1.4.8). A code span wraps with the text
+     * around it, through the `overflow-wrap` on `body`, rather than scrolling a phone sideways.
+     */
+    :where(.agent-text) > * + *,
+    :where(.agent-text) li > * + * {
+        margin-block-start: 0.5lh;
+    }
+
+    :where(.agent-text) ul {
+        list-style: disc;
+        padding-inline-start: 1.5rem;
+    }
+
+    :where(.agent-text) ol {
+        list-style: decimal;
+        padding-inline-start: 1.5rem;
     }
 
     /*

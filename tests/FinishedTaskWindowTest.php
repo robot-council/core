@@ -60,9 +60,11 @@ function agedTask(TestCase $case, TaskStatus $status, int $secondsAgo, string $t
  */
 function boardTitles(string $html): array
 {
-    preg_match_all('/<div class="font-medium">([^<]*)<\/div>/', $html, $titles);
+    // The title is agent text in the safe Markdown subset (#537), so its words are read with the
+    // markup round them removed
+    preg_match_all('/<div class="font-medium" data-task-title>(.*?)<\/div>/s', $html, $titles);
 
-    return array_map(trim(...), $titles[1]);
+    return array_map(static fn (string $title): string => trim(strip_tags($title)), $titles[1]);
 }
 
 it('hides each finished status just past its window, and keeps it just inside and exactly at it', function (TaskStatus $status, int $hours): void {

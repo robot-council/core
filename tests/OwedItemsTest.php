@@ -228,10 +228,14 @@ it('writes each item as three parts: the ticket, the question, and the reason an
     // Livewire writes a marker round each Blade condition, with whitespace between them
     $markers = '(?:\s*<!--\[if [A-Z]+\]><!\[endif\]-->)*';
 
-    expect($item[1] ?? '')->toMatch(
-        '#^\s*<div class="text-meta">\s*'.$markers.'\s*<a href="https://github\.com/robot-council/core/issues/12"[^>]*><code>robot-council/core\#12</code> \(new tab\)</a>\s*'.$markers.'\s*</div>'
-        .'\s*<p class="leading-relaxed" data-owed-question>Which option\?</p>'
-        .'\s*<p class="text-meta leading-relaxed opacity-90">Blocks two lanes\. &middot; waiting [^<]+</p>\s*$#'
+    // The question and the reason are agent text in the safe Markdown subset (#537), whose nodes
+    // carry markers of their own, so they are read with the markers removed
+    $bare = (string) preg_replace('#'.$markers.'#', '', $item[1] ?? '');
+
+    expect($bare)->toMatch(
+        '#^\s*<div class="text-meta">\s*<a href="https://github\.com/robot-council/core/issues/12"[^>]*><code>robot-council/core\#12</code> \(new tab\)</a>\s*</div>'
+        .'\s*<div class="agent-text leading-relaxed" data-owed-question="data-owed-question"><p>Which option\?</p></div>'
+        .'\s*<p class="text-meta leading-relaxed opacity-90" data-owed-why>Blocks two lanes\. &middot; waiting [^<]+</p>\s*$#'
     );
 });
 
