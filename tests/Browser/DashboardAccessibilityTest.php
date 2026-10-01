@@ -2113,7 +2113,9 @@ function newTabRuns(PendingAwaitablePage $page): array
                     // innerText and draws none
                     gap: sameLine ? mark.left - (code.getClientRects().length > 1 ? [...code.getClientRects()].pop().right : box.right) : null,
                     sameLine,
-                    underneath: mark.top >= box.bottom - 0.5 && mark.left <= box.left + 0.5,
+                    // Wrapped to the line after the reference's last, keyed to the line height
+                    // rather than the box, whose padding and border run past the line box
+                    underneath: mark.top >= lastTop + height / 2 && mark.left <= box.left + 0.5,
                     lines: Math.round(box.height / height),
                     height: a.getBoundingClientRect().height,
                 };
