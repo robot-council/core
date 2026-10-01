@@ -61,16 +61,13 @@ and spend the API per [`github-api-budget`](../../rules/github-api-budget.md).
 
 **Tickets 2 and 3 are actions under the operator's own identity on a public tracker that is not
 ours.** They are `hitl` for that reason, not because anything is undecided. Each needs the
-operator's go-ahead, and on #544 and #545 that came through a coordinator placement quoting the
-operator.
+operator's go-ahead. On #544 and #545 it came through coordinator placements quoting the operator (fleet events 6571 and 6576).
 
 **Why the workaround comes first.** It unblocks the fleet now, and building it is where the
 defect gets understood. Reporting after it, with a fix already tested against this repository's
 suite, gives the maintainer a reproduction and a patch rather than a symptom.
 
-**Ticket 1 names every line the workaround adds**, so ticket 4 can remove exactly those. The
-workaround's own comments point at ticket 4 by number, which is what makes a stray one findable
-with `git grep`.
+**Ticket 1 names every line the workaround adds, documentation included**, so ticket 4 can remove exactly those. Where the file allows a comment, the workaround's comment cites ticket 4 by number. **The first run fell short of this:** #542 named the CI step and the `composer` script but not the `CLAUDE.md` row, and the `composer.json` entry carries no ticket number because JSON has no comments. So ticket 4 also finds the workaround by its content, `git grep -n 'Browser/Traces'` for #546, not only by ticket number.
 
 ### The two transitions that carry the subtlety
 
@@ -100,8 +97,7 @@ Always read the edge back. On #546 the read-back listed `robot-council/core#545 
 `pestphp/pest#1944 open`. The closed in-repo blocker no longer holds the ticket, and the open
 upstream one does.
 
-**A pull request cannot be a blocker.** The endpoint refuses one with `Validation failed: Target
-issue may only be an issue` (HTTP 422). Put the edge on the issue the pull request fixes, so the
+**A pull request cannot be a blocker.** The endpoint refuses one with `Validation failed: Target issue may only be an issue` (HTTP 422, measured in `UAMS-Web/uams-statamic`). Put the edge on the issue the pull request fixes, so the
 merge that closes that issue also clears the edge.
 
 ## Filing upstream
@@ -125,10 +121,7 @@ plugin. Check each repository rather than assuming.
 - **Search for an existing report first**, on the tracker you will file on, with several phrasings
   (the class name, the file name, the symptom). Search is an index, so a miss means "not found as of
   this query", not "absent". Say in the report or the ticket what was searched.
-- **Match the tracker's issue form.** Pest core's `bug_report.yml` has What Happened, How to
-  Reproduce, Sample Repository, Pest Version, PHP Version, Operation System (the form's spelling),
-  and Notes. Filing through REST cannot fill a form, so write each field as a `### <label>` heading
-  in that order. `_No response_` is what the form itself writes for an empty optional field.
+- **Match the tracker's issue form.** Pest core's `bug_report.yml` has What Happened, How to Reproduce, Sample Repository, Pest Version, PHP Version, Operation System (the form's spelling), and Notes. Filing through REST cannot fill a form, so write each field as a `### <label>` heading in that order. `_No response_` is what the form itself writes for an empty optional field. The form also adds a `[Bug]: ` title prefix, which REST does not, so type it, and a `bug` label, which only a triager can apply, so #1944 has none.
 - **Write it in plain terms for a maintainer who has never seen this repository.** State the
   mechanism, give a minimal reproduction, a small table of what was measured, and the fix you
   propose. Say a pull request follows.
@@ -143,15 +136,12 @@ plugin. Check each repository rather than assuming.
   `gh api repos/<login>/<repo> --jq '.fork, .parent.full_name'`; on #545 one already existed.
   `POST repos/<owner>/<repo>/forks` returns the existing fork rather than failing.
 - **Branch from the upstream default branch, not the fork's**, which may be stale:
-  `git fetch upstream 5.x && git switch --no-track -c <branch> upstream/5.x`. Confirm the
-  file you are fixing on that tip is byte-identical to the tag you reproduced against. On #545,
-  `compare/v5.1.0...5.x` read `identical`.
+  `git fetch upstream 5.x && git switch --no-track -c <branch> upstream/5.x`. Confirm the file you are fixing on that tip is byte-identical to the tag you reproduced against, by comparing the file rather than the branch: `git diff --quiet <tag> upstream/5.x -- src/Support/Trace.php`. A whole-branch compare answers a different question; v5.1.1 landed on 5.x a minute after #545 opened, and the branch compare then read `ahead` while `Trace.php` was unchanged.
 - **Target the major line this repository runs.** A fix on another line cannot reach us even when
   merged.
 - **Run the upstream repository's own gates before pushing**: its lint, static analysis and type
-  coverage, from its `composer.json` scripts. Its Rector rewrote `(new FilesystemIterator($dir))->`
-  to the PHP 8.4 `new FilesystemIterator($dir)->`, which ours would not have suggested.
-- **Match its commit style.** `pestphp/*` uses `fix: …` subjects.
+  coverage, from its `composer.json` scripts. Its gates are not ours, and they run only in its tree: its Rector rewrote `(new FilesystemIterator($dir))->` to the PHP 8.4 `new FilesystemIterator($dir)->` before the pull request opened.
+- **Match its commit style.** `pestphp/*` uses Conventional Commit prefixes (`fix:`, `feat:`, `chore:`).
 - **Open it with `Fixes owner/repo#N.`** so the merge closes the upstream issue on the tracker
   where it was filed.
 - **Say what the upstream suite can and cannot show.** On #545 the plugin's own suite gave the
@@ -184,11 +174,13 @@ appear. The tag is the release, and Packagist serves it.
 ```bash
 curl -sS https://repo.packagist.org/p2/pestphp/pest-plugin-browser.json \
   | jq -r '[.packages["pestphp/pest-plugin-browser"][].version] | .[0:5][]'
-# The tag contains the fix when the fix's merge commit is an ancestor of it: `identical` or `ahead`
+# The tag contains the fix when the fix's merge commit (the PR's `merge_commit_sha`) is an ancestor of
+# it: `identical` or `ahead`. A fix cherry-picked onto another line reads `diverged` though it carries
+# the change, so read the file there instead.
 gh api repos/pestphp/pest-plugin-browser/compare/<fix-merge-sha>...<tag> --jq '.status'
 ```
 
-A merge is not a release, and a release on another major line is not a release for us. The fix
+A merge is not a release, and a release on another major line is not a release for us. Nor is the newest tag: v5.1.1 shipped a minute after #545 opened, and it does not carry the fix. The fix
 must be in a tag that `composer.json`'s constraint resolves.
 
 ## Removing the workaround
@@ -197,7 +189,7 @@ This repository carries no `cweagans/composer-patches`, so a workaround here is 
 
 | Workaround | Removal |
 | --- | --- |
-| A step in a CI job or a `composer` script | Delete the step and its comment; `git grep` for the ticket numbers it cites finds nothing it added. |
+| A step in a CI job or a `composer` script | Delete the step, its comment, and any documentation of it; `git grep` for the workaround's content and for the ticket numbers it cites finds nothing it added. |
 | A version constraint or a `conflict` entry | Restore the constraint, then `composer update <vendor/package>` targeted, never a bare `composer update`. |
 
 `composer.lock` is gitignored here, so a constraint change relocks only the tree it is made in.
