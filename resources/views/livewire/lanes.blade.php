@@ -72,11 +72,11 @@
                 @foreach (\RobotCouncil\Support\LaneBoard::seatGroups($lanes) as $group)
                     @php($roleName = $group['role']->label())
                     <section wire:key="lanes-{{ $repository }}-{{ $group['role']->value }}" class="mt-2" data-role-group="{{ $group['role']->value }}">
-                        <h3 class="font-medium">{{ ucfirst($roleName) }} seats</h3>
+                        <h3 class="text-lg font-semibold">{{ ucfirst($roleName) }} seats</h3>
 
                         @foreach ($group['developers'] as $developer)
                             <div wire:key="lanes-{{ $repository }}-{{ $group['role']->value }}-{{ $developer['developer'] ?? '' }}" class="mt-2" data-developer-group="{{ $developer['developer'] ?? '' }}">
-                                <h4 class="text-meta font-medium">
+                                <h4 class="font-medium">
                                     @if ($developer['developer'] !== null)
                                         <x-robot-council::avatar :login="$developer['developer']" />{{ $developer['developer'] }}
                                     @else

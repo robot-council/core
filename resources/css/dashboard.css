@@ -267,7 +267,7 @@
         }
 
         /* One rule between records, and none between a record's own fields, so a boundary reads
-           as a boundary; the inline padding keeps a tinted row's text off its edge */
+           as a boundary; the inline padding keeps a row's text off its edge */
         .table-stack tr {
             padding-block: 0.5rem;
             padding-inline: 0.75rem;

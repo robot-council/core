@@ -167,7 +167,8 @@ final class LaneBoard
             $rows[$row['repository'] ?? ''][] = $row;
         }
 
-        // Builds before gates; then developer, machine and slot -- #314's order
+        // Builds before gates; then developer, machine and slot -- #314's order. The page regroups
+        // by role and developer (#514), so on the board this decides machine and slot within one
         foreach ($rows as $repository => $group) {
             usort($group, static fn (array $a, array $b): int => [$a['is_gate'], $a['developer'] ?? '', $a['machine'], $a['slot'] ?? '']
                 <=> [$b['is_gate'], $b['developer'] ?? '', $b['machine'], $b['slot'] ?? '']);
@@ -195,7 +196,11 @@ final class LaneBoard
     {
         $groups = [];
 
-        foreach ([Role::Coordinator, Role::Build, Role::Ci] as $role) {
+        // The three in #514's order, then any role added later, so a new one's seats are not dropped
+        $order = [Role::Coordinator, Role::Build, Role::Ci];
+        $order = [...$order, ...array_filter(Role::cases(), static fn (Role $role): bool => ! \in_array($role, $order, true))];
+
+        foreach ($order as $role) {
             $byDeveloper = [];
 
             foreach ($lanes as $lane) {
@@ -209,9 +214,12 @@ final class LaneBoard
             }
 
             // The empty key is the unknown developer, and it sorts after every login
-            // A login that is all digits becomes an integer key, hence the casts
-            uksort($byDeveloper, static fn (int|string $a, int|string $b): int => [(string) $a === '', strtolower((string) $a), (string) $a]
-                <=> [(string) $b === '', strtolower((string) $b), (string) $b]);
+            // Compared as text, never as numbers: `<=>` reads `9` and `10` as numbers and `1e1` as ten,
+            // which is not a total order over logins, and a login of digits alone becomes an
+            // integer key, hence the casts
+            uksort($byDeveloper, static fn (int|string $a, int|string $b): int => (((string) $a === '') <=> ((string) $b === ''))
+                ?: strcasecmp((string) $a, (string) $b)
+                ?: strcmp((string) $a, (string) $b));
 
             $developers = [];
 

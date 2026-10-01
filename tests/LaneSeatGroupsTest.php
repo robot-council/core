@@ -69,7 +69,14 @@ function groupShape(TestCase $case): array
         $shape[$group['role']->value] = [];
 
         foreach ($group['developers'] as $developer) {
-            $shape[$group['role']->value][$developer['developer'] ?? '(unknown)'] = array_map(
+            $key = $developer['developer'] ?? '(unknown)';
+
+            // Keyed by login, so a developer split across two subgroups would otherwise collapse
+            if (isset($shape[$group['role']->value][$key])) {
+                throw new RuntimeException(sprintf('%s appears twice under %s.', $key, $group['role']->value));
+            }
+
+            $shape[$group['role']->value][$key] = array_map(
                 static fn (array $lane): ?string => $lane['slot'],
                 $developer['lanes']
             );
@@ -182,3 +189,24 @@ it('avatars each developer heading', function (): void {
     expect($heading[1] ?? '')->toContain('data-avatar')
         ->and(trim(strip_tags($heading[1] ?? '')))->toBe('Zzed');
 });
+
+it('orders logins of digits as text, the same whatever order the seats arrived in', function (array $order): void {
+    $this->setAccessLists(developers: [501, 502, 503, 601, 602, 603]);
+
+    $installations = [];
+
+    foreach (['9' => 601, '10' => 602, '1e1' => 603] as $login => $id) {
+        $installations[$login] = $this->approveInstallation($this->enrollDeveloper($id, login: (string) $login), machineLabel: 'box-'.$id);
+    }
+
+    foreach ($order as $n => $login) {
+        groupedSeat($this, $installations[$login], 's'.$n, Role::Build);
+    }
+
+    // `<=>` would read `9` before `10` as numbers and tie `1e1` with `10`
+    expect(array_map(strval(...), array_keys(groupShape($this)['build'])))->toBe(['10', '1e1', '9']);
+})->with([
+    'ascending' => [['9', '10', '1e1']],
+    'descending' => [['1e1', '10', '9']],
+    'mixed' => [['10', '9', '1e1']],
+]);
