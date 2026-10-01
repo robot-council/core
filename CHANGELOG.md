@@ -2,6 +2,16 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.7.6 — Change Feed Table and Avatar Pictures (2026-10-01)
+
+A change feed whose age, type and actor line up across rows, and avatar circles that show a picture or a letter, never both.
+
+### What's new
+- Render the change feed as a table, so its age, type and actor line up across rows [#517](https://github.com/robot-council/core/pull/517)
+
+### What's fixed
+- Show either the picture or the letter in the avatar circle, never both blended [#522](https://github.com/robot-council/core/pull/522)
+
 ## v0.7.5 — Developer and Repository Pictures, Local Times, and a Clearer Dashboard (2026-09-30)
 
 Developers' and repositories' GitHub pictures beside their names, times in each viewer's own time zone, allowlisted accounts named by their GitHub login, and a dashboard that is easier to scan and to use by touch.
