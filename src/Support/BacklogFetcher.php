@@ -9,7 +9,9 @@ use Throwable;
 
 /**
  * Fetch each board repository's open-issue count through the GitHub App, and store what it answers
- * (#383).
+ * (#383) -- and, for a repository with search qualifiers, which issues they matched, so the
+ * shortlist can keep only those (#530). The count and the set come from one paged search and are
+ * stored together or not at all.
  *
  * **Failure is a missing reading, never a wrong one.** A repository GitHub refused, did not answer
  * for, or answered for with no usable count gets no reading, so its meter reads unreadable once its
@@ -31,11 +33,20 @@ final class BacklogFetcher
     /**
      * The most repositories one run asks about.
      *
-     * GitHub's search allows 30 authenticated requests a minute, and a run makes at most one search
-     * per repository, so a run of this many stays under that however quickly it goes. A board wider
-     * than this is reached in turn, oldest attempt first.
+     * A board wider than this is reached in turn, oldest attempt first.
      */
     public const int MAX_PER_RUN = 25;
+
+    /**
+     * The most searches one run makes.
+     *
+     * GitHub's search allows 30 authenticated requests a minute, so a run of this many stays under
+     * that however quickly it goes. A repository with no qualifiers takes one search; one with
+     * qualifiers takes a page for each hundred issues they match (#530), up to
+     * `GitHubApp::MAX_PAGES`, so the run stops before one when fewer than that many are left, and
+     * that repository is the first tried next time.
+     */
+    public const int MAX_SEARCHES_PER_RUN = 25;
 
     /**
      * How many requests in a row may go unanswered before the run stops.
@@ -71,12 +82,18 @@ final class BacklogFetcher
     private array $projectOwners = [];
 
     /**
+     * How many searches this run has made, or may have made, so far.
+     */
+    private int $searches = 0;
+
+    /**
      * @param  GitHubAppKey  $key  Whether an App is configured.
      * @param  GitHubApp  $github  The requests.
      * @param  Backlog  $backlog  Where a count is stored.
      * @param  BacklogFetches  $fetches  Where each attempt's outcome is stored.
      * @param  LaneBoard  $board  Which repositories to ask about.
      * @param  BacklogQualifiers  $qualifiers  What each repository's search is narrowed by.
+     * @param  BacklogMembers  $members  Where the issues a narrowed search matched are stored.
      */
     public function __construct(
         private readonly GitHubAppKey $key,
@@ -84,7 +101,8 @@ final class BacklogFetcher
         private readonly Backlog $backlog,
         private readonly BacklogFetches $fetches,
         private readonly LaneBoard $board,
-        private readonly BacklogQualifiers $qualifiers
+        private readonly BacklogQualifiers $qualifiers,
+        private readonly BacklogMembers $members
     ) {}
 
     /**
@@ -113,6 +131,7 @@ final class BacklogFetcher
         $this->installations = [];
         $this->mintRefusals = [];
         $this->projectOwners = [];
+        $this->searches = 0;
 
         // One token serves all of an owner's repositories, so it reads projects when any of them
         // needs it
@@ -125,6 +144,13 @@ final class BacklogFetcher
         $unanswered = 0;
 
         foreach ($repositories as $repository) {
+            // The searches this repository could take must fit what is left of the run's
+            $needs = \in_array($this->qualifiers->for($repository), ['', null], true) ? 1 : GitHubApp::MAX_PAGES;
+
+            if ($this->searches + $needs > self::MAX_SEARCHES_PER_RUN) {
+                break;
+            }
+
             try {
                 $refusal = $this->fetch($repository);
 
@@ -231,7 +257,16 @@ final class BacklogFetcher
         }
 
         try {
-            $count = $this->github->openIssues($repository, $token, $qualifiers);
+            if ($qualifiers === '') {
+                $this->searches++;
+                $count = $this->github->openIssues($repository, $token);
+            } else {
+                // Charged in full until it answers, since a refusal does not say how many pages it read
+                $this->searches += GitHubApp::MAX_PAGES;
+                $matching = $this->github->matchingIssues($repository, $token, $qualifiers);
+                $this->searches += $matching['searches'] - GitHubApp::MAX_PAGES;
+                $count = $matching['total'];
+            }
         } catch (GitHubRefusal $gitHubRefusal) {
             // A token GitHub no longer accepts is dropped, so the next run mints a fresh one
             // rather than presenting the rejected one until it would have expired
@@ -243,6 +278,11 @@ final class BacklogFetcher
         }
 
         $this->backlog->record($repository, $count);
+
+        if (isset($matching)) {
+            $this->members->record($repository, $qualifiers, $matching['numbers']);
+        }
+
         $this->fetches->record($repository, BacklogFetchOutcome::Read, 200);
 
         return null;

@@ -12,6 +12,7 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\DB;
 use RobotCouncil\Models\GitHubItem;
 use RobotCouncil\Support\AgentSessions;
+use RobotCouncil\Support\BacklogMembers;
 use RobotCouncil\Support\GitHubState;
 use RobotCouncil\Support\PlacementRules;
 use RobotCouncil\Support\Tasks;
@@ -133,4 +134,21 @@ it('does not warn about documentation when nothing else is placeable, or when th
 
     // Another functionality ticket is placeable, so only the label check keeps this quiet
     expect(warningsFor($this, 'robot-council/core#319'))->toBeEmpty();
+});
+
+it('names only the functionality tickets the search qualifiers matched, and none while the match is unresolved', function (): void {
+    config()->set('robot-council.backlog.search_qualifiers', ['robot-council' => 'project:robot-council/1']);
+    knownItem(318, ['labels' => json_encode(['documentation'])]);
+    knownItem(319, ['labels' => json_encode(['development'])]);
+    knownItem(320, ['labels' => json_encode(['development'])]);
+
+    // Unresolved: nothing has listed what the qualifiers match, so no ticket is named
+    expect(warningsFor($this))->toBeEmpty();
+
+    // 319 is outside the project, as the meter counts it
+    $this->service(BacklogMembers::class)->record('robot-council/core', 'project:robot-council/1', [318, 320]);
+
+    expect(warningsFor($this))->toContain(
+        'This is documentation, and 1 functionality ticket(s) are placeable in robot-council/core: robot-council/core#320. The service cannot know why they were passed over; their blind spots are on the shortlist.'
+    );
 });

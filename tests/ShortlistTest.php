@@ -10,6 +10,7 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\DB;
 use RobotCouncil\Models\TaskTransition;
+use RobotCouncil\Support\BacklogMembers;
 use RobotCouncil\Support\GitHubState;
 use RobotCouncil\Support\Shortlist;
 use RobotCouncil\Support\Tasks;
@@ -127,4 +128,147 @@ it('serves the shortlist to a coordinator and refuses anyone else', function ():
         ->assertJsonPath('repositories.robot-council/core.0.ticket', 'robot-council/core#1');
 
     $this->machine($this->token)->getJson(route('robot-council.shortlist'))->assertForbidden();
+});
+
+/**
+ * The shortlist's filter for each repository, without the qualifiers.
+ *
+ * @param  TestCase  $case  The test case.
+ * @return array<string, string> Each repository's status.
+ */
+function filterStatuses(TestCase $case): array
+{
+    return array_map(static fn (array $filter): string => $filter['status'], $case->service(Shortlist::class)->report()['filters']);
+}
+
+it('lists every placeable ticket, unfiltered, while no search qualifiers are set', function (mixed $unset): void {
+    config()->set('robot-council.backlog.search_qualifiers', $unset);
+    ticket($this, 1);
+    ticket($this, 2);
+    ticket($this, 3, [], 'robot-council/cli');
+
+    // A set stored for a repository is not read while nothing configures qualifiers for it
+    $this->service(BacklogMembers::class)->record('robot-council/core', 'project:robot-council/1', [1]);
+
+    expect(listed($this))->toBe(['robot-council/core#1', 'robot-council/core#2'])
+        ->and(listed($this, 'robot-council/cli'))->toBe(['robot-council/cli#3'])
+        ->and($this->service(Shortlist::class)->report()['filters'])->toBe([
+            'robot-council/cli' => ['status' => 'unfiltered', 'qualifiers' => null, 'reason' => null],
+            'robot-council/core' => ['status' => 'unfiltered', 'qualifiers' => null, 'reason' => null],
+        ]);
+})->with([
+    'null' => [null],
+    'an empty array' => [[]],
+    'another owner only' => [['UAMS-Web' => 'project:UAMS-Web/1']],
+]);
+
+it("keeps only the tickets an owner's qualifiers matched, and names the qualifiers", function (): void {
+    config()->set('robot-council.backlog.search_qualifiers', ['robot-council' => 'project:robot-council/1']);
+
+    foreach ([1, 2, 3, 4] as $number) {
+        ticket($this, $number);
+    }
+
+    // Matched but closed since, and matched but outside the mirror: neither is listed
+    ticket($this, 5, ['state' => 'closed']);
+    $this->service(BacklogMembers::class)->record('Robot-Council/Core', 'project:robot-council/1', [1, 3, 5, 99]);
+
+    expect(listed($this))->toBe(['robot-council/core#1', 'robot-council/core#3'])
+        ->and($this->service(Shortlist::class)->report()['filters']['robot-council/core'])->toBe(['status' => 'filtered', 'qualifiers' => 'project:robot-council/1', 'reason' => null]);
+});
+
+it("lets a repository's own entry replace its owner's", function (): void {
+    config()->set('robot-council.backlog.search_qualifiers', [
+        'robot-council' => 'project:robot-council/1',
+        'robot-council/cli' => '',
+        'robot-council/core' => 'project:robot-council/2',
+    ]);
+
+    ticket($this, 1);
+    ticket($this, 2);
+    ticket($this, 7, [], 'robot-council/cli');
+    ticket($this, 8, [], 'robot-council/cli');
+    ticket($this, 9, [], 'robot-council/app');
+
+    $members = $this->service(BacklogMembers::class);
+    $members->record('robot-council/core', 'project:robot-council/2', [2]);
+    $members->record('robot-council/app', 'project:robot-council/1', [9]);
+
+    // The cli's empty entry clears its owner's, so a set stored for it is not read
+    $members->record('robot-council/cli', 'project:robot-council/1', [7]);
+
+    expect(listed($this))->toBe(['robot-council/core#2'])
+        ->and(listed($this, 'robot-council/cli'))->toBe(['robot-council/cli#7', 'robot-council/cli#8'])
+        ->and(listed($this, 'robot-council/app'))->toBe(['robot-council/app#9'])
+        ->and(filterStatuses($this))->toBe([
+            'robot-council/app' => 'filtered',
+            'robot-council/cli' => 'unfiltered',
+            'robot-council/core' => 'filtered',
+        ]);
+});
+
+it('lists nothing for a repository whose matches are not known, and says why, rather than every ticket as if filtered', function (mixed $configured, ?Closure $arrange, string $reason): void {
+    config()->set('robot-council.backlog.search_qualifiers', $configured);
+    ticket($this, 1);
+    ticket($this, 2);
+    ticket($this, 3, [], 'robot-council/cli');
+    config()->set('robot-council.backlog.search_qualifiers', $configured);
+
+    if ($arrange instanceof Closure) {
+        $arrange($this);
+    }
+
+    $report = $this->service(Shortlist::class)->report();
+
+    expect($report['repositories'])->not->toHaveKey('robot-council/core')
+        ->and($report['filters']['robot-council/core']['status'])->toBe('unresolved')
+        ->and($report['filters']['robot-council/core']['reason'])->toContain($reason)
+        // The other repository is untouched by its neighbor's state
+        ->and(listed($this, 'robot-council/cli'))->toBe(['robot-council/cli#3']);
+})->with([
+    'refused qualifiers' => [['robot-council/core' => 'is:closed'], null, 'refused'],
+    'no fetch has listed them' => [['robot-council/core' => 'project:robot-council/1'], null, 'No fetch has listed'],
+    'a set taken with other qualifiers' => [
+        ['robot-council/core' => 'project:robot-council/1'],
+        fn (TestCase $case) => $case->service(BacklogMembers::class)->record('robot-council/core', 'project:robot-council/2', [1, 2]),
+        'No fetch has listed',
+    ],
+    'a set older than the meter reads' => [
+        ['robot-council/core' => 'project:robot-council/1'],
+        function (TestCase $case): void {
+            $case->service(BacklogMembers::class)->record('robot-council/core', 'project:robot-council/1', [1, 2]);
+            $case->travel(61)->minutes();
+        },
+        'too long ago',
+    ],
+    'more matches than a search lists' => [
+        ['robot-council/core' => 'project:robot-council/1'],
+        fn (TestCase $case) => $case->service(BacklogMembers::class)->record('robot-council/core', 'project:robot-council/1', null),
+        'more than 1,000',
+    ],
+]);
+
+it('reads a set fetched within the meter window', function (): void {
+    // The control for the stale case: the same set, a minute inside the window, is read
+    config()->set('robot-council.backlog.search_qualifiers', ['robot-council/core' => 'project:robot-council/1']);
+    ticket($this, 1);
+    ticket($this, 2);
+    $this->service(BacklogMembers::class)->record('robot-council/core', 'project:robot-council/1', [2]);
+    $this->travel(59)->minutes();
+
+    expect(listed($this))->toBe(['robot-council/core#2']);
+});
+
+it('serves the filters beside the tickets through the route', function (): void {
+    config()->set('robot-council.backlog.search_qualifiers', ['robot-council/cli' => 'project:robot-council/1']);
+    ticket($this, 1);
+    ticket($this, 3, [], 'robot-council/cli');
+
+    $this->machine($this->coordinatorToken)->getJson(route('robot-council.shortlist'))
+        ->assertOk()
+        ->assertJsonPath('repositories.robot-council/core.0.ticket', 'robot-council/core#1')
+        ->assertJsonMissingPath('repositories.robot-council/cli')
+        ->assertJsonPath('filters.robot-council/core.status', 'unfiltered')
+        ->assertJsonPath('filters.robot-council/cli.status', 'unresolved')
+        ->assertJsonPath('filters.robot-council/cli.qualifiers', 'project:robot-council/1');
 });

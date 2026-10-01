@@ -21,6 +21,11 @@ use RobotCouncil\Models\TaskStatus;
  * parked or free -- depend on which lane, which the shortlist does not choose either. A ticket a
  * lane already holds does not appear, since it has been placed.
  *
+ * **One set of filters (#530).** A repository with `robot-council.backlog.search_qualifiers` lists
+ * only the tickets those qualifiers matched when the backlog fetch last asked GitHub, which is what
+ * its meter counts; one whose matches are not known lists nothing, and `report()` says why. One
+ * with no qualifiers lists exactly what it did before. `Support\BacklogMembers` decides which.
+ *
  * **Blind spots are shown, not resolved.** Paths the body mentions are unverified mentions and are
  * never compared: #314 recorded three false collisions in an afternoon from exactly that.
  */
@@ -33,8 +38,12 @@ final class Shortlist
 
     /**
      * @param  PlacementRules  $rules  The placement rules, for what refuses and what warns.
+     * @param  BacklogMembers  $members  Which tickets each repository's search qualifiers match.
      */
-    public function __construct(private readonly PlacementRules $rules) {}
+    public function __construct(
+        private readonly PlacementRules $rules,
+        private readonly BacklogMembers $members
+    ) {}
 
     /**
      * The shortlist.
@@ -44,6 +53,23 @@ final class Shortlist
      */
     public function read(): array
     {
+        return $this->report()['repositories'];
+    }
+
+    /**
+     * The shortlist, with how each repository's tickets were filtered (#530).
+     *
+     * `filters` names every repository that has a placeable ticket before the search qualifiers
+     * are applied, so a repository whose tickets were all filtered out, or which lists nothing
+     * because its filter is unresolved, still says so.
+     *
+     * @return array{
+     *     repositories: array<string, list<array{ticket: string, title: string, labels: list<string>, mentioned_paths: list<string>, blind_spots: list<string>}>>,
+     *     filters: array<string, array{status: string, qualifiers: string|null, reason: string|null}>
+     * } The tickets and the filters, each by repository in name order.
+     */
+    public function report(): array
+    {
         $held = [];
 
         foreach (Task::query()->whereIn('status', TaskStatus::values(TaskStatus::held()))->whereNotNull('issue')->pluck('issue') as $issue) {
@@ -52,7 +78,7 @@ final class Shortlist
             }
         }
 
-        $shortlist = [];
+        $candidates = [];
 
         $open = GitHubItem::query()
             ->where('is_pull_request', false)
@@ -66,20 +92,47 @@ final class Shortlist
                 continue;
             }
 
-            if (\count($shortlist[$item->repository] ?? []) >= self::MAX_PER_REPOSITORY) {
+            $candidates[$item->repository][] = $item;
+        }
+
+        $filters = $this->members->filters(array_keys($candidates));
+        $shortlist = [];
+
+        foreach ($candidates as $repository => $items) {
+            $filter = $filters[$repository];
+
+            // Unresolved lists nothing: the unfiltered tickets are not the ones configured
+            if ($filter['status'] === BacklogMembers::UNRESOLVED) {
                 continue;
             }
 
-            $shortlist[$item->repository][] = [
-                'ticket' => $item->reference(),
-                'title' => $item->title,
-                'labels' => $item->labels,
-                'mentioned_paths' => $item->mentioned_paths ?? [],
-                'blind_spots' => $this->blindSpots($item),
-            ];
+            foreach ($items as $item) {
+                if ($filter['status'] === BacklogMembers::FILTERED && ! isset($filter['numbers'][$item->number])) {
+                    continue;
+                }
+
+                if (\count($shortlist[$repository] ?? []) >= self::MAX_PER_REPOSITORY) {
+                    break;
+                }
+
+                $shortlist[$repository][] = [
+                    'ticket' => $item->reference(),
+                    'title' => $item->title,
+                    'labels' => $item->labels,
+                    'mentioned_paths' => $item->mentioned_paths ?? [],
+                    'blind_spots' => $this->blindSpots($item),
+                ];
+            }
         }
 
-        return $shortlist;
+        return [
+            'repositories' => $shortlist,
+            'filters' => array_map(static fn (array $filter): array => [
+                'status' => $filter['status'],
+                'qualifiers' => $filter['qualifiers'],
+                'reason' => $filter['reason'],
+            ], $filters),
+        ];
     }
 
     /**
