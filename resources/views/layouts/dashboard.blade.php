@@ -31,15 +31,8 @@
 
     <meta name="csrf-token" content="{{ csrf_token() }}">
 
-    {{--
-        Only where a page mounts a component. The enrollment page mounts none, and it is the page
-        that decides whether a machine joins the fleet -- the fewer scripts loaded there, the
-        smaller the surface on the one page whose whole job is a human decision. Defaults to true,
-        so a page that says nothing keeps what the dashboard has always had.
-    --}}
-    @if ($livewireAssets ?? true)
-        @livewireStyles
-    @endif
+    {{-- On every page, whether or not it mounts a component, so every page follows one rule (#521) --}}
+    @livewireStyles
 </head>
 <body class="min-h-screen bg-base-200 font-sans antialiased">
     {{-- The first stop on every page, so a keyboard reader skips the navigation that now precedes
@@ -215,13 +208,11 @@
         </div>
     </div>
 
-    @if ($livewireAssets ?? true)
-        @livewireScripts
+    @livewireScripts
 
-        {{-- Keeps the reader's place across a poll (#472), served by the package's own route
-             so that script-src 'self' covers it. Only where Livewire runs, so a page that
-             declines Livewire loads no script at all. --}}
-        <script src="{{ route('robot-council.dashboard.script', ['v' => \RobotCouncil\Support\DashboardAssets::version(\RobotCouncil\Support\DashboardAssets::SCRIPT)]) }}"></script>
-    @endif
+    {{-- Keeps the reader's place across a poll (#472), and takes a picture that failed to load out
+         of its avatar so the letter shows (#475, #521), on every page. Served by the package's own
+         route so that script-src 'self' covers it. --}}
+    <script src="{{ route('robot-council.dashboard.script', ['v' => \RobotCouncil\Support\DashboardAssets::version(\RobotCouncil\Support\DashboardAssets::SCRIPT)]) }}"></script>
 </body>
 </html>
