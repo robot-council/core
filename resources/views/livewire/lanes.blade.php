@@ -5,7 +5,10 @@
     expression. A ticket reference is linked only when it is repository-qualified; the URL comes from
     `Support\TicketLink`, and a bare `#N` renders as text, since linking it would invent a repository.
     Every agent-supplied string -- a machine label, a harness, a repository, a slot, a branch, a
-    sub-label, a title, a hold's party -- is rendered as escaped text and nothing else.
+    sub-label, a hold's party -- is rendered as escaped text and nothing else. Two kinds of prose are
+    the exceptions: a held task's title, rendered inline as the Queue renders it (#540), and an owed
+    item's question and reason in `partials/owed-item` (#537). Both go through `agent-text`, the safe
+    Markdown subset, which escapes everything it does not build itself.
 --}}
 
 <div wire:poll.{{ \RobotCouncil\Support\WireArgument::of($pollSeconds) }}s class="flex flex-col gap-6">
@@ -158,7 +161,7 @@
                                                                                 {{-- A task that names no ticket, in its issue or at the start of
                                                                                      its title, is shown by its title (#422), whole: a task id says
                                                                                      nothing to a person, and no text here is cut short (#401) --}}
-                                                                                {{ $work['title'] }}
+                                                                                <span data-lane-task-title><x-robot-council::agent-text :text="$work['title']" inline /></span>
                                                                                 <span class="text-meta opacity-90">(task <code>#{{ $work['task_id'] }}</code>)</span>
                                                                             @endif
                                                                             @if ($work['hand_back'])
