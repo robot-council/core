@@ -204,7 +204,7 @@ it('heads each section with how many items it holds, General first and then one 
     ]);
 });
 
-it('sets each section apart as a bordered block, and each item apart by a rule', function (): void {
+it('sets each section apart as a bordered block, and each item apart as a card in a list (#527)', function (): void {
     owe($this, 'octodev', 'robot-council/core#12');
     owe($this, null, 'robot-council/core#14');
 
@@ -213,7 +213,9 @@ it('sets each section apart as a bordered block, and each item apart by a rule',
     expect(substr_count($html, '<section wire:key="owed-'))->toBe(2)
         ->and(preg_match_all('#<section [^>]*class="rounded-box border border-base-300 [^"]*" data-owed-section=#', $html))->toBe(2)
         ->and(preg_match_all('#<h3 class="text-lg font-semibold">#', $html))->toBeGreaterThanOrEqual(2)
-        ->and(preg_match_all('#<ul class="divide-y divide-base-300">#', $html))->toBeGreaterThanOrEqual(2);
+        // Still a list to assistive technology, which the grid's styling would otherwise hide
+        ->and(preg_match_all('#<ul role="list" class="card-grid mt-3">#', $html))->toBe(2)
+        ->and(preg_match_all('#<li wire:key="owed-item-\d+" class="item-card space-y-1" data-owed-item>#', $html))->toBe(2);
 });
 
 it('writes each item as three parts: the ticket, the question, and the reason and age', function (): void {
