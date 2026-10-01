@@ -165,11 +165,15 @@ it('lays the feed out as a table: the age, the type and who acted in columns, an
             ->and($byLabel['Age'])->toContain('ago')
             ->and($byLabel['Type'])->toContain('data-feed-type')
             ->and(withoutAvatars($byLabel['Who']))->toContain('octodev')
-            ->and($byLabel['What happened'])->toMatch('#^\s*<div class="max-w-xl text-body leading-relaxed">\s*<p class="break-words">[^<]+</p>\s*</div>\s*$#');
+            // A body an agent or a person wrote is in the safe Markdown subset (#537); one the
+            // package composed is its text. Either way one block of words, nothing beside it
+            ->and((string) preg_replace('#<!--\[if [A-Z]+\]><!\[endif\]-->#', '', $byLabel['What happened']))->toMatch('#^\s*<div class="max-w-xl text-body leading-relaxed">\s*(?:<p class="break-words">[^<]+</p>|<div class="agent-text break-words" data-feed-prose="data-feed-prose"><p>[^<]+</p></div>)\s*</div>\s*$#');
     }
 
-    expect($table[0] ?? '')->toContain('<p class="break-words">Rebuilding the index now.</p>')
-        ->and($table[0] ?? '')->toContain('<p class="break-words">Sync with main.</p>');
+    $bare = (string) preg_replace('#<!--\[if [A-Z]+\]><!\[endif\]-->#', '', $table[0] ?? '');
+
+    expect($bare)->toContain('data-feed-prose="data-feed-prose"><p>Rebuilding the index now.</p></div>')
+        ->and($bare)->toContain('data-feed-prose="data-feed-prose"><p>Sync with main.</p></div>');
 
     // The coordinator marker qualifies who acted, so it sits in that column and in no other
     expect(substr_count($html, 'badge-outline">coordinator</span>'))->toBe(1)

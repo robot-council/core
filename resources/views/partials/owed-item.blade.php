@@ -4,8 +4,9 @@
     Shared by the Lanes page and the Waiting on me page, so an owed item reads the same on both.
     The card is not a link as a whole: the ticket stays the one thing to interact with.
 
-    The question and the reason are a coordinator's prose and are rendered as escaped text. A ticket
-    is linked only when repository-qualified, through `Support\TicketLink`.
+    The question and the reason are a coordinator's prose, shown in the safe Markdown subset
+    (#537) through `agent-text`: the question as paragraphs and lists, and the reason inline in its
+    line. A ticket is linked only when repository-qualified, through `Support\TicketLink`.
 --}}
 <li wire:key="owed-item-{{ $item['id'] }}" class="item-card space-y-1" data-owed-item>
     <div class="text-meta">
@@ -19,6 +20,6 @@
             <code>{{ $item['ticket'] }}</code>
         @endif
     </div>
-    <p class="leading-relaxed" data-owed-question>{{ $item['question'] }}</p>
-    <p class="text-meta leading-relaxed opacity-90">{{ $item['why'] }} &middot; waiting {{ $item['recorded_at']->diffForHumans(syntax: \Carbon\CarbonInterface::DIFF_ABSOLUTE) }}</p>
+    <x-robot-council::agent-text :text="$item['question']" class="leading-relaxed" data-owed-question />
+    <p class="text-meta leading-relaxed opacity-90" data-owed-why><x-robot-council::agent-text :text="$item['why']" inline /> &middot; waiting {{ $item['recorded_at']->diffForHumans(syntax: \Carbon\CarbonInterface::DIFF_ABSOLUTE) }}</p>
 </li>

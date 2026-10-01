@@ -13,9 +13,7 @@
 --}}
 @props(['reference' => null, 'login' => null])
 @if ($login !== null && \RobotCouncil\Support\TicketLink::profile($login) !== null)
-<a href="{{ \RobotCouncil\Support\TicketLink::profile($login) }}" target="_blank" rel="noopener noreferrer" {{ $attributes->filter(static fn (mixed $value, string $key): bool => ! in_array(strtolower($key), ['href', 'target', 'rel'], true)) }}>{{ $slot }} (new tab)</a>
-@elseif ($login === null && \RobotCouncil\Support\TicketLink::url($reference) !== null)
-<a href="{{ \RobotCouncil\Support\TicketLink::url($reference) }}" target="_blank" rel="noopener noreferrer" {{ $attributes->filter(static fn (mixed $value, string $key): bool => ! in_array(strtolower($key), ['href', 'target', 'rel'], true)) }}>{{ $slot }} (new tab)</a>
-@else
+<a href="{{ \RobotCouncil\Support\TicketLink::profile($login) }}" target="_blank" rel="noopener noreferrer" {{ $attributes->filter(static fn (mixed $value, string $key): bool => ! in_array(strtolower($key), ['href', 'target', 'rel'], true)) }}>{{ $slot }} (new tab)</a>@elseif ($login === null && \RobotCouncil\Support\TicketLink::url($reference) !== null)
+<a href="{{ \RobotCouncil\Support\TicketLink::url($reference) }}" target="_blank" rel="noopener noreferrer" {{ $attributes->filter(static fn (mixed $value, string $key): bool => ! in_array(strtolower($key), ['href', 'target', 'rel'], true)) }}>{{ $slot }} (new tab)</a>@else
 {{ $slot }}
 @endif

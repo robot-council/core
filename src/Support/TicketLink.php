@@ -36,6 +36,29 @@ final class TicketLink
     }
 
     /**
+     * The reference a GitHub issue or pull-request URL names, or null for any other URL (#537).
+     *
+     * The inverse of `url()`, for a link an agent wrote in Markdown: only an exact
+     * `https://github.com/owner/name/issues/N` or `.../pull/N`, with nothing after it but an
+     * optional slash, is read, and the reference it yields is matched against
+     * `IssueReference::PATTERN` as any other is. The URL the link then carries is rebuilt by
+     * `url()`, so nothing of what the agent wrote reaches an `href`.
+     *
+     * @param  string  $url  A URL, or anything else.
+     * @return string|null `owner/name#N`, or null.
+     */
+    public static function reference(string $url): ?string
+    {
+        if (preg_match('#^https://github\.com/([^/?\#\s]+/[^/?\#\s]+)/(?:issues|pull)/([1-9][0-9]*)/?$#D', $url, $match) !== 1) {
+            return null;
+        }
+
+        $reference = $match[1].'#'.$match[2];
+
+        return self::url($reference) === null ? null : $reference;
+    }
+
+    /**
      * The GitHub profile URL for a login (#484).
      *
      * Built the way `url()` is, from a fixed scheme and host and a value already matched against a
