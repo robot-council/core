@@ -8,6 +8,7 @@ declare(strict_types=1);
  * @command  vendor/bin/pest --compact tests/OwedItemsTest.php
  */
 
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use RobotCouncil\Livewire\Lanes;
@@ -244,4 +245,134 @@ it('still leads with the ticket when it cannot be linked', function (): void {
 
     expect($item[1] ?? '')->toMatch('#^\s*<div class="text-meta">(?:\s*<!--\[if [A-Z]+\]><!\[endif\]-->)*\s*<code>\#12</code>#')
         ->and($item[1] ?? '')->not->toContain('<a ');
+});
+
+/**
+ * Read the items back through the endpoint (#503).
+ *
+ * @param  TestCase  $case  The test case.
+ * @param  array<string, string>  $query  The query string.
+ * @return list<array<string, mixed>> The items.
+ */
+function owedRead(TestCase $case, array $query = []): array
+{
+    /** @var list<array<string, mixed>> $items */
+    $items = $case->machine($case->coordinatorToken)
+        ->getJson(route('robot-council.owed.index', $query))
+        ->assertOk()
+        ->json('items');
+
+    return $items;
+}
+
+it('reads back the open items through the endpoint with every field the board shows, oldest first', function (): void {
+    $this->travelTo(now()->subMinutes(3));
+    $first = owe($this, 'octodev');
+    $this->travelBack();
+    $this->travelTo(now()->subMinutes(2));
+    $general = owe($this, null, 'robot-council/cli#7');
+    $this->travelBack();
+
+    $items = owedRead($this);
+
+    expect(array_column($items, 'id'))->toBe([$first, $general])
+        ->and(array_keys($items[0]))->toBe(['id', 'developer', 'ticket', 'question', 'why', 'recorded_at'])
+        ->and($items[0])->toMatchArray(['developer' => 'octodev', 'ticket' => 'robot-council/core#12', 'question' => 'Which option?', 'why' => 'Blocks two lanes.'])
+        ->and($items[1]['developer'])->toBeNull()
+        ->and($items[1]['ticket'])->toBe('robot-council/cli#7')
+        ->and(CarbonImmutable::parse(stringValue($items[0]['recorded_at']))->getTimestamp())
+        ->toBe(CarbonImmutable::parse(stringValue(DB::table('robot_council_owed_items')->where('id', $first)->value('recorded_at')))->getTimestamp());
+});
+
+it('leaves settled items out unless asked, and then says how each settled', function (): void {
+    $open = owe($this, 'octodev', 'robot-council/core#1');
+    $byHand = owe($this, 'octodev', 'robot-council/core#2');
+    $closed = owe($this, null, 'robot-council/core#3');
+    $unlabeled = owe($this, null, 'robot-council/core#4');
+
+    $owed = $this->service(OwedItems::class);
+    $owed->settle($byHand);
+    $owed->settleTicket('robot-council/core#3', 'ticket_closed');
+    $owed->settleTicket('robot-council/core#4', 'hitl_removed');
+
+    // The negative control: three of the four rows are settled, so a default read that let them in
+    // would return four
+    expect(DB::table('robot_council_owed_items')->count())->toBe(4)
+        ->and(array_column(owedRead($this), 'id'))->toBe([$open])
+        ->and(array_column(owedRead($this, ['include_settled' => 'false']), 'id'))->toBe([$open]);
+
+    $all = owedRead($this, ['include_settled' => 'true']);
+
+    expect(array_column($all, 'settled_because', 'id'))->toBe([
+        $open => null,
+        $byHand => 'coordinator',
+        $closed => 'ticket_closed',
+        $unlabeled => 'hitl_removed',
+    ])
+        ->and($all[0]['settled_at'])->toBeNull()
+        ->and($all[1]['settled_at'])->toBeString()
+        ->and(array_column(owedRead($this, ['include_settled' => '1']), 'id'))->toBe([$open, $byHand, $closed, $unlabeled]);
+});
+
+it('filters by developer without case, by General, and by ticket, and keeps a developer named General apart', function (): void {
+    $mine = owe($this, 'octodev', 'robot-council/core#1');
+    $nobody = owe($this, null, 'robot-council/core#1');
+    $named = owe($this, 'General', 'robot-council/core#2');
+
+    expect(array_column(owedRead($this, ['developer' => 'OctoDev']), 'id'))->toBe([$mine])
+        ->and(array_column(owedRead($this, ['developer' => 'general']), 'id'))->toBe([$named])
+        ->and(array_column(owedRead($this, ['general' => 'true']), 'id'))->toBe([$nobody])
+        ->and(array_column(owedRead($this, ['general' => '0']), 'id'))->toBe([$mine, $nobody, $named])
+        ->and(array_column(owedRead($this, ['ticket' => 'Robot-Council/Core#1']), 'id'))->toBe([$mine, $nobody])
+        ->and(array_column(owedRead($this, ['ticket' => 'robot-council/core#1', 'developer' => 'octodev']), 'id'))->toBe([$mine])
+        ->and(owedRead($this, ['developer' => 'stranger']))->toBeEmpty();
+});
+
+it('refuses a developer with General, a ticket that is not owner/name#N, and a flag that is not a boolean', function (array $query): void {
+    $this->machine($this->coordinatorToken)
+        ->getJson(route('robot-council.owed.index', $query))
+        ->assertUnprocessable();
+})->with([
+    'a developer and General' => [['developer' => 'octodev', 'general' => 'true']],
+    'a bare #N' => [['ticket' => '#12']],
+    'a flag that is a word' => [['include_settled' => 'yes please']],
+]);
+
+it('refuses a developer with General in the store too, and allows a developer with General false', function (): void {
+    expect(fn () => $this->service(OwedItems::class)->list('octodev', general: true))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => $this->service(OwedItems::class)->list(ticket: 'core#1'))->toThrow(InvalidArgumentException::class);
+
+    $mine = owe($this, 'octodev');
+
+    expect(array_column(owedRead($this, ['developer' => 'octodev', 'general' => 'false']), 'id'))->toBe([$mine]);
+});
+
+it('refuses to read the items to a session without coordinator:direct', function (): void {
+    owe($this, 'octodev');
+
+    [, $token] = $this->startAgentSession($this->approveInstallation($this->developer));
+
+    $this->machine($token)->getJson(route('robot-council.owed.index'))->assertForbidden();
+});
+
+it('leaves out of the read an item whose developer the fleet no longer knows, settled or not, as the board does', function (): void {
+    $gone = owe($this, 'octodev', 'robot-council/core#12');
+    $kept = owe($this, null, 'robot-council/core#13');
+    $settledGone = owe($this, 'octodev', 'robot-council/core#14');
+    $this->service(OwedItems::class)->settle($settledGone);
+
+    // The control: while the developer is known, both of theirs come back
+    expect(array_column(owedRead($this, ['include_settled' => 'true']), 'id'))->toBe([$gone, $kept, $settledGone]);
+
+    GithubIdentity::query()->where('github_login', 'octodev')->delete();
+
+    expect(DB::table('robot_council_owed_items')->count())->toBe(3)
+        ->and(array_column(owedRead($this), 'id'))->toBe([$kept])
+        ->and(array_column(owedRead($this, ['include_settled' => 'true']), 'id'))->toBe([$kept])
+        ->and(owedRead($this, ['developer' => 'octodev']))->toBeEmpty();
+
+    // And the board agrees: the General section alone
+    $sections = array_map(static fn (array $section): ?string => $section['developer'], $this->service(LaneBoard::class)->read()['waiting']);
+
+    expect($sections)->toBe([null]);
 });

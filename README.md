@@ -685,8 +685,17 @@ question and why it matters -- with `POST {prefix}/api/owed-items` (or `owed_rec
 developer by GitHub login or leaving it out for `General`. The lane board lists them `General` first,
 then one section per developer. An item settles when its ticket closes or loses its `hitl` label, as
 GitHub reports them, or with `DELETE {prefix}/api/owed-items/{id}` (or `owed_settle`). An item whose
-developer has left the fleet stops rendering rather than moving to `General`. Both need
-`coordinator:direct`.
+developer has left the fleet stops rendering rather than moving to `General`.
+
+`GET {prefix}/api/owed-items` (or `owed_list`) reads them back, oldest first, each with its `id`,
+`developer` (null for `General`), `ticket`, `question`, `why` and `recorded_at` (#503). `developer`
+narrows it to one login, compared without case; `general=true` to the items nobody in particular
+owes, since a login can itself be `General`; and `ticket`, as `owner/name#N`, to one ticket -- so
+whether a ticket is already listed under a developer is one call before `owed_record`. The two
+developer filters together are refused. Settled items are left out unless `include_settled=true`,
+which adds `settled_at` and `settled_because` (`coordinator`, `ticket_closed` or `hitl_removed`). An
+item whose developer has left the fleet is left out here too, settled or not, so this read and the
+board never disagree. All three need `coordinator:direct`.
 
 ## Who is here
 
