@@ -5,6 +5,9 @@
     expression but the poll interval. A ticket is linked only when repository-qualified, through
     `Support\TicketLink`. Every agent-supplied string -- a question, a reason, a machine label, a
     repository or slot -- is rendered as escaped text and nothing else.
+
+    Both lists are cards along rows (#527), from the same components as the Lanes page's Waiting on
+    a developer, and an owed item is the same partial there and here.
 --}}
 
 <div wire:poll.{{ \RobotCouncil\Support\WireArgument::of($pollSeconds) }}s class="flex max-w-5xl flex-col gap-6">
@@ -32,19 +35,11 @@
                 @if ($waiting['owed'] === [])
                     <p class="max-w-xl text-meta opacity-80">None: no agent has asked you for a decision or an action.</p>
                 @else
-                    <ul class="divide-y divide-base-200">
+                    <x-robot-council::card-grid>
                         @foreach ($waiting['owed'] as $item)
-                            <li wire:key="owed-item-{{ $item['id'] }}" class="max-w-xl py-3 leading-relaxed" data-owed-item>
-                                @if (\RobotCouncil\Support\TicketLink::url($item['ticket']) !== null)
-                                    <x-robot-council::external-link :reference="$item['ticket']" class="link"><code>{{ $item['ticket'] }}</code></x-robot-council::external-link>
-                                @else
-                                    <code>{{ $item['ticket'] }}</code>
-                                @endif
-                                &mdash; {{ $item['question'] }}
-                                <div class="text-meta opacity-90">{{ $item['why'] }} &middot; waiting {{ $item['recorded_at']->diffForHumans(syntax: \Carbon\CarbonInterface::DIFF_ABSOLUTE) }}</div>
-                            </li>
+                            @include('robot-council::partials.owed-item', ['item' => $item])
                         @endforeach
-                    </ul>
+                    </x-robot-council::card-grid>
                 @endif
             </div>
         </div>
@@ -56,16 +51,16 @@
                 @if ($waiting['holds'] === [])
                     <p class="max-w-xl text-meta opacity-80">None: no lane is held until you act.</p>
                 @else
-                    <ul class="divide-y divide-base-200">
+                    <x-robot-council::card-grid>
                         @foreach ($waiting['holds'] as $hold)
-                            <li wire:key="held-lane-{{ $hold['session_id'] }}" class="max-w-xl py-3 leading-relaxed" data-held-lane>
+                            <li wire:key="held-lane-{{ $hold['session_id'] }}" class="item-card leading-relaxed" data-held-lane>
                                 <code>{{ $hold['label'] ?? $hold['machine'] }}</code>
                                 <span class="badge badge-outline">Blocked</span>
                                 &mdash; {{ $hold['waiting'] }}
                                 <div class="text-meta opacity-90">held {{ $hold['held_at']->diffForHumans(syntax: \Carbon\CarbonInterface::DIFF_ABSOLUTE) }}</div>
                             </li>
                         @endforeach
-                    </ul>
+                    </x-robot-council::card-grid>
                 @endif
             </div>
         </div>

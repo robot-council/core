@@ -240,10 +240,12 @@
                  `General` where it would stop being anyone's.
 
                  Built to be scanned at the load it carries (#390): each section is a bordered block
-                 whose heading says how many items it holds, items are divided by a rule, and each
-                 item reads as three parts -- the ticket on its own line, the question as the main
-                 text, and the reason and age beneath it as secondary. The same three parts, in the
-                 same order, as the Waiting on me page's items. --}}
+                 whose heading says how many items it holds, and each item reads as three parts --
+                 the ticket on its own line, the question as the main text, and the reason and age
+                 beneath it as secondary. Each item is a card, and the cards flow along rows as the
+                 width allows (#527), so a long section fills a wide screen rather than running
+                 many screens tall. The same card, from the same partial, as the Waiting on me
+                 page's items. --}}
             @if ($board['waiting'] === [])
                 <p class="max-w-xl text-meta opacity-80">Nothing waiting: no agent has asked a developer for a decision or an action.</p>
             @else
@@ -251,23 +253,11 @@
                 @foreach ($board['waiting'] as $section)
                 <section wire:key="owed-{{ $section['developer'] ?? '-general' }}" class="rounded-box border border-base-300 p-3 sm:p-4" data-owed-section="{{ $section['developer'] ?? 'General' }}">
                     <h3 class="text-lg font-semibold"><x-robot-council::avatar :login="$section['developer']" />{{ $section['developer'] ?? 'General' }} <span class="text-meta font-normal opacity-90" data-owed-count>&middot; {{ count($section['items']) }} {{ count($section['items']) === 1 ? 'item' : 'items' }}</span></h3>
-                    <ul class="divide-y divide-base-300">
+                    <x-robot-council::card-grid class="mt-3">
                         @foreach ($section['items'] as $item)
-                            <li wire:key="owed-item-{{ $item['id'] }}" class="max-w-xl space-y-1 py-3" data-owed-item>
-                                <div class="text-meta">
-                                    @if (\RobotCouncil\Support\TicketLink::url($item['ticket']) !== null)
-                                        {{-- On a line of its own it is a control standing alone, not a link
-                                             inside a sentence, so it takes the 44px target (#480) --}}
-                                        <x-robot-council::external-link :reference="$item['ticket']" class="link inline-flex min-h-11 items-center"><code>{{ $item['ticket'] }}</code></x-robot-council::external-link>
-                                    @else
-                                        <code>{{ $item['ticket'] }}</code>
-                                    @endif
-                                </div>
-                                <p class="leading-relaxed" data-owed-question>{{ $item['question'] }}</p>
-                                <p class="text-meta leading-relaxed opacity-90">{{ $item['why'] }} &middot; waiting {{ $item['recorded_at']->diffForHumans(syntax: \Carbon\CarbonInterface::DIFF_ABSOLUTE) }}</p>
-                            </li>
+                            @include('robot-council::partials.owed-item', ['item' => $item])
                         @endforeach
-                    </ul>
+                    </x-robot-council::card-grid>
                 </section>
                 @endforeach
                 </div>

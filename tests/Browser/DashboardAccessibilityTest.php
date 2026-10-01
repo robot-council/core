@@ -1625,3 +1625,192 @@ it('groups the administration page by developer and machine, nests its headings,
         'entries' => 6,
     ])->and(sidewaysScroll($page))->toBe(0);
 })->with([390, 1280]);
+
+/**
+ * Seven more items owed by the signed-in developer, so a card list is long enough to fill rows.
+ *
+ * Recorded by the seed's coordinator after the page has been visited once, since `visitSurface()`
+ * seeds the fleet itself, and the page then re-rendered.
+ */
+function owedCardsSeeded(PendingAwaitablePage $page): PendingAwaitablePage
+{
+    $coordinator = AgentSession::query()->where('role', Role::Coordinator->value)->firstOrFail();
+
+    foreach (range(1, 7) as $n) {
+        app(OwedItems::class)->record($coordinator, 'octodev', 'robot-council/core#'.(460 + $n), sprintf('Decide question %d of the card grid', $n), 'blocks a lane');
+    }
+
+    // Re-rendered as a poll would, so the page keeps its type for the helpers that read it
+    $done = $page->script('async () => { await Promise.all(window.Livewire.all().map(c => c.$wire.$refresh())); return "polled"; }');
+
+    expect($done)->toBe('polled');
+
+    return $page;
+}
+
+/**
+ * Every card list on the page: its role, how many columns its grid draws, how many cards it holds
+ * and where each sits, and whether reading order is the order drawn (#527).
+ *
+ * @return list<array{list: string, role: string|null, display: string, width: float, columns: int, cards: int, perRow: int, narrowest: float, widest: float, minimum: float, inOrder: bool}>
+ */
+function cardLists(PendingAwaitablePage $page): array
+{
+    /** @var list<array{list: string, role: string|null, display: string, width: float, columns: int, cards: int, perRow: int, narrowest: float, widest: float, minimum: float, inOrder: bool}> $lists */
+    $lists = pageList($page, 'card-lists', <<<'JS'
+        () => [...document.querySelectorAll('main ul.card-grid')].map((ul) => {
+            const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+            const cards = [...ul.children].map((li) => li.getBoundingClientRect());
+            const tops = cards.map((r) => Math.round(r.top));
+            // Drawn order: by row, then left to right. The DOM order is the reading order
+            const drawn = cards.map((r, i) => [Math.round(r.top), Math.round(r.left), i])
+                .sort((a, b) => a[0] - b[0] || a[1] - b[1]).map((x) => x[2]);
+            return {
+                list: (ul.closest('section, .card-body')?.querySelector('h2, h3')?.textContent ?? '').trim().replace(/\s+/g, ' '),
+                role: ul.getAttribute('role'),
+                display: getComputedStyle(ul).display,
+                width: ul.getBoundingClientRect().width,
+                columns: getComputedStyle(ul).gridTemplateColumns.split(' ').length,
+                cards: cards.length,
+                perRow: tops.filter((t) => t === tops[0]).length,
+                narrowest: Math.min(...cards.map((r) => r.width)),
+                widest: Math.max(...cards.map((r) => r.width)),
+                // What the grid's minimum comes to here: 22rem, or the whole width where that is less
+                minimum: Math.min(22 * rem, ul.getBoundingClientRect().width),
+                inOrder: drawn.every((v, i) => v === i),
+            };
+        })
+    JS);
+
+    return $lists;
+}
+
+it('lays owed items and held lanes out as cards along rows, and one per row on a phone (#527)', function (string $route, int $width, int $columns): void {
+    $page = owedCardsSeeded(visitSurface($this, $route, '', 'Run the screen-reader pass', 'light'));
+    $page->resize($width, 1000);
+
+    $lists = cardLists($page);
+    $rem = 16.0;
+
+    // The owed list, and on Waiting on me the held lanes too
+    expect($lists)->toHaveCount($route === 'robot-council.waiting' ? 2 : 1);
+
+    foreach ($lists as $list) {
+        // A grid at every width, so one column on a phone is the grid's answer rather than a list
+        // that lost its layout; and at 1920px every list, the held lanes too, has its columns
+        expect($list['role'])->toBe('list')
+            ->and($list['display'])->toBe('grid')
+            ->and($list['columns'])->toBe($width === 1920 ? $list['columns'] : 1)
+            ->and($list['columns'])->toBeGreaterThanOrEqual($columns)
+            ->and($list['inOrder'])->toBeTrue()
+            // Never narrower than the minimum, and never wider than the prose measure
+            ->and($list['narrowest'])->toBeGreaterThanOrEqual($list['minimum'] - 0.5)
+            ->and($list['widest'])->toBeLessThanOrEqual(36 * $rem + 0.5);
+    }
+
+    // The owed list is the long one: eight items, the seed's and seven more
+    expect($lists[0]['cards'])->toBe(8)
+        ->and($lists[0]['perRow'])->toBe($width === 1920 ? $lists[0]['columns'] : 1)
+        ->and(sidewaysScroll($page))->toBe(0);
+
+    // At 800px one column is wider than the prose measure, so the cap is what holds the card to it
+    if ($width === 800) {
+        expect($lists[0]['width'])->toBeGreaterThan(36 * $rem)
+            ->and($lists[0]['widest'])->toEqualWithDelta(36 * $rem, 0.5);
+    }
+})->with([
+    'Lanes on a phone' => ['robot-council.lanes', 390, 1],
+    'Lanes at 800px, one column wider than the measure' => ['robot-council.lanes', 800, 1],
+    'Lanes at 1920px' => ['robot-council.lanes', 1920, 3],
+    'Waiting on me on a phone' => ['robot-council.waiting', 390, 1],
+    'Waiting on me at 800px, one column wider than the measure' => ['robot-council.waiting', 800, 1],
+    'Waiting on me at 1920px' => ['robot-council.waiting', 1920, 2],
+]);
+
+/**
+ * Every card whose boundary is under 3:1 against what it sits on, composited as drawn, and every
+ * card with no border to draw (#527).
+ *
+ * @return list<string> Each faint card, with its ratio.
+ */
+function faintCards(PendingAwaitablePage $page): array
+{
+    return pageList($page, 'card-boundary', <<<'JS'
+        () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = canvas.height = 1;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            const paint = (...colors) => {
+                ctx.clearRect(0, 0, 1, 1);
+                for (const c of colors) { ctx.fillStyle = c; ctx.fillRect(0, 0, 1, 1); }
+                return [...ctx.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+            };
+            const luminance = rgb => {
+                const [r, g, b] = rgb.map(v => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
+                return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+            };
+            const ratio = (a, b) => { const [x, y] = [luminance(a), luminance(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+            const out = [];
+            for (const el of document.querySelectorAll('main ul.card-grid > li')) {
+                const layers = ['rgb(255, 255, 255)'];
+                for (let node = el.parentElement; node; node = node.parentElement) {
+                    layers.splice(1, 0, getComputedStyle(node).backgroundColor);
+                }
+                const cs = getComputedStyle(el);
+                const name = el.textContent.trim().replace(/\s+/g, ' ').slice(0, 30);
+                if (cs.borderTopStyle === 'none' || parseFloat(cs.borderTopWidth) === 0) { out.push(`${name} no border`); continue; }
+                const r = ratio(paint(...layers, cs.borderTopColor), paint(...layers));
+                if (r < 3) out.push(`${name} ${r.toFixed(2)}:1`);
+            }
+            return out;
+        }
+    JS);
+}
+
+it('draws every card boundary at 3:1 against the surface, in both themes and under forced colors (#527)', function (string $route, string $theme, string $forced): void {
+    $page = visitSurface($this, $route, '', 'Run the screen-reader pass', $theme, $forced === 'forced' ? ['forcedColors' => 'active'] : []);
+    $page->resize(1280, 900);
+
+    if ($forced === 'forced') {
+        expect($page->script("() => window.matchMedia('(forced-colors: active)').matches"))->toBeTrue();
+    }
+
+    $counted = $page->script("() => document.querySelectorAll('main ul.card-grid > li').length");
+
+    // At least the seed's owed item, so a clean result is about cards that were there
+    expect($counted)->toBeGreaterThanOrEqual($route === 'robot-council.waiting' ? 2 : 1);
+
+    $faint = faintCards($page);
+
+    expect($faint)->toBe([], implode("\n", $faint));
+})->with([
+    'Lanes' => 'robot-council.lanes',
+    'Waiting on me' => 'robot-council.waiting',
+])->with(['light', 'dark'])->with(['plain', 'forced']);
+
+it('finds a faint card and a card with no border, so the check above is not blind (#527)', function (string $theme): void {
+    $page = visitSurface($this, 'robot-council.waiting', '', 'Run the screen-reader pass', $theme);
+    $page->resize(1280, 900);
+
+    expect(faintCards($page))->toBeEmpty();
+
+    // The border every other block uses, which is what a card would have had, and none at all
+    $page->script(<<<'JS'
+        () => {
+            const list = document.querySelector('main ul.card-grid');
+            for (const [style, text] of [['border-color: var(--color-base-300)', 'Planted faint'], ['border: 0', 'Planted bare']]) {
+                const card = document.createElement('li');
+                card.className = 'item-card';
+                card.setAttribute('style', style);
+                card.textContent = text;
+                list.appendChild(card);
+            }
+        }
+    JS);
+
+    $faint = faintCards($page);
+
+    expect($faint)->toHaveCount(2)
+        ->and($faint[0])->toStartWith('Planted faint 1.')
+        ->and($faint[1])->toBe('Planted bare no border');
+})->with(['light', 'dark']);

@@ -1200,7 +1200,22 @@ it('keys every repeated element in a view that polls, so a re-render keeps what 
                 }
             }
 
-            preg_match('/<([a-z]+)\b((?:->|=>|[^>])*)>/s', $source, $element, 0, $i);
+            // A loop whose body is a package partial repeats that partial's first element, so the
+            // key is read there (#527) -- a partial included bare would otherwise read as keyed by
+            // whatever tag happened to follow the loop. An include it cannot resolve to a file
+            // counts as unkeyed, so a spelling this does not read fails rather than passing
+            if (preg_match('/\G\)\s*@include/', $source, $include, 0, $i) === 1) {
+                $element = [];
+                $path = preg_match("/\\G\\)\\s*@include\\('robot-council::partials\\.([a-z0-9_.-]+)'/", $source, $included, 0, $i) === 1
+                    ? __DIR__.'/../resources/views/partials/'.str_replace('.', '/', $included[1]).'.blade.php'
+                    : null;
+
+                if ($path !== null && is_file($path)) {
+                    preg_match('/<([a-z]+)\b((?:->|=>|[^>])*)>/s', sourceWithoutComments($path), $element);
+                }
+            } else {
+                preg_match('/<([a-z]+)\b((?:->|=>|[^>])*)>/s', $source, $element, 0, $i);
+            }
 
             // Collected rather than asserted here: `toContain()` is variadic, so a message passed to
             // it is read as a second needle
