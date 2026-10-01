@@ -358,6 +358,30 @@
     }
 
     /*
+     * The sessions under one installation on Administration, each row set apart (#516).
+     *
+     * Rows ran 4px apart, so with twenty listed the eye had to follow a line across the page to
+     * tell which buttons were whose. Each row now has half a rem above and below its content, and
+     * a rule between it and the next at 3:1 against the card (SC 1.4.11), the same colour as an
+     * `item-card`'s border: 3.87:1 in the light theme and 4.28:1 in the dark, measured with the
+     * `wcag-contrast` skill against `base-100`.
+     *
+     * **Dashed, so it is not the installation rule.** The installations above are separated by a
+     * solid `divide-y`, and #520 brings that to 3:1 as well, so a weight or a colour would stop
+     * telling the two levels apart once it lands; a pattern still does. Vertical padding only: a
+     * row is a subgrid of the list's columns from `sm` up, and horizontal padding would move its
+     * cells off the shared edges #496 lines up. Under forced colors the rule is drawn in the
+     * system's colour.
+     */
+    :where(.session-rows) > li {
+        padding-block: 0.5rem;
+    }
+
+    :where(.session-rows) > li + li {
+        border-top: var(--border) dashed color-mix(in oklab, var(--color-base-content) 50%, var(--color-base-100));
+    }
+
+    /*
      * Every form field and every navigation row at the same 44px (#480).
      *
      * Not a class a view opts into, because no field on the dashboard is dense: a text, number,

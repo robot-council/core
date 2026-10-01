@@ -856,6 +856,166 @@ it("lines up each machine's session ids, statuses, roles and details on Administ
 });
 
 /**
+ * The Administration page with two sessions under the gate's installation, so its list has two
+ * rows to set apart, and a second harness on the same machine, so there is an installation rule
+ * to tell them from; the seeded fleet runs one session and one harness per machine.
+ *
+ * @param  array<string, mixed>  $options  Browser options, as `visitSurface()` takes them.
+ */
+function twoSessionRows(TestCase $case, string $theme = 'light', array $options = []): PendingAwaitablePage
+{
+    $page = visitSurface($case, 'robot-council.administration', '', 'gate-runner', $theme, $options);
+
+    $installation = Installation::query()->where('machine_label', 'gate-runner')->sole();
+    $case->service(AgentSessions::class)->start($installation, 'robot-council/cli', 'robot-council-cli-a');
+    $codex = $installation->replicate()->fill(['harness' => 'codex']);
+    $codex->save();
+    $case->service(AgentSessions::class)->start($codex, 'robot-council/core', 'robot-council-core-d');
+
+    // Re-rendered in place, as the poll would, so the page object stays the one the helpers take
+    expect($page->script('async () => { await Promise.all(window.Livewire.all().map(c => c.$wire.$refresh())); return "polled"; }'))->toBe('polled');
+
+    return $page;
+}
+
+/**
+ * Each pair of adjacent session rows on Administration, as drawn (#516): how far apart their
+ * contents are, whether every button lies inside its own row's box, and the rule between them with
+ * its contrast against what it sits on.
+ *
+ * @return list<array{gap: float, overlap: float, escaped: list<string>, style: string, ratio: float|null, wrapped: bool}> One per
+ *                                                                                                                         pair.
+ */
+function sessionRowPairs(PendingAwaitablePage $page): array
+{
+    $pairs = $page->script(<<<'JS'
+        () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = canvas.height = 1;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            const paint = (...colors) => {
+                ctx.clearRect(0, 0, 1, 1);
+                for (const c of colors) { ctx.fillStyle = c; ctx.fillRect(0, 0, 1, 1); }
+                return [...ctx.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+            };
+            const luminance = rgb => {
+                const [r, g, b] = rgb.map(v => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
+                return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+            };
+            const ratio = (a, b) => { const [x, y] = [luminance(a), luminance(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+            const content = li => {
+                const rects = [...li.children].map(c => c.getBoundingClientRect()).filter(r => r.height > 0);
+                return { top: Math.min(...rects.map(r => r.top)), bottom: Math.max(...rects.map(r => r.bottom)) };
+            };
+            const out = [];
+            for (const ul of document.querySelectorAll('[data-admin-sessions]')) {
+                const rows = [...ul.children];
+                for (let i = 1; i < rows.length; i++) {
+                    const [a, b] = [rows[i - 1], rows[i]];
+                    const [ra, rb] = [a.getBoundingClientRect(), b.getBoundingClientRect()];
+                    const escaped = [a, b].flatMap(li => {
+                        const box = li.getBoundingClientRect();
+                        return [...li.querySelectorAll('button')]
+                            .filter(btn => { const r = btn.getBoundingClientRect(); return r.top < box.top - 0.5 || r.bottom > box.bottom + 0.5; })
+                            .map(btn => `${li.querySelector('[data-session-id]').textContent.trim()} ${btn.textContent.trim()}`);
+                    });
+                    const cs = getComputedStyle(b);
+                    const layers = ['rgb(255, 255, 255)'];
+                    for (let node = b.parentElement; node; node = node.parentElement) {
+                        layers.splice(1, 0, getComputedStyle(node).backgroundColor);
+                    }
+                    const drawn = cs.borderTopStyle !== 'none' && parseFloat(cs.borderTopWidth) > 0;
+                    const detail = a.querySelector('[data-session-detail]').getBoundingClientRect();
+                    out.push({
+                        gap: content(b).top - content(a).bottom,
+                        overlap: ra.bottom - rb.top,
+                        escaped,
+                        style: drawn ? cs.borderTopStyle : 'none',
+                        ratio: drawn ? ratio(paint(...layers, cs.borderTopColor), paint(...layers)) : null,
+                        wrapped: detail.height > 60,
+                    });
+                }
+            }
+            return out;
+        }
+    JS);
+
+    if (! is_array($pairs)) {
+        throw new RuntimeException('The session-row read returned nothing.');
+    }
+
+    /** @var list<array{gap: float, overlap: float, escaped: list<string>, style: string, ratio: float|null, wrapped: bool}> $pairs */
+    return $pairs;
+}
+
+/**
+ * Why a pair of session rows is not set apart, or null when it is (#516).
+ *
+ * @param  array{gap: float, overlap: float, escaped: list<string>, style: string, ratio: float|null, wrapped: bool}  $pair  The pair.
+ */
+function sessionRowFault(array $pair): ?string
+{
+    return match (true) {
+        $pair['gap'] < 12 => sprintf('contents %.1fpx apart', $pair['gap']),
+        $pair['overlap'] > 0.5 => sprintf('rows overlap by %.1fpx', $pair['overlap']),
+        $pair['escaped'] !== [] => 'buttons outside their row: '.implode(', ', $pair['escaped']),
+        $pair['style'] !== 'dashed' => sprintf('a %s rule, not the dashed one', $pair['style']),
+        $pair['ratio'] === null || $pair['ratio'] < 3 => sprintf('a rule at %s:1', $pair['ratio'] === null ? 'none' : number_format($pair['ratio'], 2)),
+        default => null,
+    };
+}
+
+it('sets each session row apart on Administration, with its buttons inside it, at every width and in both themes (#516)', function (int $width, string $theme): void {
+    $page = twoSessionRows($this, $theme);
+    $page->resize($width, 900);
+
+    $pairs = sessionRowPairs($page);
+
+    // At least the planted pair, so a clean result is about rows that were there
+    expect($pairs)->not->toBeEmpty();
+
+    foreach ($pairs as $pair) {
+        expect(sessionRowFault($pair))->toBeNull(json_encode($pair, JSON_THROW_ON_ERROR));
+    }
+
+    // Where the buttons wrap the details onto several lines, the rows stay apart as well
+    if ($width === 390) {
+        expect(array_filter(array_column($pairs, 'wrapped')))->not->toBeEmpty();
+    }
+
+    // The installations stay a different rule: solid, so the two levels read as two. Read off the
+    // gate's machine, where the planted second harness gives its list a rule to draw
+    expect($page->script(<<<'JS'
+        () => [...document.querySelectorAll('[data-installation-machine="gate-runner"] > ul > li:not(:last-child)')]
+            .map(li => `${getComputedStyle(li).borderBottomStyle} ${parseFloat(getComputedStyle(li).borderBottomWidth) > 0}`)
+    JS))->toBe(['solid true'])
+        ->and(sidewaysScroll($page))->toBe(0);
+})->with([390, 800, 1280])->with(['light', 'dark']);
+
+it('draws the session-row rule under forced colors (#516)', function (): void {
+    $page = twoSessionRows($this, 'light', ['forcedColors' => 'active']);
+    $page->resize(1280, 900);
+
+    expect($page->script("() => window.matchMedia('(forced-colors: active)').matches"))->toBeTrue();
+
+    foreach (sessionRowPairs($page) as $pair) {
+        expect($pair['style'])->toBe('dashed');
+    }
+});
+
+it('finds rows that run together without the separation, so the check above is not blind (#516)', function (): void {
+    $page = twoSessionRows($this);
+    $page->resize(1280, 900);
+
+    // The markup before #516: the 4px row gap and no rule, restored on the rendered list
+    $page->script("() => document.querySelectorAll('[data-admin-sessions]').forEach(ul => { ul.classList.remove('session-rows'); ul.style.rowGap = '0.25rem'; })");
+
+    $faults = array_filter(array_map(sessionRowFault(...), sessionRowPairs($page)));
+
+    expect($faults)->not->toBeEmpty();
+});
+
+/**
  * Each form field whose label does not sit wholly above it, as rendered (#485).
  *
  * @return array{fields: int, misplaced: list<string>} How many labelled fields were measured, and

@@ -122,8 +122,10 @@
                                                      columns, then everything else, and each row a subgrid. Without them
                                                      a session's repository started wherever its own two badges ended.
                                                      The column gap matches the row's own `gap-2`, because a subgrid's
-                                                     own gap replaces its parent's and would otherwise shift the cells. --}}
-                                                <ul class="mt-3 space-y-1 sm:grid sm:grid-cols-[repeat(3,max-content)_1fr] sm:gap-x-2 sm:gap-y-1 sm:space-y-0" data-admin-sessions>
+                                                     own gap replaces its parent's and would otherwise shift the cells.
+                                                     Each row is set apart by padding and a dashed rule (#516), from
+                                                     `session-rows` in the stylesheet. --}}
+                                                <ul class="session-rows mt-3 sm:grid sm:grid-cols-[repeat(3,max-content)_1fr] sm:gap-x-2" data-admin-sessions>
                                                     @foreach ($installation['sessions']['shown'] as $session)
                                                         <li wire:key="admin-session-{{ $session['id'] }}"
                                                             class="flex flex-wrap items-center gap-2 text-meta sm:col-span-4 sm:grid sm:grid-cols-subgrid">
