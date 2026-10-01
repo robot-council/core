@@ -83,7 +83,7 @@
                                     @endif
                                 </h3>
 
-                                <ul class="mt-1 ms-2 divide-y divide-base-200 border-s-2 border-base-300 ps-4">
+                                <ul class="mt-1 ms-2 divide-y divide-separator border-s-2 border-separator ps-4">
                                     @foreach ($machine['installations'] as $installation)
                                         <li wire:key="installation-{{ $installation['id'] }}" class="py-4">
                                             <div class="flex flex-wrap items-start justify-between gap-2">

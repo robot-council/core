@@ -35,7 +35,7 @@
                     No seats yet: a seat appears once one of your sessions reports the repository it works in.
                 </p>
             @else
-                <ul class="divide-y divide-base-200">
+                <ul class="divide-y divide-separator">
                     @foreach ($seats as $seat)
                         <li wire:key="seat-{{ $seat->id }}" class="flex flex-wrap items-center justify-between gap-2 py-3">
                             {{-- Every control below names its seat to a screen reader (#400), since each
@@ -148,7 +148,7 @@
                     No machines yet: a machine appears once you approve its enrollment.
                 </p>
             @else
-                <ul class="divide-y divide-base-200">
+                <ul class="divide-y divide-separator">
                     @foreach ($machines as $machine)
                         <li wire:key="machine-{{ $machine['id'] }}" class="py-3" data-machine="{{ $machine['id'] }}">
                             <div class="font-medium">
