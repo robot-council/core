@@ -163,7 +163,7 @@ it('links a repository-qualified reference and never a bare number', function ()
     $this->service(Tasks::class)->transition($task->id, TaskTransition::Reassign, $this->coordinatorSession, true, $lane, directive: 'Take this.');
 
     expect(Livewire::actingAs($this->developer)->test(Lanes::class)->html())
-        ->toContain('<a href="https://github.com/robot-council/core/issues/318" target="_blank" rel="noopener noreferrer" class="link inline-flex min-h-11 min-w-11 items-center">');
+        ->toContain('<a href="https://github.com/robot-council/core/issues/318" target="_blank" rel="noopener noreferrer" class="link inline-block min-h-11 min-w-11 py-3">');
 });
 
 it('renders an unmeasured count as a dash, never a number', function (): void {

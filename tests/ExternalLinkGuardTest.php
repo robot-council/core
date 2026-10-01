@@ -181,7 +181,8 @@ function flexExternalLinks(string $source): array
 
     return array_values(array_filter($tags[0], static function (string $tag): bool {
         preg_match_all('/\s:?class=("(?:\{\{.*?\}\}|[^"])*"|\'[^\']*\')/is', $tag, $classes);
-        return array_any($classes[1], fn(string $class): bool => preg_match('/(?<![\w-])(?:[\w\[\]-]+:)*!?(?:inline-)?(?:flex|grid)!?(?![\w-])/i', $class) === 1);
+
+        return array_any($classes[1], fn (string $class): bool => preg_match('/(?<![\w-])(?:[\w\[\]-]+:)*!?(?:inline-)?(?:flex|grid)!?(?![\w-])/i', $class) === 1);
     }));
 }
 
