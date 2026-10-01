@@ -365,8 +365,14 @@ jobs:
           npm ci
           npx playwright install --with-deps chromium
 
+      # pest-plugin-browser v5.1.0 removes tests/Browser/Traces at the end of every run with an
+      # `@rmdir` that warns when the directory is absent, and PHPUnit records that warning at
+      # test-runner level, so `failOnWarning` exits 1 with every test passing (#542). The
+      # directory is created first so the removal succeeds; #546 drops this once a fixed tag ships
       - name: Execute the browser tests
-        run: vendor/bin/pest --ci --testsuite=Browser
+        run: |
+          mkdir -p tests/Browser/Traces
+          vendor/bin/pest --ci --testsuite=Browser
 
       # The AAA findings are reported rather than enforced, so they are kept where a reader can
       # find them after the run
