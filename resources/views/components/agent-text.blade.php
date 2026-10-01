@@ -18,15 +18,8 @@
 --}}
 @props(['text' => null, 'inline' => false, 'standalone' => false])
 @if ($inline)
-@php
-    $nodes = \RobotCouncil\Support\AgentText::inline($text);
-    // Down through emphasis that wraps the whole field, to whatever it wraps
-    $within = $nodes;
-    while (count($within) === 1 && in_array($within[0]['type'], ['emphasis', 'strong'], true)) {
-        $within = $within[0]['children'];
-    }
-@endphp
-@include('robot-council::partials.agent-text-nodes', ['nodes' => $nodes, 'loneLink' => $standalone && count($within) === 1 && $within[0]['type'] === 'link'])
+@php($nodes = \RobotCouncil\Support\AgentText::inline($text))
+@include('robot-council::partials.agent-text-nodes', ['nodes' => $nodes, 'loneLink' => $standalone && \RobotCouncil\Support\AgentText::isOneLink($nodes)])
 @else
 <div {{ $attributes->class(['agent-text']) }}>@include('robot-council::partials.agent-text-nodes', ['nodes' => \RobotCouncil\Support\AgentText::blocks($text)])</div>
 @endif
