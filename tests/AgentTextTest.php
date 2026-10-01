@@ -242,6 +242,10 @@ it('flattens what nests past the cap into text, so the view recursion is bounded
         $max = 0;
 
         foreach ($nodes as $node) {
+            if (! is_array($node)) {
+                continue;
+            }
+
             foreach (['children', 'items'] as $key) {
                 foreach (is_array($node[$key] ?? null) ? $node[$key] : [] as $child) {
                     $max = max($max, 1 + $depth(is_array($child) && array_is_list($child) ? $child : [$child]));
