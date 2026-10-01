@@ -604,7 +604,7 @@ it('gives back every lock a session was holding when it went', function (): void
     expect($locks->pluck('holder_id')->all())->toBe([null, null])
         ->and($locks->pluck('expires_at')->all())->toBe([null, null]);
 
-    $released = FleetEvent::query()->where('type', FleetEventType::LockReleased->value)->get();
+    $released = FleetEvent::query()->where('type', FleetEventType::LockReleased->value)->orderBy('id')->get();
 
     expect($released)->toHaveCount(2)
         ->and($released->pluck('agent_session_id')->all())->toBe([null, null])
