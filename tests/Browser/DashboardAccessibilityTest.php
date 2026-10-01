@@ -2229,6 +2229,19 @@ function faintSeparators(PendingAwaitablePage $page): array
                 }
                 return layers;
             };
+            // An element's own opacity and every ancestor's, which fade the line with them. Applied
+            // to the line alone, which errs low rather than high: the backgrounds fade too
+            const opacity = el => {
+                let product = 1;
+                for (let node = el; node; node = node.parentElement) product *= parseFloat(getComputedStyle(node).opacity);
+                return product;
+            };
+            const faded = (under, color, alpha) => {
+                ctx.clearRect(0, 0, 1, 1);
+                for (const c of under) { ctx.globalAlpha = 1; ctx.fillStyle = c; ctx.fillRect(0, 0, 1, 1); }
+                ctx.globalAlpha = alpha; ctx.fillStyle = color; ctx.fillRect(0, 0, 1, 1); ctx.globalAlpha = 1;
+                return [...ctx.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+            };
             const out = [];
             for (const el of document.querySelectorAll('body *')) {
                 if (el.closest('.btn, .badge, input, select, textarea, .checkbox, .toggle, .radio, [data-avatar]')) continue;
@@ -2242,7 +2255,7 @@ function faintSeparators(PendingAwaitablePage $page): array
                     const color = cs[`border${edge}Color`];
                     if (color === 'rgba(0, 0, 0, 0)' || color === 'transparent') continue;
                     const under = behind(el);
-                    const found = ratio(paint(...under, color), paint(...under));
+                    const found = ratio(faded(under, color, opacity(el)), paint(...under));
                     if (found < 3) {
                         const classes = [...el.classList].slice(0, 4).join('.');
                         out.push(`${el.tagName.toLowerCase()}${classes ? '.' + classes : ''} ${edge.toLowerCase()} ${found.toFixed(2)}:1`);
@@ -2252,6 +2265,20 @@ function faintSeparators(PendingAwaitablePage $page): array
             return out;
         }
     JS);
+}
+
+/**
+ * One of #520's surfaces, populated so that every separator it can draw is drawn.
+ *
+ * Administration through `twoSessionRows()`: the seeded fleet runs one harness and one session per
+ * machine, so the installation divider and the session rule would each have a single row and draw
+ * nothing, and the check would pass without having seen either.
+ */
+function separatorPage(TestCase $case, string $route, string $expect, string $theme): PendingAwaitablePage
+{
+    return $route === 'robot-council.administration'
+        ? twoSessionRows($case, $theme)
+        : visitSurface($case, $route, '', $expect, $theme);
 }
 
 /**
@@ -2269,7 +2296,7 @@ function separatorSurfaces(): array
 }
 
 it('draws every separator at 3:1 against what it sits on, in both themes (#520)', function (string $route, string $expect, string $theme): void {
-    $page = visitSurface($this, $route, '', $expect, $theme);
+    $page = separatorPage($this, $route, $expect, $theme);
 
     // The glossary's rules are inside a closed disclosure, so open it and they are measured too
     $page->script('() => { for (const d of document.querySelectorAll("details")) d.open = true; }');
@@ -2280,7 +2307,7 @@ it('draws every separator at 3:1 against what it sits on, in both themes (#520)'
 })->with(separatorSurfaces())->with(['light', 'dark']);
 
 it('finds the separators #520 replaced, so the check above is not blind', function (string $route, string $expect, string $theme): void {
-    $page = visitSurface($this, $route, '', $expect, $theme);
+    $page = separatorPage($this, $route, $expect, $theme);
 
     // The colours each separator was drawn in before #520, planted over the shared one: `base-200`
     // between list items, `base-300` for a rule or an outline, and daisyUI's 5% for a table row
@@ -2292,6 +2319,7 @@ it('finds the separators #520 replaced, so the check above is not blind', functi
                 .divide-separator > * { border-color: var(--color-base-200) !important; }
                 .border-separator { border-color: var(--color-base-300) !important; }
                 .table :is(td, th) { border-color: color-mix(in oklch, var(--color-base-content) 5%, #0000) !important; }
+                .session-rows > li { border-color: var(--color-base-300) !important; }
             `;
             document.head.appendChild(style);
         }
@@ -2303,7 +2331,16 @@ it('finds the separators #520 replaced, so the check above is not blind', functi
     expect($faint)->not->toBeEmpty()
         ->and(array_filter($faint, static fn (string $line): bool => str_starts_with($line, 'nav') || str_starts_with($line, 'header')))->not->toBeEmpty();
 
-    if ($route !== 'robot-council.administration') {
-        expect(array_filter($faint, static fn (string $line): bool => str_starts_with($line, 'td') || str_starts_with($line, 'th')))->not->toBeEmpty();
+    $starting = static fn (string ...$tags): array => array_filter($faint, static fn (string $line): bool => array_filter($tags, static fn (string $tag): bool => str_starts_with($line, $tag.' ') || str_starts_with($line, $tag.'.')) !== []);
+
+    // The glossary's rules, on every page
+    expect($starting('div'))->not->toBeEmpty();
+
+    if ($route === 'robot-council.administration') {
+        // The installation divider and the dashed session rule, both drawn by `separatorPage()`
+        expect(array_filter($starting('li'), static fn (string $line): bool => str_contains($line, ' top ')))->not->toBeEmpty()
+            ->and(array_filter($starting('li'), static fn (string $line): bool => str_contains($line, ' bottom ')))->not->toBeEmpty();
+    } else {
+        expect($starting('td', 'th'))->not->toBeEmpty();
     }
 })->with(separatorSurfaces())->with(['light', 'dark']);

@@ -146,9 +146,11 @@
  * and header's rules, a section's outline, a table's row borders, a card's boundary.
  *
  * The text colour mixed half into the card surface, so it follows both themes without a value of
- * its own. Measured with the `wcag-contrast` skill against `base-100`, the surface every one of
- * them sits on: **3.87:1 in the light theme and 4.28:1 in the dark**, over the 3:1 SC 1.4.11 sets
- * for a boundary that tells one thing from the next. What it replaced was `base-200` at 1.06:1,
+ * its own. Measured with the `wcag-contrast` skill against `base-100`, the card most of them sit
+ * on: **3.87:1 in the light theme and 4.28:1 in the dark**, over the 3:1 SC 1.4.11 sets for a
+ * boundary that tells one thing from the next. A glossary outside a card sits on the page's
+ * `base-200` instead, where it is lower and still over 3:1 in both themes; the browser check
+ * measures every one against what is actually behind it. What it replaced was `base-200` at 1.06:1,
  * `base-300` at 1.16:1 and 1.11:1, and daisyUI's table border, `base-content` at 5%, at 1.11:1 and
  * 1.15:1 -- lines a reader could not pick out from the card behind them.
  *

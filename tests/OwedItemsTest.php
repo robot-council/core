@@ -211,7 +211,7 @@ it('sets each section apart as a bordered block, and each item apart as a card i
     $html = Livewire::actingAs($this->developer)->test(Lanes::class)->html();
 
     expect(substr_count($html, '<section wire:key="owed-'))->toBe(2)
-        ->and(preg_match_all('#<section [^>]*class="rounded-box border border-base-300 [^"]*" data-owed-section=#', $html))->toBe(2)
+        ->and(preg_match_all('#<section [^>]*class="rounded-box border border-separator [^"]*" data-owed-section=#', $html))->toBe(2)
         ->and(preg_match_all('#<h3 class="text-lg font-semibold">#', $html))->toBeGreaterThanOrEqual(2)
         // Still a list to assistive technology, which the grid's styling would otherwise hide
         ->and(preg_match_all('#<ul role="list" class="card-grid mt-3">#', $html))->toBe(2)
