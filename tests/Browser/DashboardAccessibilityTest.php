@@ -1560,12 +1560,21 @@ it('runs Alpine on the enrollment page and acts on nothing the requester sent (#
 
     $page = visit($url);
 
+    // The control: a directive that does reach this page's markup runs, so the title check below
+    // could fail rather than passing because Alpine never got to the page
+    $page->script(<<<'JS'
+        () => document.querySelector('main').insertAdjacentHTML('beforeend', '<i x-data x-init="document.body.dataset.alpineRan = 1"></i>')
+    JS);
+    $page->wait(0.5);
+
+    expect($page->script('() => document.body.dataset.alpineRan ?? null'))->toBe('1');
+
     $read = $page->script(<<<'JS'
         () => ({
             alpine: typeof window.Alpine === 'object',
             title: document.title,
             shown: document.querySelector('main').textContent.includes('<b x-data x-init="document.title=1">x</b>'),
-            directives: document.querySelectorAll('main [x-init]').length,
+            directives: document.querySelectorAll('main [x-init]:not(i)').length,
         })
     JS);
 

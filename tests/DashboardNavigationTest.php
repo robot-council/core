@@ -63,9 +63,9 @@ function anchorTagFor(string|false $html, string $url): string
  * a test that rendered the dashboard leaves the flag set and the next page -- which renders no
  * component at all -- has assets injected into it by `shouldInjectLivewireAssets()`.
  *
- * Production is unaffected: the flag is per request there, and a request for the enrollment page
- * renders no component. The reset exists so this assertion measures what production does rather
- * than which order the suite happened to run in. It is the same leak `DashboardShellTest` resets
+ * Since #521 the layout prints the assets itself on every page, so the reset no longer decides
+ * whether a page has them. It stays so the tags compared are the layout's own rather than an
+ * injection's, whichever order the suite ran in. It is the same leak `DashboardShellTest` resets
  * for `SupportDisablingBackButtonCache`.
  */
 function withoutLivewiresAutoInjectedAssets(): void

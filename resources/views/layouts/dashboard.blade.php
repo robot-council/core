@@ -10,7 +10,7 @@
 
     The sidebar collapses on a checkbox rather than on script. `drawer-toggle` is what daisyUI
     styles against, so the shell opens and closes with no JavaScript reached at all -- which matters
-    because the only script on the page is Livewire's, and a developer whose session has lapsed
+    because the only scripts on the page are Livewire's and the package's own, and a developer whose session has lapsed
     still needs to be able to open the navigation and leave.
 
     Nothing in this file renders anything unescaped. The #67 guard refuses `{!! !!}`, a `@php` block
