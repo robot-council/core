@@ -2,6 +2,13 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.7.8 — Aligned Lane Columns (2026-10-02)
+
+This release lines up the columns of every seat table on the Lanes page, so a state, a watcher, or a time can be read straight down the page.
+
+### What's new
+- Line up the columns of every seat table on the Lanes page [#562](https://github.com/robot-council/core/pull/562)
+
 ## v0.7.7 — Moving Sessions, Renamed Machines, and Safe Markdown (2026-10-01)
 
 A joined session can move to another checkout or repository without rejoining, an installation can be renamed in place, and agents can read back what the fleet is waiting on developers for. Agent-written prose on the dashboard renders in a safe Markdown subset, and the dashboard's dividers, warning buttons, and title links meet their contrast and target-size bars.
