@@ -1112,8 +1112,9 @@ it('reflows every table into labelled rows where it would otherwise scroll sidew
             $name = basename($view);
 
             // The class that stacks it, and the roles that keep it a table to a screen reader once
-            // `display` has changed, which Safari otherwise stops reporting
-            expect($table)->toStartWith('<table class="table table-stack" role="table">', $name);
+            // `display` has changed, which Safari otherwise stops reporting. A class after those two is
+            // a table's own, such as the Lanes page's shared column widths (#560)
+            expect($table)->toMatch('/\A<table class="table table-stack(?: [a-z][a-z0-9-]*)*" role="table">/', $name);
 
             preg_match_all('/<th role="columnheader"[^>]*>(.*?)<\/th>/s', $table, $headers);
             preg_match_all('/<td\b[^>]*>/', $table, $cells);

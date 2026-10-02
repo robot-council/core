@@ -2566,9 +2566,9 @@ it('starts every column at the same place in every seat table on the Lanes page 
 
     // The seed's five seat tables, each with its five columns
     expect($found['tables'])->toBe(5)
-        ->and($found['stacked'])->toBe([])
-        ->and($found['overflowing'])->toBe([])
-        ->and($found['broken'])->toBe([]);
+        ->and($found['stacked'])->toBeEmpty()
+        ->and($found['overflowing'])->toBeEmpty()
+        ->and($found['broken'])->toBeEmpty();
 
     $first = $found['columns'][0];
 
@@ -2577,7 +2577,7 @@ it('starts every column at the same place in every seat table on the Lanes page 
     expect($first)->toHaveCount(5);
 
     if ($width >= 1280) {
-        expect(max(array_column($first, 'width')))->toBe($first[3]['width'])
+        expect(max(0.0, ...array_column($first, 'width')))->toBe($first[3]['width'])
             ->and($first[0]['width'])->toBeGreaterThan($first[1]['width']);
     }
 
@@ -2610,7 +2610,7 @@ it('still stacks every seat table on a phone, with no column widths left over (#
 
     expect($found['tables'])->toBe(5)
         ->and($found['stacked'])->toHaveCount(5)
-        ->and($found['overflowing'])->toBe([])
+        ->and($found['overflowing'])->toBeEmpty()
         ->and($cells)->toBe([])
         ->and(sidewaysScroll($page))->toBe(0);
 });
