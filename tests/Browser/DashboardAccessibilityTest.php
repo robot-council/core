@@ -2492,3 +2492,105 @@ it('finds the separators #520 replaced, so the check above is not blind', functi
         expect($starting('td', 'th'))->not->toBeEmpty();
     }
 })->with(separatorSurfaces())->with(['light', 'dark']);
+
+/**
+ * Where each column of every seat table on the Lanes page starts and how wide it is, measured from
+ * the table's own left edge (#560).
+ *
+ * With `$long`, a lane name and an "On what" value far wider than their columns are written into
+ * the first table first, so the measurement shows whether one long value moves the columns.
+ *
+ * @return array{tables: int, columns: list<list<array{left: float, width: float}>>, overflowing: list<string>, stacked: list<string>}
+ */
+function laneColumns(PendingAwaitablePage $page, bool $long = false): array
+{
+    $found = $page->script(sprintf(<<<'JS'
+        () => {
+            const tables = [...document.querySelectorAll('main [data-developer-group] table')];
+            if (%s) {
+                const row = tables[0].querySelector('tbody tr');
+                // No space or hyphen in either, so nothing but the column's own width can make them wrap
+                row.querySelector('td[data-label="Lane"] code').textContent = 'amachinelabel'.repeat(12);
+                row.querySelector('td[data-label="On what"]').textContent = 'anunbrokenvalue'.repeat(16) + ' and then some words that wrap';
+            }
+            const round = (n) => Math.round(n * 10) / 10;
+            return {
+                tables: tables.length,
+                columns: tables.map((table) => {
+                    const left = table.getBoundingClientRect().left;
+                    return [...table.querySelectorAll('thead th')].map((th) => {
+                        const box = th.getBoundingClientRect();
+                        return { left: round(box.left - left), width: round(box.width) };
+                    });
+                }),
+                // A cell whose content runs past it, or a table wider than the box it scrolls in
+                overflowing: [
+                    ...tables.flatMap((table) => [...table.querySelectorAll('td')].filter((td) => td.scrollWidth > td.clientWidth + 0.5).map((td) => `${td.dataset.label} cell`)),
+                    ...tables.filter((table) => table.parentElement.scrollWidth > table.parentElement.clientWidth + 0.5).map((table) => table.caption.textContent.trim()),
+                ],
+                // Each table not laid out as a table: on a phone, every one of them
+                stacked: tables.filter((table) => getComputedStyle(table).display === 'block').map((table) => table.caption.textContent.trim()),
+            };
+        }
+    JS, $long ? 'true' : 'false'));
+
+    if (! is_array($found) || ! is_array($found['columns'] ?? null)) {
+        throw new RuntimeException('The column read returned no tables.');
+    }
+
+    /** @var array{tables: int, columns: list<list<array{left: float, width: float}>>, overflowing: list<string>, stacked: list<string>} $found */
+    return $found;
+}
+
+it('starts every column at the same place in every seat table on the Lanes page (#560)', function (int $width, string $theme, bool $long): void {
+    $page = visitSurface($this, 'robot-council.lanes', '', 'Run the screen-reader pass', $theme);
+    $page->resize($width, 1000);
+
+    $found = laneColumns($page, $long);
+
+    // The seed's five seat tables, each with its five columns
+    expect($found['tables'])->toBe(5)
+        ->and($found['stacked'])->toBe([])
+        ->and($found['overflowing'])->toBe([]);
+
+    $first = $found['columns'][0];
+
+    // One set of widths, shared, and not five equal shares: "On what" carries a list of tickets,
+    // so it is the widest, and the lane's name is wider than its one-word state
+    expect($first)->toHaveCount(5)
+        ->and(max(array_column($first, 'width')))->toBe($first[3]['width'])
+        ->and($first[0]['width'])->toBeGreaterThan($first[1]['width']);
+
+    foreach ($found['columns'] as $index => $columns) {
+        foreach ($columns as $column => $box) {
+            expect($box['left'])->toEqualWithDelta($first[$column]['left'], 0.5, "table {$index}, column {$column}")
+                ->and($box['width'])->toEqualWithDelta($first[$column]['width'], 0.5, "table {$index}, column {$column}");
+        }
+    }
+
+    expect(sidewaysScroll($page))->toBe(0);
+})->with([1280, 1536, 1920])->with(['light', 'dark'])->with(['as seeded' => false, 'with a long lane name and On what' => true]);
+
+it('still stacks every seat table on a phone, with no column widths left over (#560)', function (): void {
+    $page = visitSurface($this, 'robot-council.lanes', '', 'Run the screen-reader pass', 'light');
+    $page->resize(390, 900);
+
+    $found = laneColumns($page, true);
+
+    // Each cell is a block the full width of its row, as before #560: the column widths, which
+    // a stacked table has no columns to apply to, leave no mark
+    $cells = $page->script(<<<'JS'
+        () => [...document.querySelectorAll('main [data-developer-group] tbody tr')].flatMap((tr) => {
+            const row = tr.getBoundingClientRect();
+            const style = getComputedStyle(tr);
+            const inner = row.width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+            return [...tr.children].filter((td) => Math.abs(td.getBoundingClientRect().width - inner) > 0.5).map((td) => td.dataset.label);
+        })
+    JS);
+
+    expect($found['tables'])->toBe(5)
+        ->and($found['stacked'])->toHaveCount(5)
+        ->and($found['overflowing'])->toBe([])
+        ->and($cells)->toBe([])
+        ->and(sidewaysScroll($page))->toBe(0);
+});

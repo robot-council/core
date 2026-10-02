@@ -88,10 +88,20 @@
                                 </h4>
 
                                 <div class="overflow-x-auto">
-                                    <table class="table table-stack" role="table">
+                                    {{-- Fixed layout from one set of widths (#560), so every seat table on the page
+                                         lines its columns up with the next rather than sizing them from its own
+                                         content; a long value wraps inside its column instead of widening it --}}
+                                    <table class="table table-stack table-fixed" role="table">
                                         {{-- Named for a screen reader that reaches the table rather than the
                                              headings above it, e.g. "octodev, gate seats" --}}
                                         <caption class="sr-only">{{ $developer['developer'] ?? 'Unknown developer' }}, {{ $roleName }} seats</caption>
+                                        <colgroup>
+                                            <col class="w-[22%]">
+                                            <col class="w-[12%]">
+                                            <col class="w-[14%]">
+                                            <col class="w-[38%]">
+                                            <col class="w-[14%]">
+                                        </colgroup>
                                         <thead role="rowgroup">
                                             <tr role="row">
                                                 <th role="columnheader">Lane</th>
