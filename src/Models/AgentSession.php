@@ -46,7 +46,7 @@ use RobotCouncil\Support\PresenceTimestamp;
  * @property string|null $work_location
  * @property string|null $os_family
  * @property string|null $arch
- * @property int $declared_capacity
+ * @property int|null $declared_capacity
  * @property Role|null $requested_role
  * @property Carbon|null $requested_at
  * @property int $feed_cursor
@@ -79,15 +79,15 @@ final class AgentSession extends Model implements AuthenticatableContract
     use HasApiTokens;
 
     /**
-     * What a model built in memory holds before it is saved (#409).
+     * What a model built in memory holds before it is saved.
      *
-     * The column defaults to one as well, but a host constructing a session itself would otherwise
-     * hold `null` until a reload, and `Support\Capacity` reads this as an integer. Public, since a
-     * subclass may widen a parent's visibility and the package keeps nothing protected.
+     * No `declared_capacity`, which is null until a session declares one (#564): null takes its
+     * seat's setting, and the column has no default to disagree with. Public, since a subclass may
+     * widen a parent's visibility and the package keeps nothing protected.
      *
      * @var array<string, mixed>
      */
-    public $attributes = ['declared_capacity' => 1, 'ephemeral' => false];
+    public $attributes = ['ephemeral' => false];
 
     /**
      * The attribute casts.

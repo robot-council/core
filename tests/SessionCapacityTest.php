@@ -155,13 +155,15 @@ function heldBy(AgentSession $lane): int
 
 // ------------------------------------------------------------------ the defaults
 
-it('gives a session that declares nothing a capacity of one, and refuses a second placement on it exactly as before', function (): void {
+it('gives a session that declares nothing in a seat nobody has set a capacity of one, and refuses a second placement on it exactly as before', function (): void {
     [$lane, $token, $joined] = joinWith($this);
 
-    // Declared and in effect, as the join, the row, and the session read all say
-    expect([$joined['capacity'], $joined['declared_capacity']])->toBe([1, 1])
-        ->and(AgentSession::query()->whereKey($lane->id)->value('declared_capacity'))->toBe(1)
-        ->and($this->machine($token)->getJson(route('robot-council.agent.session'))->assertOk()->json('capacity'))->toBe(1);
+    // Declared nothing, which is stored as nothing (#564), and one in effect, as the join, the row,
+    // the join event and the session read all say
+    expect([$joined['capacity'], $joined['declared_capacity']])->toBe([1, null])
+        ->and(AgentSession::query()->whereKey($lane->id)->value('declared_capacity'))->toBeNull()
+        ->and(arrayValue(FleetEvent::query()->where('type', FleetEventType::SessionJoined->value)->where('agent_session_id', $lane->id)->sole()->meta))->toHaveKey('declared_capacity', null)
+        ->and($this->machine($token)->getJson(route('robot-council.agent.session'))->assertOk()->json())->toMatchArray(['capacity' => 1, 'declared_capacity' => null]);
 
     [, $first] = placeNew($this, $lane);
     [$second, $refused] = placeNew($this, $lane);
@@ -203,8 +205,8 @@ it('holds a session to one where no seat has been recorded at all, whatever it d
     expect(placeNew($this, $lane)[1])->toBe([PlacementRule::LaneFree]);
 });
 
-it('defaults the store, the columns and the bounds to one', function (): void {
-    // The store's own default, for a host that calls it without the new argument
+it('defaults a session to no declaration, and a seat, the bounds and the capacity in effect to one', function (): void {
+    // The store's own default, for a host that calls it without the argument: nothing declared (#564)
     $issued = $this->service(AgentSessions::class)->start($this->installation, 'robot-council/core', 'z');
 
     // A row written with no value for either column takes the column's default
@@ -213,16 +215,109 @@ it('defaults the store, the columns and the bounds to one', function (): void {
         'work_location' => 'y', 'hours_exempt' => false, 'created_at' => now(), 'updated_at' => now(),
     ]);
 
-    expect(AgentSession::query()->whereKey($issued->owner->id)->value('declared_capacity'))->toBe(1)
+    expect(AgentSession::query()->whereKey($issued->owner->id)->value('declared_capacity'))->toBeNull()
         ->and(Seat::query()->where('work_location', 'y')->value('max_capacity'))->toBe(1)
         ->and(Capacity::DEFAULT)->toBe(1)
         // And a model built in memory, before anything is saved
-        ->and(new AgentSession()->declared_capacity)->toBe(1)
+        ->and(new AgentSession()->declared_capacity)->toBeNull()
         ->and(new Seat()->max_capacity)->toBe(1)
         ->and(Capacity::effective($issued->owner, null))->toBe(1);
 });
 
 // ------------------------------------------------------------------ the cap
+
+it("gives a running session that declared nothing its seat's setting, without joining again, and lowers it at the next placement (#564)", function (): void {
+    [$lane, $token] = joinWith($this);
+    $seat = seatAt($this);
+
+    placeNew($this, $lane);
+
+    expect(placeNew($this, $lane)[1])->toBe([PlacementRule::LaneFree]);
+
+    // Raised on the seats page while the session runs: it takes three, on the next placement and
+    // on its own session read, with the same session row
+    $this->service(Seats::class)->cap($this->key, $seat->id, 3);
+
+    expect(placeNew($this, $lane)[1])->toBeEmpty()
+        ->and(placeNew($this, $lane)[1])->toBeEmpty()
+        ->and(placeNew($this, $lane)[1])->toBe([PlacementRule::LaneFree])
+        ->and(heldBy($lane))->toBe(3)
+        ->and(AgentSession::query()->whereKey($lane->id)->value('declared_capacity'))->toBeNull()
+        ->and($this->machine($token)->getJson(route('robot-council.agent.session'))->json('capacity'))->toBe(3);
+
+    // Lowered: nothing it holds is taken back, and the next placement is refused at once
+    $this->service(Seats::class)->cap($this->key, $seat->id, 1);
+    $this->service(Tasks::class)->transition(
+        Task::query()->where('claimed_by', $lane->id)->orderBy('id')->firstOrFail()->id,
+        TaskTransition::Cancel,
+        $this->coordinatorSession,
+        true
+    );
+
+    expect(heldBy($lane))->toBe(2)
+        ->and(placeNew($this, $lane)[1])->toBe([PlacementRule::LaneFree])
+        ->and($this->machine($token)->getJson(route('robot-council.agent.session'))->json('capacity'))->toBe(1);
+});
+
+it('holds a session that declared fewer than its seat allows to its own number (#564)', function (): void {
+    joinWith($this, location: 'a');
+    $this->service(Seats::class)->cap($this->key, seatAt($this)->id, 4);
+
+    [$lane, $token, $joined] = joinWith($this, ['capacity' => 2]);
+
+    expect([$joined['capacity'], $joined['declared_capacity']])->toBe([2, 2])
+        ->and($this->machine($token)->getJson(route('robot-council.agent.session'))->json('capacity'))->toBe(2);
+
+    placeNew($this, $lane);
+    placeNew($this, $lane);
+
+    expect(placeNew($this, $lane)[1])->toBe([PlacementRule::LaneFree])
+        ->and(heldBy($lane))->toBe(2);
+
+    // Declared one is a declaration too: it is not "nothing", and the seat's four do not reach it
+    [$single] = joinWith($this, ['capacity' => 1]);
+
+    placeNew($this, $single);
+
+    expect(placeNew($this, $single)[1])->toBe([PlacementRule::LaneFree])
+        ->and(Capacity::effective($single, seatAt($this)))->toBe(1);
+});
+
+it('shows on the seats page what each live session in a seat takes now, and why (#564)', function (): void {
+    [$undeclared] = joinWith($this);
+    [$declared] = joinWith($this, ['capacity' => 2]);
+    [$above] = joinWith($this, ['capacity' => 9]);
+    [$gone] = joinWith($this);
+    AgentSession::query()->whereKey($gone->id)->update(['status' => AgentSessionStatus::Gone->value]);
+
+    // Another seat of the developer's, whose session is listed under it rather than this one
+    [$elsewhere] = joinWith($this, location: 'b');
+
+    $seat = seatAt($this);
+    $this->service(Seats::class)->cap($this->key, $seat->id, 3);
+
+    $html = Livewire::actingAs($this->developer)->test(SeatSettings::class)->html();
+
+    expect(capacityMarked($html, 'data-session-capacity'))->toBe([
+        sprintf('Session #%d takes up to 3 tasks at once now: this seat\'s setting.', $undeclared->id),
+        sprintf('Session #%d takes up to 2 tasks at once now: it asked for 2 when it joined, which is fewer than this seat allows.', $declared->id),
+        sprintf('Session #%d takes up to 3 tasks at once now: this seat\'s setting.', $above->id),
+        sprintf('Session #%d takes up to 1 task at once now: this seat\'s setting.', $elsewhere->id),
+    ]);
+
+    // Each under its own seat: the first three in this seat's list, the last in the other's
+    preg_match_all('/<ul[^>]*data-seat-sessions[^>]*>(.*?)<\/ul>/s', $html, $lists);
+
+    expect($lists[1])->toHaveCount(2)
+        ->and(substr_count($lists[1][0], 'data-session-capacity'))->toBe(3)
+        ->and($lists[1][0])->not->toContain('#'.$elsewhere->id.'<')
+        ->and($html)->not->toContain('Session <code>#'.$gone->id.'</code>');
+
+    // The same number a placement reads, for every one of them
+    foreach ([[$undeclared, 3], [$declared, 2], [$above, 3]] as [$lane, $capacity]) {
+        expect(Capacity::effective($lane, $seat->refresh()))->toBe($capacity);
+    }
+});
 
 it('records a declaration above the cap as the cap in effect, and says so on the join and the session read', function (): void {
     joinWith($this, location: 'a');
@@ -797,4 +892,70 @@ it('runs its migration again without error, completes one that stopped part-way,
     expect(Schema::hasColumn('robot_council_agent_sessions', 'declared_capacity'))->toBeFalse()
         ->and(Schema::hasColumn('robot_council_seats', 'max_capacity'))->toBeFalse()
         ->and(Schema::hasColumn('robot_council_tasks', 'sub_label'))->toBeFalse();
+});
+
+/**
+ * Whether `robot_council_agent_sessions.declared_capacity` admits null, as the engine reports it.
+ *
+ * @return bool|null Whether it does, or null when the column is not there to ask.
+ */
+function declaredCapacityNullable(): ?bool
+{
+    foreach (Schema::getColumns('robot_council_agent_sessions') as $column) {
+        if (\is_array($column) && ($column['name'] ?? null) === 'declared_capacity') {
+            return (bool) ($column['nullable'] ?? false);
+        }
+    }
+
+    return null;
+}
+
+it('makes the declared capacity nullable, forgets every stored one, and puts them back on a rollback (#564)', function (): void {
+    // Changes the schema, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
+    $migration = require PackageMigrations::directory().'/2026_10_07_000001_make_robot_council_declared_capacity_nullable.php';
+
+    $up = [$migration, 'up'];
+    $down = [$migration, 'down'];
+
+    if (! \is_callable($up) || ! \is_callable($down)) {
+        throw new RuntimeException('The migration file did not return something with an up() and a down().');
+    }
+
+    $sessions = $this->service(AgentSessions::class);
+    $undeclared = $sessions->start($this->installation, 'robot-council/core', 'a')->owner;
+    $declared = $sessions->start($this->installation, 'robot-council/core', 'b', capacity: 3)->owner;
+
+    $read = static fn (AgentSession $session): mixed => AgentSession::query()->whereKey($session->id)->value('declared_capacity');
+
+    // The schema every test runs on is the migrated one
+    expect(declaredCapacityNullable())->toBeTrue();
+
+    // Rolled back: nothing declared reads as one again, as it did before, and the column refuses null
+    $down();
+
+    expect(declaredCapacityNullable())->toBeFalse()
+        ->and($read($undeclared))->toBe(1)
+        ->and($read($declared))->toBe(3);
+
+    // Again, on a schema already rolled back
+    $down();
+
+    expect(declaredCapacityNullable())->toBeFalse();
+
+    // The state a deployed fleet is in before this runs: every session that declared nothing holds one
+    $up();
+
+    expect(declaredCapacityNullable())->toBeTrue()
+        ->and($read($undeclared))->toBeNull()
+        ->and($read($declared))->toBe(3);
+
+    // Again, on a schema that already has it, and a one written since is left alone: only what the
+    // old default wrote is forgotten, once
+    AgentSession::query()->whereKey($declared->id)->update(['declared_capacity' => 1]);
+
+    $up();
+
+    expect($read($declared))->toBe(1)
+        ->and(declaredCapacityNullable())->toBeTrue();
 });

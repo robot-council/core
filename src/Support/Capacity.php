@@ -10,10 +10,13 @@ use RobotCouncil\Models\Seat;
 /**
  * How many tasks a coordinator may place on one lane at once (#409, from #386's decision).
  *
- * **Two numbers, and the smaller one is in effect.** A session declares how many tickets it will
- * hold when it joins -- a harness that starts subagents can work several -- and its developer's seat
- * settings cap it. Neither is a role: #386 rejected a `lead` role because capacity is not a
- * permission and has to combine with `build` or `ci`.
+ * **The seat's number, lowered by the session's if it declared one.** Its developer's seat settings
+ * say how many tasks a session there takes at once, and a session that declared a number when it
+ * joined -- a harness that cannot run work in parallel, say -- is held to the smaller of the two.
+ * A session that declared nothing takes the seat's number (#564, which replaced #386's "the
+ * session declares it and the seat caps it" for that case: a developer who raised a seat found the
+ * running session still held to one). Neither is a role: #386 rejected a `lead` role because
+ * capacity is not a permission and has to combine with `build` or `ci`.
  *
  * **Computed on every read, never stored as the effective number.** A seat is recorded only when its
  * developer opens the seats page, from what their live sessions report, so a session joining a new
@@ -22,7 +25,7 @@ use RobotCouncil\Models\Seat;
  * it stops the next placement at once. A session can never raise it: the seat is written only from
  * the dashboard, by its own developer.
  *
- * **Both numbers default to one, which is exactly the behavior before #409**: `LaneFree` refused any
+ * **A seat nobody has set is one, which is exactly the behavior before #409**: `LaneFree` refused any
  * placement on a lane holding another task, and one held task out of a capacity of one is full.
  *
  * **An ordinal, so it clamps rather than refuses**, the pattern `Models\Task`'s `priority` settled
@@ -33,7 +36,7 @@ use RobotCouncil\Models\Seat;
 final class Capacity
 {
     /**
-     * The capacity a session that declares nothing has, and a seat nobody has set caps at.
+     * The capacity of a seat nobody has set, and so of a session in it that declared nothing.
      */
     public const int DEFAULT = 1;
 
@@ -68,15 +71,16 @@ final class Capacity
      * The capacity in effect for a lane in a seat.
      *
      * @param  AgentSession  $session  The lane.
-     * @param  Seat|null  $seat  Its seat, or null where none has been recorded -- which caps at one.
-     * @return int The smaller of what it declared and what its seat allows.
+     * @param  Seat|null  $seat  Its seat, or null where none has been recorded -- which is one.
+     * @return int What its seat allows, or what it declared where that is smaller.
      */
     public static function effective(AgentSession $session, ?Seat $seat): int
     {
-        return min(
-            self::clamp($session->declared_capacity),
-            self::clamp($seat instanceof Seat ? $seat->max_capacity : self::DEFAULT)
-        );
+        $allowed = self::clamp($seat instanceof Seat ? $seat->max_capacity : self::DEFAULT);
+
+        return $session->declared_capacity === null
+            ? $allowed
+            : min(self::clamp($session->declared_capacity), $allowed);
     }
 
     /**

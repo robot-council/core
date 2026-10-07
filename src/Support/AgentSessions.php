@@ -57,9 +57,11 @@ final class AgentSessions
      * @param  string|null  $workLocation  Which checkout of it, as a conventional label.
      * @param  string|null  $osFamily  The OS family the bridge runs on, as `PHP_OS_FAMILY` (#351).
      * @param  string|null  $arch  The architecture it runs on.
-     * @param  int  $capacity  How many tickets it declares it will hold at once (#409). Clamped to
-     *                         `Capacity::DEFAULT`..`Capacity::MAX` rather than refused, since it is an
-     *                         ordinal; its seat's cap applies on every read, not here.
+     * @param  int|null  $capacity  How many tickets it declares it will hold at once (#409), or null
+     *                              where it declared nothing and takes its seat's setting (#564).
+     *                              Clamped to `Capacity::DEFAULT`..`Capacity::MAX` rather than
+     *                              refused, since it is an ordinal; its seat applies on every read,
+     *                              not here.
      * @param  bool  $ephemeral  Whether the fleet is not to be told the session exists (#424): it
      *                           records no `session.joined`, and nothing that lists sessions or
      *                           lanes shows it. Everything else it does is an ordinary session's.
@@ -71,14 +73,14 @@ final class AgentSessions
         ?string $workLocation = null,
         ?string $osFamily = null,
         ?string $arch = null,
-        int $capacity = Capacity::DEFAULT,
+        ?int $capacity = null,
         bool $ephemeral = false
     ): IssuedCredential {
         // Bounded here as well as at the endpoint, because this is a public method a host may call
         // directly and the values reach other developers' agents through the enrollment event
         WorkIdentity::ensure($repository, $workLocation);
         Platform::ensure($osFamily, $arch);
-        $capacity = Capacity::clamp($capacity);
+        $capacity = $capacity === null ? null : Capacity::clamp($capacity);
 
         return DB::transaction(function () use ($installation, $repository, $workLocation, $osFamily, $arch, $capacity, $ephemeral): IssuedCredential {
             $current = $this->locked($installation);
@@ -109,8 +111,9 @@ final class AgentSessions
                 'os_family' => $osFamily,
                 'arch' => $arch,
 
-                // What it declared, not what is in effect: the seat's cap is read on every use, so
-                // a developer raising it reaches this session without a restart (`Capacity`)
+                // What it declared, not what is in effect, and null where it declared nothing: the
+                // seat is read on every use, so a developer raising it reaches this session without
+                // a restart (`Capacity`, #564)
                 'declared_capacity' => $capacity,
                 'ephemeral' => $ephemeral,
             ]);
@@ -157,8 +160,8 @@ final class AgentSessions
                     'os_family' => $osFamily,
                     'arch' => $arch,
 
-                    // What it declared (#409), so a coordinator reading the feed knows a lane may
-                    // take more than one ticket. The number in effect is on `GET lanes`.
+                    // What it declared (#409), or null where it takes its seat's setting (#564). The
+                    // number in effect is on `GET lanes`.
                     'declared_capacity' => $capacity,
                 ]
             );

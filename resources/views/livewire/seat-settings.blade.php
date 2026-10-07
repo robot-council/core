@@ -97,10 +97,26 @@
                                 <p id="seat-{{ $seat->id }}-capacity-help" class="max-w-xl text-meta leading-relaxed opacity-90">
                                     The most tasks one session in this seat may hold at the same time, from
                                     {{ \RobotCouncil\Support\Capacity::DEFAULT }} to {{ \RobotCouncil\Support\Capacity::MAX }}.
-                                    A session that works through subagents asks for its number when it joins, and gets no
-                                    more than this. At 1, a session holds one task, as it always has.
+                                    A session running here now takes the new number at once, without joining again.
+                                    A session that asked for a smaller number when it joined keeps to that one.
                                 </p>
                             </form>
+                            {{-- What each live session in the seat takes now (#564), from the rule a
+                                 placement reads, so a setting that does not reach one is visible here --}}
+                            @if (($sessions[$seat->id] ?? []) !== [])
+                                <ul class="flex w-full flex-col gap-1 text-meta" data-seat-sessions>
+                                    @foreach ($sessions[$seat->id] as $session)
+                                        <li wire:key="seat-{{ $seat->id }}-session-{{ $session['id'] }}" data-session-capacity="{{ $session['capacity'] }}">
+                                            Session <code>#{{ $session['id'] }}</code> takes up to {{ $session['capacity'] }} {{ $session['capacity'] === 1 ? 'task' : 'tasks' }} at once now:
+                                            @if ($session['declared'] !== null && $session['declared'] < $seat->max_capacity)
+                                                it asked for {{ $session['declared'] }} when it joined, which is fewer than this seat allows.
+                                            @else
+                                                this seat's setting.
+                                            @endif
+                                        </li>
+                                    @endforeach
+                                </ul>
+                            @endif
                             {{-- #320: a waiver lets exactly one placement through one refusal on this
                                  seat. Only the seat's developer can grant it; a coordinator cannot. --}}
                             <details class="w-full text-meta">

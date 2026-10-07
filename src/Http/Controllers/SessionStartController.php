@@ -103,7 +103,8 @@ final class SessionStartController
             $workLocation,
             \is_string($osFamily) ? $osFamily : null,
             \is_string($arch) ? $arch : null,
-            $request->filled('capacity') ? $request->integer('capacity') : Capacity::DEFAULT,
+            // Null where none was sent: the session then takes its seat's setting (#564)
+            $request->filled('capacity') ? $request->integer('capacity') : null,
             $request->boolean('ephemeral')
         );
 
@@ -127,6 +128,7 @@ final class SessionStartController
             // What a coordinator may place on it now, and what it asked for (#409). A `capacity`
             // below `declared_capacity` is the developer's seat cap -- one until they raise it on
             // their seats page -- and a declaration past `Capacity::MAX` reads back as that bound.
+            // A null `declared_capacity` asked for nothing, and takes the seat's number (#564).
             'capacity' => $capacity->of($issued->owner),
             'declared_capacity' => $issued->owner->declared_capacity,
         ], Response::HTTP_CREATED);
