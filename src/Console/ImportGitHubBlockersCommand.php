@@ -23,6 +23,13 @@ use RobotCouncil\Support\GitHubState;
  * GraphQL rather than REST because the read is graph-shaped: REST answers one issue's blockers per
  * request, and this needs every open issue's.
  *
+ * **It records a closed blocker it has no row for**, from the `state` the query reads beside each
+ * blocker (#569's Decision). The item import brings in open issues only, so a blocker closed before
+ * the webhook was configured had no row, and an unknown blocker blocks: the first backfill held 40
+ * tickets off the shortlist through edges to closed blockers. A file read without `state` -- the
+ * query as #570 first documented it -- still stores its edges, and fails the run, because those
+ * edges would hold their tickets in exactly that way.
+ *
  * **It refuses what it cannot trust rather than storing part of it quietly.** A GraphQL refusal --
  * a rate limit among them -- arrives as HTTP 200 with an `errors` key and no data, a `blockedBy` list
  * can be cut short at the page size asked for, and a file whose last page still has a next one was
@@ -64,6 +71,7 @@ final class ImportGitHubBlockersCommand extends Command
         $issues = 0;
         $added = 0;
         $known = 0;
+        $recorded = 0;
         $refused = 0;
         $unfinished = null;
 
@@ -95,11 +103,24 @@ final class ImportGitHubBlockersCommand extends Command
                 }
 
                 foreach ($blockers as $blocker) {
+                    $blockerRepository = self::at($blocker, 'repository', 'nameWithOwner');
+                    $blockerNumber = self::at($blocker, 'number');
+
                     try {
-                        if ($state->importBlocker($name, $number, self::at($blocker, 'repository', 'nameWithOwner'), self::at($blocker, 'number'))) {
+                        if ($state->importBlocker($name, $number, $blockerRepository, $blockerNumber)) {
                             $added++;
                         } else {
                             $known++;
+                        }
+
+                        // After the edge, so a blocker refused there is not recorded either
+                        $blockerState = self::at($blocker, 'state');
+
+                        if ($blockerState === 'CLOSED') {
+                            $recorded += $state->importClosedBlocker($blockerRepository, $blockerNumber, self::at($blocker, 'title'), self::at($blocker, 'updatedAt')) ? 1 : 0;
+                        } elseif ($blockerState !== 'OPEN') {
+                            $this->components->warn(sprintf("#%s's blocker #%s carries no state, so it blocks until a row says otherwise; read the file with the query the README shows.", json_encode($number), json_encode($blockerNumber)));
+                            $refused++;
                         }
                     } catch (InvalidArgumentException $invalid) {
                         $this->components->warn($invalid->getMessage());
@@ -115,7 +136,7 @@ final class ImportGitHubBlockersCommand extends Command
         }
 
         // Counted rather than summarized, so a file that imported nothing reads as that
-        $this->components->info(sprintf('Read %d open issue(s) on %d page(s). Stored %d new edge(s); %d already recorded; %d refused.', $issues, \count($pages), $added, $known, $refused));
+        $this->components->info(sprintf('Read %d open issue(s) on %d page(s). Stored %d new edge(s); %d already recorded; %d closed blocker(s) recorded; %d refused.', $issues, \count($pages), $added, $known, $recorded, $refused));
 
         return $refused === 0 ? self::SUCCESS : self::FAILURE;
     }

@@ -590,12 +590,17 @@ stored is ignored, since GitHub does not promise order.
        nameWithOwner
        issues(first: 100, states: OPEN, after: $endCursor) {
          pageInfo { hasNextPage endCursor }
-         nodes { number blockedBy(first: 100) { totalCount nodes { number repository { nameWithOwner } } } }
+         nodes { number blockedBy(first: 100) { totalCount nodes { number state title updatedAt repository { nameWithOwner } } } }
        }
      }
    }' > blockers.json
    php artisan robot-council:github-import-blockers blockers.json
    ```
+
+   It also records each **closed** blocker it has no row for, from the `state` the query reads,
+   because the item import above brings in open issues only and an edge to a blocker with no row
+   blocks: without it, a ticket blocked only by long-closed issues stays off the shortlist. A file
+   read without `state` still stores its edges, and fails the run for that reason.
 
    It only adds edges, so it is safe to run again, and it never removes one. An edge removed on
    GitHub is not in a file read afterwards, so read the file just before importing it: a file read
@@ -1160,6 +1165,14 @@ Three things worth knowing before you enable it:
 ## Upgrading
 
 ### Unreleased
+
+Read the `blocked_by` file again with the query the GitHub webhook section now shows, which reads each
+blocker's `state`, and run `robot-council:github-import-blockers` with it (#569). An import from
+0.8.0's query recorded edges to blockers it had no row for, and an unknown blocker blocks, so a ticket
+blocked only by closed issues stayed off the shortlist. The new file records each such closed blocker,
+which unblocks those tickets; no edge needs deleting.
+
+### To 0.8.0
 
 Run `php artisan migrate`: one migration adds `robot_council_agent_sessions.ephemeral`, defaulting
 to false, so every existing session stays an ordinary one (#424).

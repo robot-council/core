@@ -55,21 +55,30 @@ function importedIssue(TestCase $case, int $number, array $labels = ['developmen
 /**
  * One page of the query the README documents, in the shape `gh api graphql` writes it.
  *
- * @param  array<int, list<array{string, int}>>  $issues  Each open issue's blockers, as repository and number.
+ * @param  array<int, list<array{0: string, 1: int, 2?: string}>>  $issues  Each open issue's blockers, as
+ *                                                                          repository, number, and state
+ *                                                                          (`OPEN` unless given).
  * @param  bool  $hasNextPage  Whether GitHub said another page follows.
  * @param  string  $repository  The repository the page is about.
  * @param  int|null  $totalCount  What every issue says its full blocker count is, where that is not
  *                                the number listed: a list cut short.
+ * @param  bool  $withState  Whether each blocker carries its state, title and time, as the query
+ *                           has read them since #569's Decision; without, as #570 first wrote it.
+ * @param  string  $updatedAt  When every blocker says GitHub last changed it.
  * @return array<string, mixed> The page.
  */
-function blockerPage(array $issues, bool $hasNextPage = false, string $repository = 'robot-council/core', ?int $totalCount = null): array
+function blockerPage(array $issues, bool $hasNextPage = false, string $repository = 'robot-council/core', ?int $totalCount = null, bool $withState = true, string $updatedAt = '2026-09-01T08:00:00Z'): array
 {
     $nodes = [];
 
     foreach ($issues as $number => $blockers) {
         $nodes[] = ['number' => $number, 'blockedBy' => [
             'totalCount' => $totalCount ?? \count($blockers),
-            'nodes' => array_map(static fn (array $blocker): array => ['number' => $blocker[1], 'repository' => ['nameWithOwner' => $blocker[0]]], $blockers),
+            'nodes' => array_map(static fn (array $blocker): array => [
+                'number' => $blocker[1],
+                ...($withState ? ['state' => $blocker[2] ?? 'OPEN', 'title' => 'Blocker '.$blocker[1], 'updatedAt' => $updatedAt] : []),
+                'repository' => ['nameWithOwner' => $blocker[0]],
+            ], $blockers),
         ]];
     }
 
@@ -145,7 +154,7 @@ it('stores an edge to another repository under that repository', function (): vo
 
     expect($code)->toBe(0)
         ->and(storedEdges())->toBe(['robot-council/core#546<-pestphp/pest#1944', 'robot-council/core#546<-robot-council/core#545'])
-        ->and($output)->toContain('Read 1 open issue(s) on 1 page(s). Stored 2 new edge(s); 0 already recorded; 0 refused.');
+        ->and($output)->toContain('Read 1 open issue(s) on 1 page(s). Stored 2 new edge(s); 0 already recorded; 0 closed blocker(s) recorded; 0 refused.');
 });
 
 it('reads every page of a paginated file, and a single page written without --slurp', function (): void {
@@ -168,7 +177,7 @@ it('adds no duplicate on a second run, and says the edges were already recorded'
 
     expect($code)->toBe(0)
         ->and(DB::table('robot_council_github_blockers')->count())->toBe(2)
-        ->and($output)->toContain('Stored 0 new edge(s); 2 already recorded; 0 refused.');
+        ->and($output)->toContain('Stored 0 new edge(s); 2 already recorded; 0 closed blocker(s) recorded; 0 refused.');
 });
 
 it('does not bring back an edge removed on GitHub, and removes nothing a file leaves out', function (): void {
@@ -200,7 +209,7 @@ it('fails on a GraphQL refusal, which arrives as a page with errors and no data,
     expect($code)->toBe(1)
         ->and(storedEdges())->toBe(['robot-council/core#20<-robot-council/core#2'])
         ->and($output)->toContain('Page 1 carries no repository, or carries errors: [{"type":"RATE_LIMITED"')
-        ->and($output)->toContain('Read 1 open issue(s) on 2 page(s). Stored 1 new edge(s); 0 already recorded; 1 refused.');
+        ->and($output)->toContain('Read 1 open issue(s) on 2 page(s). Stored 1 new edge(s); 0 already recorded; 0 closed blocker(s) recorded; 1 refused.');
 
     // GraphQL also answers with part of the data beside an error; that page is refused whole
     $partial = blockerPage([319 => [['robot-council/core', 400]]]);
@@ -220,7 +229,7 @@ it('fails on a blocker list cut short, keeping the edges it does list', function
     expect($code)->toBe(1)
         ->and(storedEdges())->toHaveCount(2)
         ->and($output)->toContain('#319 lists 2 of its blockers')
-        ->and($output)->toContain('Stored 2 new edge(s); 0 already recorded; 1 refused.');
+        ->and($output)->toContain('Stored 2 new edge(s); 0 already recorded; 0 closed blocker(s) recorded; 1 refused.');
 });
 
 it('fails on a file whose last page still has a next one', function (): void {
@@ -228,7 +237,7 @@ it('fails on a file whose last page still has a next one', function (): void {
 
     expect($code)->toBe(1)
         ->and($output)->toContain('The last page of `robot-council/core` has a next page, so the file was not read to the end')
-        ->and($output)->toContain('Stored 1 new edge(s); 0 already recorded; 1 refused.');
+        ->and($output)->toContain('Stored 1 new edge(s); 0 already recorded; 0 closed blocker(s) recorded; 1 refused.');
 });
 
 it('refuses a blocker it cannot name, a file it cannot read, and one that is not JSON', function (): void {
@@ -240,7 +249,7 @@ it('refuses a blocker it cannot name, a file it cannot read, and one that is not
         ->and(storedEdges())->toBe(['robot-council/core#319<-robot-council/core#7'])
         ->and($output)->toContain('A delivery names its repository as owner/name.')
         ->and($output)->toContain('An item carries a positive number.')
-        ->and($output)->toContain('Stored 1 new edge(s); 0 already recorded; 2 refused.')
+        ->and($output)->toContain('Stored 1 new edge(s); 0 already recorded; 0 closed blocker(s) recorded; 2 refused.')
         ->and(Artisan::call('robot-council:github-import-blockers', ['file' => '/definitely/not/here.json']))->toBe(1)
         ->and(Artisan::output())->toContain('Cannot read `/definitely/not/here.json`.');
 
@@ -248,4 +257,88 @@ it('refuses a blocker it cannot name, a file it cannot read, and one that is not
 
     expect(Artisan::call('robot-council:github-import-blockers', ['file' => $directory.'/not.json']))->toBe(1)
         ->and(Artisan::output())->toContain('The file is not JSON.');
+});
+
+it('records a closed blocker it has no row for, so an edge to it no longer holds its ticket, and leaves an open one unrecorded', function (): void {
+    importedIssue($this, 319);
+    importedIssue($this, 320);
+
+    [$code, $output] = importBlockers($this->temporaryDirectory('github-import-blockers'), [blockerPage([
+        319 => [['robot-council/core', 700, 'CLOSED']],
+        320 => [['robot-council/core', 701]],
+    ])]);
+
+    $listed = array_column($this->service(Shortlist::class)->read()['robot-council/core'] ?? [], 'ticket');
+    $recorded = DB::table('robot_council_github_items')->where('repository', 'robot-council/core')->whereIn('number', [700, 701])->get();
+
+    expect($code)->toBe(0)
+        ->and($output)->toContain('Stored 2 new edge(s); 0 already recorded; 1 closed blocker(s) recorded; 0 refused.')
+        ->and($recorded)->toHaveCount(1)
+        ->and(keyValue($recorded->first()?->number))->toBe('700')
+        ->and($recorded->first()?->state)->toBe('closed')
+        ->and($recorded->first()?->title)->toBe('Blocker 700')
+        // A closed row is no ticket of its own, and #319 is offered again; #320's blocker is still unknown
+        ->and($listed)->toContain('robot-council/core#319')
+        ->and($listed)->not->toContain('robot-council/core#700')
+        ->and($listed)->not->toContain('robot-council/core#320');
+});
+
+it('unblocks an edge an earlier import stored without the blocker, once a file with its state is read', function (): void {
+    importedIssue($this, 698);
+
+    // 0.8.0's query: the edge, and nothing about #700, which is closed on GitHub
+    [$before] = importBlockers($this->temporaryDirectory('github-import-blockers'), [blockerPage([698 => [['robot-council/core', 700]]], withState: false)]);
+
+    $listedBefore = array_column($this->service(Shortlist::class)->read()['robot-council/core'] ?? [], 'ticket');
+
+    [$after, $output] = importBlockers($this->temporaryDirectory('github-import-blockers'), [blockerPage([698 => [['robot-council/core', 700, 'CLOSED']]])]);
+
+    $listedAfter = array_column($this->service(Shortlist::class)->read()['robot-council/core'] ?? [], 'ticket');
+
+    expect($before)->toBe(1)
+        ->and($listedBefore)->not->toContain('robot-council/core#698')
+        ->and($after)->toBe(0)
+        ->and($output)->toContain('Stored 0 new edge(s); 1 already recorded; 1 closed blocker(s) recorded; 0 refused.')
+        ->and($listedAfter)->toContain('robot-council/core#698')
+        // Nothing was deleted to get there
+        ->and(storedEdges())->toBe(['robot-council/core#698<-robot-council/core#700']);
+});
+
+it('fails on a file whose blockers carry no state, storing their edges', function (): void {
+    [$code, $output] = importBlockers($this->temporaryDirectory('github-import-blockers'), [blockerPage([319 => [['robot-council/core', 400]]], withState: false)]);
+
+    expect($code)->toBe(1)
+        ->and(storedEdges())->toBe(['robot-council/core#319<-robot-council/core#400'])
+        ->and($output)->toContain("#319's blocker #400 carries no state")
+        ->and($output)->toContain('Stored 1 new edge(s); 0 already recorded; 0 closed blocker(s) recorded; 1 refused.');
+});
+
+it('leaves a row the fleet already holds for a blocker alone, and records a closed one once', function (): void {
+    // Stored by a delivery or the item import, carrying what the file does not: it stays as it is
+    importedIssue($this, 400, ['development', 'afk']);
+    importedIssue($this, 319);
+
+    $pages = [blockerPage([319 => [['robot-council/core', 400, 'CLOSED'], ['robot-council/core', 401, 'CLOSED']]])];
+
+    [, $first] = importBlockers($this->temporaryDirectory('github-import-blockers'), $pages);
+    [$code, $second] = importBlockers($this->temporaryDirectory('github-import-blockers'), $pages);
+
+    $held = DB::table('robot_council_github_items')->where('number', 400)->first();
+
+    expect($code)->toBe(0)
+        ->and($first)->toContain('1 closed blocker(s) recorded')
+        ->and($second)->toContain('0 closed blocker(s) recorded')
+        ->and(DB::table('robot_council_github_items')->where('number', 401)->count())->toBe(1)
+        ->and($held?->state)->toBe('open')
+        ->and($held?->title)->toBe('Ticket 400');
+});
+
+it('refuses a closed blocker it cannot record, keeping its edge', function (): void {
+    [$code, $output] = importBlockers($this->temporaryDirectory('github-import-blockers'), [blockerPage([319 => [['robot-council/core', 700, 'CLOSED']]], updatedAt: 'not a time')]);
+
+    expect($code)->toBe(1)
+        ->and(storedEdges())->toBe(['robot-council/core#319<-robot-council/core#700'])
+        ->and(DB::table('robot_council_github_items')->where('number', 700)->exists())->toBeFalse()
+        ->and($output)->toContain('An item carries the time GitHub last changed it.')
+        ->and($output)->toContain('Stored 1 new edge(s); 0 already recorded; 0 closed blocker(s) recorded; 1 refused.');
 });
