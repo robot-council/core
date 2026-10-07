@@ -444,7 +444,7 @@ it('reaches a session that has gone, and says how many there are', function (): 
     // still reachable once the fleet is larger than one page.
     $size = AgentsPage::SESSIONS;
 
-    foreach (range(1, $size + 3) as $ignored) {
+    for ($i = 0; $i < $size + 3; $i++) {
         $this->startAgentSession($this->installation);
     }
 
@@ -481,7 +481,7 @@ it('does not skip a session because its contact time moved', function (): void {
 
     $sessions = [$this->session];
 
-    foreach (range(1, 4) as $ignored) {
+    for ($i = 0; $i < 4; $i++) {
         [$started] = $this->startAgentSession($this->installation);
         $sessions[] = $started;
     }
@@ -527,7 +527,7 @@ it('does not offer a next page when the set is an exact multiple of the page', f
     $size = 2;
 
     // One session exists from `beforeEach`, so three more makes four -- two full pages
-    foreach (range(1, 3) as $ignored) {
+    for ($i = 0; $i < 3; $i++) {
         $this->startAgentSession($this->installation);
     }
 

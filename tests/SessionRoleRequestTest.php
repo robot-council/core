@@ -328,7 +328,7 @@ it('limits how fast a session can ask, so a denial cannot fill the queue', funct
     // re-asking in a loop is a flood aimed at a human rather than at the service.
     $seen = [];
 
-    foreach (range(1, 8) as $ignored) {
+    for ($i = 0; $i < 8; $i++) {
         $seen[] = $this->machine($this->token)
             ->postJson(route('robot-council.agent.role'), ['role' => Role::Coordinator->value])
             ->getStatusCode();

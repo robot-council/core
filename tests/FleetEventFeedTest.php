@@ -781,7 +781,7 @@ it('reads the feed in one query rather than two', function (): void {
     // The criterion robot-council/core#94 states, asserted by counting rather than by reading the
     // code. Only statements touching the events table are counted: resolving the reader's session
     // and looking up GitHub logins are separate concerns with their own queries.
-    [$mine, $mineToken] = sessionFor($this, $this->mine, [Ability::EventsPost->value]);
+    [$mine] = sessionFor($this, $this->mine, [Ability::EventsPost->value]);
     [$theirs] = sessionFor($this, $this->theirs, [Ability::EventsPost->value]);
 
     $rows = [];

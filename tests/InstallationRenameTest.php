@@ -294,7 +294,7 @@ it('marks the field invalid and reads the refusal with it', function (): void {
 });
 
 it('sets no length on the field, so a long label is refused in words rather than cut short', function (): void {
-    $installation = $this->approveInstallation($this->owner, 'unknown-machine');
+    $this->approveInstallation($this->owner, 'unknown-machine');
 
     Livewire::actingAs($this->owner)
         ->test(SeatSettings::class)
