@@ -576,8 +576,34 @@ stored is ignored, since GitHub does not promise order.
    php artisan robot-council:github-import pulls.json
    ```
 
-   The import stores state and frees no lane. `blocked_by` edges are not in either file; they
-   arrive from the webhook as they change.
+   The import stores state and frees no lane.
+
+5. **Backfill the `blocked_by` edges too.** Neither file carries them, and the webhook reports an
+   edge only when it changes, so a ticket blocked since before the webhook reads as unblocked: the
+   shortlist offers it and the documentation-ahead warning counts it. One paginated query reads every
+   open issue's blockers:
+
+   ```bash
+   gh api graphql --paginate --slurp -F owner=OWNER -F name=REPO -f query='
+   query($owner: String!, $name: String!, $endCursor: String) {
+     repository(owner: $owner, name: $name) {
+       nameWithOwner
+       issues(first: 100, states: OPEN, after: $endCursor) {
+         pageInfo { hasNextPage endCursor }
+         nodes { number blockedBy(first: 100) { totalCount nodes { number repository { nameWithOwner } } } }
+       }
+     }
+   }' > blockers.json
+   php artisan robot-council:github-import-blockers blockers.json
+   ```
+
+   It only adds edges, so it is safe to run again, and it never removes one. An edge removed on
+   GitHub is not in a file read afterwards, so read the file just before importing it: a file read
+   before a removal and imported after it puts the edge back, and that edge fails closed -- a
+   placement names the blocker, and removing and re-adding the edge on GitHub clears it -- as a
+   delivery received out of order does. It exits non-zero on a page
+   GitHub answered with `errors` -- a rate limit arrives that way, as HTTP 200 -- on a blocker list
+   cut short, and on a file whose last page has a next one.
 
 Deliveries are rate-limited per source address by `robot-council.rate_limits.github_webhook_per_minute`
 (600), and the limiter runs before the signature check.
@@ -1146,6 +1172,11 @@ when one was declared. So a running session in a seat whose Tasks at once was ra
 number at once, including one that really did declare 1. A host calling `Support\AgentSessions::start()`
 without a capacity gets a session that takes its seat's number, where it used to get one. Pass `1`
 to keep the old behavior.
+
+Run `robot-council:github-import-blockers` once per repository the webhook reports on, with the file
+the GitHub webhook section shows how to read (#569). Until it runs, a ticket blocked since before the
+webhook was configured reads as unblocked: the shortlist offers it and the documentation-ahead
+warning counts it.
 
 ### To 0.7.0
 

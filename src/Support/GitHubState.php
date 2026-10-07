@@ -150,6 +150,40 @@ final class GitHubState
     }
 
     /**
+     * Store one `blocked_by` edge an operator read from GitHub (#569).
+     *
+     * **The backfill the edges need, as `import()` is the one items need.** The webhook records an
+     * edge only when it changes, so an edge made before the webhook was configured, or one whose
+     * delivery was lost, was never recorded, and its ticket read as unblocked to the shortlist and to
+     * every placement. This takes the edge from a file the operator produced with `gh api`, so core
+     * still reads nothing from GitHub.
+     *
+     * **It only ever adds.** An import is a snapshot, and nothing orders it against a delivery, so it
+     * cannot tell an edge GitHub has since removed from one it never listed. An edge left behind
+     * fails closed, exactly as a stale delivered one does (#341): a placement names the blocker and a
+     * waiver covers it.
+     *
+     * @param  mixed  $repository  The blocked issue's repository, as `owner/name`.
+     * @param  mixed  $number  The blocked issue's number.
+     * @param  mixed  $blockerRepository  The blocking issue's repository.
+     * @param  mixed  $blockerNumber  The blocking issue's number.
+     * @return bool True when the edge was not already recorded.
+     *
+     * @throws InvalidArgumentException When a name or a number is not one.
+     */
+    public function importBlocker(mixed $repository, mixed $number, mixed $blockerRepository, mixed $blockerNumber): bool
+    {
+        $edge = [
+            'repository' => self::checkedRepository($repository),
+            'number' => self::number(['number' => $number]),
+            'blocker_repository' => self::checkedRepository($blockerRepository),
+            'blocker_number' => self::number(['number' => $blockerNumber]),
+        ];
+
+        return DB::table('robot_council_github_blockers')->insertOrIgnore($edge) === 1;
+    }
+
+    /**
      * An `issues` delivery.
      *
      * **A lane is freed from the state that ends up stored, not from whether this report won.**
