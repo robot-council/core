@@ -313,11 +313,11 @@ it('shows on the seats page what each live session in a seat takes now, and why 
     $html = Livewire::actingAs($this->developer)->test(SeatSettings::class)->html();
 
     expect(capacityMarked($html, 'data-session-capacity'))->toBe([
-        sprintf('Session #%d takes up to 3 tasks at once now: this seat\'s setting.', $undeclared->id),
+        sprintf("Session #%d takes up to 3 tasks at once now: this seat's setting.", $undeclared->id),
         sprintf('Session #%d takes up to 2 tasks at once now: it asked for 2 when it joined, which is fewer than this seat allows.', $declared->id),
-        sprintf('Session #%d takes up to 3 tasks at once now: this seat\'s setting.', $above->id),
-        sprintf('Session #%d takes up to 3 tasks at once now: this seat\'s setting.', $stale->id),
-        sprintf('Session #%d takes up to 1 task at once now: this seat\'s setting.', $elsewhere->id),
+        sprintf("Session #%d takes up to 3 tasks at once now: this seat's setting.", $above->id),
+        sprintf("Session #%d takes up to 3 tasks at once now: this seat's setting.", $stale->id),
+        sprintf("Session #%d takes up to 1 task at once now: this seat's setting.", $elsewhere->id),
     ]);
 
     // Each under its own seat: the first four in this seat's list, the last in the other's, and
