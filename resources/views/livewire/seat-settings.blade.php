@@ -41,8 +41,13 @@
                             {{-- Every control below names its seat to a screen reader (#400), since each
                                  repeats once per seat and a list of identical names says nothing. --}}
                             @php($seatName = $seat->repository.($seat->work_location !== '' ? ' / '.$seat->work_location : ''))
-                            <div>
-                                <div class="font-medium">
+                            {{-- #561: the title takes the row's spare width and wraps a long name inside
+                                 itself, and the controls never shrink, so from `md` up every row keeps its
+                                 controls at the right however long its seat's name is. Below `md` every
+                                 row stacks them under the title, rather than only the rows whose name
+                                 happened not to fit. --}}
+                            <div class="w-full min-w-0 md:w-auto md:flex-1" data-seat-title>
+                                <div class="font-medium wrap-anywhere">
                                     <x-robot-council::avatar :repository="$seat->repository" /><code>{{ $seat->repository }}</code>@if ($seat->work_location !== '') / <code>{{ $seat->work_location }}</code>@endif
                                 </div>
                                 <div class="text-meta opacity-90">
@@ -54,7 +59,7 @@
                                 </div>
                             </div>
 
-                            <div class="flex flex-wrap items-center gap-2">
+                            <div class="flex flex-wrap items-center gap-2 md:shrink-0" data-seat-controls>
                                 {{-- The state is a labelled line and the button a verb in other words
                                      (#482), so the two never read alike --}}
                                 @if ($seat->hours_exempt)

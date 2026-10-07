@@ -2614,3 +2614,109 @@ it('still stacks every seat table on a phone, with no column widths left over (#
         ->and($cells)->toBe([])
         ->and(sidewaysScroll($page))->toBe(0);
 });
+
+/**
+ * Where each seat row on the seats page draws its title, its controls and its Park or Lift button.
+ *
+ * @param  bool  $plantOld  Put back the row's classes from before #561 first, for the control.
+ * @return list<array{name: string, title: array{left: float, right: float, bottom: float}, controls: array{left: float, right: float, top: float}, button: array{left: float, right: float}}>
+ */
+function seatRows(PendingAwaitablePage $page, bool $plantOld = false): array
+{
+    $rows = $page->script(sprintf(<<<'JS'
+        () => {
+            if (%s) {
+                for (const title of document.querySelectorAll('[data-seat-title]')) {
+                    title.className = '';
+                    title.firstElementChild.classList.remove('wrap-anywhere');
+                }
+                for (const controls of document.querySelectorAll('[data-seat-controls]')) {
+                    controls.className = 'flex flex-wrap items-center gap-2';
+                }
+            }
+            return [...document.querySelectorAll('[data-seat-title]')].map(title => {
+                const row = title.parentElement;
+                const controls = row.querySelector('[data-seat-controls]');
+                const button = controls.querySelector('button[wire\\:click^="park("], button[wire\\:click^="lift("]');
+                const t = title.getBoundingClientRect();
+                const c = controls.getBoundingClientRect();
+                const b = button.getBoundingClientRect();
+                return {
+                    name: title.firstElementChild.textContent.replace(/\s+/g, ' ').trim(),
+                    title: { left: t.left, right: t.right, bottom: t.bottom },
+                    controls: { left: c.left, right: c.right, top: c.top },
+                    button: { left: b.left, right: b.right },
+                };
+            });
+        }
+    JS, $plantOld ? 'true' : 'false'));
+
+    if (! is_array($rows)) {
+        throw new RuntimeException('The seat-row read returned nothing.');
+    }
+
+    /** @var list<array{name: string, title: array{left: float, right: float, bottom: float}, controls: array{left: float, right: float, top: float}, button: array{left: float, right: float}}> $rows */
+    return $rows;
+}
+
+/**
+ * The signed-in developer's seats, read at one width, with the long-named one proved present.
+ *
+ * @return list<array{name: string, title: array{left: float, right: float, bottom: float}, controls: array{left: float, right: float, top: float}, button: array{left: float, right: float}}>
+ */
+function seatRowsAt(TestCase $case, int $width, bool $plantOld = false): array
+{
+    $page = visitSurface($case, 'robot-council.seats', '', 'robot-council-core-a', 'light');
+
+    // A seat whose name runs past one line, added here rather than to the shared fleet, whose other
+    // pages are measured row by row; every name is within `WorkIdentity`'s bounds
+    $developer = auth('web')->user();
+
+    if (! $developer instanceof User) {
+        throw new RuntimeException('No developer is signed in.');
+    }
+
+    $case->service(AgentSessions::class)->start($case->approveInstallation($developer, 'long-names-box'), 'example-org/a-repository-whose-name-runs-long-enough-to-wrap', 'a-checkout-with-a-long-label-b');
+
+    $page->refresh()->resize($width, 900);
+
+    $rows = seatRows($page, $plantOld);
+    $lengths = array_map(static fn (array $row): int => mb_strlen($row['name']), $rows);
+
+    // A short name and the long one, or the comparisons below compare nothing
+    expect(array_filter($lengths, static fn (int $length): bool => $length > 70))->toHaveCount(1)
+        ->and(array_filter($lengths, static fn (int $length): bool => $length < 45))->not->toBeEmpty()
+        ->and(sidewaysScroll($page))->toBe(0);
+
+    return $rows;
+}
+
+it("keeps every seat row's controls at the right, whatever the length of its name (#561)", function (int $width): void {
+    $rows = seatRowsAt($this, $width);
+
+    foreach ($rows as $row) {
+        // Beside the title rather than under it, and the name kept off them
+        expect($row['controls']['top'])->toBeLessThan($row['title']['bottom'], $row['name'])
+            ->and($row['title']['right'])->toBeLessThanOrEqual($row['controls']['left'], $row['name']);
+    }
+
+    // Every row's controls end at one edge, and every Park button starts at one offset
+    expect(array_unique(array_map(static fn (array $row): int => (int) round($row['controls']['right']), $rows)))->toHaveCount(1)
+        ->and(array_unique(array_map(static fn (array $row): int => (int) round($row['button']['left']), $rows)))->toHaveCount(1);
+})->with([1100, 1920]);
+
+it("stacks every seat row's controls under its title below `md` (#561)", function (int $width): void {
+    $rows = seatRowsAt($this, $width);
+
+    foreach ($rows as $row) {
+        expect($row['controls']['top'])->toBeGreaterThanOrEqual($row['title']['bottom'], $row['name'])
+            ->and((int) round($row['controls']['left']))->toBe((int) round($row['title']['left']), $row['name']);
+    }
+})->with([390, 700]);
+
+it('finds a long-named seat row whose controls jump, so the check above is not blind (#561)', function (): void {
+    $rows = seatRowsAt($this, 1100, plantOld: true);
+
+    // The layout before #561: the long name pushes its controls onto a line of their own, at the left
+    expect(array_unique(array_map(static fn (array $row): int => (int) round($row['button']['left']), $rows)))->not->toHaveCount(1);
+});
