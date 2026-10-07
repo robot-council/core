@@ -918,8 +918,8 @@ it('runs its migration again without error, completes one that stopped part-way,
 function declaredCapacityNullable(): ?bool
 {
     foreach (Schema::getColumns('robot_council_agent_sessions') as $column) {
-        if (\is_array($column) && ($column['name'] ?? null) === 'declared_capacity') {
-            return (bool) ($column['nullable'] ?? false);
+        if ($column['name'] === 'declared_capacity') {
+            return $column['nullable'];
         }
     }
 
