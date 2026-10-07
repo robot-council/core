@@ -256,7 +256,6 @@ it('announces no resumption when a stale ephemeral session answers again', funct
 it('leaves an ephemeral session out of the agents list and the lanes, and lists an ordinary one', function (): void {
     $ordinary = $this->service(AgentSessions::class)->start($this->installation, 'robot-council/core', 'a')->owner;
     $issued = $this->service(AgentSessions::class)->start($this->installation, 'robot-council/core', 'b', ephemeral: true);
-    $ephemeral = $issued->owner;
 
     // The reader is the ephemeral session itself, which reads the list as any session does
     $listed = array_column(arrayValue($this->machine($issued->plainTextToken)
@@ -320,7 +319,7 @@ it('lists a live ephemeral session on the administration panel, marked, and neit
     // A read loop's worth of churn
     $churned = [];
 
-    foreach (range(1, 3) as $ignored) {
+    for ($i = 0; $i < 3; $i++) {
         $read = $sessions->start($this->installation, ephemeral: true)->owner;
         $presence->end($read);
         $churned[] = $read->id;

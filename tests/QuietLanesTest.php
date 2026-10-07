@@ -69,18 +69,17 @@ function quietNotices(AgentSession $lane): int
 /**
  * Act on a lane's behalf, at a moment.
  *
- * @param  TestCase  $case  The test case.
  * @param  int  $minutes  Minutes after 12:00.
  * @param  callable(): mixed  $act  What it does.
  */
-function actAt(TestCase $case, int $minutes, callable $act): void
+function actAt(int $minutes, callable $act): void
 {
     Carbon::setTestNow(Carbon::parse('2026-09-24 12:00:00', 'UTC')->addMinutes($minutes));
     $act();
 }
 
 it('tells the coordinator once about a lane quiet past the hour, and not one that spoke at minute 59', function (): void {
-    actAt($this, 59, fn () => $this->service(FleetEvents::class)->record(FleetEventType::Narration, $this->bystander, 'Still here.'));
+    actAt(59, fn () => $this->service(FleetEvents::class)->record(FleetEventType::Narration, $this->bystander, 'Still here.'));
 
     expect(quietCheckAt($this, 61))->toBeGreaterThanOrEqual(1)
         ->and(quietNotices($this->lane))->toBe(1)
@@ -104,7 +103,7 @@ it('does not tell the coordinator about an ephemeral session gone quiet, which i
 });
 
 it('lets a heartbeat, a join and a received directive leave the clock running', function (string $what): void {
-    actAt($this, 30, function () use ($what): void {
+    actAt(30, function () use ($what): void {
         match ($what) {
             'heartbeat' => AgentSession::query()->whereKey($this->lane->id)->update(['last_seen_at' => Carbon::now()]),
             'a join' => $this->service(FleetEvents::class)->record(FleetEventType::SessionJoined, $this->lane, 'Joined.'),
@@ -118,7 +117,7 @@ it('lets a heartbeat, a join and a received directive leave the clock running', 
 })->with(['heartbeat', 'a join', 'a received directive']);
 
 it('lets each authored act reset the clock', function (string $what): void {
-    actAt($this, 30, function () use ($what): void {
+    actAt(30, function () use ($what): void {
         match ($what) {
             'a narration' => $this->service(FleetEvents::class)->record(FleetEventType::Narration, $this->lane, 'Working on it.'),
             'a task transition' => (function (): void {

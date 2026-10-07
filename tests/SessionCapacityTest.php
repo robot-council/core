@@ -525,7 +525,7 @@ it("lets one placement past a full lane on the seat owner's waiver, and spends i
 it("does not limit a lane's own claims, which capacity was never about", function (): void {
     [$lane] = joinWith($this);
 
-    foreach ([1, 2] as $ignored) {
+    for ($i = 0; $i < 2; $i++) {
         $task = $this->service(Tasks::class)->create($this->coordinatorSession, ['title' => 'Mine'], true);
 
         expect($this->service(Tasks::class)->transition($task->id, TaskTransition::Claim, $lane, false))->toBe(Outcome::Applied);
@@ -856,9 +856,7 @@ it('adds the columns as wide as the bounds the package enforces', function (): v
     $types = [];
 
     foreach (Schema::getColumns('robot_council_tasks') as $column) {
-        if (\is_array($column) && \is_string($column['name'] ?? null) && \is_string($column['type'] ?? null)) {
-            $types[$column['name']] = $column['type'];
-        }
+        $types[$column['name']] = $column['type'];
     }
 
     // The control: a reading that found no columns would pass nothing below

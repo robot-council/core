@@ -161,7 +161,7 @@ it('renders a migrated row in the dashboard change feed', function (): void {
     // row that migrated correctly but rendered as an error would satisfy every assertion above.
     $developer = $this->enrollDeveloper(4242);
 
-    $id = anEventRowFromBeforeTheRename();
+    anEventRowFromBeforeTheRename();
 
     runMigration(theRenameMigration(), 'up');
 

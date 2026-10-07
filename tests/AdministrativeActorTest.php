@@ -128,7 +128,7 @@ it('serves a restricted event to the developer it is about, not to whoever recor
 });
 
 it('resolves both developers for the dashboard, and neither for an ordinary event', function (): void {
-    [$session] = $this->startAgentSession($this->installation);
+    $this->startAgentSession($this->installation);
 
     // **`revoke()` rather than the ability grant this used to call.** `robot-council/core#231`
     // retired that control; what this needs is an administrative act whose actor differs from its

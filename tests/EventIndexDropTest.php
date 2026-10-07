@@ -31,13 +31,10 @@ beforeEach(function (): void {
  */
 function eventIndexes(): array
 {
-    return array_values(array_map(
-        fn (mixed $index): array => array_values(array_map(
-            fn (mixed $column): string => strtolower(stringValue($column)),
-            arrayValue(arrayValue($index)['columns'] ?? null),
-        )),
+    return array_map(
+        fn (array $index): array => array_map(strtolower(...), $index['columns']),
         Schema::getIndexes('robot_council_events'),
-    ));
+    );
 }
 
 /**
