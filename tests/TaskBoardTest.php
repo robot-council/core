@@ -10,7 +10,6 @@ declare(strict_types=1);
 
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
-use RobotCouncil\Access\Ability;
 use RobotCouncil\Livewire\TaskBoard;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\Task;
@@ -38,10 +37,9 @@ beforeEach(function (): void {
  * A session belonging to a second developer, whose work is nobody else's to claim.
  *
  * @param  TestCase  $case  The test case.
- * @param  list<string>  $abilities  What the installation is granted.
  * @return array{AgentSession, string} The session and its token.
  */
-function otherDeveloperSession(TestCase $case, array $abilities = [Ability::TasksCreate->value]): array
+function otherDeveloperSession(TestCase $case): array
 {
     $other = $case->enrollDeveloper(77, login: 'somebody-else');
 
@@ -103,7 +101,7 @@ it("shows another developer's task in full, which is what #73 decided", function
 });
 
 it('marks a coordinator-created task without making the reader check who filed it', function (): void {
-    [$coordinator] = otherDeveloperSession($this, [Ability::CoordinatorDirect->value, Ability::TasksCreate->value]);
+    [$coordinator] = otherDeveloperSession($this);
 
     app(Tasks::class)->create($coordinator, ['title' => 'Everyone stop'], withCoordinator: true);
     app(Tasks::class)->create($this->session, ['title' => 'An ordinary one'], withCoordinator: false);

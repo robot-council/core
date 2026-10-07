@@ -761,7 +761,7 @@ it('stores the contact time as a column that cannot be null', function (): void 
         ->and(arrayValue($column)['nullable'])->toBeFalse();
 
     $index = collect(Schema::getIndexes('robot_council_agent_sessions'))
-        ->first(fn (mixed $index): bool => is_array($index) && $index['columns'] === ['status', 'last_seen_at']);
+        ->first(fn (array $index): bool => $index['columns'] === ['status', 'last_seen_at']);
 
     expect($index)->not->toBeNull();
 });

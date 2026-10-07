@@ -91,7 +91,7 @@ it('counts the fleet rather than the page', function (): void {
     for ($i = 0; $i < $sessions; $i++) {
         $installation = $this->approveInstallation($this->developer, 'box-'.$i);
 
-        [$session, $token] = $this->startAgentSession($installation);
+        [$session] = $this->startAgentSession($installation);
 
         $first ??= $session;
         $this->session = $session;

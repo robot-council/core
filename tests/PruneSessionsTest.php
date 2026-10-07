@@ -181,7 +181,7 @@ it('keeps everything when the retention is zero, and says so', function (): void
 });
 
 it('clamps a batch or ceiling that makes no sense, and stops when nothing is left', function (): void {
-    foreach (range(1, 3) as $ignored) {
+    for ($i = 0; $i < 3; $i++) {
         sessionAged($this, AgentSessionStatus::Gone, 200);
     }
 

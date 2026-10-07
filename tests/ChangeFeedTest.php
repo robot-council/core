@@ -39,10 +39,9 @@ beforeEach(function (): void {
  * A session under a second developer, whose narration is nobody else's to read under #29.
  *
  * @param  TestCase  $case  The test case.
- * @param  list<string>  $abilities  What the installation is granted.
  * @return array{AgentSession, string} The session and its token.
  */
-function otherSession(TestCase $case, array $abilities = [Ability::EventsPost->value]): array
+function otherSession(TestCase $case): array
 {
     $other = $case->enrollDeveloper(77, login: 'somebody-else');
 
@@ -211,7 +210,7 @@ it('puts the newest event first', function (): void {
 });
 
 it('keeps the coordinator flag as it was when the event was written', function (): void {
-    [$coordinator] = otherSession($this, [Ability::CoordinatorDirect->value, Ability::EventsPost->value]);
+    [$coordinator] = otherSession($this);
 
     app(FleetEvents::class)->record(
         FleetEventType::Directive,

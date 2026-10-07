@@ -867,9 +867,7 @@ it('adds columns as wide as the bounds the package enforces', function (): void 
     $widths = [];
 
     foreach (Schema::getColumns('robot_council_tasks') as $column) {
-        if (\is_array($column) && \is_string($column['name'] ?? null) && \is_string($column['type'] ?? null)) {
-            $widths[$column['name']] = $column['type'];
-        }
+        $widths[$column['name']] = $column['type'];
     }
 
     // The control for the loop above: a reading that found no columns would pass nothing below

@@ -182,10 +182,7 @@ it('does not warn another developer about an installation that is not theirs', f
 it('indexes the identity the supersede looks up', function (): void {
     // The lookup runs on every approval and holds what it reads. Asserted against the schema rather
     // than by reading the migration, so a migration that did not run reports as a failure here.
-    $names = array_map(
-        static fn (mixed $index): string => \is_array($index) ? stringValue($index['name'] ?? '') : '',
-        Schema::getIndexes('robot_council_installations')
-    );
+    $names = array_column(Schema::getIndexes('robot_council_installations'), 'name');
 
     expect($names)->toContain('robot_council_installations_identity_index');
 });

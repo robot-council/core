@@ -94,7 +94,7 @@ it("shows each live session's role, which is the whole of what it may do", funct
 });
 
 it("shows where each of an installation's sessions is working", function (): void {
-    [$installation, $session] = installationWithSession($this, $this->developer);
+    [, $session] = installationWithSession($this, $this->developer);
 
     $session->forceFill(['repository' => 'robot-council/core', 'work_location' => 'ci'])->save();
 
@@ -463,12 +463,12 @@ it('lists every live session, and counts the ones that have ended', function ():
     // Seventeen, which is what `josh-office` held on 2026-09-25 when a cap of ten hid seven (#414)
     $live = [];
 
-    foreach (range(1, 17) as $ignored) {
+    for ($i = 0; $i < 17; $i++) {
         [$live[]] = $this->startAgentSession($installation);
     }
 
     // And three that have ended, which are counted rather than listed
-    foreach (range(1, 3) as $ignored) {
+    for ($i = 0; $i < 3; $i++) {
         [$session] = $this->startAgentSession($installation);
 
         $this->service(SessionPresence::class)->revoke($session);
@@ -490,7 +490,7 @@ it('shows and revokes a session a cap of ten would have hidden', function (): vo
 
     $live = [];
 
-    foreach (range(1, 17) as $ignored) {
+    for ($i = 0; $i < 17; $i++) {
         [$live[]] = $this->startAgentSession($installation);
     }
 
