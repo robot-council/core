@@ -184,6 +184,44 @@ final class GitHubState
     }
 
     /**
+     * Record a closed blocker the fleet has no row for, read from the file its edge came from (#569).
+     *
+     * **An edge's blocker is unknown until an item row says otherwise, and unknown blocks** (#341).
+     * `robot-council:github-import` brings in open issues only, so a blocker closed before the
+     * webhook was configured never had a row, and every edge to it held its ticket off the shortlist
+     * for good -- measured on the deployment after the first backfill: 49 edges to 40 tickets. The
+     * Decision on #569 has the import record each blocker's state rather than delete an edge.
+     *
+     * **Only a closed one, and only where there is no row.** An open blocker with no row already
+     * blocks, so recording it changes no placement, while a row with no labels and no body would put
+     * it on its repository's shortlist as a ticket nothing is known about. And a row that exists was
+     * written by a delivery or by the item import, which carry everything this does not, so it is
+     * left alone rather than raced on its timestamp.
+     *
+     * @param  mixed  $repository  The blocker's repository, as `owner/name`.
+     * @param  mixed  $number  Its number.
+     * @param  mixed  $title  Its title.
+     * @param  mixed  $updatedAt  When GitHub last changed it, as GraphQL's `updatedAt` writes it.
+     * @return bool True when a row was recorded.
+     *
+     * @throws InvalidArgumentException When a field is not one GitHub sends.
+     */
+    public function importClosedBlocker(mixed $repository, mixed $number, mixed $title, mixed $updatedAt): bool
+    {
+        $row = self::row(self::checkedRepository($repository), [
+            'number' => $number, 'state' => 'closed', 'title' => $title, 'updated_at' => $updatedAt,
+        ], false);
+
+        $now = Carbon::now();
+
+        // Encoded by hand, as `store()` does: `insertOrIgnore` runs no casts
+        $row['labels'] = json_encode($row['labels'], JSON_THROW_ON_ERROR);
+        $row['mentioned_paths'] = json_encode($row['mentioned_paths'], JSON_THROW_ON_ERROR);
+
+        return GitHubItem::query()->insertOrIgnore([...$row, 'created_at' => $now, 'updated_at' => $now]) === 1;
+    }
+
+    /**
      * An `issues` delivery.
      *
      * **A lane is freed from the state that ends up stored, not from whether this report won.**
