@@ -25,6 +25,7 @@ use RobotCouncil\Console\CheckLaneConditionsCommand;
 use RobotCouncil\Console\CheckQuietLanesCommand;
 use RobotCouncil\Console\DoctorCommand;
 use RobotCouncil\Console\FetchBacklogCommand;
+use RobotCouncil\Console\ImportGitHubBlockersCommand;
 use RobotCouncil\Console\ImportGitHubItemsCommand;
 use RobotCouncil\Console\InstallCommand;
 use RobotCouncil\Console\PruneDeviceCodesCommand;
@@ -155,6 +156,7 @@ final class RobotCouncilServiceProvider extends PackageServiceProvider
                 RevokeSessionCommand::class,
                 DoctorCommand::class,
                 ImportGitHubItemsCommand::class,
+                ImportGitHubBlockersCommand::class,
                 PruneDeviceCodesCommand::class,
                 PruneEventsCommand::class,
                 PruneLocksCommand::class,
