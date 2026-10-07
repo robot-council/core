@@ -94,6 +94,7 @@ final class PackageMigrations
         '2026_09_30_000001_create_robot_council_github_accounts_table',
         '2026_09_30_000002_create_robot_council_github_owners_table',
         '2026_10_01_000001_create_robot_council_backlog_members_table',
+        '2026_10_07_000001_make_robot_council_declared_capacity_nullable',
 
         // Retired by #132, which dated the create so something dated could alter its table. Both
         // names stay here forever: a host that migrated before that change has a row for each.

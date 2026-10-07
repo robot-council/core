@@ -14,6 +14,8 @@ use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 use RobotCouncil\Access\CurrentDeveloper;
+use RobotCouncil\Models\AgentSession;
+use RobotCouncil\Models\AgentSessionStatus;
 use RobotCouncil\Models\AssignmentHours;
 use RobotCouncil\Models\Installation;
 use RobotCouncil\Models\PlacementRule;
@@ -468,6 +470,7 @@ final class SeatSettings extends Component
 
         return view($template, [
             'seats' => $mine,
+            'sessions' => $this->sessionsBySeat($seats, $developer),
             'machines' => $machines->map(static fn (Installation $machine): array => [
                 'id' => $machine->id,
                 'harness' => $machine->harness,
@@ -482,6 +485,50 @@ final class SeatSettings extends Component
             'holidays' => $settings->holidays($developer),
             'zones' => $this->zones(),
         ]);
+    }
+
+    /**
+     * Each live session sitting in one of the developer's seats, with the capacity in effect for it
+     * (#564).
+     *
+     * Shown beside the seat's own setting, so a setting that does not reach a session -- because the
+     * session declared a smaller number when it joined -- is visible on the page that sets it, where
+     * before the page said "up to 2" while the lane was held to one. The same rule the lane board and
+     * a placement read, `Capacity::effective()`, against the same seat match, `Seats::forSessions()`.
+     *
+     * @param  Seats  $seats  The seat store.
+     * @param  string  $developer  The developer's host user key.
+     * @return array<int, list<array{id: int, capacity: int, declared: int|null}>> By seat id, oldest
+     *                                                                             session first.
+     */
+    private function sessionsBySeat(Seats $seats, string $developer): array
+    {
+        // The sessions `Seats::forDeveloper()` records seats from, by the same filter, so a session
+        // on an installation that can no longer be used is not listed as taking work
+        $live = AgentSession::announced()
+            ->where('user_id', HostKey::from($developer))
+            ->where('status', '!=', AgentSessionStatus::Gone->value)
+            ->whereNotNull('repository')
+            ->whereIn('installation_id', Installation::usable()->where('user_id', HostKey::from($developer))->select('id'))
+            ->orderBy('id')
+            ->get();
+
+        $placed = $seats->forSessions($live);
+        $bySeat = [];
+
+        foreach ($live as $session) {
+            $seat = $placed[$session->id] ?? null;
+
+            if ($seat instanceof Seat) {
+                $bySeat[$seat->id][] = [
+                    'id' => $session->id,
+                    'capacity' => Capacity::effective($session, $seat),
+                    'declared' => $session->declared_capacity,
+                ];
+            }
+        }
+
+        return $bySeat;
     }
 
     /**

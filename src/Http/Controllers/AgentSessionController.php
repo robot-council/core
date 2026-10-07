@@ -60,9 +60,10 @@ final class AgentSessionController
             'repository' => $session->repository,
             'work_location' => $session->work_location,
 
-            // How many tasks a coordinator may place on it NOW (#409): the smaller of what it
-            // declared and its seat's cap, read fresh, so a developer changing the cap is visible
-            // here without a restart. `declared_capacity` is what it asked for at join.
+            // How many tasks a coordinator may place on it NOW (#409): its seat's setting, or what it
+            // declared where that is smaller (#564), read fresh, so a developer changing the cap is visible
+            // here without a restart. `declared_capacity` is what it asked for at join, or null
+            // where it asked for nothing and takes its seat's number (#564).
             'capacity' => $capacity->of($session),
             'declared_capacity' => $session->declared_capacity,
 

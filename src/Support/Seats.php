@@ -260,8 +260,10 @@ final class Seats
     /**
      * Set how many tickets a session sitting in this seat may hold at once (#409).
      *
-     * **The cap on what a session declares, never a number a session writes**: #386 decided the
-     * session declares and its developer caps. Clamped to `Capacity::DEFAULT`..`Capacity::MAX`
+     * **The number a session in the seat takes, never a number a session writes**: one that
+     * declared nothing at join takes it, and one that declared a smaller number keeps to that
+     * (#564, which replaced #386's "the session declares and its developer caps" for a session that
+     * declared nothing). Clamped to `Capacity::DEFAULT`..`Capacity::MAX`
      * rather than refused, as an ordinal is; the page refuses an out-of-range entry before it gets
      * here, so a developer who typed 50 is told rather than silently given 16.
      *

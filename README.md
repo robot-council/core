@@ -167,13 +167,14 @@ protocol below is documented for anyone writing their own client.
    that sends neither starts a session as before. A start may also carry `capacity`, how many
    tickets the session will hold at once when it works through subagents. A number past 16 is
    taken as 16; 0, a negative number or anything that is not a whole number is refused with 422.
-   A session that sends none has a capacity of 1, exactly as before.
-   **What is in effect is the smaller of that and the seat's cap**, which its developer sets on the
-   seats page and which is 1 until they do. The start answers both, as `capacity` (in effect) and
-   `declared_capacity` (asked for, within 16); `GET {prefix}/api/agent/session` answers the same
-   pair, read fresh, so a developer raising the cap reaches a running session without a restart.
-   The `session.joined` event carries the declaration as `meta.declared_capacity`; the capacity in
-   effect is on `GET {prefix}/api/lanes`.
+   **What is in effect is the seat's Tasks at once**, which its developer sets on the seats page and
+   which is 1 until they do, **or the session's own number where that is smaller**. A session that
+   sends none takes the seat's number (#564), so a seat nobody touched still gives it 1. The start
+   answers both, as `capacity` (in effect) and `declared_capacity` (asked for, within 16, or null
+   where nothing was asked); `GET {prefix}/api/agent/session` answers the same pair, read fresh, so
+   a developer raising the seat reaches a running session without a restart. The `session.joined`
+   event carries the declaration as `meta.declared_capacity`; the capacity in effect is on
+   `GET {prefix}/api/lanes`.
    A start may also carry `ephemeral: true`, for a process the fleet need not be told about:
    `robot-council api` sends it for a read (`robot-council/cli#298`). An ephemeral session writes
    no `session.joined`, `session.stale`, `session.resumed` or `session.gone` event however it ends,
@@ -504,10 +505,11 @@ changes them. The only writer is the developer's own page at `{prefix}/dashboard
 - **Days off** are the developer's own list of dates. They apply once hours are set, since a date
   needs a time zone to say when it starts. A developer with no hours set is not gated at all.
 - **Ignore my hours** takes a seat out of its developer's hours, and the seat then reads "Hours: ignored"; **Apply my hours** puts it back. The API and the `developer_settings` tool still call this `exempt`.
-- **Tasks at once** caps how many tasks a coordinator may place on one session in the seat,
-  from 1 to 16 (#409). A session declares its own number when it joins and gets no more than this;
-  a session can never raise it. It is 1 until the developer changes it, so a seat nobody touched
-  behaves as it always has.
+- **Tasks at once** is how many tasks a coordinator may place on one session in the seat, from 1 to
+  16 (#409). A session running there takes a new number at once. A session that declared its own
+  number when it joined is held to that where it is smaller (#564); a session can never raise it.
+  It is 1 until the developer changes it, so a seat nobody touched behaves as it always has. The
+  seats page shows what each live session in the seat takes now.
 
 A session holding `coordinator:direct` reads all of it, **as it is at the moment of the call**:
 
@@ -883,7 +885,7 @@ confidential: use something like `subagent-2` or a worktree slot name.
 | --- | --- |
 | `ticket_open` | the task names an issue the fleet has no record of, or one that is closed |
 | `lane_in_repository` | the lane does not work in the issue's repository |
-| `lane_free` | the lane already holds another task -- that is, as many as its capacity, which is one unless it declared more at join and its seat allows it |
+| `lane_free` | the lane already holds another task -- that is, as many as its capacity: its seat's Tasks at once, or what it declared at join where that is smaller |
 | `lane_not_parked` | the lane's seat is parked |
 | `ticket_unblocked` | the issue has a `blocked_by` edge whose blocker is open, or unknown |
 | `assignment_hours` | it is outside the lane's developer's hours -- new work only: a hand-back to a lane that has started the task before, work moved between one developer's own lanes, and an exempt seat are not gated |
@@ -1135,6 +1137,15 @@ Three things worth knowing before you enable it:
 
 Run `php artisan migrate`: one migration adds `robot_council_agent_sessions.ephemeral`, defaulting
 to false, so every existing session stays an ordinary one (#424).
+
+Run `php artisan migrate` before serving the new code: one migration makes
+`robot_council_agent_sessions.declared_capacity` nullable (#564), and a session that declares no
+capacity is now stored as null, which the old column refuses. The migration also turns every stored
+1 into null, because a stored 1 cannot say whether it was declared: the bridge sends a capacity only
+when one was declared. So a running session in a seat whose Tasks at once was raised takes that
+number at once, including one that really did declare 1. A host calling `Support\AgentSessions::start()`
+without a capacity gets a session that takes its seat's number, where it used to get one. Pass `1`
+to keep the old behavior.
 
 ### To 0.7.0
 
