@@ -1164,7 +1164,7 @@ Three things worth knowing before you enable it:
 
 ## Upgrading
 
-### Unreleased
+### To 0.8.1
 
 Read the `blocked_by` file again with the query the GitHub webhook section now shows, which reads each
 blocker's `state`, and run `robot-council:github-import-blockers` with it (#569). An import from

@@ -2,6 +2,13 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.8.1 — Closed Blockers in the Blocker Import (2026-10-07)
+
+This release lets the blocker import record each closed blocker it has no row for, so a ticket blocked only by closed issues is offered again.
+
+### What's fixed
+- Record a closed blocker the blocker import has no row for [#572](https://github.com/robot-council/core/pull/572)
+
 ## v0.8.0 — Seat Capacity and Blocker Backfill (2026-10-07)
 
 A session that declares no capacity now takes its seat's Tasks at once setting, blocker edges older than the GitHub webhook can be backfilled, and seat rows keep their controls in one place.
