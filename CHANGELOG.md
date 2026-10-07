@@ -2,6 +2,24 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.8.0 — Seat Capacity and Blocker Backfill (2026-10-07)
+
+A session that declares no capacity now takes its seat's Tasks at once setting, blocker edges older than the GitHub webhook can be backfilled, and seat rows keep their controls in one place.
+
+**Breaking change** — run `php artisan migrate` before serving the new code, and pass `1` to `Support\AgentSessions::start()` wherever a session must still hold one task, since a call without a capacity now takes the seat's setting.
+
+### Breaking changes
+- Let a session that declared no capacity take its seat's Tasks at once [#565](https://github.com/robot-council/core/pull/565). `robot_council_agent_sessions.declared_capacity` becomes nullable and every stored 1 becomes null; `AgentSessions::start()` without a capacity now takes the seat's setting.
+
+### What's new
+- Backfill `blocked_by` edges, so a ticket blocked since before the webhook stops reading as unblocked [#570](https://github.com/robot-council/core/pull/570)
+
+### What's fixed
+- Keep each seat row's controls in one place on My seats, whatever the name's length [#568](https://github.com/robot-council/core/pull/568)
+
+### Maintenance and tooling
+- Fix the errors PHPStan 2.3.0 and Larastan v3.13.0 report, and require that Larastan [#567](https://github.com/robot-council/core/pull/567)
+
 ## v0.7.8 — Aligned Lane Columns (2026-10-02)
 
 This release lines up the columns of every seat table on the Lanes page, so a state, a watcher, or a time can be read straight down the page.
