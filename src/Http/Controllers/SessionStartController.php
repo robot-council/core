@@ -58,7 +58,7 @@ final class SessionStartController
             'platform.arch' => ['sometimes', 'nullable', 'string', 'max:'.Platform::MAX_ARCH, 'regex:'.Platform::ARCH],
 
             // How many tickets it will hold at once, for a harness that works through subagents
-            // (#409). Optional, so an older bridge joins at one as before. Below one is refused, as
+            // (#409). Optional: a session that sends none takes its seat's setting (#564). Below one is refused, as
             // no capacity rather than a small one; above `Capacity::MAX` is accepted and clamped by
             // the store, the way the seat's cap is -- both mean "as many as this lane will take".
             'capacity' => ['sometimes', 'nullable', 'integer', 'min:'.Capacity::DEFAULT],

@@ -30,16 +30,25 @@ return new class extends Migration
 {
     /**
      * Make the column nullable with no default, then forget every one it holds.
+     *
+     * **The backfill runs whenever this does, not only after the change.** MySQL commits a column
+     * change at once and Laravel runs its migrations outside a transaction, so a deploy killed
+     * between the two statements leaves the column nullable and every one still stored. Gated on the
+     * change, a re-run would skip the backfill forever and leave those sessions held to one, which is
+     * #564 itself. Ungated it erases nothing it should not: a recorded migration does not run again,
+     * so the only ones it can meet are those the old default wrote.
      */
     public function up(): void
     {
-        if (! $this->hasColumn() || $this->isNullable()) {
+        if (! $this->hasColumn()) {
             return;
         }
 
-        Schema::table('robot_council_agent_sessions', static function (Blueprint $table): void {
-            $table->unsignedSmallInteger('declared_capacity')->nullable()->default(null)->change();
-        });
+        if (! $this->isNullable()) {
+            Schema::table('robot_council_agent_sessions', static function (Blueprint $table): void {
+                $table->unsignedSmallInteger('declared_capacity')->nullable()->default(null)->change();
+            });
+        }
 
         DB::table('robot_council_agent_sessions')->where('declared_capacity', 1)->update(['declared_capacity' => null]);
     }

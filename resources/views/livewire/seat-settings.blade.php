@@ -72,7 +72,8 @@
                                     <button type="button" wire:click="park({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-warning">Park<span class="sr-only"> for {{ $seatName }}</span></button>
                                 @endif
                             </div>
-                            {{-- #409: the cap on what a session in this seat declares when it joins.
+                            {{-- #409: how many tasks a session in this seat takes at once, or fewer where it
+                                 declared fewer when it joined (#564).
                                  Only a seat id reaches the `wire:` expressions, through `WireArgument`;
                                  the number is read back by the component as untrusted input. --}}
                             {{-- What the last action on this seat did (#402), beside its buttons --}}
@@ -104,7 +105,8 @@
                             {{-- What each live session in the seat takes now (#564), from the rule a
                                  placement reads, so a setting that does not reach one is visible here --}}
                             @if (($sessions[$seat->id] ?? []) !== [])
-                                <ul class="flex w-full flex-col gap-1 text-meta" data-seat-sessions>
+                                {{-- `role="list"`, because Safari drops a list's semantics once its markers are gone --}}
+                                <ul role="list" class="flex w-full flex-col gap-1 text-meta leading-relaxed" data-seat-sessions>
                                     @foreach ($sessions[$seat->id] as $session)
                                         <li wire:key="seat-{{ $seat->id }}-session-{{ $session['id'] }}" data-session-capacity="{{ $session['capacity'] }}">
                                             Session <code>#{{ $session['id'] }}</code> takes up to {{ $session['capacity'] }} {{ $session['capacity'] === 1 ? 'task' : 'tasks' }} at once now:

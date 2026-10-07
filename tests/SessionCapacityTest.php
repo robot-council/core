@@ -290,6 +290,20 @@ it('shows on the seats page what each live session in a seat takes now, and why 
     [$gone] = joinWith($this);
     AgentSession::query()->whereKey($gone->id)->update(['status' => AgentSessionStatus::Gone->value]);
 
+    // A stale lane still holds its work, so it is listed like a live one
+    [$stale] = joinWith($this);
+    AgentSession::query()->whereKey($stale->id)->update(['status' => AgentSessionStatus::Stale->value]);
+
+    // A session on an installation that has since expired is not taking work, and is not listed,
+    // though its seat, recorded while the installation was usable, still is
+    $mine = $this->credential;
+    $expiredInstallation = $this->approveInstallation($this->developer, machineLabel: 'old-box');
+    $this->credential = $this->installationCredential($expiredInstallation);
+    [$expired] = joinWith($this);
+    $this->credential = $mine;
+    $this->service(Seats::class)->forDeveloper($this->key);
+    $expiredInstallation->forceFill(['expires_at' => now()->subDay()])->save();
+
     // Another seat of the developer's, whose session is listed under it rather than this one
     [$elsewhere] = joinWith($this, location: 'b');
 
@@ -302,16 +316,20 @@ it('shows on the seats page what each live session in a seat takes now, and why 
         sprintf('Session #%d takes up to 3 tasks at once now: this seat\'s setting.', $undeclared->id),
         sprintf('Session #%d takes up to 2 tasks at once now: it asked for 2 when it joined, which is fewer than this seat allows.', $declared->id),
         sprintf('Session #%d takes up to 3 tasks at once now: this seat\'s setting.', $above->id),
+        sprintf('Session #%d takes up to 3 tasks at once now: this seat\'s setting.', $stale->id),
         sprintf('Session #%d takes up to 1 task at once now: this seat\'s setting.', $elsewhere->id),
     ]);
 
-    // Each under its own seat: the first three in this seat's list, the last in the other's
+    // Each under its own seat: the first four in this seat's list, the last in the other's, and
+    // the expired installation's seat with no list at all
     preg_match_all('/<ul[^>]*data-seat-sessions[^>]*>(.*?)<\/ul>/s', $html, $lists);
 
     expect($lists[1])->toHaveCount(2)
-        ->and(substr_count($lists[1][0], 'data-session-capacity'))->toBe(3)
+        ->and(substr_count($lists[1][0], 'data-session-capacity'))->toBe(4)
         ->and($lists[1][0])->not->toContain('#'.$elsewhere->id.'<')
-        ->and($html)->not->toContain('Session <code>#'.$gone->id.'</code>');
+        ->and($html)->toContain('old-box')
+        ->and($html)->not->toContain('Session <code>#'.$gone->id.'</code>')
+        ->and($html)->not->toContain('Session <code>#'.$expired->id.'</code>');
 
     // The same number a placement reads, for every one of them
     foreach ([[$undeclared, 3], [$declared, 2], [$above, 3]] as [$lane, $capacity]) {
@@ -950,12 +968,23 @@ it('makes the declared capacity nullable, forgets every stored one, and puts the
         ->and($read($undeclared))->toBeNull()
         ->and($read($declared))->toBe(3);
 
-    // Again, on a schema that already has it, and a one written since is left alone: only what the
-    // old default wrote is forgotten, once
-    AgentSession::query()->whereKey($declared->id)->update(['declared_capacity' => 1]);
+    // **The column's own default is gone**, not only the model's: a row written without the column
+    // reads as nothing declared. The store always writes the value, so nothing else exercises it
+    $bare = DB::table('robot_council_agent_sessions')->insertGetId([
+        'installation_id' => $this->installation->id, 'user_id' => $this->key, 'status' => AgentSessionStatus::Active->value,
+        'role' => 'build', 'last_seen_at' => now(), 'repository' => 'robot-council/core', 'work_location' => 'c',
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+
+    expect(DB::table('robot_council_agent_sessions')->where('id', $bare)->value('declared_capacity'))->toBeNull();
+
+    // A deploy killed after MySQL committed the column change and before the backfill: the column
+    // admits null and a one is still stored. Running again finishes the job rather than skipping it
+    AgentSession::query()->whereKey($undeclared->id)->update(['declared_capacity' => 1]);
 
     $up();
 
-    expect($read($declared))->toBe(1)
+    expect($read($undeclared))->toBeNull()
+        ->and($read($declared))->toBe(3)
         ->and(declaredCapacityNullable())->toBeTrue();
 });

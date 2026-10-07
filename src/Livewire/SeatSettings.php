@@ -503,10 +503,13 @@ final class SeatSettings extends Component
      */
     private function sessionsBySeat(Seats $seats, string $developer): array
     {
+        // The sessions `Seats::forDeveloper()` records seats from, by the same filter, so a session
+        // on an installation that can no longer be used is not listed as taking work
         $live = AgentSession::announced()
             ->where('user_id', HostKey::from($developer))
             ->where('status', '!=', AgentSessionStatus::Gone->value)
             ->whereNotNull('repository')
+            ->whereIn('installation_id', Installation::usable()->where('user_id', HostKey::from($developer))->select('id'))
             ->orderBy('id')
             ->get();
 
