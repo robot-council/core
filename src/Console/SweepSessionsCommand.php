@@ -32,9 +32,10 @@ final class SweepSessionsCommand extends Command
         $swept = $presence->sweep();
 
         $this->components->info(sprintf(
-            'Marked %d session(s) stale and %d gone.',
+            'Marked %d session(s) stale and %d gone; announced %d still stale.',
             $swept['stale'],
-            $swept['gone']
+            $swept['gone'],
+            $swept['announced']
         ));
 
         return self::SUCCESS;

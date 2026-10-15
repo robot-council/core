@@ -188,16 +188,17 @@ it('sweeps an ephemeral session without a word, and still gives back what it hel
     [$quiet, $quietTask] = holdingSession($this, true, 'quiet-lock');
     [$loud, $loudTask] = holdingSession($this, false, 'loud-lock');
 
-    // Past the stale threshold first, so both transitions the sweep makes are exercised
-    $this->travelTo(Carbon::parse('2026-01-01 12:06:00'));
+    // Past the stale threshold and the announcing one first, so both transitions the sweep makes
+    // are exercised, and the stale one is one the fleet would be told of (#574)
+    $this->travelTo(Carbon::parse('2026-01-01 12:10:00'));
 
-    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 2, 'gone' => 0])
+    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 2, 'gone' => 0, 'announced' => 2])
         ->and(presenceEventsAbout($quiet, FleetEventType::SessionStale))->toBe(0)
         ->and(presenceEventsAbout($loud, FleetEventType::SessionStale))->toBe(1);
 
     $this->travelTo(Carbon::parse('2026-01-01 12:31:00'));
 
-    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 2])
+    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 2, 'announced' => 0])
         ->and($quiet->refresh()->status)->toBe(AgentSessionStatus::Gone)
         ->and($loud->refresh()->status)->toBe(AgentSessionStatus::Gone)
         ->and(presenceEventsAbout($quiet, FleetEventType::SessionGone))->toBe(0)
@@ -239,7 +240,8 @@ it('announces no resumption when a stale ephemeral session answers again', funct
     $session = $issued->owner;
     $token = $issued->plainTextToken;
 
-    $this->travelTo(Carbon::parse('2026-01-01 12:06:00'));
+    // Announced, so an ordinary session's resumption is news (#574)
+    $this->travelTo(Carbon::parse('2026-01-01 12:10:00'));
     $this->service(SessionPresence::class)->sweep();
 
     expect($session->refresh()->status)->toBe(AgentSessionStatus::Stale);

@@ -154,7 +154,10 @@ return [
     |
     | `gone_after_minutes` is always read as at least a minute past
     | `stale_after_minutes`, so the warning state is reachable rather than
-    | skipped. Both are measured by `robot-council:sweep-sessions`, so neither
+    | skipped. The fleet is told of it only once a session has been quiet for
+    | twice `stale_after_minutes` (#574), so with `gone_after_minutes` at or
+    | below that, a session reads stale in the list but goes gone with no
+    | `session.stale` written. Both are measured by `robot-council:sweep-sessions`, so neither
     | can fire sooner than the interval that command runs on.
     |
     | Both measure ELAPSED time, and `app.timezone` does not reach them. Contact
@@ -210,7 +213,8 @@ return [
         'stale_after_minutes' => (int) env('ROBOT_COUNCIL_PRESENCE_STALE_AFTER_MINUTES', 5),
         'gone_after_minutes' => (int) env('ROBOT_COUNCIL_PRESENCE_GONE_AFTER_MINUTES', 30),
 
-        // How many sessions one sweep may mark in each of its two passes. A fleet that went
+        // How many sessions one sweep may mark in each of its three passes -- stale,
+        // gone, and telling the fleet of what has stayed stale. A fleet that went
         // silent at once -- an outage, a network partition -- is otherwise a single unbounded
         // batch, and every session in it takes the change feed's one writer lock in turn while
         // every agent's narration queues behind it. What is left over is marked a minute later.

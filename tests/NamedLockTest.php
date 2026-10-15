@@ -597,7 +597,7 @@ it('gives back every lock a session was holding when it went', function (): void
 
     $this->service(SessionPresence::class)->end($this->session);
 
-    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 0]);
+    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 0, 'announced' => 0]);
 
     $locks = Lock::query()->orderBy('name')->get();
 

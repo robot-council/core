@@ -756,7 +756,7 @@ it('gives back every task a session was holding when it went', function (string 
 
     $before = FleetEvent::query()->count();
 
-    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 0]);
+    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 0, 'announced' => 0]);
 
     $released = Task::query()->findOrFail($task);
 

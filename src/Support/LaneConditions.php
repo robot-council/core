@@ -128,7 +128,8 @@ final class LaneConditions
 
     /**
      * Raise at once when a lane holding work stops answering or ends -- on the presence
-     * transition, not on the next check.
+     * transition, not on the next check. A lane that stopped answering is announced, and raised,
+     * only once it has stayed quiet a threshold past going stale (#574).
      *
      * The work is read here, inside the transition's transaction, so an ended lane is described
      * with what it held before the release takes it. The raise itself waits for the commit.
@@ -378,14 +379,18 @@ final class LaneConditions
     /**
      * Stale lanes still holding work, recomputed on every check.
      *
-     * The presence transition raises this at once; recomputing it is what tells a coordinator that
+     * The presence announcement raises this at once; recomputing it is what tells a coordinator that
      * was not live at the transition, and what clears the row once the lane answers again.
+     *
+     * **Only a stale stretch the fleet was told about** (#574): a session goes stale silently and is
+     * announced a threshold later, and a check raising it in between would wake every coordinator
+     * for exactly the flap that waiting is there to absorb.
      *
      * @return list<array{string, string, string, array<string, mixed>, bool}> The conditions.
      */
     private function unobservedLanes(): array
     {
-        $stale = AgentSession::query()->where('status', AgentSessionStatus::Stale->value)->orderBy('id')->pluck('id')
+        $stale = AgentSession::query()->where('status', AgentSessionStatus::Stale->value)->whereNotNull('stale_announced_at')->orderBy('id')->pluck('id')
             ->map(static fn (mixed $id): int => is_numeric($id) ? (int) $id : 0)->all();
 
         $found = [];

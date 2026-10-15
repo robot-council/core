@@ -128,7 +128,9 @@ final class Credentials
      * Always at least a minute past the stale threshold, never merely equal to it. Equal is not
      * enough: the sweep runs its gone pass first, so two identical cutoffs mean every session goes
      * straight to gone and the warning state -- the one an operator reads before anything is
-     * released -- exists in the enum and never in the feed.
+     * released -- exists in the enum and never in the list. It reaches the feed only once a session
+     * has been quiet for twice the stale threshold (#574), so a gone threshold at or below that
+     * ends a session before the fleet is told it was stale; the status still shows it.
      *
      * @return int The threshold in minutes, past the stale threshold.
      */
@@ -158,6 +160,20 @@ final class Credentials
     public function staleCutoff(): Carbon
     {
         return PresenceClock::now()->subMinutes($this->staleAfterMinutes());
+    }
+
+    /**
+     * The contact time at or before which a stale session is announced to the fleet (#574).
+     *
+     * One stale threshold past the stale cutoff, so a session that went quiet and answered again
+     * within that window -- a laptop lid, a flapping network -- writes no event at all, while one
+     * that stays quiet is announced at most one threshold late.
+     *
+     * @return Carbon The cutoff.
+     */
+    public function staleAnnounceCutoff(): Carbon
+    {
+        return PresenceClock::now()->subMinutes(2 * $this->staleAfterMinutes());
     }
 
     /**

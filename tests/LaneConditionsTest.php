@@ -415,7 +415,14 @@ it('raises a lane that goes stale again after it answered', function (): void {
     $this->service(SessionPresence::class)->sighted($this->session->refresh());
     conditionsAt($this, 12);
 
+    // Stale again at 12:20, and not yet news: the announcing window runs from the last contact (#574)
     Carbon::setTestNow('2026-09-24 12:20:00');
+    $this->service(SessionPresence::class)->sweep();
+    conditionsAt($this, 20);
+
+    expect(array_column(raisedConditions(LaneConditions::WORKING_UNOBSERVED), 'status'))->toBe(['stale']);
+
+    Carbon::setTestNow('2026-09-24 12:21:00');
     $this->service(SessionPresence::class)->sweep();
 
     expect(array_column(raisedConditions(LaneConditions::WORKING_UNOBSERVED), 'status'))->toBe(['stale', 'stale']);
@@ -538,3 +545,54 @@ it('reads each window from configuration', function (string $key, Closure $arran
         gateIn($case);
     }, LaneConditions::PULL_REQUEST_UNPICKED],
 ]);
+
+it('raises nothing for a lane holding work that flaps inside the announcing window (#574)', function (): void {
+    placeOnTheLane($this);
+
+    // Stale at :05 and answering at :09, twice over, with the sweep and the check every minute
+    foreach ([0, 10] as $offset) {
+        foreach (range($offset + 1, $offset + 8) as $minute) {
+            Carbon::setTestNow(Carbon::parse('2026-09-24 12:00:00', 'UTC')->addMinutes($minute));
+            $this->service(SessionPresence::class)->sighted($this->coordinatorSession->refresh());
+            $this->service(SessionPresence::class)->sweep();
+            conditionsAt($this, $minute);
+        }
+
+        expect($this->session->refresh()->status)->toBe(AgentSessionStatus::Stale);
+
+        Carbon::setTestNow(Carbon::parse('2026-09-24 12:00:00', 'UTC')->addMinutes($offset + 9));
+        $this->service(SessionPresence::class)->sighted($this->session->refresh());
+        $this->service(SessionPresence::class)->sighted($this->coordinatorSession->refresh());
+    }
+
+    expect(raisedConditions(LaneConditions::WORKING_UNOBSERVED))->toBeEmpty();
+});
+
+it('raises a lane holding work that stays stale one threshold after it went stale (#574)', function (): void {
+    placeOnTheLane($this);
+
+    Carbon::setTestNow('2026-09-24 12:05:00');
+    $this->service(SessionPresence::class)->sighted($this->coordinatorSession->refresh());
+    $this->service(SessionPresence::class)->sweep();
+    conditionsAt($this, 5);
+
+    // Stale, and not yet raised by the transition or by the check
+    expect($this->session->refresh()->status)->toBe(AgentSessionStatus::Stale)
+        ->and(raisedConditions(LaneConditions::WORKING_UNOBSERVED))->toBeEmpty();
+
+    Carbon::setTestNow('2026-09-24 12:09:59');
+    $this->service(SessionPresence::class)->sighted($this->coordinatorSession->refresh());
+    $this->service(SessionPresence::class)->sweep();
+
+    expect(raisedConditions(LaneConditions::WORKING_UNOBSERVED))->toBeEmpty();
+
+    Carbon::setTestNow('2026-09-24 12:10:00');
+    $this->service(SessionPresence::class)->sighted($this->coordinatorSession->refresh());
+    $this->service(SessionPresence::class)->sweep();
+
+    $raised = raisedConditions(LaneConditions::WORKING_UNOBSERVED);
+
+    expect($raised)->toHaveCount(1)
+        ->and($raised[0]['session_id'] ?? null)->toBe($this->session->id)
+        ->and($raised[0]['status'] ?? null)->toBe('stale');
+});
