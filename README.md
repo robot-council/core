@@ -792,7 +792,7 @@ event, restricted and addressed to the live coordinators, is raised for:
 | --- | --- |
 | `lane_free` | a build lane with room for another placement -- holding fewer tasks than its capacity (#436), which for most lanes means holding nothing -- not parked and not held, has been seen free for longer than `lane_conditions.free_after_minutes` (30), measured from the first check that saw it free. A lane of capacity above 1 carries `holding` and `capacity` in `meta`; one of capacity 1 reads as it always has. A lane holding any work cannot be held, so one kept partly full on purpose is raised once for each stretch it has room |
 | `not_taken_up` | a coordinator's placement is still unstarted past `take_up_within_minutes` (15) -- a hand-back owed says so |
-| `working_unobserved` | a lane holding work goes `stale` or `gone`, raised on that transition itself, and on the next check for a stale one no coordinator heard |
+| `working_unobserved` | a lane holding work goes `gone`, or stays `stale` long enough for the fleet to be told (see [Presence](#presence)), raised on that transition itself, and on the next check for a stale one no coordinator heard |
 | `pull_request_unpicked` | a ready pull request no gate is on, in a repository a live gate works in, unchanged past `gate_pickup_within_minutes` (30) |
 | `merge_behind` | a pull request merged, naming the live sessions in its repository now behind |
 
@@ -1011,9 +1011,18 @@ which answers with both thresholds as durations so a bridge picks its own cadenc
 | `stale` | quiet for longer than that | still holds whatever it claimed; one request brings it back |
 | `gone` | quiet past `presence.gone_after_minutes`, ended, or revoked | final: its tokens are refused, it is never renewed, and what it held is released |
 
-A session that has gone is never reused — the process starts a new one. Each transition writes one
-event to the change feed (`session.stale`, `session.resumed`, `session.gone`), and going `gone`
-dispatches `RobotCouncil\Events\SessionGone` once, after the transaction commits.
+A session that has gone is never reused — the process starts a new one. Going `gone` writes
+`session.gone` to the change feed and dispatches `RobotCouncil\Events\SessionGone` once, after the
+transaction commits.
+
+**A short silence is not news** (#574). The status changes the moment the sweep finds a session
+quiet, so the sessions list and the dashboard show it live, but `session.stale` -- and, for a lane
+holding work, `working_unobserved` -- is written only once the session has stayed `stale` for one
+more `presence.stale_after_minutes`, which is at most that much later than before. A session that
+answers inside that window writes no `session.stale` and no `session.resumed`, so a machine whose
+sessions flap every few minutes wakes no coordinator; `session.resumed` is written only for a stale
+stretch that was announced. A session that goes `gone` without having been announced writes
+`session.gone` alone. The sweep reports how many sessions it announced beside how many it moved.
 
 **Listen to `SessionGone` from a queued listener.** Laravel runs an after-commit callback outside
 any try/catch, so a synchronous listener that throws escapes the transaction that ended the session
@@ -1163,6 +1172,15 @@ Three things worth knowing before you enable it:
   and on `null` there is no limit at all.
 
 ## Upgrading
+
+### Unreleased
+
+Run `php artisan migrate`: one migration adds `robot_council_agent_sessions.stale_announced_at` and
+marks every session already `stale` as announced, since its `session.stale` was already written,
+so its resumption is still told (#574). After it, `session.stale` and a stale lane's
+`working_unobserved` are written one `presence.stale_after_minutes` after a session goes `stale`
+rather than at once, and not at all when it answers within that window; their shapes are
+unchanged.
 
 ### To 0.8.1
 

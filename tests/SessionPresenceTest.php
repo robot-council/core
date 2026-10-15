@@ -30,8 +30,10 @@ use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
 use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\FleetEventType;
+use RobotCouncil\Support\PackageMigrations;
 use RobotCouncil\Support\SessionPresence;
 use RobotCouncil\Support\SessionReleases;
+use RobotCouncil\Tests\TestCase;
 
 /**
  * The instant every test in this file starts from.
@@ -85,7 +87,12 @@ function moveRowBehindTheInstance(AgentSession $session, AgentSessionStatus $sta
 {
     DB::table('robot_council_agent_sessions')
         ->where('id', $session->getKey())
-        ->update(['status' => $status->value]);
+        ->update([
+            'status' => $status->value,
+
+            // As the announcing pass leaves it: the only stale stretch whose end is news (#574)
+            'stale_announced_at' => $status === AgentSessionStatus::Stale ? Carbon::now() : null,
+        ]);
 }
 
 it('records contact on every authenticated agent request', function (string $route, string $method): void {
@@ -203,17 +210,33 @@ it('marks a session stale once it has been quiet for the configured minutes', fu
     // so what this half rules out is `subMinutes(5)` having been computed wrongly
     $this->travelTo(Carbon::parse('2026-01-01 12:04:59'));
 
-    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 0])
+    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 0, 'announced' => 0])
         ->and($session->refresh()->status)->toBe(AgentSessionStatus::Active);
 
     // And this half is what tells `<` from `<=`, exactly on the boundary
     $this->travelTo(Carbon::parse('2026-01-01 12:05:00'));
 
-    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 1, 'gone' => 0])
+    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 1, 'gone' => 0, 'announced' => 0])
         ->and($session->refresh()->status)->toBe(AgentSessionStatus::Stale)
 
         // The contact time is what the next threshold is measured from, so the sweep must not
         // touch it: a transition that reset it would restart the clock deciding when it goes
+        ->and(dateValue($session->last_seen_at)->toDateTimeString())->toBe(STARTED_AT)
+
+        // Live in the status, and not yet news: a flap this short would wake every coordinator (#574)
+        ->and(eventsOfType(FleetEventType::SessionStale))->toBe(0);
+
+    // One threshold later it is still stale, and only now is the fleet told. The same two halves
+    // pin the announcing cutoff as the first two pinned the stale one.
+    $this->travelTo(Carbon::parse('2026-01-01 12:09:59'));
+
+    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 0, 'announced' => 0])
+        ->and(eventsOfType(FleetEventType::SessionStale))->toBe(0);
+
+    $this->travelTo(Carbon::parse('2026-01-01 12:10:00'));
+
+    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 0, 'announced' => 1])
+        ->and($session->refresh()->status)->toBe(AgentSessionStatus::Stale)
         ->and(dateValue($session->last_seen_at)->toDateTimeString())->toBe(STARTED_AT);
 
     $event = theEventOfType(FleetEventType::SessionStale);
@@ -230,7 +253,7 @@ it('ends a session that has been quiet past the gone threshold, straight from ac
 
     $this->travelTo(Carbon::parse('2026-01-01 12:30:00'));
 
-    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 1])
+    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 1, 'announced' => 0])
         ->and($session->refresh()->status)->toBe(AgentSessionStatus::Gone)
 
         // One event for one change. A session silent past both thresholds is not marked stale on
@@ -254,12 +277,14 @@ it('ends a session that has been quiet past the gone threshold, straight from ac
 it('brings a stale session back on its next request, once', function (): void {
     [$session, $token] = $this->startAgentSession($this->installation);
 
-    $this->travelTo(Carbon::parse('2026-01-01 12:06:00'));
+    // Quiet past both cutoffs, so the stale stretch was announced and its end is news (#574)
+    $this->travelTo(Carbon::parse('2026-01-01 12:10:00'));
     $this->service(SessionPresence::class)->sweep();
 
-    expect($session->refresh()->status)->toBe(AgentSessionStatus::Stale);
+    expect($session->refresh()->status)->toBe(AgentSessionStatus::Stale)
+        ->and(eventsOfType(FleetEventType::SessionStale))->toBe(1);
 
-    $this->travelTo(Carbon::parse('2026-01-01 12:07:00'));
+    $this->travelTo(Carbon::parse('2026-01-01 12:11:00'));
 
     $this->machine($token)
         ->getJson(route('robot-council.agent.session'))
@@ -267,7 +292,7 @@ it('brings a stale session back on its next request, once', function (): void {
         ->assertJsonPath('status', 'active');
 
     expect($session->refresh()->status)->toBe(AgentSessionStatus::Active)
-        ->and(dateValue($session->last_seen_at)->toDateTimeString())->toBe('2026-01-01 12:07:00');
+        ->and(dateValue($session->last_seen_at)->toDateTimeString())->toBe('2026-01-01 12:11:00');
 
     $event = theEventOfType(FleetEventType::SessionResumed);
 
@@ -321,10 +346,10 @@ it('writes nothing for a session that went while this request was in flight', fu
 it('brings a stale session back when its bridge renews the token', function (): void {
     [$session] = $this->startAgentSession($this->installation);
 
-    $this->travelTo(Carbon::parse('2026-01-01 12:06:00'));
+    $this->travelTo(Carbon::parse('2026-01-01 12:10:00'));
     $this->service(SessionPresence::class)->sweep();
 
-    $this->travelTo(Carbon::parse('2026-01-01 12:07:00'));
+    $this->travelTo(Carbon::parse('2026-01-01 12:11:00'));
 
     // Renewal runs on the installation guard, so it never passes through the agent middleware. A
     // bare write to `last_seen_at` here would leave a stale row with a fresh contact time.
@@ -368,7 +393,7 @@ it("leaves a session active when contact lands between the sweep's read and its 
     // The instrument fired: without this the assertions below would pass on a sweep that read
     // nothing, which is what a silently broken filter looks like
     expect($injected)->toBe(1)
-        ->and($swept)->toBe(['stale' => 0, 'gone' => 0])
+        ->and($swept)->toBe(['stale' => 0, 'gone' => 0, 'announced' => 0])
         ->and($session->refresh()->status)->toBe(AgentSessionStatus::Active)
         ->and(eventsOfType(FleetEventType::SessionGone))->toBe(0);
 });
@@ -380,7 +405,7 @@ it('ends that same session when nothing lands in between', function (): void {
 
     $this->travelTo(Carbon::parse('2026-01-01 12:31:00'));
 
-    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 1])
+    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 1, 'announced' => 0])
         ->and($session->refresh()->status)->toBe(AgentSessionStatus::Gone);
 });
 
@@ -409,7 +434,7 @@ it("leaves a session active when contact lands inside the stale pass's window", 
             ->update(['last_seen_at' => Carbon::now()]);
     });
 
-    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 0])
+    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 0, 'announced' => 0])
         ->and($injected)->toBe(1)
         ->and($session->refresh()->status)->toBe(AgentSessionStatus::Active)
         ->and(eventsOfType(FleetEventType::SessionStale))->toBe(0);
@@ -423,10 +448,10 @@ it('dispatches SessionGone once for each session that goes, and never twice', fu
 
     $this->travelTo(Carbon::parse('2026-01-01 12:31:00'));
 
-    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 2]);
+    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 2, 'announced' => 0]);
 
     // A second sweep finds them already gone, so it changes nothing and says nothing
-    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 0]);
+    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 0, 'announced' => 0]);
 
     Event::assertDispatchedTimes(SessionGone::class, 2);
 
@@ -485,7 +510,7 @@ it('runs every registered release step on every sweep, including one that change
     // mark, which is the case the steps exist for: a release a missed `SessionGone` left undone is
     // picked up by the next sweep, not by the next session that happens to end.
     expect($order)->toBe(['tasks', 'locks', 'tasks', 'locks'])
-        ->and($swept)->toBe(['stale' => 0, 'gone' => 0]);
+        ->and($swept)->toBe(['stale' => 0, 'gone' => 0, 'announced' => 0]);
 });
 
 it('lets no release step suppress another, and still fails the sweep', function (): void {
@@ -638,20 +663,21 @@ it('refuses a session token on the end endpoint', function (): void {
     expect($session->refresh()->status)->toBe(AgentSessionStatus::Active);
 });
 
-it('writes exactly one event for each status change across a whole session', function (): void {
+it('writes exactly one event for each status change the fleet is told of across a whole session', function (): void {
     [$session, $token] = $this->startAgentSession($this->installation);
 
+    // A flap: stale at 12:06 and answering at 12:07, inside the announcing window (#574)
     $this->travelTo(Carbon::parse('2026-01-01 12:06:00'));
     $this->service(SessionPresence::class)->sweep();
 
     $this->travelTo(Carbon::parse('2026-01-01 12:07:00'));
     $this->machine($token)->getJson(route('robot-council.agent.session'))->assertOk();
 
-    $this->travelTo(Carbon::parse('2026-01-01 12:13:00'));
-    $this->service(SessionPresence::class)->sweep();
-
-    $this->travelTo(Carbon::parse('2026-01-01 12:38:00'));
-    $this->service(SessionPresence::class)->sweep();
+    // Then a real silence: stale at 12:13, announced at 12:17, gone at 12:38
+    foreach (['12:13:00', '12:17:00', '12:38:00'] as $at) {
+        $this->travelTo(Carbon::parse('2026-01-01 '.$at));
+        $this->service(SessionPresence::class)->sweep();
+    }
 
     expect($session->refresh()->status)->toBe(AgentSessionStatus::Gone);
 
@@ -659,8 +685,6 @@ it('writes exactly one event for each status change across a whole session', fun
 
     expect($recorded)->toBe([
         FleetEventType::SessionJoined,
-        FleetEventType::SessionStale,
-        FleetEventType::SessionResumed,
         FleetEventType::SessionStale,
         FleetEventType::SessionGone,
     ]);
@@ -688,19 +712,19 @@ it('keeps the warning state reachable however the thresholds are configured', fu
 
     // Nine minutes is past the configured gone threshold and short of the stale one. Read as
     // written, the session would be gone without ever having been stale.
-    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 0])
+    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 0, 'announced' => 0])
         ->and($session->refresh()->status)->toBe(AgentSessionStatus::Active);
 
     $this->travelTo(Carbon::parse('2026-01-01 12:10:00'));
 
     // Clamping gone up to *equal* stale would end it here, because the gone pass runs first --
     // so the state an operator is meant to see before anything is released would never appear
-    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 1, 'gone' => 0])
+    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 1, 'gone' => 0, 'announced' => 0])
         ->and($session->refresh()->status)->toBe(AgentSessionStatus::Stale);
 
     $this->travelTo(Carbon::parse('2026-01-01 12:11:00'));
 
-    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 1])
+    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 1, 'announced' => 0])
         ->and($session->refresh()->status)->toBe(AgentSessionStatus::Gone);
 });
 
@@ -714,10 +738,11 @@ it('marks no more than the configured number of sessions in one pass', function 
     // A fleet that went silent at once is bounded rather than held as one batch, because every
     // session it ends takes the feed's single writer lock in turn. The ceiling is per pass, so the
     // third session is not ended here -- but it is still silent, so the stale pass marks it.
-    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 1, 'gone' => 2]);
+    // And it has been quiet past the announcing cutoff too, so the same run tells the fleet
+    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 1, 'gone' => 2, 'announced' => 1]);
 
     // What is left over is not lost: it is a minute older when the next run reads it
-    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 1])
+    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 1, 'announced' => 0])
         ->and($sessions->filter(fn (AgentSession $session): bool => $session->refresh()->hasGone())->count())->toBe(3);
 });
 
@@ -728,7 +753,7 @@ it('leaves a session that has already gone alone', function (): void {
 
     $this->travelTo(Carbon::parse('2026-01-01 12:31:00'));
 
-    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 0])
+    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 0, 'announced' => 0])
         ->and(eventsOfType(FleetEventType::SessionGone))->toBe(1);
 });
 
@@ -745,7 +770,7 @@ it('reports what it marked, through the command', function (): void {
     $this->travelTo(Carbon::parse('2026-01-01 12:31:00'));
 
     expect(Artisan::call('robot-council:sweep-sessions'))->toBe(0)
-        ->and(Artisan::output())->toContain('Marked 2 session(s) stale and 1 gone.')
+        ->and(Artisan::output())->toContain('Marked 2 session(s) stale and 1 gone; announced 0 still stale.')
         ->and($gone->refresh()->status)->toBe(AgentSessionStatus::Gone)
         ->and($firstStale->refresh()->status)->toBe(AgentSessionStatus::Stale)
         ->and($secondStale->refresh()->status)->toBe(AgentSessionStatus::Stale);
@@ -890,7 +915,7 @@ it('sweeps a fleet in a host that has turned lazy loading off', function (): voi
     Model::preventLazyLoading();
 
     try {
-        expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 2])
+        expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 2, 'announced' => 0])
             ->and($first->refresh()->status)->toBe(AgentSessionStatus::Gone)
             ->and($second->refresh()->status)->toBe(AgentSessionStatus::Gone)
             ->and(FleetEvent::query()->where('type', FleetEventType::SessionGone->value)->pluck('body')->all())
@@ -899,4 +924,240 @@ it('sweeps a fleet in a host that has turned lazy loading off', function (): voi
         // Static, and it outlives the test that set it
         Model::preventLazyLoading(false);
     }
+});
+
+/**
+ * The statuses the sessions list reports for the given sessions, read as another session would.
+ *
+ * @param  TestCase  $case  The test case.
+ * @param  string  $token  The reader's token.
+ * @param  list<AgentSession>  $sessions  The sessions to read.
+ * @return list<mixed> Their listed statuses, in the order given.
+ */
+function listedStatuses(TestCase $case, string $token, array $sessions): array
+{
+    $listed = [];
+
+    foreach (arrayValue($case->machine($token)->getJson(route('robot-council.lanes.index'))->assertOk()->json('sessions')) as $row) {
+        $row = arrayValue($row);
+        $listed[(string) json_encode($row['id'] ?? null)] = $row['status'] ?? null;
+    }
+
+    return array_map(fn (AgentSession $session): mixed => $listed[(string) json_encode($session->id)] ?? null, $sessions);
+}
+
+it('tells the fleet nothing about a session that flaps inside the announcing window, while the list reads it live', function (): void {
+    [$flapping, $token] = $this->startAgentSession($this->installation);
+    [, $reader] = $this->startAgentSession($this->installation);
+
+    // Stale for four minutes, then answering, three times over: nine events a cycle before #574.
+    // The sweep runs every minute, as the schedule runs it.
+    foreach ([0, 10, 20] as $offset) {
+        $cycle = Carbon::parse(STARTED_AT)->addMinutes($offset);
+
+        foreach (range(5, 9) as $minute) {
+            $this->travelTo($cycle->copy()->addMinutes($minute));
+            $this->service(SessionPresence::class)->sweep();
+
+            // Live throughout: a coordinator reading the list sees the silence as it happens
+            expect(listedStatuses($this, $reader, [$flapping]))->toBe(['stale']);
+        }
+
+        $this->travelTo($cycle->copy()->addMinutes(10));
+        $this->machine($token)->getJson(route('robot-council.agent.session'))->assertOk()->assertJsonPath('status', 'active');
+
+        expect(listedStatuses($this, $reader, [$flapping]))->toBe(['active']);
+    }
+
+    expect(FleetEvent::query()->pluck('type')->all())->toBe([FleetEventType::SessionJoined, FleetEventType::SessionJoined])
+        ->and($flapping->refresh()->stale_announced_at)->toBeNull();
+});
+
+it('announces a session that stays stale once, and ends it once', function (): void {
+    [$session] = $this->startAgentSession($this->installation);
+
+    foreach (range(1, 30) as $minute) {
+        $this->travelTo(Carbon::parse(STARTED_AT)->addMinutes($minute));
+        $this->service(SessionPresence::class)->sweep();
+
+        // No later than one threshold past going stale
+        if ($minute === 10) {
+            expect(eventsOfType(FleetEventType::SessionStale))->toBe(1)
+                ->and(dateValue($session->refresh()->stale_announced_at)->toDateTimeString())->toBe('2026-01-01 12:10:00');
+        }
+    }
+
+    expect($session->refresh()->status)->toBe(AgentSessionStatus::Gone)
+        ->and(FleetEvent::query()->orderBy('id')->pluck('type')->all())->toBe([
+            FleetEventType::SessionJoined,
+            FleetEventType::SessionStale,
+            FleetEventType::SessionGone,
+        ]);
+});
+
+it('ends a session nobody was told was stale with its gone event alone', function (): void {
+    [$session] = $this->startAgentSession($this->installation);
+
+    // A sweep that ran at 12:06 and then not again until the gone threshold
+    $this->travelTo(Carbon::parse('2026-01-01 12:06:00'));
+    $this->service(SessionPresence::class)->sweep();
+
+    $this->travelTo(Carbon::parse('2026-01-01 12:30:00'));
+
+    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 1, 'announced' => 0])
+        ->and($session->refresh()->status)->toBe(AgentSessionStatus::Gone)
+        ->and(eventsOfType(FleetEventType::SessionStale))->toBe(0)
+        ->and(eventsOfType(FleetEventType::SessionGone))->toBe(1);
+});
+
+it('tells the fleet nothing when every session on one installation flaps together', function (): void {
+    $sessions = array_map(fn (): AgentSession => $this->startAgentSession($this->installation)[0], range(1, 3));
+    $tokens = array_map(fn (AgentSession $session): string => $session->createToken('test')->plainTextToken, $sessions);
+    [, $reader] = $this->startAgentSession($this->installation);
+
+    // One machine, one lid: every session on it goes quiet and comes back at the same moments
+    foreach ([0, 10] as $offset) {
+        $this->travelTo(Carbon::parse(STARTED_AT)->addMinutes($offset + 5));
+
+        // The reader answers, so it is the three that the sweep finds quiet
+        listedStatuses($this, $reader, []);
+
+        expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 3, 'gone' => 0, 'announced' => 0])
+            ->and(listedStatuses($this, $reader, $sessions))->toBe(['stale', 'stale', 'stale']);
+
+        $this->travelTo(Carbon::parse(STARTED_AT)->addMinutes($offset + 9));
+
+        expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 0, 'announced' => 0]);
+
+        $this->travelTo(Carbon::parse(STARTED_AT)->addMinutes($offset + 10));
+
+        foreach ($tokens as $token) {
+            $this->machine($token)->getJson(route('robot-council.agent.session'))->assertOk();
+        }
+
+        expect(listedStatuses($this, $reader, $sessions))->toBe(['active', 'active', 'active']);
+    }
+
+    expect(eventsOfType(FleetEventType::SessionStale))->toBe(0)
+        ->and(eventsOfType(FleetEventType::SessionResumed))->toBe(0);
+
+    // And when they stay quiet, each is announced, once
+    $this->travelTo(Carbon::parse('2026-01-01 12:25:00'));
+    listedStatuses($this, $reader, []);
+    $this->service(SessionPresence::class)->sweep();
+
+    $this->travelTo(Carbon::parse('2026-01-01 12:30:00'));
+    listedStatuses($this, $reader, []);
+
+    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 0, 'announced' => 3])
+        ->and(eventsOfType(FleetEventType::SessionStale))->toBe(3);
+});
+
+it('announces a resumption the announcing pass marked while this request was resuming', function (): void {
+    [$session] = $this->startAgentSession($this->installation);
+
+    $this->travelTo(Carbon::parse('2026-01-01 12:06:00'));
+    $this->service(SessionPresence::class)->sweep();
+
+    $this->travelTo(Carbon::parse('2026-01-01 12:11:00'));
+
+    $injected = 0;
+
+    // After the resumption's first try, which asks for an announced stretch and finds an
+    // unannounced one, the announcing pass commits. The second try then asks for an unannounced
+    // stretch and finds an announced one, and only a third finds the row as it now is.
+    DB::listen(function (QueryExecuted $query) use (&$injected, $session): void {
+        if ($injected > 0 || ! str_starts_with(strtolower(ltrim($query->sql)), 'update')
+            || ! str_contains($query->sql, 'robot_council_agent_sessions') || ! str_contains($query->sql, 'is not null')) {
+            return;
+        }
+
+        $injected++;
+
+        DB::table('robot_council_agent_sessions')->where('id', $session->getKey())->update(['stale_announced_at' => Carbon::now()]);
+    });
+
+    $this->service(SessionPresence::class)->sighted($session->refresh());
+
+    // The fleet was told it was stale, so it must be told it is back -- or it believes it stale
+    expect($injected)->toBe(1)
+        ->and($session->refresh()->status)->toBe(AgentSessionStatus::Active)
+        ->and($session->stale_announced_at)->toBeNull()
+        ->and(eventsOfType(FleetEventType::SessionResumed))->toBe(1);
+});
+
+it('announces several stale sessions in a host that has turned lazy loading off', function (): void {
+    $this->startAgentSession($this->installation);
+    $this->startAgentSession($this->installation);
+
+    $this->travelTo(Carbon::parse('2026-01-01 12:06:00'));
+    $this->service(SessionPresence::class)->sweep();
+
+    $this->travelTo(Carbon::parse('2026-01-01 12:10:00'));
+
+    // The announcing pass is a second chunk read that hydrates several, and its bodies name the
+    // installation's harness and machine just as the passes' do
+    Model::preventLazyLoading();
+
+    try {
+        expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 0, 'announced' => 2])
+            ->and(FleetEvent::query()->where('type', FleetEventType::SessionStale->value)->pluck('body')->all())
+            ->toBe(['claude-code on workbench stopped answering.', 'claude-code on workbench stopped answering.']);
+    } finally {
+        Model::preventLazyLoading(false);
+    }
+});
+
+it('announces no more stale sessions than the configured number in one run', function (): void {
+    config()->set('robot-council.presence.max_per_sweep', 2);
+
+    collect(range(1, 3))->each(fn () => $this->startAgentSession($this->installation));
+
+    $this->travelTo(Carbon::parse('2026-01-01 12:06:00'));
+    $this->service(SessionPresence::class)->sweep();
+    $this->service(SessionPresence::class)->sweep();
+
+    $this->travelTo(Carbon::parse('2026-01-01 12:10:00'));
+
+    expect($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 0, 'announced' => 2])
+        ->and($this->service(SessionPresence::class)->sweep())->toBe(['stale' => 0, 'gone' => 0, 'announced' => 1])
+        ->and(eventsOfType(FleetEventType::SessionStale))->toBe(3);
+});
+
+it('marks every session already stale as announced, so its resumption is still told (#574)', function (): void {
+    // Changes the schema, which MySQL commits implicitly under a test transaction (#473)
+    $this->leaveTestTransaction();
+    $migration = require PackageMigrations::directory().'/2026_10_15_000001_add_stale_announced_at_to_robot_council_agent_sessions.php';
+
+    $up = [$migration, 'up'];
+    $down = [$migration, 'down'];
+
+    if (! \is_callable($up) || ! \is_callable($down)) {
+        throw new RuntimeException('The migration file did not return something with an up() and a down().');
+    }
+
+    [$stale] = $this->startAgentSession($this->installation);
+    [$active] = $this->startAgentSession($this->installation);
+
+    // As a deployed fleet holds it: stale, and the transition already wrote its event
+    DB::table('robot_council_agent_sessions')->where('id', $stale->id)->update(['status' => AgentSessionStatus::Stale->value]);
+
+    $down();
+    $down();
+
+    expect(Schema::hasColumn('robot_council_agent_sessions', 'stale_announced_at'))->toBeFalse();
+
+    $up();
+    $up();
+
+    $read = static fn (AgentSession $session): mixed => DB::table('robot_council_agent_sessions')->where('id', $session->id)->value('stale_announced_at');
+
+    expect($read($stale))->not->toBeNull()
+        ->and(dateValue($stale->refresh()->stale_announced_at)->toDateTimeString())->toBe(STARTED_AT)
+        ->and($read($active))->toBeNull();
+
+    $this->travelTo(Carbon::parse('2026-01-01 12:03:00'));
+    $this->service(SessionPresence::class)->sighted($stale);
+
+    expect(eventsOfType(FleetEventType::SessionResumed))->toBe(1);
 });

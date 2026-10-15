@@ -161,6 +161,20 @@ final class Credentials
     }
 
     /**
+     * The contact time at or before which a stale session is announced to the fleet (#574).
+     *
+     * One stale threshold past the stale cutoff, so a session that went quiet and answered again
+     * within that window -- a laptop lid, a flapping network -- writes no event at all, while one
+     * that stays quiet is announced at most one threshold late.
+     *
+     * @return Carbon The cutoff.
+     */
+    public function staleAnnounceCutoff(): Carbon
+    {
+        return PresenceClock::now()->subMinutes(2 * $this->staleAfterMinutes());
+    }
+
+    /**
      * The contact time at or before which a session has gone.
      *
      * @return Carbon The cutoff.

@@ -41,6 +41,7 @@ use RobotCouncil\Support\PresenceTimestamp;
  * @property AgentSessionStatus $status
  * @property Role $role
  * @property Carbon $last_seen_at
+ * @property Carbon|null $stale_announced_at
  * @property Carbon|null $created_at
  * @property string|null $repository
  * @property string|null $work_location
@@ -119,6 +120,8 @@ final class AgentSession extends Model implements AuthenticatableContract
             // sweep re-binds the value it read into the `where` that commits a status. See
             // `Support\PresenceTimestamp` for what that costs on a host that is not on UTC (#51).
             'last_seen_at' => PresenceTimestamp::class,
+            // On the presence clock, like `last_seen_at`: it is written by the same sweep (#574)
+            'stale_announced_at' => PresenceTimestamp::class,
         ];
     }
 

@@ -32,6 +32,15 @@ use RobotCouncil\Models\TaskStatus;
  * database's own row-level write is the serialization point, and losing a race is always the
  * outcome of doing nothing.
  *
+ * **A short silence is not news (#574).** A session goes `stale` the moment the sweep finds it
+ * quiet, so `sessions_list` and the lane board read it live, but the fleet is told only if it is
+ * still stale one threshold later: `session.stale` and the lane's `working_unobserved` wait for
+ * `Credentials::staleAnnounceCutoff()`, and `session.resumed` is written only for a stretch that
+ * was announced. A machine whose sessions flap every few minutes -- on 2026-10-15 one did for nine
+ * hours, nine events a cycle -- wakes no coordinator, and one that stays quiet is announced at most
+ * one threshold late. `stale_announced_at` is what says which stretch was told, and like the status
+ * it is only ever written conditionally on the row.
+ *
  * Reading the instance instead would be wrong in a way that lasts. Sanctum's guard materializes the
  * session several queries before this runs, so a sweep committing `stale` in between would be
  * overwritten by a contact write that left the status alone -- and a `stale` row with a fresh
@@ -108,20 +117,23 @@ final class SessionPresence
      * Mark the sessions that have stopped answering, then run the release steps.
      *
      * The gone pass runs first, so a session that has been silent past both thresholds moves
-     * straight to gone and writes one event rather than two in the same run.
+     * straight to gone and writes one event rather than two in the same run. The announcing pass
+     * runs last, so a session the stale pass just moved is announced in the same run when it has
+     * been quiet past both cutoffs -- a sweep that did not run for a while adds no delay of its own.
      *
-     * @return array{stale: int, gone: int} How many sessions each pass changed.
+     * @return array{stale: int, gone: int, announced: int} How many sessions each pass changed.
      */
     public function sweep(): array
     {
         $gone = $this->pass($this->credentials->goneCutoff(), AgentSessionStatus::Gone);
         $stale = $this->pass($this->credentials->staleCutoff(), AgentSessionStatus::Stale);
+        $announced = $this->announceStale($this->credentials->staleAnnounceCutoff());
 
         // After the passes, and on every sweep whether or not either of them changed anything:
         // the steps exist to catch what a missed `SessionGone` left holding
         $this->releases->run();
 
-        return ['stale' => $stale, 'gone' => $gone];
+        return ['stale' => $stale, 'gone' => $gone, 'announced' => $announced];
     }
 
     /**
@@ -257,17 +269,77 @@ final class SessionPresence
             return $this->goesNow($session, self::TIMEOUT, $cutoff) !== null;
         }
 
+        // Silently: the fleet is told only if it is still stale a threshold from now (#574).
+        // Clearing the stamp is a guard no test can reach, because every write that makes a row
+        // active clears it already; it stays so that a row stamped some other way is not taken for
+        // an announced stretch the moment it goes quiet.
+        return $this->conditionally(
+            $session,
+            $this->movesFrom(AgentSessionStatus::Stale),
+            ['status' => AgentSessionStatus::Stale->value, 'stale_announced_at' => null],
+            $cutoff
+        ) === 1;
+    }
+
+    /**
+     * Tell the fleet about every session still stale past the announcing cutoff, once each.
+     *
+     * Bounded per run as the passes are, and for the same reason.
+     *
+     * @param  Carbon  $cutoff  The contact time at or before which a stale session is announced.
+     * @return int How many sessions were announced.
+     */
+    private function announceStale(Carbon $cutoff): int
+    {
+        $announced = 0;
+        $examined = 0;
+        $ceiling = $this->credentials->maxPerSweep();
+
+        AgentSession::query()
+            ->with('installation')
+            ->where('status', AgentSessionStatus::Stale->value)
+            ->whereNull('stale_announced_at')
+            ->where('last_seen_at', '<=', $cutoff)
+            ->chunkById(
+                min(self::CHUNK, $ceiling),
+                function (Collection $sessions) use ($cutoff, $ceiling, &$announced, &$examined): ?bool {
+                    foreach ($sessions as $session) {
+                        $announced += $this->announceOne($session, $cutoff) ? 1 : 0;
+                        $examined++;
+
+                        if ($examined >= $ceiling) {
+                            return false;
+                        }
+                    }
+
+                    return null;
+                }
+            );
+
+        return $announced;
+    }
+
+    /**
+     * Announce one stale session, if it is still stale, still quiet, and still unannounced.
+     *
+     * @param  AgentSession  $session  The session the pass read.
+     * @param  Carbon  $cutoff  The contact time the read qualified it against.
+     * @return bool True when this call was the announcement.
+     */
+    private function announceOne(AgentSession $session, Carbon $cutoff): bool
+    {
         return DB::transaction(function () use ($session, $cutoff): bool {
             $quietSince = $session->last_seen_at;
 
-            $moved = $this->conditionally(
+            $marked = $this->conditionally(
                 $session,
-                $this->movesFrom(AgentSessionStatus::Stale),
-                ['status' => AgentSessionStatus::Stale->value],
-                $cutoff
+                [AgentSessionStatus::Stale],
+                ['stale_announced_at' => PresenceClock::now()],
+                $cutoff,
+                announced: false
             );
 
-            if ($moved !== 1) {
+            if ($marked !== 1) {
                 return false;
             }
 
@@ -294,27 +366,41 @@ final class SessionPresence
      */
     private function resume(AgentSession $session): bool
     {
-        return DB::transaction(function () use ($session): bool {
-            $resumed = $this->conditionally(
-                $session,
-                $this->movesFrom(AgentSessionStatus::Active),
-                ['status' => AgentSessionStatus::Active->value, 'last_seen_at' => PresenceClock::now()],
-                null
-            );
+        // Announced first, then not: the announcing pass can mark the row between the two, but
+        // never unmark it, so a third try at announced is the last one that can be needed
+        foreach ([true, false, true] as $announced) {
+            $resumed = DB::transaction(function () use ($session, $announced): bool {
+                $moved = $this->conditionally(
+                    $session,
+                    $this->movesFrom(AgentSessionStatus::Active),
+                    ['status' => AgentSessionStatus::Active->value, 'last_seen_at' => PresenceClock::now(), 'stale_announced_at' => null],
+                    null,
+                    $announced
+                );
 
-            if ($resumed !== 1) {
-                return false;
+                if ($moved !== 1) {
+                    return false;
+                }
+
+                // A stretch nobody was told about ends as quietly as it began (#574)
+                if ($announced) {
+                    $this->announce(
+                        $session,
+                        FleetEventType::SessionResumed,
+                        sprintf('%s is answering again.', $this->describe($session)),
+                        ['installation_id' => $session->installation_id]
+                    );
+                }
+
+                return true;
+            });
+
+            if ($resumed) {
+                return true;
             }
+        }
 
-            $this->announce(
-                $session,
-                FleetEventType::SessionResumed,
-                sprintf('%s is answering again.', $this->describe($session)),
-                ['installation_id' => $session->installation_id]
-            );
-
-            return true;
-        });
+        return false;
     }
 
     /**
@@ -413,9 +499,11 @@ final class SessionPresence
      * @param  list<AgentSessionStatus>  $from  The statuses the row may currently hold.
      * @param  array<string, mixed>  $values  What to write.
      * @param  Carbon|null  $cutoff  The contact time to require, when a clock decides the move.
+     * @param  bool|null  $announced  Whether the row's stale stretch must have been announced, or
+     *                                must not have been, when that decides the move (#574).
      * @return int How many rows changed, which is one or none.
      */
-    private function conditionally(AgentSession $session, array $from, array $values, ?Carbon $cutoff): int
+    private function conditionally(AgentSession $session, array $from, array $values, ?Carbon $cutoff, ?bool $announced = null): int
     {
         $query = AgentSession::query()
             ->whereKey($session->getKey())
@@ -425,6 +513,12 @@ final class SessionPresence
             // The half of the condition the sweep needs: a session heard from since the read is a
             // session that is answering, whatever the read said a moment ago
             $query->where('last_seen_at', '<=', $cutoff);
+        }
+
+        if ($announced === true) {
+            $query->whereNotNull('stale_announced_at');
+        } elseif ($announced === false) {
+            $query->whereNull('stale_announced_at');
         }
 
         $values['updated_at'] = Carbon::now();
