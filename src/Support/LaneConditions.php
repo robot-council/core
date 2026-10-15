@@ -379,7 +379,7 @@ final class LaneConditions
     /**
      * Stale lanes still holding work, recomputed on every check.
      *
-     * The presence transition raises this at once; recomputing it is what tells a coordinator that
+     * The presence announcement raises this at once; recomputing it is what tells a coordinator that
      * was not live at the transition, and what clears the row once the lane answers again.
      *
      * **Only a stale stretch the fleet was told about** (#574): a session goes stale silently and is

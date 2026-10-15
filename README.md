@@ -1022,7 +1022,8 @@ more `presence.stale_after_minutes`, which is at most that much later than befor
 answers inside that window writes no `session.stale` and no `session.resumed`, so a machine whose
 sessions flap every few minutes wakes no coordinator; `session.resumed` is written only for a stale
 stretch that was announced. A session that goes `gone` without having been announced writes
-`session.gone` alone. The sweep reports how many sessions it announced beside how many it moved.
+`session.gone` alone, which is every session when `presence.gone_after_minutes` is at or below twice
+the stale threshold. The sweep reports how many sessions it announced beside how many it moved.
 
 **Listen to `SessionGone` from a queued listener.** Laravel runs an after-commit callback outside
 any try/catch, so a synchronous listener that throws escapes the transaction that ended the session
@@ -1178,9 +1179,11 @@ Three things worth knowing before you enable it:
 Run `php artisan migrate`: one migration adds `robot_council_agent_sessions.stale_announced_at` and
 marks every session already `stale` as announced, since its `session.stale` was already written,
 so its resumption is still told (#574). After it, `session.stale` and a stale lane's
-`working_unobserved` are written one `presence.stale_after_minutes` after a session goes `stale`
-rather than at once, and not at all when it answers within that window; their shapes are
-unchanged.
+`working_unobserved` are written once a session has been quiet for twice
+`presence.stale_after_minutes`, rather than when it goes `stale`, and not at all when it answers
+first; their shapes are unchanged. A host whose `presence.gone_after_minutes` is at or below twice
+the stale threshold sees `session.gone` alone. Sessions moved to `stale` by the previous version
+while the deploy is still switching over carry no mark, so their resumption may go untold.
 
 ### To 0.8.1
 

@@ -18,6 +18,11 @@ use Illuminate\Support\Facades\Schema;
  * itself wrote `session.stale`. Left null, its resumption would be withheld and the fleet would be
  * left believing it still stale.
  *
+ * **Code from before this that is still running after it** -- an old instance or scheduler during a
+ * rolling deploy -- can move a session to stale with its event and no stamp. For that window such a
+ * session's resumption inside the announcing window is not told, and one that stays quiet is told
+ * twice. It closes when the old code stops, and is accepted rather than guarded.
+ *
  * A `dateTime` rather than a `timestamp`, for the reason `last_seen_at` is one.
  */
 return new class extends Migration

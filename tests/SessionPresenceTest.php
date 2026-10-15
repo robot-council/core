@@ -1148,7 +1148,15 @@ it('marks every session already stale as announced, so its resumption is still t
     expect(Schema::hasColumn('robot_council_agent_sessions', 'stale_announced_at'))->toBeFalse();
 
     $up();
+
+    // Run again with the column already there, as after a deploy killed between the two statements:
+    // a session that went stale since is marked too
+    [$later] = $this->startAgentSession($this->installation);
+    DB::table('robot_council_agent_sessions')->where('id', $later->id)->update(['status' => AgentSessionStatus::Stale->value]);
+
     $up();
+
+    expect(DB::table('robot_council_agent_sessions')->where('id', $later->id)->value('stale_announced_at'))->not->toBeNull();
 
     $read = static fn (AgentSession $session): mixed => DB::table('robot_council_agent_sessions')->where('id', $session->id)->value('stale_announced_at');
 
