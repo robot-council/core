@@ -1174,7 +1174,7 @@ Three things worth knowing before you enable it:
 
 ## Upgrading
 
-### Unreleased
+### To 0.8.2
 
 Run `php artisan migrate`: one migration adds `robot_council_agent_sessions.stale_announced_at` and
 marks every session already `stale` as announced, since its `session.stale` was already written,

@@ -2,6 +2,13 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.8.2 — Quiet Stale Sessions (2026-10-15)
+
+This release stops a session that goes quiet for a few minutes and answers again from waking the fleet: `session.stale` and a stale lane's `working_unobserved` wait until a session has been quiet for twice the stale threshold, `session.resumed` follows only a stale period that was announced, and one migration adds the column that records it.
+
+### What's new
+- Hold back session.stale and session.resumed until a session stays quiet a threshold [#575](https://github.com/robot-council/core/pull/575)
+
 ## v0.8.1 — Closed Blockers in the Blocker Import (2026-10-07)
 
 This release lets the blocker import record each closed blocker it has no row for, so a ticket blocked only by closed issues is offered again.
