@@ -395,7 +395,7 @@ final class SeatSettings extends Component
     }
 
     /**
-     * Waive one placement refusal for the next placement on a seat (#320).
+     * Waive one placement refusal for the next placement or claim on a seat (#320, #578).
      *
      * The rule arrives as a string from rendered markup, so it goes through the enum rather than
      * being trusted: a Livewire action is an ordinary POST a client can shape however it likes.
@@ -407,7 +407,7 @@ final class SeatSettings extends Component
     {
         $resolved = $this->rule($rule);
 
-        $this->report($seatId, $this->service(PlacementWaivers::class)->grant($this->developer(), $seatId, $resolved), 'Waived once: the next placement on %s goes ahead even when %s.', $resolved->reads());
+        $this->report($seatId, $this->service(PlacementWaivers::class)->grant($this->developer(), $seatId, $resolved), 'Waived once: the next placement or claim on %s goes ahead even when %s.', $resolved->reads());
     }
 
     /**

@@ -281,3 +281,32 @@ it('answers a refused claim from the tool as an error naming the rule, worded as
         ->and($text)->toContain('waive one of these for a single claim')
         ->and(stillUnclaimed($taskId))->toBeTrue();
 });
+
+it('spends no claim waiver when a waived rule is refused alongside one it does not cover', function (): void {
+    $this->service(DeveloperSettings::class)->setHours($this->key, 'UTC', '13:00', '17:00', false);
+    $seat = claimantSeat($this);
+    $this->service(Seats::class)->park($this->key, $seat->id);
+    $this->service(PlacementWaivers::class)->grant($this->key, $seat->id, PlacementRule::LaneNotParked);
+    $taskId = claimableTask($this);
+
+    // Refused on the rule the waiver does not cover, and the claim's write rolls back the spend
+    expect(claimRefusedOn(fn (): Outcome => claimAsLane($this, $taskId)))->toBe([PlacementRule::AssignmentHours])
+        ->and(stillUnclaimed($taskId))->toBeTrue()
+        ->and(PlacementWaiver::query()->sole()->consumed_at)->toBeNull();
+});
+
+it('holds a session with no recorded seat to its hours, with no seat to waive on', function (): void {
+    $this->service(DeveloperSettings::class)->setHours($this->key, 'UTC', '13:00', '17:00', false);
+
+    // No repository, so no seat: never parked, and nothing a waiver could be recorded against
+    [$seatless] = $this->startAgentSession($this->installation);
+    $taskId = $this->service(Tasks::class)->create($seatless, ['title' => 'Build the thing'], false)->id;
+
+    expect($this->service(Seats::class)->of($seatless))->toBeNull()
+        ->and(claimRefusedOn(fn (): Outcome => $this->service(Tasks::class)->transition($taskId, TaskTransition::Claim, $seatless, false)))->toBe([PlacementRule::AssignmentHours])
+        ->and(stillUnclaimed($taskId))->toBeTrue();
+
+    Carbon::setTestNow('2026-09-24 13:00:00');
+
+    expect($this->service(Tasks::class)->transition($taskId, TaskTransition::Claim, $seatless, false))->toBe(Outcome::Applied);
+});

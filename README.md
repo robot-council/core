@@ -922,8 +922,8 @@ confidential: use something like `subagent-2` or a worktree slot name.
 | `assignment_hours` | it is outside the lane's developer's hours -- new work only: a hand-back to a lane that has started the task before, work moved between one developer's own lanes, and an exempt seat are not gated |
 
 The two ticket rules apply only to a task that names an issue. **Only the developer who owns the
-lane's seat can waive a refusal**, from their seats page, for one rule and one placement; the
-placement spends it. A coordinator cannot. A successful placement also returns `warnings` that do not
+lane's seat can waive a refusal**, from their seats page, for one rule and one placement or claim;
+the placement or claim spends it. A coordinator cannot. A successful placement also returns `warnings` that do not
 block: a title naming an act that needs a human (delete, remove, retire, release, tag, publish,
 install, upgrade, rotate, spend), an open ticket whose acceptance criteria are all ticked, a branch
 whose name carries the ticket's number with no open pull request (matched by name), and a
@@ -952,7 +952,9 @@ session whose seat is parked, or that is outside its developer's assignment hour
 claim with 422 naming `lane_not_parked` or `assignment_hours`, decided by the same code a placement
 uses, so for one seat at one moment the two answer alike. An exempt seat and a developer with no
 hours are not gated, the seat's developer can waive either rule for one claim as for one placement,
-and the task stays `pending` and unclaimed. The ticket and capacity rules are a coordinator's, and a
+and the task stays `pending` and unclaimed. A session with no recorded seat -- one that names no
+repository, or whose seat no page has recorded yet -- is never parked, is held to its developer's
+hours as a placement on it would be, and has no seat to waive on. The ticket and capacity rules are a coordinator's, and a
 claim is not checked against them.
 
 **Every agent sees that every task exists. Not every agent sees what it says.** The row — id,

@@ -225,7 +225,7 @@ it('confirms each seat action in words, beside that seat', function (?string $fi
     'lift' => ['park', 'lift', [], 'Lifted: robot-council/core / robot-council-core-a can take new work again.', false],
     'exempt' => [null, 'exempt', [], 'Hours ignored: robot-council/core / robot-council-core-a takes new work at any time, whatever your hours say.', false],
     'apply hours' => ['exempt', 'unexempt', [], 'Hours apply: robot-council/core / robot-council-core-a takes new work only inside your assignment hours.', false],
-    'waive' => [null, 'waive', ['lane_not_parked'], "Waived once: the next placement on robot-council/core / robot-council-core-a goes ahead even when the lane's seat is parked by its developer.", false],
+    'waive' => [null, 'waive', ['lane_not_parked'], "Waived once: the next placement or claim on robot-council/core / robot-council-core-a goes ahead even when the lane's seat is parked by its developer.", false],
     'withdraw a waiver' => ['waive', 'withdrawWaiver', ['lane_not_parked'], "Withdrawn: placements on robot-council/core / robot-council-core-a are refused again when the lane's seat is parked by its developer.", false],
     'withdraw nothing' => [null, 'withdrawWaiver', ['lane_not_parked'], 'Nothing withdrawn: that waiver was already used or withdrawn. The list shows what is waived now.', true],
     'lift a seat that is not parked' => [null, 'lift', [], 'No change: robot-council/core / robot-council-core-a was already in that state. The page shows where it stands now.', true],
