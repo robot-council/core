@@ -2,6 +2,13 @@
 
 All notable changes to `robot-council` will be documented in this file.
 
+## v0.8.3 — Gated Claims (2026-10-16)
+
+This release holds a session's own claim to its developer's parking and assignment hours, as a placement already is: a parked seat, or a seat outside its hours, is refused `task_claim` with 422 naming the rule.
+
+### What's new
+- Refuse a claim by a parked seat or outside its developer's assignment hours [#579](https://github.com/robot-council/core/pull/579)
+
 ## v0.8.2 — Quiet Stale Sessions (2026-10-15)
 
 This release stops a session that goes quiet for a few minutes and answers again from waking the fleet: `session.stale` and a stale lane's `working_unobserved` wait until a session has been quiet for twice the stale threshold, `session.resumed` follows only a stale period that was announced, and one migration adds the column that records it.
