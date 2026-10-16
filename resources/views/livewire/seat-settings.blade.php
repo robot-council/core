@@ -124,13 +124,14 @@
                                     @endforeach
                                 </ul>
                             @endif
-                            {{-- #320: a waiver lets exactly one placement through one refusal on this
-                                 seat. Only the seat's developer can grant it; a coordinator cannot. --}}
+                            {{-- #320: a waiver lets exactly one placement, or since #578 one claim by the
+                                 seat's own session, through one refusal on this seat. Only the seat's
+                                 developer can grant it; a coordinator cannot. --}}
                             <details class="w-full text-meta">
                                 <summary class="cursor-pointer py-3 opacity-90">
                                     Waive a placement refusal
                                     @if ($waived[$seat->id] !== [])
-                                        ({{ count($waived[$seat->id]) }} waived for the next placement)
+                                        ({{ count($waived[$seat->id]) }} waived for the next placement or claim)
                                     @endif
                                 </summary>
 

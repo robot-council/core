@@ -922,8 +922,8 @@ confidential: use something like `subagent-2` or a worktree slot name.
 | `assignment_hours` | it is outside the lane's developer's hours -- new work only: a hand-back to a lane that has started the task before, work moved between one developer's own lanes, and an exempt seat are not gated |
 
 The two ticket rules apply only to a task that names an issue. **Only the developer who owns the
-lane's seat can waive a refusal**, from their seats page, for one rule and one placement; the
-placement spends it. A coordinator cannot. A successful placement also returns `warnings` that do not
+lane's seat can waive a refusal**, from their seats page, for one rule and one placement or claim;
+the placement or claim spends it. A coordinator cannot. A successful placement also returns `warnings` that do not
 block: a title naming an act that needs a human (delete, remove, retire, release, tag, publish,
 install, upgrade, rotate, spend), an open ticket whose acceptance criteria are all ticked, a branch
 whose name carries the ticket's number with no open pull request (matched by name), and a
@@ -946,6 +946,16 @@ first. A transition that changed nothing answers **409**; one this session may n
 by a session that held `coordinator:direct` at the time. That is recorded on the task when it is
 filed, so revoking the coordinator's ability afterwards cannot make work that was open to the fleet
 silently unclaimable.
+
+**A claim is gated on the claimant's own developer's settings, as a placement is** (#578). A
+session whose seat is parked, or that is outside its developer's assignment hours, is refused a
+claim with 422 naming `lane_not_parked` or `assignment_hours`, decided by the same code a placement
+uses, so for one seat at one moment the two answer alike. An exempt seat and a developer with no
+hours are not gated, the seat's developer can waive either rule for one claim as for one placement,
+and the task stays `pending` and unclaimed. A session with no recorded seat -- one that names no
+repository, or whose seat no page has recorded yet -- is never parked, is held to its developer's
+hours as a placement on it would be, and has no seat to waive on. The ticket and capacity rules are a coordinator's, and a
+claim is not checked against them.
 
 **Every agent sees that every task exists. Not every agent sees what it says.** The row — id,
 status, priority, project, provenance, `placed_by`, `hand_back` — reaches everyone, because a queue half the fleet is blind to
@@ -1173,6 +1183,14 @@ Three things worth knowing before you enable it:
   and on `null` there is no limit at all.
 
 ## Upgrading
+
+### Unreleased
+
+`task_claim` and `POST {prefix}/api/tasks/{id}/claim` now answer **422** with `refused`, as a
+refused placement does, when the claiming session's seat is parked or it is outside its developer's
+assignment hours (#578). A client that read only 200 and 409 from a claim should treat the 422 as a
+refusal it cannot retry until the seat is lifted or the hours open; the MCP tool answers it as an
+error.
 
 ### To 0.8.2
 

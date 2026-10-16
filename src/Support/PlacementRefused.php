@@ -18,11 +18,13 @@ final class PlacementRefused extends RuntimeException
 {
     /**
      * @param  list<PlacementRule>  $rules  Every rule the placement broke, after waivers.
+     * @param  string  $refused  What was refused: `placement`, or `claim` for a session's own (#578).
      */
-    public function __construct(public readonly array $rules)
+    public function __construct(public readonly array $rules, string $refused = 'placement')
     {
         parent::__construct(sprintf(
-            'The placement was refused: %s.',
+            'The %s was refused: %s.',
+            $refused,
             implode('; ', array_map(static fn (PlacementRule $rule): string => $rule->reads(), $rules))
         ));
     }

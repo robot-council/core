@@ -337,7 +337,7 @@ return [
     ],
     'park' => [
         'term' => 'Park and Lift',
-        'means' => '"Park" stops new work being placed on the seat, and "Lift" allows it again. Only you can lift a seat you parked; it never lifts on its own.',
+        'means' => '"Park" stops new work being placed on the seat or claimed by its sessions, and "Lift" allows it again. Only you can lift a seat you parked; it never lifts on its own.',
     ],
     'exempt' => [
         'term' => 'Ignore my hours',
@@ -353,7 +353,7 @@ return [
     ],
     'waive' => [
         'term' => 'Waive a placement refusal',
-        'means' => 'A placement is refused when one of the listed rules is broken, for example outside your hours. Waiving a rule lets the next placement on the seat through once, and withdrawing the waiver takes it back before it is used.',
+        'means' => 'A placement is refused when one of the listed rules is broken, for example outside your hours. Waiving a rule lets the next placement on the seat, or the next claim by one of its sessions, through once, and withdrawing the waiver takes it back before it is used.',
     ],
     'assignment_hours' => [
         'term' => 'Assignment hours',
