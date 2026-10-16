@@ -1184,7 +1184,7 @@ Three things worth knowing before you enable it:
 
 ## Upgrading
 
-### Unreleased
+### To 0.8.3
 
 `task_claim` and `POST {prefix}/api/tasks/{id}/claim` now answer **422** with `refused`, as a
 refused placement does, when the claiming session's seat is parked or it is outside its developer's
