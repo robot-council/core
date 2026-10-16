@@ -223,7 +223,11 @@ final class TaskTransitionTool extends Tool
         } catch (PlacementRefused $placementRefused) {
             // Every rule the placement broke, in words, as an error: the model must not read a
             // refusal as having worked
-            return Response::error($placementRefused->getMessage()." The developer who owns the lane's seat can waive one of these for a single placement from their seats page, once that page has recorded the seat; a coordinator cannot.");
+            //
+            // A claim (#578) is refused on the claimant's own seat, and its developer waives it the same way
+            return Response::error($placementRefused->getMessage().($this->transition === TaskTransition::Claim
+                ? " The developer who owns this session's seat can waive one of these for a single claim from their seats page, once that page has recorded the seat; a coordinator cannot."
+                : " The developer who owns the lane's seat can waive one of these for a single placement from their seats page, once that page has recorded the seat; a coordinator cannot."));
         }
 
         // #433: GitHub finished the task before this completion arrived, and the result was added to

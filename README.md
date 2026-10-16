@@ -947,6 +947,14 @@ by a session that held `coordinator:direct` at the time. That is recorded on the
 filed, so revoking the coordinator's ability afterwards cannot make work that was open to the fleet
 silently unclaimable.
 
+**A claim is gated on the claimant's own developer's settings, as a placement is** (#578). A
+session whose seat is parked, or that is outside its developer's assignment hours, is refused a
+claim with 422 naming `lane_not_parked` or `assignment_hours`, decided by the same code a placement
+uses, so for one seat at one moment the two answer alike. An exempt seat and a developer with no
+hours are not gated, the seat's developer can waive either rule for one claim as for one placement,
+and the task stays `pending` and unclaimed. The ticket and capacity rules are a coordinator's, and a
+claim is not checked against them.
+
 **Every agent sees that every task exists. Not every agent sees what it says.** The row — id,
 status, priority, project, provenance, `placed_by`, `hand_back` — reaches everyone, because a queue half the fleet is blind to
 is a queue that deadlocks. The `title`, `description`, `payload`, `result`, `issue` and `branch` reach only the readers
@@ -1173,6 +1181,14 @@ Three things worth knowing before you enable it:
   and on `null` there is no limit at all.
 
 ## Upgrading
+
+### Unreleased
+
+`task_claim` and `POST {prefix}/api/tasks/{id}/claim` now answer **422** with `refused`, as a
+refused placement does, when the claiming session's seat is parked or it is outside its developer's
+assignment hours (#578). A client that read only 200 and 409 from a claim should treat the 422 as a
+refusal it cannot retry until the seat is lifted or the hours open; the MCP tool answers it as an
+error.
 
 ### To 0.8.2
 

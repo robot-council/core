@@ -131,7 +131,8 @@ final class Tasks
      * @throws InvalidArgumentException When a reassignment names nobody or says nothing, a branch or
      *                                  sub-label is unusable, or `expect` is given where it cannot
      *                                  apply.
-     * @throws PlacementRefused When a placement breaks an invariant no waiver covers (#320).
+     * @throws PlacementRefused When a placement breaks an invariant no waiver covers (#320), or a
+     *                          claim breaks one of its developer's (#578).
      */
     public function transition(
         int $taskId,
@@ -203,10 +204,18 @@ final class Tasks
                 ? Task::query()->whereKey($taskId)->lockForUpdate()->first()
                 : null;
 
-            // A `$before` exists only where `$holder` does, which the analyzer follows
-            $broken = $before instanceof Task
-                ? $this->placementRefusals($before, $holder, $handBack)
-                : [];
+            // A `$before` exists only where `$holder` does, which the analyzer follows.
+            //
+            // #578: a claim is held to its developer's two rules, because a seat that may not be
+            // placed on must not be able to take the same work for itself. Decided from the seat and
+            // the settings alone, with no read of the task, so the claim's own write stays its first
+            // statement against the tasks table; a claim that loses the write is diagnosed below
+            // before these are looked at.
+            $broken = match (true) {
+                $before instanceof Task => $this->placementRefusals($before, $holder, $handBack),
+                $transition === TaskTransition::Claim && $holder instanceof AgentSession => $this->rules->claimRefusals($holder, Carbon::now()),
+                default => [],
+            };
 
             $sameHolder = $before instanceof Task && $before->claimed_by === $holder->getKey();
 
@@ -230,7 +239,7 @@ final class Tasks
                 // else in this transaction -- including any waiver spent on a rule that still
                 // refused alongside another
                 if ($uncovered !== []) {
-                    throw new PlacementRefused($uncovered);
+                    throw new PlacementRefused($uncovered, $transition === TaskTransition::Reassign ? 'placement' : 'claim');
                 }
             }
 

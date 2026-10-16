@@ -11,6 +11,7 @@ use RobotCouncil\Models\FleetEvent;
 use RobotCouncil\Models\FleetEventType;
 use RobotCouncil\Models\GitHubItem;
 use RobotCouncil\Models\PlacementRule;
+use RobotCouncil\Models\Seat;
 use RobotCouncil\Models\Task;
 use RobotCouncil\Models\TaskStatus;
 
@@ -90,7 +91,7 @@ final class PlacementRules
             $broken[] = PlacementRule::LaneFree;
         }
 
-        if ($seat?->isParked() === true) {
+        if ($this->parked($seat)) {
             $broken[] = PlacementRule::LaneNotParked;
         }
 
@@ -98,24 +99,99 @@ final class PlacementRules
             $broken[] = PlacementRule::TicketUnblocked;
         }
 
-        // New placements only, as #314 records, and "new" is decided from state the coordinator does
-        // not assert. **Work already held moves ungated only within one developer's lanes**: hours
-        // are a developer's, so work arriving from another developer's lane is new to this one --
-        // otherwise placing on an in-hours lane and then moving it would place anything anywhere.
-        // **A hand-back is exempt only when this lane has itself started the task before**, which
-        // its own `task.started` event records; a bare `hand_back: true` from the coordinator would
-        // otherwise be a waiver the coordinator granted itself. An exempt seat is not gated either
-        // -- that is its developer's setting.
-        $isNew = $task->status === TaskStatus::Pending || ! $this->heldByTheSameDeveloper($task, $lane);
-        $returning = $handBack && $this->laneStarted($task, $lane);
-
-        // The same answer `developer_settings` reports (#440), so a coordinator that read the seat as
-        // inside its hours is not then refused for being outside them
-        if ($isNew && ! $returning && $this->settings->standingAt($lane->user_id, $seat?->hours_exempt === true, $at) === HoursStanding::Outside) {
+        if ($this->outsideHours($task, $lane, $seat, $handBack, $at)) {
             $broken[] = PlacementRule::AssignmentHours;
         }
 
         return $broken;
+    }
+
+    /**
+     * The rules a session's own claim breaks (#578).
+     *
+     * **The two that are the developer's, and only those.** Parking and assignment hours are how a
+     * developer controls when a seat takes new work, so they hold only if every way a seat comes to
+     * hold new work passes through them; a claim is the other way. Decided by the same two methods a
+     * placement uses, so for one seat at one moment a claim and a placement cannot disagree. The
+     * ticket and capacity rules are a coordinator's, and stay off a claim.
+     *
+     * **It reads no task.** A claim starts only from `pending`, which is always new work and never
+     * a hand-back, so neither rule depends on the task -- and a claim's first statement against the
+     * tasks table stays the conditional update that decides it, which is what keeps two claims of
+     * one task from both winning (`TaskLifecycleTest`).
+     *
+     * @param  AgentSession  $session  The session claiming, read under its lock.
+     * @param  DateTimeInterface  $at  The moment of the claim.
+     * @return list<PlacementRule> The broken rules, in declaration order.
+     */
+    public function claimRefusals(AgentSession $session, DateTimeInterface $at): array
+    {
+        $seat = $this->seats->of($session);
+        $broken = [];
+
+        if ($this->parked($seat)) {
+            $broken[] = PlacementRule::LaneNotParked;
+        }
+
+        if ($this->outsideHoursAt($session, $seat, $at)) {
+            $broken[] = PlacementRule::AssignmentHours;
+        }
+
+        return $broken;
+    }
+
+    /**
+     * Whether the lane's seat is parked by its developer.
+     *
+     * @param  Seat|null  $seat  The lane's seat, when it has one.
+     * @return bool True when parked.
+     */
+    private function parked(?Seat $seat): bool
+    {
+        return $seat?->isParked() === true;
+    }
+
+    /**
+     * Whether giving this task to this lane now is new work outside its developer's hours.
+     *
+     * New placements only, as #314 records, and "new" is decided from state the coordinator does not
+     * assert. **Work already held moves ungated only within one developer's lanes**: hours are a
+     * developer's, so work arriving from another developer's lane is new to this one -- otherwise
+     * placing on an in-hours lane and then moving it would place anything anywhere. **A hand-back is
+     * exempt only when this lane has itself started the task before**, which its own `task.started`
+     * event records; a bare `hand_back: true` from the coordinator would otherwise be a waiver the
+     * coordinator granted itself. An exempt seat is not gated either -- that is its developer's
+     * setting.
+     *
+     * @param  Task  $task  The task.
+     * @param  AgentSession  $lane  The lane it would go to.
+     * @param  Seat|null  $seat  The lane's seat, when it has one.
+     * @param  bool  $handBack  Whether it returns a gate's pull request.
+     * @param  DateTimeInterface  $at  The moment.
+     * @return bool True when the hours refuse it.
+     */
+    private function outsideHours(Task $task, AgentSession $lane, ?Seat $seat, bool $handBack, DateTimeInterface $at): bool
+    {
+        $isNew = $task->status === TaskStatus::Pending || ! $this->heldByTheSameDeveloper($task, $lane);
+        $returning = $handBack && $this->laneStarted($task, $lane);
+
+        return $isNew && ! $returning && $this->outsideHoursAt($lane, $seat, $at);
+    }
+
+    /**
+     * Whether the lane's developer takes no new work at this moment.
+     *
+     * The same answer `developer_settings` reports (#440), so a coordinator that read the seat as
+     * inside its hours is not then refused for being outside them. An exempt seat is never outside.
+     *
+     * @param  AgentSession  $lane  The lane.
+     * @param  Seat|null  $seat  The lane's seat, when it has one.
+     * @param  DateTimeInterface  $at  The moment.
+     * @return bool True when outside.
+     */
+    private function outsideHoursAt(AgentSession $lane, ?Seat $seat, DateTimeInterface $at): bool
+    {
+        return $this->settings->standingAt($lane->user_id, $seat?->hours_exempt === true, $at) === HoursStanding::Outside;
     }
 
     /**
