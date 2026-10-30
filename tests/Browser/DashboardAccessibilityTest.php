@@ -27,6 +27,7 @@ declare(strict_types=1);
  * @command  vendor/bin/pest --testsuite=Browser
  */
 
+use Composer\InstalledVersions;
 use Illuminate\Foundation\Auth\User;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Blade;
@@ -245,16 +246,52 @@ function visitSurface(TestCase $case, string $route, string $parameter, string $
 }
 
 /**
+ * The source of the axe the plugin bundles, read on first use.
+ *
+ * Read from the plugin's install path rather than a literal `vendor/` path, because a host may move
+ * the vendor directory.
+ *
+ * @return string The script, which defines `window.axe` when evaluated in a page.
+ */
+function axeSource(): string
+{
+    static $source = null;
+
+    if ($source === null) {
+        $root = InstalledVersions::getInstallPath('pestphp/pest-plugin-browser');
+        $path = $root.'/resources/js/axe.min.js';
+        $contents = is_string($root) && is_file($path) ? file_get_contents($path) : false;
+
+        if (! is_string($contents) || $contents === '') {
+            throw new RuntimeException('The plugin does not bundle an axe to load: '.$path);
+        }
+
+        $source = $contents;
+    }
+
+    return $source;
+}
+
+/**
  * The violations axe finds on a page, for the rule tags given.
  *
  * **Run through `script()` rather than the plugin's `assertNoAccessibilityIssues()`**, which turns an
  * absent or failed axe run into an empty list and so a pass. Here an axe that did not run throws.
+ *
+ * **Loads axe itself when the page lacks it.** Through v5.1.2 the plugin put axe on every page;
+ * v5.2.0 loads it only inside `assertNoAccessibilityIssues()` (#584). Evaluating the plugin's own
+ * bundled source when `window.axe` is absent works on both, and a page that navigated since the
+ * last call has lost it, so this runs on every call.
  *
  * @param  list<string>  $tags  The axe rule tags to run.
  * @return list<array{id: string, impact: string, help: string, nodes: list<string>}> What it found.
  */
 function axeViolations(PendingAwaitablePage $page, array $tags): array
 {
+    if ($page->script('() => typeof window.axe') !== 'object') {
+        $page->script(axeSource());
+    }
+
     $found = $page->script(sprintf(<<<'JS'
         async () => {
             if (typeof window.axe !== 'object') return 'axe is not on the page';
