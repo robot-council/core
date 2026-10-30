@@ -6,7 +6,6 @@ use Pest\Rector\Set\PestSetList;
 use Rector\CodeQuality\Rector\ClassMethod\LocallyCalledStaticMethodToNonStaticRector;
 use Rector\CodingStyle\Rector\ClassMethod\MakeInheritedMethodVisibilitySameAsParentRector;
 use Rector\Config\RectorConfig;
-use Rector\DeadCode\Rector\ClassMethod\RemoveDuplicatedReturnSelfDocblockRector;
 use Rector\DeadCode\Rector\ClassMethod\RemoveEmptyClassMethodRector;
 use Rector\DeadCode\Rector\ClassMethod\RemoveUnusedPromotedPropertyRector;
 use Rector\DeadCode\Rector\ClassMethod\RemoveUnusedPublicMethodParameterRector;
@@ -49,7 +48,6 @@ return RectorConfig::configure()
         // These delete docblock tags that the `php-documentation` skill requires: an inline
         // `@var` pinning a value that arrives untyped, and `@return $this` beside `: static`.
         RemoveUselessVarTagRector::class,
-        RemoveDuplicatedReturnSelfDocblockRector::class,
 
         // Pest's `strict()` arch preset forbids protected methods, and PHP allows a subclass to
         // widen one, so an Eloquent model declares `casts()` public. This rule would narrow it

@@ -10,8 +10,11 @@ declare(strict_types=1);
  * @command  vendor/bin/pest --compact tests/GitHubSignInTest.php
  */
 
+use Carbon\CarbonImmutable;
+use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Laravel\Socialite\Facades\Socialite;
 use RobotCouncil\Models\GithubIdentity;
 use Symfony\Component\HttpFoundation\Cookie;
@@ -79,6 +82,84 @@ it('prints nothing the caller supplied on the expired page', function (): void {
     // The control: a canary that IS on the page, so `assertDontSee` is shown able to fail
     $response->assertSee('That sign-in attempt expired');
 });
+
+it('answers a GitHub rate limit during the account read with a page, signing nobody in', function (): void {
+    $this->setAccessLists(developers: [4242]);
+    $reset = (string) now()->addMinutes(30)->getTimestamp();
+    $logged = [];
+    Log::listen(static function (MessageLogged $entry) use (&$logged): void {
+        $logged[] = $entry;
+    });
+    Socialite::shouldReceive('driver->user')->andThrow(githubRefusal(
+        403,
+        ['x-ratelimit-remaining' => '0', 'x-ratelimit-reset' => $reset],
+        '{"message":"API rate limit exceeded for user ID 987654321.","zz":"zz-canary-body-zz"}',
+    ));
+
+    $response = $this->get(route('robot-council.auth.callback'));
+
+    $response->assertStatus(400)
+        ->assertSee('rate-limiting your account')
+        ->assertSee('Try again later')
+        ->assertSee(CarbonImmutable::createFromTimestampUTC((int) $reset)->format('H:i').' UTC')
+        ->assertDontSee('Server Error')
+        ->assertDontSee('987654321')
+        ->assertDontSee('zz-canary-body-zz')
+        ->assertSeeHtml(route('robot-council.auth.redirect'));
+
+    expect($response->headers->get('Location'))->toBeNull()
+        ->and(Auth::guard('web')->check())->toBeFalse()
+        ->and(GithubIdentity::query()->count())->toBe(0)
+        ->and(DB::table('users')->count())->toBe(0);
+
+    $refusals = array_values(array_filter(
+        $logged,
+        static fn (MessageLogged $entry): bool => $entry->level === 'warning' && ($entry->context['status'] ?? null) === 403,
+    ));
+
+    expect($refusals)->toHaveCount(1)
+        ->and($refusals[0]->context['rate_limited'])->toBeTrue();
+});
+
+it('names a rate limit from the wording GitHub uses when no header says so, and ignores a malformed reset', function (): void {
+    Socialite::shouldReceive('driver->user')->andThrow(githubRefusal(
+        403,
+        ['x-ratelimit-reset' => '<script>alert(1)</script>'],
+        '{"message":"You have exceeded a secondary rate limit."}',
+    ));
+
+    $this->get(route('robot-council.auth.callback'))
+        ->assertStatus(400)
+        ->assertSee('rate-limiting your account')->assertDontSee('UTC')->assertDontSeeHtml('<script>alert(1)</script>');
+});
+
+it('answers any other GitHub refusal of the account read with a page, not a 500', function (int $status): void {
+    $logged = [];
+    Log::listen(static function (MessageLogged $entry) use (&$logged): void {
+        $logged[] = $entry;
+    });
+    Socialite::shouldReceive('driver->user')->andThrow(githubRefusal($status));
+
+    $response = $this->get(route('robot-council.auth.callback'));
+
+    $response->assertStatus(400)
+        ->assertSee('GitHub refused the request')
+        ->assertDontSee('rate-limiting')
+        ->assertDontSee('Server Error')
+        ->assertDontSee('Bad credentials');
+
+    expect($response->headers->get('Location'))->toBeNull()
+        ->and(Auth::guard('web')->check())->toBeFalse()
+        ->and(GithubIdentity::query()->count())->toBe(0);
+
+    $refusals = array_values(array_filter(
+        $logged,
+        static fn (MessageLogged $entry): bool => $entry->level === 'warning' && ($entry->context['status'] ?? null) === $status,
+    ));
+
+    expect($refusals)->toHaveCount(1)
+        ->and($refusals[0]->context['rate_limited'])->toBeFalse();
+})->with([401, 403, 502]);
 
 it('signs in a developer on the access list and records the account', function (): void {
     $this->setAccessLists(developers: [4242]);

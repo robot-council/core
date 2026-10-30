@@ -8,6 +8,7 @@ declare(strict_types=1);
  * @command  vendor/bin/pest --compact tests/PageHeadTest.php
  */
 
+use Laravel\Socialite\Facades\Socialite;
 use RobotCouncil\Tests\TestCase;
 
 beforeEach(function (): void {
@@ -40,6 +41,12 @@ function everyPage(TestCase $case): array
 
     $pages['sign-in-expired'] = (string) $case->withSession(['state' => 'issued'])
         ->get(route('robot-council.auth.callback', ['state' => 'other', 'code' => 'x']))
+        ->assertStatus(400)
+        ->getContent();
+
+    Socialite::shouldReceive('driver->user')->andThrow(githubRefusal(500));
+
+    $pages['sign-in-refused'] = (string) $case->get(route('robot-council.auth.callback'))
         ->assertStatus(400)
         ->getContent();
 
@@ -84,6 +91,7 @@ it('gives every page its own title, with the fleet name after it and alone on th
         'enroll.show' => 'Enroll a machine · Robot Council',
         'signed-out' => 'Signed out · Robot Council',
         'sign-in-expired' => 'Sign-in expired · Robot Council',
+        'sign-in-refused' => 'GitHub refused sign-in · Robot Council',
     ])->and(array_unique($titles))->toHaveSameSize($titles);
 });
 
