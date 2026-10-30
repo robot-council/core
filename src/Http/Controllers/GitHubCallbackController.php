@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace RobotCouncil\Http\Controllers;
 
+use Carbon\CarbonImmutable;
+use GuzzleHttp\Exception\BadResponseException;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Auth\Factory as AuthFactory;
 use Illuminate\Contracts\Auth\StatefulGuard;
@@ -15,6 +17,7 @@ use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
 use Laravel\Socialite\Contracts\Factory;
 use Laravel\Socialite\Two\InvalidStateException;
+use Psr\Http\Message\ResponseInterface;
 use RobotCouncil\Access\Allowlist;
 use RobotCouncil\Access\Guard;
 use RobotCouncil\Models\GithubIdentity;
@@ -40,7 +43,8 @@ final class GitHubCallbackController
      * @param  AuthFactory  $auth  The host application's authentication factory.
      * @param  Guard  $guard  The configured guard's name.
      * @return RedirectResponse|Response A redirect to wherever the developer was heading, or the
-     *                                   page shown when the callback's state did not match.
+     *                                   page shown when the callback's state did not match or GitHub
+     *                                   refused to give the account up.
      *
      * @throws AccessDeniedHttpException When the GitHub account is on neither access list.
      * @throws ConflictHttpException When another user holds the account's email address, or the
@@ -76,6 +80,26 @@ final class GitHubCallbackController
             $template = 'robot-council::sign-in-expired';
 
             return response()->view($template, status: 400);
+        } catch (BadResponseException $refusal) {
+            // **GitHub refused the account read**, which Socialite makes after the code exchange.
+            // Nothing below runs, so nobody is signed in and no row is written (#582). Answered
+            // with a page rather than a redirect for #105's reason: a redirect loops.
+            $response = $refusal->getResponse();
+            $status = $response->getStatusCode();
+            $limited = $this->isRateLimit($response);
+
+            Log::warning('robot-council could not read the GitHub account: GitHub refused the request.', [
+                'status' => $status,
+                'rate_limited' => $limited,
+            ]);
+
+            /** @var view-string $template */
+            $template = 'robot-council::sign-in-refused';
+
+            return response()->view($template, [
+                'limited' => $limited,
+                'resetsAt' => $limited ? $this->resetTime($response) : null,
+            ], 400);
         }
 
         $githubId = (int) $account->getId();
@@ -126,6 +150,45 @@ final class GitHubCallbackController
         $request->session()->regenerate();
 
         return redirect()->intended('/');
+    }
+
+    /**
+     * Whether GitHub refused because the account ran out of allowance.
+     *
+     * @param  ResponseInterface  $response  GitHub's refusal.
+     * @return bool True for a 429, or a 403 that says the allowance is spent.
+     */
+    private function isRateLimit(ResponseInterface $response): bool
+    {
+        $status = $response->getStatusCode();
+
+        if ($status === 429) {
+            return true;
+        }
+
+        // A 403 is also a plain permission refusal, so it takes the header or GitHub's own wording
+        return $status === 403
+            && ($response->getHeaderLine('x-ratelimit-remaining') === '0'
+                || str_contains(strtolower((string) $response->getBody()), 'rate limit'));
+    }
+
+    /**
+     * When the allowance resets, if GitHub said so with a usable header.
+     *
+     * @param  ResponseInterface  $response  GitHub's refusal.
+     * @return CarbonImmutable|null The reset time, or null when absent, malformed, or in the past.
+     */
+    private function resetTime(ResponseInterface $response): ?CarbonImmutable
+    {
+        $reset = $response->getHeaderLine('x-ratelimit-reset');
+
+        if (preg_match('/^[0-9]{1,12}$/', $reset) !== 1) {
+            return null;
+        }
+
+        $time = CarbonImmutable::createFromTimestampUTC((int) $reset);
+
+        return $time->isFuture() ? $time : null;
     }
 
     /**

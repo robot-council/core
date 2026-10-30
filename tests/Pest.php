@@ -3,6 +3,10 @@
 declare(strict_types=1);
 
 use Carbon\CarbonInterface;
+use GuzzleHttp\Exception\ClientException;
+use GuzzleHttp\Exception\ServerException;
+use GuzzleHttp\Psr7\Request as PsrRequest;
+use GuzzleHttp\Psr7\Response as PsrResponse;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -984,6 +988,24 @@ function githubAccount(
     ]);
 
     return $account;
+}
+
+/**
+ * The exception Socialite lets through when GitHub refuses the account read.
+ *
+ * @param  int  $status  The status GitHub answered with.
+ * @param  array<string, string>  $headers  The response headers.
+ * @param  string  $body  The response body.
+ * @return ClientException|ServerException The exception Guzzle raises for that status.
+ */
+function githubRefusal(int $status, array $headers = [], string $body = '{"message":"Bad credentials"}'): ClientException|ServerException
+{
+    $request = new PsrRequest('GET', 'https://api.github.com/user');
+    $response = new PsrResponse($status, $headers, $body);
+
+    return $status >= 500
+        ? new ServerException('refused', $request, $response)
+        : new ClientException('refused', $request, $response);
 }
 
 /**
