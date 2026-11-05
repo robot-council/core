@@ -616,7 +616,7 @@ it('stores nothing for a repository GitHub fails on, still fetches the others, a
     '403' => [fn () => Http::response(['message' => 'Resource not accessible by integration'], 403), 'refused', 403],
     '404' => [fn () => Http::response(['message' => 'Not Found'], 404), 'refused', 404],
     '422' => [fn () => Http::response(['message' => 'Validation Failed'], 422), 'refused', 422],
-    'a timeout' => [fn () => throw new ConnectionException('cURL error 28: Operation timed out'), 'unreachable', null],
+    'a timeout' => [fn (): never => throw new ConnectionException('cURL error 28: Operation timed out'), 'unreachable', null],
     'an unparseable body' => [fn () => Http::response('<html>unicorn</html>', 200), 'unparseable', 200],
     'a negative count' => [fn () => Http::response(['total_count' => -1, 'incomplete_results' => false]), 'unparseable', 200],
     'a count GitHub calls incomplete' => [fn () => Http::response(['total_count' => 3, 'incomplete_results' => true]), 'incomplete', 200],
@@ -681,7 +681,7 @@ it('never lets the key, the JWT, or an installation token reach a log, an except
     fakeGitHub($this, ['robot-council' => 7], [
         'robot-council/core' => ['issues' => 2, 'pulls' => 0],
         'robot-council/broken' => fn () => Http::response(['message' => 'Bad credentials'], 401),
-        'robot-council/timeout' => fn () => throw new ConnectionException('cURL error 28 for https://api.github.com/search/issues'),
+        'robot-council/timeout' => fn (): never => throw new ConnectionException('cURL error 28 for https://api.github.com/search/issues'),
     ]);
 
     runBacklogFetch();
@@ -728,7 +728,7 @@ it('never lets the key, the JWT, or an installation token reach a log, an except
 
         foreach ([
             fn () => Http::response(['message' => 'Bad credentials'], 401),
-            fn () => throw new ConnectionException('cURL error 28 carrying Bearer '.$token),
+            fn (): never => throw new ConnectionException('cURL error 28 carrying Bearer '.$token),
             fn () => Http::response('not json '.$token, 200),
         ] as $answer) {
             fakeGitHub($this, ['robot-council' => 7], ['robot-council/core' => $answer]);
@@ -1148,7 +1148,7 @@ it('treats a passing failure as undetermined and a standing one as failed, group
 
     // GitHub not answering: it may pass on its own
     fakeGitHub($this, ['uams-web' => 9], [
-        'UAMS-Web/site' => fn () => throw new ConnectionException('cURL error 28'),
+        'UAMS-Web/site' => fn (): never => throw new ConnectionException('cURL error 28'),
         'uams-web/other' => ['issues' => 1, 'pulls' => 0],
     ]);
     runBacklogFetch();

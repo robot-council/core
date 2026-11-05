@@ -382,7 +382,7 @@ it('says which failure it was', function (Closure $failure, string $reason): voi
         ->set('account', 'new-dev')->call('lookUp')
         ->assertSet('said', sprintf('Not added: %s, so new-dev could not be looked up. Try again later, or add them by their numeric user ID.', $reason));
 })->with([
-    'unreachable' => [static fn () => throw new ConnectionException('down'), 'GitHub could not be reached'],
+    'unreachable' => [static fn (): never => throw new ConnectionException('down'), 'GitHub could not be reached'],
     'rate limited' => [static fn () => Http::response([], 429), 'GitHub is limiting requests just now'],
     'refused' => [static fn () => Http::response([], 500), 'GitHub did not answer the lookup'],
 ]);
