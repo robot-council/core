@@ -4,7 +4,7 @@
     "description": "The dashboard stylesheet this package ships compiled, so a consuming application runs no asset build, and the Playwright the browser tests drive.",
     "scripts": {
         "build": "tailwindcss --input resources/css/dashboard.css --output resources/dist/dashboard.css --minify",
-        "check": "out=$(mktemp) && tailwindcss --input resources/css/dashboard.css --output \"$out\" --minify && cmp \"$out\" resources/dist/dashboard.css && rm -f \"$out\""
+        "check": "node scripts/check-stylesheet.mjs"
     },
     "devDependencies": {
         "@tailwindcss/cli": "^4.1.0",

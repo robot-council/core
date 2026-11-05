@@ -25,4 +25,5 @@
 /phpstan.neon.dist  export-ignore
 /phpunit.xml.dist   export-ignore
 /rector.php         export-ignore
+/scripts            export-ignore
 /tests              export-ignore

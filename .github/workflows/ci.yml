@@ -302,16 +302,20 @@ jobs:
       - name: Install the build toolchain
         run: npm ci
 
-      # The check itself. `npm run check` rebuilds to a temporary file and `cmp`s it against the
-      # committed artifact, so this fails when a view or a Tailwind source changed without a
+      # The check itself. `npm run check` rebuilds to a temporary file and compares it byte for byte
+      # with the committed artifact, so this fails when a view or a Tailwind source changed without a
       # rebuild -- the drift that is otherwise invisible, because the page still renders using
       # whatever classes the previous build happened to emit.
       - name: Fail if the committed stylesheet is stale
         run: |
-          if ! npm run check; then
+          status=0
+          npm run check || status=$?
+          if [ "$status" -eq 1 ]; then
             echo "::error file=resources/dist/dashboard.css::The committed stylesheet does not match its sources. Run 'npm run build' and commit resources/dist/dashboard.css."
-            exit 1
+          elif [ "$status" -ne 0 ]; then
+            echo "::error file=scripts/check-stylesheet.mjs::The stylesheet check could not run (exit $status), so the committed stylesheet was not checked. Read its output above."
           fi
+          exit "$status"
 
       # The acceptance criterion #66 asks to be demonstrated rather than asserted: a check that
       # compares a rebuild against a committed file is only meaningful if the build is
