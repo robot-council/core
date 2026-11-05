@@ -35,6 +35,7 @@ use RobotCouncil\Http\Controllers\MoveSessionController;
 use RobotCouncil\Http\Controllers\OwedItemController;
 use RobotCouncil\Http\Controllers\PostDirectiveController;
 use RobotCouncil\Http\Controllers\PostNarrationController;
+use RobotCouncil\Http\Controllers\RenameInstallationController;
 use RobotCouncil\Http\Controllers\ReportTaskBranchController;
 use RobotCouncil\Http\Controllers\RequestRoleController;
 use RobotCouncil\Http\Controllers\SessionEndController;
@@ -74,6 +75,11 @@ Route::post('github/webhook', GitHubWebhookController::class)
 Route::middleware(['throttle:'.RobotCouncilServiceProvider::SESSIONS_LIMITER, EnsureInstallation::class])
     ->group(function (): void {
         Route::post('sessions', SessionStartController::class)->name('sessions.start');
+
+        // The installation renames itself (#590). It names no installation, so it renames only the
+        // one the request authenticated as, and no session token reaches it.
+        Route::patch('installation', RenameInstallationController::class)->name('installation.rename');
+
         // Constrained, so an id no bigint can hold is a 404 rather than a 500. `whereNumber` is
         // `[0-9]+`, which bounds the character set and not the magnitude, and Postgres raises
         // `22P02` for a non-numeric id and `22003` for an overlong one where SQLite quietly

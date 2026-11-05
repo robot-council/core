@@ -154,7 +154,7 @@ protocol below is documented for anyone writing their own client.
 2. The developer opens `{prefix}/enroll`, enters that code, reviews what the machine claims about
    itself, confirms the code is on a machine they control, and approves.
 3. The machine polls `POST {prefix}/api/device/token` with the device code and the verifier, and is
-   given an installation credential. That credential can do one thing: start and renew sessions.
+   given an installation credential. That credential starts, renews and ends sessions, and renames its own installation.
 4. Each agent process calls `POST {prefix}/api/sessions` for a short-lived session token, and
    `POST {prefix}/api/sessions/{id}/renew` to replace it without a restart and without a human.
    `DELETE {prefix}/api/sessions/{id}` ends one when its harness exits: its tokens stop working at
@@ -194,6 +194,17 @@ protocol below is documented for anyone writing their own client.
    `from_work_location`, `to_repository` and `to_work_location`. A move to another repository drops
    a lane hold naming the repository it left, since that hold says nothing is startable there. It moves only the session the
    token belongs to. `work_location` is a short label such as `a`, `ci` or `primary`, never a path.
+   An installation renames itself with `PATCH {prefix}/api/installation` and its own credential (#590),
+   sending `machine_label`; fixing a label chosen badly, a hostname or `unknown-machine`, needs no
+   browser. It names no installation and renames only the caller; a session token and another
+   installation's credential are refused with 401. It needs no ability. The label follows the rule
+   enrollment applies (1 to 64 characters of `A-Z a-z 0-9 . _ -`). A rename answers 200 with
+   `installation_id`, `harness`, `old_label` and `new_label`, and is recorded as an
+   `installation.renamed` event whose data carries `old_label` and `new_label`, as a rename from the
+   dashboard is. A refused label, or one another live installation of the same developer and
+   harness already holds, is 422 with the reason in `errors.machine_label`; a label the
+   installation already carries is 409 with a `message`; a revoked installation is refused at the
+   credential with 401.
 
 Every response that carries a bearer token names it `token`, every expiry is an `expires_in` in
 seconds, and `abilities` always describes the token beside it. Where a response also names
