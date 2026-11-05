@@ -152,6 +152,15 @@ final class SeatSettings extends Component
     public bool $refused = false;
 
     /**
+     * The seat the developer has asked to retire and not yet confirmed (#586), or null.
+     *
+     * Locked, so only the server says which seat is awaiting confirmation. Retiring cannot be
+     * undone, so the control asks first, in the page rather than in a browser dialog.
+     */
+    #[Locked]
+    public ?int $retiring = null;
+
+    /**
      * Refuse anyone the guard does not resolve, and fill the form from what is stored.
      */
     public function mount(): void
@@ -284,6 +293,53 @@ final class SeatSettings extends Component
     public function lift(int $seatId): void
     {
         $this->report($seatId, $this->service(Seats::class)->lift($this->developer(), $seatId), 'Lifted: %s can take new work again.');
+    }
+
+    /**
+     * Ask to retire a seat, which the page then asks to confirm (#586).
+     *
+     * @param  int  $seatId  The seat.
+     */
+    public function askToRetire(int $seatId): void
+    {
+        $this->retiring = $seatId;
+    }
+
+    /**
+     * Keep the seat after all.
+     */
+    public function keepSeat(): void
+    {
+        $this->retiring = null;
+    }
+
+    /**
+     * Retire a seat nothing is using (#586).
+     *
+     * Named before the write, because the seat is gone after it; `seatName()` reads only this
+     * developer's own seats, so a refusal about somebody else's never learns its name.
+     *
+     * @param  int  $seatId  The seat.
+     */
+    public function retire(int $seatId): void
+    {
+        $name = $this->seatName($seatId);
+        $outcome = $this->service(Seats::class)->retire($this->developer(), $seatId);
+        $this->retiring = null;
+
+        if ($outcome === Outcome::Applied) {
+            $this->say('seats', sprintf('Retired: %s and its settings are gone. A session that reports that place again starts a fresh seat.', $name));
+
+            return;
+        }
+
+        if ($outcome === Outcome::Conflict) {
+            $this->say('seat-'.$seatId, sprintf('Not retired: %s has a live session or holds a task. Retire it once its sessions have ended and its tasks are finished or released.', $name), refused: true);
+
+            return;
+        }
+
+        $this->report($seatId, $outcome, '');
     }
 
     /**
@@ -476,6 +532,14 @@ final class SeatSettings extends Component
                 'harness' => $machine->harness,
                 'machine_label' => $machine->machine_label,
             ])->all(),
+            'orphans' => array_combine(
+                array_map(static fn (Seat $seat): int => $seat->id, $mine),
+                array_map($seats->orphanReason(...), $mine)
+            ),
+            'idle' => array_combine(
+                array_map(static fn (Seat $seat): int => $seat->id, $mine),
+                array_map(static fn (Seat $seat): bool => ! $seats->inUse($seat), $mine)
+            ),
             'rules' => PlacementRule::cases(),
             'waived' => array_combine(
                 array_map(static fn (Seat $seat): int => $seat->id, $mine),

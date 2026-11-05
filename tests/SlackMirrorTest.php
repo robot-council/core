@@ -183,7 +183,7 @@ it('escapes what Slack would otherwise read as markup or a mention', function ()
 it('does not put the webhook URL in the exception when Slack cannot be reached', function (): void {
     config()->set('robot-council.slack.webhook_url', WEBHOOK);
 
-    Http::fake(fn () => throw new ConnectionException('cURL error 6: could not resolve host for '.WEBHOOK));
+    Http::fake(fn (): never => throw new ConnectionException('cURL error 6: could not resolve host for '.WEBHOOK));
 
     $installation = $this->approveInstallation($this->developer);
     [$session] = $this->startAgentSession($installation);

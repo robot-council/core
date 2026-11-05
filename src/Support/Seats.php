@@ -4,10 +4,16 @@ declare(strict_types=1);
 
 namespace RobotCouncil\Support;
 
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\AgentSessionStatus;
+use RobotCouncil\Models\FleetEventType;
 use RobotCouncil\Models\Installation;
+use RobotCouncil\Models\PlacementWaiver;
 use RobotCouncil\Models\Seat;
+use RobotCouncil\Models\Task;
+use RobotCouncil\Models\TaskStatus;
 
 /**
  * Parking a developer's seats, exempting them from assignment hours, and capping how many tickets a
@@ -26,6 +32,11 @@ use RobotCouncil\Models\Seat;
  */
 final class Seats
 {
+    /**
+     * @param  FleetEvents  $events  The change feed a retirement is recorded in.
+     */
+    public function __construct(private readonly FleetEvents $events) {}
+
     /**
      * Record a seat for each place this developer's live sessions are working, and list them all.
      *
@@ -290,6 +301,156 @@ final class Seats
             $seat->user_id !== $developer => Outcome::Forbidden,
             default => Outcome::Applied,
         });
+    }
+
+    /**
+     * Delete a seat nothing is using, with its settings and unused waivers (#586).
+     *
+     * **The check and the delete are one transaction, and the installation row is held first.**
+     * A session starting under the installation takes that row before it inserts, so holding it
+     * here means no session can arrive at this place between the check and the delete; the sessions
+     * and held tasks are then read with locks, in the package's order, so a claim or a release in
+     * flight settles first. A seat refused for a live session or a held task is a Conflict and
+     * nothing is written. The seat is a record of a place, not of the work done there, so a session
+     * that later reports the place records a fresh seat with the defaults.
+     *
+     * @param  string  $developer  The developer asking, as a host user key.
+     * @param  int  $seatId  The seat.
+     * @return Outcome Applied, NotFound, Forbidden for another developer's seat, or Conflict while
+     *                 a session in it is `active` or `stale` or a task is held from it.
+     */
+    public function retire(string $developer, int $seatId): Outcome
+    {
+        $developer = HostKey::from($developer);
+
+        return DB::transaction(function () use ($developer, $seatId): Outcome {
+            // Unlocked, only to learn which installation to hold
+            $found = Seat::query()->find($seatId);
+
+            if (! $found instanceof Seat) {
+                return Outcome::NotFound;
+            }
+
+            if ($found->user_id !== $developer) {
+                return Outcome::Forbidden;
+            }
+
+            // First in the lock order, and what a session start serializes on
+            $installation = Installation::query()->whereKey($found->installation_id)->lockForUpdate()->first();
+
+            // Then the sessions at this place, then the tasks they hold
+            $sessions = $this->sessionsAt($found)->lockForUpdate()->get(['id', 'status']);
+
+            if ($sessions->contains(static fn (AgentSession $session): bool => $session->status !== AgentSessionStatus::Gone)) {
+                return Outcome::Conflict;
+            }
+
+            if (Task::query()->whereIn('claimed_by', $sessions->modelKeys())->whereIn('status', TaskStatus::values(TaskStatus::held()))->lockForUpdate()->exists()) {
+                return Outcome::Conflict;
+            }
+
+            // Then the seat itself, read again under the lock: another tab may have retired it
+            $seat = Seat::query()->whereKey($seatId)->lockForUpdate()->first();
+
+            if (! $seat instanceof Seat || ! $installation instanceof Installation) {
+                return Outcome::NotFound;
+            }
+
+            // Its waivers hold a foreign key to it
+            PlacementWaiver::query()->where('seat_id', $seat->id)->delete();
+            $seat->delete();
+
+            // After the seat's rows, with the feed sentinel last in the lock order
+            $this->events->record(
+                FleetEventType::SeatRetired,
+                null,
+                sprintf(
+                    '%s on %s: the seat for %s%s was retired.',
+                    $installation->harness,
+                    $installation->machine_label,
+                    $seat->repository,
+                    $seat->work_location !== '' ? ' / '.$seat->work_location : ''
+                ),
+                [
+                    'installation_id' => $installation->id,
+                    'machine_label' => $installation->machine_label,
+                    'repository' => $seat->repository,
+                    'work_location' => $seat->work_location,
+                ],
+                actor: $developer,
+                subject: $developer
+            );
+
+            return Outcome::Applied;
+        });
+    }
+
+    /**
+     * Why a developer's seat is a candidate for retiring, or null when it is not an orphan (#586).
+     *
+     * Read by the page to say why the control is there, and never to decide anything: `retire()`
+     * decides from locked rows.
+     *
+     * @param  Seat  $seat  The seat, with its installation loaded.
+     * @return string|null The reason in words, or null when its installation is live.
+     */
+    public function orphanReason(Seat $seat): ?string
+    {
+        $installation = $seat->installation;
+
+        if ($installation->revoked_at === null && $installation->expires_at->isFuture()) {
+            return null;
+        }
+
+        $reused = Installation::usable()
+            ->where('user_id', $seat->user_id)
+            ->where('harness', $installation->harness)
+            ->where('machine_label', $installation->machine_label)
+            ->exists();
+
+        return $reused
+            ? 'Its installation was revoked, expired or replaced; a newer one has the same machine label.'
+            : 'No installation uses this machine label.';
+    }
+
+    /**
+     * Whether a session in the seat is live or a task is held from it, read without locks.
+     *
+     * For the page to decide whether to offer the control. `retire()` asks again under lock.
+     *
+     * @param  Seat  $seat  The seat.
+     * @return bool True when it cannot be retired now.
+     */
+    public function inUse(Seat $seat): bool
+    {
+        $sessions = $this->sessionsAt($seat)->get(['id', 'status']);
+
+        return $sessions->contains(static fn (AgentSession $session): bool => $session->status !== AgentSessionStatus::Gone)
+            || Task::query()->whereIn('claimed_by', $sessions->modelKeys())->whereIn('status', TaskStatus::values(TaskStatus::held()))->exists();
+    }
+
+    /**
+     * Every session, in any state, that reported this seat's place.
+     *
+     * Matched on the seat's whole key. The session's `repository` has the engine's default
+     * collation, so on MySQL a session whose repository differs only in case matches too, which can
+     * only make a retirement refuse, never go ahead.
+     *
+     * @param  Seat  $seat  The seat.
+     * @return Builder<AgentSession> The query.
+     */
+    private function sessionsAt(Seat $seat): Builder
+    {
+        return AgentSession::query()
+            ->where('installation_id', $seat->installation_id)
+            ->where('repository', $seat->repository)
+            ->where(static function (Builder $place) use ($seat): void {
+                $place->where('work_location', $seat->work_location);
+
+                if ($seat->work_location === '') {
+                    $place->orWhereNull('work_location');
+                }
+            });
     }
 
     /**
