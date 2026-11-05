@@ -351,13 +351,21 @@ it('returns no more than the page it was asked for, and keeps its promise about 
     // The limit is honored rather than ignored in favour of the maximum
     expect(arrayValue($page->json('events')))->toHaveCount(2);
 
-    // An event whose own id cannot equal its session's, so `session_id` reporting the event's id
-    // would show up rather than coinciding
-    $last = collect(arrayValue($this->machine($token)->getJson(route('robot-council.events.index'))->json('events')))->last();
+    // An event whose own id differs from its session's, so `session_id` reporting the event's id
+    // would show up rather than coinciding. The two ids come from different sequences, and which is
+    // ahead depends on what earlier tests inserted, so no order is assumed: when they happen to be
+    // equal, one more event (ids only rise) breaks the tie.
+    $latest = fn (): array => arrayValue(collect(arrayValue($this->machine($token)->getJson(route('robot-council.events.index'))->json('events')))->last());
 
-    $last = arrayValue($last);
+    $last = $latest();
 
-    expect(intValue($last['id']))->toBeGreaterThan($session->id)
+    if (intValue($last['id']) === $session->id) {
+        $this->machine($token)->postJson(route('robot-council.events.store'), ['body' => 'one more'])->assertCreated();
+
+        $last = $latest();
+    }
+
+    expect(intValue($last['id']))->not->toBe($session->id)
         ->and(arrayValue($last['actor'])['session_id'])->toBe($session->id);
 });
 
