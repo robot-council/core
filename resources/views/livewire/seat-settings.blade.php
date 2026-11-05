@@ -35,141 +35,159 @@
                     No seats yet: a seat appears once one of your sessions reports the repository it works in.
                 </p>
             @else
-                <ul class="divide-y divide-separator">
-                    @foreach ($seats as $seat)
-                        <li wire:key="seat-{{ $seat->id }}" class="flex flex-wrap items-center justify-between gap-2 py-3">
-                            {{-- Every control below names its seat to a screen reader (#400), since each
-                                 repeats once per seat and a list of identical names says nothing. --}}
-                            @php($seatName = $seat->repository.($seat->work_location !== '' ? ' / '.$seat->work_location : ''))
-                            {{-- #561: the title takes the row's spare width and wraps a long name inside
-                                 itself, and the controls never shrink, so from `md` up every row keeps its
-                                 controls at the right however long its seat's name is. Below `md` every
-                                 row stacks them under the title, rather than only the rows whose name
-                                 happened not to fit. --}}
-                            <div class="w-full min-w-0 md:w-auto md:flex-1" data-seat-title>
-                                <div class="font-medium wrap-anywhere">
-                                    <x-robot-council::avatar :repository="$seat->repository" /><code>{{ $seat->repository }}</code>@if ($seat->work_location !== '') / <code>{{ $seat->work_location }}</code>@endif
-                                </div>
-                                <div class="text-meta opacity-90">
-                                    <code>{{ $seat->installation->harness }}</code> on <code>{{ $seat->installation->machine_label }}</code>
-                                    &middot; <span data-seat-capacity>takes up to {{ $seat->max_capacity }} {{ $seat->max_capacity === 1 ? 'task' : 'tasks' }} at once</span>
-                                    @if ($seat->parked_at !== null)
-                                        &middot; parked {{ $seat->parked_at->diffForHumans() }}
-                                    @endif
-                                </div>
-                            </div>
+                {{-- #587: one heading per machine, so the seats one machine runs read together and a
+                     machine nothing uses any more is named as such. A real heading for each, so a
+                     screen reader can jump between machines; the rows and their controls are as they
+                     were (#561). A developer with one machine still gets its heading, so the page
+                     reads the same whatever the number. --}}
+                <div class="flex flex-col gap-6">
+                    @foreach ($groups as $group)
+                        <section wire:key="machine-group-{{ $group['key'] }}" aria-labelledby="machine-group-{{ $group['key'] }}" data-seat-group>
+                            <h3 id="machine-group-{{ $group['key'] }}" class="text-lg font-semibold wrap-anywhere">
+                                <code>{{ $group['label'] }}</code>
+                                <span class="text-meta font-normal opacity-90">&middot; {{ count($group['seats']) }} {{ count($group['seats']) === 1 ? 'seat' : 'seats' }}</span>
+                            </h3>
+                            @if ($group['unused'])
+                                <p class="max-w-xl text-meta leading-relaxed opacity-90" data-seat-group-unused>No installation uses this machine label, so these seats are left from a machine that was renamed, retired or replaced.</p>
+                            @endif
+                            <ul class="divide-y divide-separator">
+                                @foreach ($group['seats'] as $seat)
+                                    <li wire:key="seat-{{ $seat->id }}" class="flex flex-wrap items-center justify-between gap-2 py-3">
+                                        {{-- Every control below names its seat to a screen reader (#400), since each
+                                             repeats once per seat and a list of identical names says nothing. --}}
+                                        @php($seatName = $seat->repository.($seat->work_location !== '' ? ' / '.$seat->work_location : ''))
+                                        {{-- #561: the title takes the row's spare width and wraps a long name inside
+                                             itself, and the controls never shrink, so from `md` up every row keeps its
+                                             controls at the right however long its seat's name is. Below `md` every
+                                             row stacks them under the title, rather than only the rows whose name
+                                             happened not to fit. --}}
+                                        <div class="w-full min-w-0 md:w-auto md:flex-1" data-seat-title>
+                                            <div class="font-medium wrap-anywhere">
+                                                <x-robot-council::avatar :repository="$seat->repository" /><code>{{ $seat->repository }}</code>@if ($seat->work_location !== '') / <code>{{ $seat->work_location }}</code>@endif
+                                            </div>
+                                            <div class="text-meta opacity-90">
+                                                <code>{{ $seat->installation->harness }}</code>
+                                                &middot; <span data-seat-capacity>takes up to {{ $seat->max_capacity }} {{ $seat->max_capacity === 1 ? 'task' : 'tasks' }} at once</span>
+                                                @if ($seat->parked_at !== null)
+                                                    &middot; parked {{ $seat->parked_at->diffForHumans() }}
+                                                @endif
+                                            </div>
+                                        </div>
 
-                            <div class="flex flex-wrap items-center gap-2 md:shrink-0" data-seat-controls>
-                                {{-- The state is a labelled line and the button a verb in other words
-                                     (#482), so the two never read alike --}}
-                                @if ($seat->hours_exempt)
-                                    <span data-seat-hours>Hours: ignored</span>
-                                    <button type="button" wire:click="unexempt({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-outline">Apply my hours<span class="sr-only"> for {{ $seatName }}</span></button>
-                                @else
-                                    <span data-seat-hours>Hours: apply</span>
-                                    <button type="button" wire:click="exempt({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-outline">Ignore my hours<span class="sr-only"> for {{ $seatName }}</span></button>
-                                @endif
-
-                                @if ($seat->isParked())
-                                    <span class="badge badge-sm badge-warning">parked</span>
-                                    <button type="button" wire:click="lift({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-primary">Lift<span class="sr-only"> for {{ $seatName }}</span></button>
-                                @else
-                                    <button type="button" wire:click="park({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-warning">Park<span class="sr-only"> for {{ $seatName }}</span></button>
-                                @endif
-                            </div>
-                            {{-- #409: how many tasks a session in this seat takes at once, or fewer where it
-                                 declared fewer when it joined (#564).
-                                 Only a seat id reaches the `wire:` expressions, through `WireArgument`;
-                                 the number is read back by the component as untrusted input. --}}
-                            {{-- What the last action on this seat did (#402), beside its buttons --}}
-                            @include('robot-council::partials.said', ['show' => $said !== null && $saidAt === 'seat-'.$seat->id, 'class' => 'w-full'])
-
-                            @php($capacityFailed = $capacitySeat === $seat->id && $capacityError !== null)
-                            <form wire:submit="setCapacity({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="flex w-full flex-wrap items-end gap-3">
-                                {{-- Each field and button names its seat to a screen reader, since every
-                                     seat on the page has one and "Tasks at once" alone says which of
-                                     them nothing. The error, when there is one, is next to the field it
-                                     is about and is what the field is described by first. --}}
-                                <label class="flex w-full flex-col gap-1 sm:w-auto" data-field>
-                                    <span>Tasks at once<span class="sr-only"> for {{ $seatName }}</span></span>
-                                    <input type="number" min="{{ \RobotCouncil\Support\Capacity::DEFAULT }}" max="{{ \RobotCouncil\Support\Capacity::MAX }}" step="1" inputmode="numeric" wire:model="capacities.{{ \RobotCouncil\Support\WireArgument::of($seat->id) }}" class="input w-24" @if ($capacityFailed) aria-invalid="true" aria-describedby="seat-{{ $seat->id }}-capacity-error seat-{{ $seat->id }}-capacity-help" @else aria-describedby="seat-{{ $seat->id }}-capacity-help" @endif>
-                                </label>
-                                <button type="submit" class="btn btn-target btn-outline">Set tasks at once<span class="sr-only"> for {{ $seatName }}</span></button>
-                                @if ($capacityFailed)
-                                    <p id="seat-{{ $seat->id }}-capacity-error" role="alert" class="font-semibold text-error" data-capacity-error>{{ $capacityError }}</p>
-                                @elseif ($capacitySeat === $seat->id)
-                                    <p role="status" data-capacity-saved>Saved: up to {{ $seat->max_capacity }} {{ $seat->max_capacity === 1 ? 'task' : 'tasks' }} at once.</p>
-                                @endif
-                                <p id="seat-{{ $seat->id }}-capacity-help" class="max-w-xl text-meta leading-relaxed opacity-90">
-                                    The most tasks one session in this seat may hold at the same time, from
-                                    {{ \RobotCouncil\Support\Capacity::DEFAULT }} to {{ \RobotCouncil\Support\Capacity::MAX }}.
-                                    A session running here now takes the new number at once, without joining again.
-                                    A session that asked for a smaller number when it joined keeps to that one.
-                                </p>
-                            </form>
-                            {{-- What each live session in the seat takes now (#564), from the rule a
-                                 placement reads, so a setting that does not reach one is visible here --}}
-                            @if (($sessions[$seat->id] ?? []) !== [])
-                                {{-- `role="list"`, because Safari drops a list's semantics once its markers are gone --}}
-                                <ul role="list" class="flex w-full flex-col gap-1 text-meta leading-relaxed" data-seat-sessions>
-                                    @foreach ($sessions[$seat->id] as $session)
-                                        <li wire:key="seat-{{ $seat->id }}-session-{{ $session['id'] }}" data-session-capacity="{{ $session['capacity'] }}">
-                                            Session <code>#{{ $session['id'] }}</code> takes up to {{ $session['capacity'] }} {{ $session['capacity'] === 1 ? 'task' : 'tasks' }} at once now:
-                                            @if ($session['declared'] !== null && $session['declared'] < $seat->max_capacity)
-                                                it asked for {{ $session['declared'] }} when it joined, which is fewer than this seat allows.
+                                        <div class="flex flex-wrap items-center gap-2 md:shrink-0" data-seat-controls>
+                                            {{-- The state is a labelled line and the button a verb in other words
+                                                 (#482), so the two never read alike --}}
+                                            @if ($seat->hours_exempt)
+                                                <span data-seat-hours>Hours: ignored</span>
+                                                <button type="button" wire:click="unexempt({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-outline">Apply my hours<span class="sr-only"> for {{ $seatName }}</span></button>
                                             @else
-                                                this seat's setting.
+                                                <span data-seat-hours>Hours: apply</span>
+                                                <button type="button" wire:click="exempt({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-outline">Ignore my hours<span class="sr-only"> for {{ $seatName }}</span></button>
                                             @endif
-                                        </li>
-                                    @endforeach
-                                </ul>
-                            @endif
-                            {{-- #320: a waiver lets exactly one placement, or since #578 one claim by the
-                                 seat's own session, through one refusal on this seat. Only the seat's
-                                 developer can grant it; a coordinator cannot. --}}
-                            <details class="w-full text-meta">
-                                <summary class="cursor-pointer py-3 opacity-90">
-                                    Waive a placement refusal
-                                    @if ($waived[$seat->id] !== [])
-                                        ({{ count($waived[$seat->id]) }} waived for the next placement or claim)
-                                    @endif
-                                </summary>
 
-                                <ul class="mt-2 flex flex-col gap-1">
-                                    @foreach ($rules as $rule)
-                                        <li wire:key="seat-{{ $seat->id }}-rule-{{ $rule->value }}" class="flex items-center justify-between gap-2">
-                                            <span>Refused when {{ $rule->reads() }}</span>
-                                            @if (in_array($rule, $waived[$seat->id], true))
-                                                <button type="button" wire:click="withdrawWaiver({{ \RobotCouncil\Support\WireArgument::of($seat->id) }}, '{{ \RobotCouncil\Support\WireArgument::of($rule) }}')" class="btn btn-target btn-outline">Withdraw waiver<span class="sr-only"> for {{ $seatName }}</span></button>
+                                            @if ($seat->isParked())
+                                                <span class="badge badge-sm badge-warning">parked</span>
+                                                <button type="button" wire:click="lift({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-primary">Lift<span class="sr-only"> for {{ $seatName }}</span></button>
                                             @else
-                                                <button type="button" wire:click="waive({{ \RobotCouncil\Support\WireArgument::of($seat->id) }}, '{{ \RobotCouncil\Support\WireArgument::of($rule) }}')" class="btn btn-target btn-outline">Waive once<span class="sr-only"> for {{ $seatName }}</span></button>
+                                                <button type="button" wire:click="park({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-warning">Park<span class="sr-only"> for {{ $seatName }}</span></button>
                                             @endif
-                                        </li>
-                                    @endforeach
-                                </ul>
-                            </details>
-                            {{-- #586: a seat with no live session and no task can be retired, which deletes
-                                 it. Why it is offered is said in words, and the confirmation says what goes
-                                 with it, since this cannot be undone. --}}
-                            @if ($orphans[$seat->id] !== null)
-                                <p class="w-full max-w-xl text-meta leading-relaxed opacity-90" data-seat-orphan>{{ $orphans[$seat->id] }}</p>
-                            @endif
-                            @if ($idle[$seat->id])
-                                @if ($retiring === $seat->id)
-                                    <div class="flex w-full flex-wrap items-center gap-2" data-seat-retire-confirm>
-                                        <p class="max-w-xl leading-relaxed">
-                                            Retire <code>{{ $seatName }}</code>? This cannot be undone. Its settings go with it: whether it is parked, whether it ignores your hours, its tasks-at-once limit and any waivers.
-                                        </p>
-                                        <button type="button" wire:click="retire({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-error">Retire this seat<span class="sr-only">: {{ $seatName }}</span></button>
-                                        <button type="button" wire:click="keepSeat" class="btn btn-target btn-outline">Keep it<span class="sr-only">: {{ $seatName }}</span></button>
-                                    </div>
-                                @else
-                                    <button type="button" wire:click="askToRetire({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-outline" data-seat-retire>Retire<span class="sr-only"> {{ $seatName }}</span></button>
-                                @endif
-                            @endif
-                        </li>
+                                        </div>
+                                        {{-- #409: how many tasks a session in this seat takes at once, or fewer where it
+                                             declared fewer when it joined (#564).
+                                             Only a seat id reaches the `wire:` expressions, through `WireArgument`;
+                                             the number is read back by the component as untrusted input. --}}
+                                        {{-- What the last action on this seat did (#402), beside its buttons --}}
+                                        @include('robot-council::partials.said', ['show' => $said !== null && $saidAt === 'seat-'.$seat->id, 'class' => 'w-full'])
+
+                                        @php($capacityFailed = $capacitySeat === $seat->id && $capacityError !== null)
+                                        <form wire:submit="setCapacity({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="flex w-full flex-wrap items-end gap-3">
+                                            {{-- Each field and button names its seat to a screen reader, since every
+                                                 seat on the page has one and "Tasks at once" alone says which of
+                                                 them nothing. The error, when there is one, is next to the field it
+                                                 is about and is what the field is described by first. --}}
+                                            <label class="flex w-full flex-col gap-1 sm:w-auto" data-field>
+                                                <span>Tasks at once<span class="sr-only"> for {{ $seatName }}</span></span>
+                                                <input type="number" min="{{ \RobotCouncil\Support\Capacity::DEFAULT }}" max="{{ \RobotCouncil\Support\Capacity::MAX }}" step="1" inputmode="numeric" wire:model="capacities.{{ \RobotCouncil\Support\WireArgument::of($seat->id) }}" class="input w-24" @if ($capacityFailed) aria-invalid="true" aria-describedby="seat-{{ $seat->id }}-capacity-error seat-{{ $seat->id }}-capacity-help" @else aria-describedby="seat-{{ $seat->id }}-capacity-help" @endif>
+                                            </label>
+                                            <button type="submit" class="btn btn-target btn-outline">Set tasks at once<span class="sr-only"> for {{ $seatName }}</span></button>
+                                            @if ($capacityFailed)
+                                                <p id="seat-{{ $seat->id }}-capacity-error" role="alert" class="font-semibold text-error" data-capacity-error>{{ $capacityError }}</p>
+                                            @elseif ($capacitySeat === $seat->id)
+                                                <p role="status" data-capacity-saved>Saved: up to {{ $seat->max_capacity }} {{ $seat->max_capacity === 1 ? 'task' : 'tasks' }} at once.</p>
+                                            @endif
+                                            <p id="seat-{{ $seat->id }}-capacity-help" class="max-w-xl text-meta leading-relaxed opacity-90">
+                                                The most tasks one session in this seat may hold at the same time, from
+                                                {{ \RobotCouncil\Support\Capacity::DEFAULT }} to {{ \RobotCouncil\Support\Capacity::MAX }}.
+                                                A session running here now takes the new number at once, without joining again.
+                                                A session that asked for a smaller number when it joined keeps to that one.
+                                            </p>
+                                        </form>
+                                        {{-- What each live session in the seat takes now (#564), from the rule a
+                                             placement reads, so a setting that does not reach one is visible here --}}
+                                        @if (($sessions[$seat->id] ?? []) !== [])
+                                            {{-- `role="list"`, because Safari drops a list's semantics once its markers are gone --}}
+                                            <ul role="list" class="flex w-full flex-col gap-1 text-meta leading-relaxed" data-seat-sessions>
+                                                @foreach ($sessions[$seat->id] as $session)
+                                                    <li wire:key="seat-{{ $seat->id }}-session-{{ $session['id'] }}" data-session-capacity="{{ $session['capacity'] }}">
+                                                        Session <code>#{{ $session['id'] }}</code> takes up to {{ $session['capacity'] }} {{ $session['capacity'] === 1 ? 'task' : 'tasks' }} at once now:
+                                                        @if ($session['declared'] !== null && $session['declared'] < $seat->max_capacity)
+                                                            it asked for {{ $session['declared'] }} when it joined, which is fewer than this seat allows.
+                                                        @else
+                                                            this seat's setting.
+                                                        @endif
+                                                    </li>
+                                                @endforeach
+                                            </ul>
+                                        @endif
+                                        {{-- #320: a waiver lets exactly one placement, or since #578 one claim by the
+                                             seat's own session, through one refusal on this seat. Only the seat's
+                                             developer can grant it; a coordinator cannot. --}}
+                                        <details class="w-full text-meta">
+                                            <summary class="cursor-pointer py-3 opacity-90">
+                                                Waive a placement refusal
+                                                @if ($waived[$seat->id] !== [])
+                                                    ({{ count($waived[$seat->id]) }} waived for the next placement or claim)
+                                                @endif
+                                            </summary>
+
+                                            <ul class="mt-2 flex flex-col gap-1">
+                                                @foreach ($rules as $rule)
+                                                    <li wire:key="seat-{{ $seat->id }}-rule-{{ $rule->value }}" class="flex items-center justify-between gap-2">
+                                                        <span>Refused when {{ $rule->reads() }}</span>
+                                                        @if (in_array($rule, $waived[$seat->id], true))
+                                                            <button type="button" wire:click="withdrawWaiver({{ \RobotCouncil\Support\WireArgument::of($seat->id) }}, '{{ \RobotCouncil\Support\WireArgument::of($rule) }}')" class="btn btn-target btn-outline">Withdraw waiver<span class="sr-only"> for {{ $seatName }}</span></button>
+                                                        @else
+                                                            <button type="button" wire:click="waive({{ \RobotCouncil\Support\WireArgument::of($seat->id) }}, '{{ \RobotCouncil\Support\WireArgument::of($rule) }}')" class="btn btn-target btn-outline">Waive once<span class="sr-only"> for {{ $seatName }}</span></button>
+                                                        @endif
+                                                    </li>
+                                                @endforeach
+                                            </ul>
+                                        </details>
+                                        {{-- #586: a seat with no live session and no task can be retired, which deletes
+                                             it. Why it is offered is said in words, and the confirmation says what goes
+                                             with it, since this cannot be undone. --}}
+                                        @if ($orphans[$seat->id] !== null)
+                                            <p class="w-full max-w-xl text-meta leading-relaxed opacity-90" data-seat-orphan>{{ $orphans[$seat->id] }}</p>
+                                        @endif
+                                        @if ($idle[$seat->id])
+                                            @if ($retiring === $seat->id)
+                                                <div class="flex w-full flex-wrap items-center gap-2" data-seat-retire-confirm>
+                                                    <p class="max-w-xl leading-relaxed">
+                                                        Retire <code>{{ $seatName }}</code>? This cannot be undone. Its settings go with it: whether it is parked, whether it ignores your hours, its tasks-at-once limit and any waivers.
+                                                    </p>
+                                                    <button type="button" wire:click="retire({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-error">Retire this seat<span class="sr-only">: {{ $seatName }}</span></button>
+                                                    <button type="button" wire:click="keepSeat" class="btn btn-target btn-outline">Keep it<span class="sr-only">: {{ $seatName }}</span></button>
+                                                </div>
+                                            @else
+                                                <button type="button" wire:click="askToRetire({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-outline" data-seat-retire>Retire<span class="sr-only"> {{ $seatName }}</span></button>
+                                            @endif
+                                        @endif
+                                    </li>
+                                @endforeach
+                            </ul>
+                        </section>
                     @endforeach
-                </ul>
+                </div>
             @endif
         </div>
     </div>

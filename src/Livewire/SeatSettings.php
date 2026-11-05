@@ -540,6 +540,7 @@ final class SeatSettings extends Component
                 array_map(static fn (Seat $seat): int => $seat->id, $mine),
                 array_map(static fn (Seat $seat): bool => ! $seats->inUse($seat), $mine)
             ),
+            'groups' => $this->groupByMachine($mine, $developer),
             'rules' => PlacementRule::cases(),
             'waived' => array_combine(
                 array_map(static fn (Seat $seat): int => $seat->id, $mine),
@@ -549,6 +550,51 @@ final class SeatSettings extends Component
             'holidays' => $settings->holidays($developer),
             'zones' => $this->zones(),
         ]);
+    }
+
+    /**
+     * The developer's seats under one heading per machine label (#587).
+     *
+     * Grouped on the label and not the installation, because the label is what the page and the
+     * fleet show for a machine. A machine no live installation carries the label of is marked
+     * unused and sorted after the rest, so renamed and retired machines are visible at a glance
+     * without hiding their rows, which hold the controls that retire them. Within a group the seats
+     * run by repository and then work location, compared byte for byte so the order does not
+     * depend on a collation.
+     *
+     * @param  list<Seat>  $seats  The developer's seats, each with its installation loaded.
+     * @param  string  $developer  The developer.
+     * @return list<array{key: string, label: string, unused: bool, seats: list<Seat>}> The groups, used machines first.
+     */
+    private function groupByMachine(array $seats, string $developer): array
+    {
+        $live = Installation::usable()->where('user_id', HostKey::from($developer))->pluck('machine_label')->all();
+
+        $byLabel = [];
+
+        foreach ($seats as $seat) {
+            $byLabel[$seat->installation->machine_label][] = $seat;
+        }
+
+        $groups = [];
+
+        foreach ($byLabel as $label => $members) {
+            // An integer-like label is an integer key, and the label is a string everywhere else
+            $label = (string) $label;
+
+            usort($members, static fn (Seat $left, Seat $right): int => strcmp($left->repository, $right->repository) ?: strcmp($left->work_location, $right->work_location));
+
+            $groups[] = [
+                'key' => substr(hash('sha256', $label), 0, 12),
+                'label' => $label,
+                'unused' => ! in_array($label, $live, true),
+                'seats' => $members,
+            ];
+        }
+
+        usort($groups, static fn (array $left, array $right): int => ($left['unused'] <=> $right['unused']) ?: strcmp($left['label'], $right['label']));
+
+        return $groups;
     }
 
     /**
