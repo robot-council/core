@@ -37,7 +37,8 @@ final class DirectiveTargets
      *
      * A constant's declaration is never an executed line, so no test is selected to cover it and an
      * off-by-one mutant here is reported as uncovered rather than run. The value is pinned by a test
-     * that also checks the README states the same number, and the boundary either side of it has
+     * that also checks the `directive_post` tool's own `targets` description states the same number
+     * (the documented bound; the wiki links to it), and the boundary either side of it has
      * its own test.
      */
     // @pest-mutate-ignore: IncrementInteger, DecrementInteger

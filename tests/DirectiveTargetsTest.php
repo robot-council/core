@@ -277,15 +277,37 @@ it('admits exactly as many targets as it says it does', function (): void {
         ->toThrow(ValidationException::class, 'may not name more than');
 });
 
-it('names the same bound the README does', function (): void {
-    // The README tells a reader they may pass up to 50 ids. Nothing else would notice the two
-    // drifting apart, and a documented bound that is wrong is worse than an undocumented one.
-    // Whitespace is collapsed first, because the README is hard-wrapped and the sentence this
-    // looks for spans a line break -- a byte-exact search finds nothing and reports it as drift.
-    $readme = preg_replace('/\s+/', ' ', (string) file_get_contents(__DIR__.'/../README.md'));
+it("names the same bound in the tool's own description", function (): void {
+    // The `targets` description on `directive_post` is the documented bound, and the wiki links to it
+    // rather than restating it. Nothing else would notice the two drifting apart, and a documented
+    // bound that is wrong is worse than an undocumented one. Read from the published tool list, which
+    // is what a client sees, and paged because the server's default page is fifteen tools.
+    [, $token] = targetedSessionFor($this, $this->other, [Ability::EventsPost->value]);
+
+    $description = null;
+    $cursor = null;
+
+    do {
+        $response = $this->machine($token)->postJson('/robot-council/api/mcp', [
+            'jsonrpc' => '2.0',
+            'id' => 1,
+            'method' => 'tools/list',
+            'params' => $cursor === null ? [] : ['cursor' => $cursor],
+        ]);
+
+        $response->assertOk();
+
+        foreach ((array) $response->json('result.tools') as $tool) {
+            if (\is_array($tool) && ($tool['name'] ?? null) === 'directive_post') {
+                $description = data_get($tool, 'inputSchema.properties.targets.description');
+            }
+        }
+
+        $cursor = $response->json('result.nextCursor');
+    } while (\is_string($cursor));
 
     expect(DirectiveTargets::MAX)->toBe(50)
-        ->and($readme)->toContain('up to 50 session ids');
+        ->and($description)->toBeString()->toContain('up to 50 session ids');
 });
 
 it('orders the recorded targets by the database, not by luck', function (): void {
