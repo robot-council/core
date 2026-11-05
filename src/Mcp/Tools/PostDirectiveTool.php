@@ -64,7 +64,7 @@ final class PostDirectiveTool extends Tool
                 ->items($schema->integer()->min(1))
                 ->max(DirectiveTargets::MAX)
                 ->unique()
-                ->description('Session ids expected to act. Optional; every agent still receives it.'),
+                ->description(sprintf('Session ids expected to act, up to %d session ids. Optional; every agent still receives it.', DirectiveTargets::MAX)),
         ];
     }
 
