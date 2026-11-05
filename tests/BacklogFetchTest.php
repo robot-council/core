@@ -153,7 +153,7 @@ function runBacklogFetch(): void
 }
 
 /**
- * Configure the App with the fixture key, base64-encoded as the README documents.
+ * Configure the App with the fixture key, base64-encoded as the wiki's The Lane Board page documents.
  */
 function configureFetchApp(): void
 {

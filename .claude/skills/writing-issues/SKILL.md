@@ -250,7 +250,7 @@ title and, where available, the `Bug` issue type.
 - **`development`** — code work in the package; the default, carried by most issues.
 - **`build`** — Composer, PHPStan, Pint, Pest configuration, GitHub Actions.
 - **`dependencies`** — applied by Dependabot to its update pull requests; not for hand-filed issues.
-- **`documentation`** — README and other prose.
+- **`documentation`** — the wiki, the README and other prose.
 - **`security`** — security-sensitive work. An exploitable vulnerability does not go in a public
   issue at all: report it privately per [`security-audit`](../security-audit/SKILL.md).
 - **`ui`** — the package's published views or other user-visible output.
@@ -272,7 +272,7 @@ title and, where available, the `Bug` issue type.
 
 Every open issue also carries **exactly one** of these, and it decides the order work is taken in: **`fleet-facing` comes first, `housekeeping` last.**
 
-- **`fleet-facing`** — changes what an agent or operator on the fleet experiences: the service's API and behavior, the bridge and its follower, enrollment and credential storage, the tool list a harness sees, the messages a session reads, and the README steps a fleet user follows. A measurement that decides whether one of those works on a platform counts too.
+- **`fleet-facing`** — changes what an agent or operator on the fleet experiences: the service's API and behavior, the bridge and its follower, enrollment and credential storage, the tool list a harness sees, the messages a session reads, and the documented steps a fleet user follows. A measurement that decides whether one of those works on a platform counts too.
 - **`housekeeping`** — repository upkeep with no direct effect on the fleet: CI wiring, the release-notes generator, skills and rules, a test flake, or a measurement of code that has already been replaced.
 
 **Classify by who notices if it never ships.** If only people working in the repository would, it is `housekeeping`, even when it changes shipped code or carries `security`. A cleanup of the service's API is `fleet-facing`, because the deployed bridge talks to it. An `epic` carries the label its slices mostly share. Still file `housekeeping` residue per [`closing-a-ticket`](../../rules/closing-a-ticket.md); the label lowers its priority, not its right to a ticket.
