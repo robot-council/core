@@ -149,8 +149,12 @@ A **Laravel package** (`robot-council/core`), not an application. It is the core
   artifact goes stale silently: a view added without a rebuild renders with the previous build's
   classes and nothing reports it. Measured while building #72 -- the committed file was missing
   `.card-body`, `.card-title`, `.antialiased` and `.bg-base-200`, every one a class the new layout
-  used, and the page would have rendered half-styled. `npm run check` rebuilds and compares; read
-  its exit code, because piping it through `tail` discards the `cmp` status. **`composer.lock` is
+  used, and the page would have rendered half-styled. `npm run check` rebuilds and compares, in
+  `scripts/check-stylesheet.mjs` (#305): it runs under Node on every platform, where the shell
+  one-liner it replaced exited 1 on Windows without building anything, because npm runs scripts
+  through `cmd.exe` there. Read its exit code, because piping it through `tail` discards the
+  status: 0 matches, 1 the committed file is stale (run `npm run build`), 2 the check could not run
+  and nothing is known about the stylesheet. **`composer.lock` is
   gitignored and `package-lock.json` is not**, and that asymmetry is deliberate: the first is a
   library's dependency resolution, which CI should re-resolve, and the second is a build toolchain,
   whose drift would change the bytes a consumer receives. **CI checks this**: the `stylesheet` job
@@ -260,7 +264,7 @@ A **Laravel package** (`robot-council/core`), not an application. It is the core
   - `phpstan` runs PHPStan on PHP 8.5, and `pint` runs `vendor/bin/pint --test`, which **fails on a style problem instead of fixing it**. Run `vendor/bin/pint --dirty` before pushing.
   - `rector` runs `vendor/bin/rector --dry-run`, which fails when Rector would change a file. Run `composer refactor` before pushing, and review what it changed.
   - `browser` runs the `Browser` test suite on ubuntu with PHP 8.5, after `npm ci` and `npx playwright install --with-deps chromium`: every dashboard surface in headless Chromium, in both themes, failing on any serious or critical axe-core violation among the WCAG A and AA rules (#403). It uploads the AAA findings as the `axe-aaa` artifact. `pestphp/pest-plugin-browser` requires `ext-sockets`, and because it is a dev dependency every job that installs dev dependencies needs it; the jobs that name their extensions list it for that reason.
-  - `stylesheet` runs `npm ci` and then `npm run check`, which rebuilds the dashboard stylesheet and `cmp`s it against the committed one, so a view added without a rebuild fails the build instead of shipping half-styled (#66). It reads the exit status rather than piping it. What it cannot catch is an artifact that matches its sources and should not, which is #230.
+  - `stylesheet` runs `npm ci` and then `npm run check`, which rebuilds the dashboard stylesheet and compares it byte for byte with the committed one, so a view added without a rebuild fails the build instead of shipping half-styled (#66). It reads the exit status rather than piping it. What it cannot catch is an artifact that matches its sources and should not, which is #230.
   - `postgres` runs on ubuntu with PHP 8.5 against a `postgres:17` service container. It runs `vendor/bin/pest --ci` with `DB_CONNECTION=pgsql`, then `vendor/bin/pest --ci --group=cross-connection`.
 
     **A `postgres` job reported as `cancelled` is this job's TIMEOUT, not a failing test** (#278). The checks panel says only `postgres -> cancelled`, the step reports no failure, and `ci-passed` goes red -- so it reads exactly like a real break on whatever diff happens to be open. Two have been recorded: 618s on `f9cdfd9` and 607s on `ab801f2`, both with every test that ran passing and the suite still working when the budget expired. To tell one from the other, open the job and read the last `PASS` line against the kill time; a timeout has no failing test anywhere in the log. **`gh api .../runs/<id>/jobs` will not show you this** -- it returns the LATEST attempt, so a cancelled run that was re-run reads as a clean success. Ask `.../runs/<id>/attempts/<n>/jobs` instead; measured, attempt 1 of run 35994405778 was the 618s cancellation while the run's own `conclusion` is `success`.
