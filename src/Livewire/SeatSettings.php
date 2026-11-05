@@ -585,7 +585,7 @@ final class SeatSettings extends Component
             usort($members, static fn (Seat $left, Seat $right): int => strcmp($left->repository, $right->repository) ?: strcmp($left->work_location, $right->work_location));
 
             $groups[] = [
-                'key' => substr(sha1($label), 0, 12),
+                'key' => substr(hash('sha256', $label), 0, 12),
                 'label' => $label,
                 'unused' => ! in_array($label, $live, true),
                 'seats' => $members,
