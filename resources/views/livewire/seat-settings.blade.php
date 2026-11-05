@@ -148,6 +148,25 @@
                                     @endforeach
                                 </ul>
                             </details>
+                            {{-- #586: a seat with no live session and no task can be retired, which deletes
+                                 it. Why it is offered is said in words, and the confirmation says what goes
+                                 with it, since this cannot be undone. --}}
+                            @if ($orphans[$seat->id] !== null)
+                                <p class="w-full max-w-xl text-meta leading-relaxed opacity-90" data-seat-orphan>{{ $orphans[$seat->id] }}</p>
+                            @endif
+                            @if ($idle[$seat->id])
+                                @if ($retiring === $seat->id)
+                                    <div class="flex w-full flex-wrap items-center gap-2" data-seat-retire-confirm>
+                                        <p class="max-w-xl leading-relaxed">
+                                            Retire <code>{{ $seatName }}</code>? This cannot be undone. Its settings go with it: whether it is parked, whether it ignores your hours, its tasks-at-once limit and any waivers.
+                                        </p>
+                                        <button type="button" wire:click="retire({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-error">Retire this seat<span class="sr-only">: {{ $seatName }}</span></button>
+                                        <button type="button" wire:click="keepSeat" class="btn btn-target btn-outline">Keep it<span class="sr-only">: {{ $seatName }}</span></button>
+                                    </div>
+                                @else
+                                    <button type="button" wire:click="askToRetire({{ \RobotCouncil\Support\WireArgument::of($seat->id) }})" class="btn btn-target btn-outline" data-seat-retire>Retire<span class="sr-only"> {{ $seatName }}</span></button>
+                                @endif
+                            @endif
                         </li>
                     @endforeach
                 </ul>

@@ -80,6 +80,17 @@ enum FleetEventType: string
     case InstallationRenamed = 'installation.renamed';
 
     /**
+     * A developer retired one of their own seats (#586): the row, with its settings and unused
+     * waivers, was deleted.
+     *
+     * Visible to the same readers as `installation.renamed`, every session. `meta` names the
+     * installation, the repository, the work location and the machine label the seat sat under,
+     * all bounded at the edge by `Support\WorkIdentity` and `Support\MachineIdentity`; `user_id` and
+     * `actor_user_id` are both the developer, since nobody else retires a seat.
+     */
+    case SeatRetired = 'seat.retired';
+
+    /**
      * An administrator added a GitHub account to the developer or administrator allowlist (#408).
      *
      * An administrative change like `installation.revoked`, and visible to the same readers: every
