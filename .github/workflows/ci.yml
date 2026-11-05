@@ -317,6 +317,21 @@ jobs:
           fi
           exit "$status"
 
+      # The canary for the check above (#305): a check that exits 0 on a matching stylesheet has not
+      # been shown to exit non-zero on a stale one. One byte is planted in the committed file, the
+      # check must answer 1, and the file is restored whatever happens.
+      - name: Show the check fails on a stale stylesheet
+        run: |
+          cp resources/dist/dashboard.css /tmp/dashboard.committed.css
+          printf ' ' >> resources/dist/dashboard.css
+          status=0
+          npm run check || status=$?
+          cp /tmp/dashboard.committed.css resources/dist/dashboard.css
+          if [ "$status" -ne 1 ]; then
+            echo "::error file=scripts/check-stylesheet.mjs::A one-byte difference in resources/dist/dashboard.css should exit 1, and the check exited $status."
+            exit 1
+          fi
+
       # The acceptance criterion #66 asks to be demonstrated rather than asserted: a check that
       # compares a rebuild against a committed file is only meaningful if the build is
       # deterministic. Two builds on this runner, compared. If they ever differ, this job is
