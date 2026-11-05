@@ -34,10 +34,18 @@ declare(strict_types=1);
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use RobotCouncil\Models\AgentSession;
 use RobotCouncil\Models\DeviceCode;
+use RobotCouncil\Models\FleetEvent;
+use RobotCouncil\Models\FleetEventType;
 use RobotCouncil\Models\Installation;
+use RobotCouncil\Models\Seat;
+use RobotCouncil\Support\AgentSessions;
 use RobotCouncil\Support\HostKey;
 use RobotCouncil\Support\Installations;
+use RobotCouncil\Support\Outcome;
+use RobotCouncil\Support\Seats;
+use RobotCouncil\Support\SessionPresence;
 use RobotCouncil\Tests\TestCase;
 use Symfony\Component\Process\Process;
 
@@ -294,5 +302,71 @@ it('supersedes an installation another enrollment committed for the label while 
         ->and(Installation::query()->whereKey($outcome instanceof Installation ? $outcome->id : null)->whereNull('revoked_at')->exists())->toBeTrue()
         // The machine neither side was about is untouched
         ->and($office->refresh()->revoked_at)->toBeNull();
+})->group('cross-connection')
+    ->skip(notPostgres(...), 'Postgres only: the child speaks `pgsql` and reads `pg_stat_activity`.');
+
+/**
+ * A developer whose one machine has a seat with no live session, committed where the child can see it.
+ *
+ * @param  TestCase  $case  The test case.
+ * @return array{string, Installation, AgentSession, Seat} The developer's key, the installation, its gone session and the seat.
+ */
+function aDeveloperWithAnIdleSeat(TestCase $case): array
+{
+    [$userId, $installation] = aDeveloperWithOneMachine($case);
+
+    $installation->refresh();
+
+    $session = $case->service(AgentSessions::class)->start($installation, 'robot-council/core', 'a')->owner;
+    $seat = $case->service(Seats::class)->forDeveloper($userId)[0];
+
+    $case->service(SessionPresence::class)->end($session);
+
+    return [$userId, $installation, $session, $seat];
+}
+
+it('refuses to retire a seat whose session started while the retirement waited (#586)', function (): void {
+    [$userId, $installation, $session, $seat] = aDeveloperWithAnIdleSeat($this);
+
+    // A session start holds the installation first, as every start does, and brings the place back
+    $child = raceChild([
+        ['select id from robot_council_installations where id = ? for update', [$installation->id]],
+        ["update robot_council_agent_sessions set status = 'active' where id = ?", [$session->id]],
+    ]);
+
+    // The retirement waits on the installation, the start commits, and the retirement must then see it
+    [$outcome, $exit] = raceAgainst(
+        fn (): Outcome => $this->service(Seats::class)->retire($userId, $seat->id),
+        $child
+    );
+
+    expect($exit)->toBe(0)
+        ->and($outcome)->toBe(Outcome::Conflict)
+        ->and(Seat::query()->whereKey($seat->id)->exists())->toBeTrue()
+        ->and(FleetEvent::query()->where('type', FleetEventType::SeatRetired)->count())->toBe(0);
+})->group('cross-connection')
+    ->skip(notPostgres(...), 'Postgres only: the child speaks `pgsql` and reads `pg_stat_activity`.');
+
+it('records a fresh seat for a session that started while the retirement held the seat (#586)', function (): void {
+    [$userId, $installation, , $seat] = aDeveloperWithAnIdleSeat($this);
+
+    // The retirement holds the installation and deletes the seat, uncommitted
+    $child = raceChild([
+        ['select id from robot_council_installations where id = ? for update', [$installation->id]],
+        ['delete from robot_council_seats where id = ?', [$seat->id]],
+    ]);
+
+    // The start waits on the installation, the retirement commits, and the start must then record the place again
+    [$outcome, $exit] = raceAgainst(
+        fn (): mixed => $this->service(AgentSessions::class)->start($installation, 'robot-council/core', 'a')->owner,
+        $child
+    );
+
+    $seats = $this->service(Seats::class)->forDeveloper($userId);
+
+    expect($exit)->toBe(0)
+        ->and($outcome)->toBeInstanceOf(AgentSession::class)
+        ->and($seats)->toHaveCount(1)
+        ->and($seats[0]->id)->not->toBe($seat->id);
 })->group('cross-connection')
     ->skip(notPostgres(...), 'Postgres only: the child speaks `pgsql` and reads `pg_stat_activity`.');
