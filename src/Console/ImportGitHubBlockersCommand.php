@@ -119,7 +119,7 @@ final class ImportGitHubBlockersCommand extends Command
                         if ($blockerState === 'CLOSED') {
                             $recorded += $state->importClosedBlocker($blockerRepository, $blockerNumber, self::at($blocker, 'title'), self::at($blocker, 'updatedAt')) ? 1 : 0;
                         } elseif ($blockerState !== 'OPEN') {
-                            $this->components->warn(sprintf("#%s's blocker #%s carries no state, so it blocks until a row says otherwise; read the file with the query the README shows.", json_encode($number), json_encode($blockerNumber)));
+                            $this->components->warn(sprintf("#%s's blocker #%s carries no state, so it blocks until a row says otherwise; read the file with the query the wiki's The GitHub Webhook page shows.", json_encode($number), json_encode($blockerNumber)));
                             $refused++;
                         }
                     } catch (InvalidArgumentException $invalid) {

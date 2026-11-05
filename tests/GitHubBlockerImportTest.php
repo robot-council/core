@@ -53,7 +53,7 @@ function importedIssue(TestCase $case, int $number, array $labels = ['developmen
 }
 
 /**
- * One page of the query the README documents, in the shape `gh api graphql` writes it.
+ * One page of the query the wiki's The GitHub Webhook page documents, in the shape `gh api graphql` writes it.
  *
  * @param  array<int, list<array{0: string, 1: int, 2?: string}>>  $issues  Each open issue's blockers, as
  *                                                                          repository, number, and state
