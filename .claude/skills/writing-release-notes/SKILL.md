@@ -53,8 +53,24 @@ A suffixed tag is resolved only by a caller whose `minimum-stability` admits it,
 to be skipped carries the identifier on the tag from the start. #154 records this, along with the
 decision to **accept** the releases already flagged this way rather than re-tag them: Packagist has
 served them, clients cache what they resolved, and moving a served tag fails for somebody else long
-after it looks fine here. `robot-council/cli#101` is the same change in the command line, whose copy
-of this file is shared with this one by design.
+after it looks fine here. `robot-council/cli#101` is the same change in the command line.
+
+**This file and `robot-council/cli`'s copy at the same path are adapted per repository, and are not
+shared.** This copy is for a Composer library whose consumers resolve a tag through a version
+constraint; the command line's is for a program whose tag is a release marker, and its versioning
+and breaking-change sections say different things for that reason. `robot-council/cli#153` made one
+shared document the default for the skills the two repositories hold in common, and this is the
+exception: what a version number promises is not the same promise in both. Measured on 2026-11-05
+from the committed blobs on each default branch (not a working tree):
+
+| | blob | `sha256` | bytes |
+| --- | --- | --- | --- |
+| this copy, `robot-council/core` `main` before this change | `3e847466` | `49d58d1e97311c54c444f6c3b671b15bfacb9ae79c071ddd82b7ebe249309fc4` | 18,771 |
+| `robot-council/cli` `main` before its matching change | `a7bea2f4` | `576d6d2eea5bade9415d3fd8969f1caab1f454956d65e64a64bdbb8353d8f2f0` | 22,458 |
+
+So never bring one into line by copying the other over it: that replaces a library's release
+conventions with a command line's, or the reverse. A change to a convention both need is made in
+both files.
 
 ## Title
 
